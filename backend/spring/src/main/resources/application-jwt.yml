@@ -1,0 +1,7 @@
+# Real sign-in. Run with SPRING_PROFILES_ACTIVE=jwt and set app.security.mode=jwt (env SECURITY_MODE=jwt).
+# Any OpenID Connect provider works - Keycloak, Auth0, Okta, AWS Cognito, Azure AD / Entra, Google - only these two lines differ.
+app.security.mode: jwt
+spring:
+  security.oauth2.resourceserver.jwt:
+    issuer-uri: ${JWT_ISSUER_URI}            # e.g. https://keycloak.example.com/realms/communityos
+    # jwk-set-uri: ${JWT_JWK_SET_URI}        # only if the provider has no discovery document

@@ -1,0 +1,145 @@
+# EVERY external system is chosen and configured here (or by the environment variable in ${...}). Nothing is hard-coded.
+# Switching vendor = change `provider` + its settings. See docs/INTEGRATIONS.md for each one, step by step.
+server:
+  port: ${PORT:8080}
+  forward-headers-strategy: ${FORWARD_HEADERS:framework}   # believe X-Forwarded-Proto/For from the TLS proxy in front (TLS 1.2+/1.3 ends there)
+  shutdown: graceful
+
+spring:
+  application.name: communityos
+  threads.virtual.enabled: ${VIRTUAL_THREADS:true}          # Java 21+: a blocked request (waiting on the database or the payment provider) no longer holds a platform thread
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/communityos}
+    username: ${DB_USER:postgres}
+    password: ${DB_PASSWORD:}
+    hikari:                                                 # size to what PostgreSQL can serve: all instances together stay under max_connections
+      maximum-pool-size: ${DB_POOL_MAX:20}
+      minimum-idle: ${DB_POOL_MIN_IDLE:5}
+      connection-timeout: ${DB_CONNECT_TIMEOUT_MS:10000}    # a request waits at most 10 s for a connection, then fails instead of piling up
+      idle-timeout: 30000
+      max-lifetime: 1500000
+      data-source-properties:
+        options: "-c statement_timeout=${DB_STATEMENT_TIMEOUT_MS:30000} -c idle_in_transaction_session_timeout=${DB_IDLE_TX_MS:60000}"
+  flyway:
+    enabled: ${FLYWAY_ENABLED:true}
+    locations: classpath:db/migration
+  mail:                                   # used only when app.channels.email.provider=smtp
+    host: ${SMTP_HOST:}
+    port: ${SMTP_PORT:587}
+    username: ${SMTP_USER:}
+    password: ${SMTP_PASSWORD:}
+    properties.mail.smtp.auth: ${SMTP_AUTH:true}
+    properties.mail.smtp.starttls.enable: ${SMTP_STARTTLS:true}
+
+management.endpoints.web.exposure.include: health,info
+
+springdoc:                                # Swagger / OpenAPI. Open in development; set API_DOCS=false on a public production site.
+  api-docs.enabled: ${API_DOCS:true}
+  swagger-ui:
+    enabled: ${API_DOCS:true}
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha
+  default-produces-media-type: application/json
+
+logging:
+  level:
+    root: ${LOG_LEVEL:INFO}
+    com.communityos: ${APP_LOG_LEVEL:INFO}        # DEBUG shows every page query (table, rows, scope)
+    com.communityos.access: ${ACCESS_LOG_LEVEL:INFO}
+    org.springframework.jdbc.core.JdbcTemplate: ${SQL_LOG_LEVEL:INFO}   # DEBUG prints every SQL statement
+
+app:
+  storage:                                # the DATABASE
+    provider: ${STORAGE_PROVIDER:postgres}          # postgres | memory   (add: mongo, dynamodb ... = one DocumentRepository class)
+    platform-collections: communities               # rows shared by every community
+    typed-tables: ${TYPED_TABLES:true}              # units, users, dues, bookings, tickets, ledger, audit in real tables (db/V5); false = everything in the documents table
+  files:                                  # file BYTES (photos, PDFs)
+    provider: ${FILES_PROVIDER:local}                # local | s3
+    local-dir: ${FILES_LOCAL_DIR:./data/files}
+    s3:
+      bucket: ${S3_BUCKET:}
+      region: ${S3_REGION:ap-south-1}
+      endpoint: ${S3_ENDPOINT:}                      # blank = AWS. Set for MinIO / Cloudflare R2 / DigitalOcean Spaces / Wasabi
+      path-style: ${S3_PATH_STYLE:false}             # true for MinIO
+      access-key: ${S3_ACCESS_KEY:}                  # blank = use the AWS default credential chain (IAM role)
+      secret-key: ${S3_SECRET_KEY:}
+      prefix: ${S3_PREFIX:communityos/}
+  channels:                               # outbound messages the outbox sends
+    email:
+      provider: ${EMAIL_PROVIDER:log}                # log | smtp
+      from: ${EMAIL_FROM:no-reply@example.com}
+    sms:
+      provider: ${SMS_PROVIDER:log}                  # log | http
+      # request body: set APP_CHANNELS_SMS_HTTP_BODYTEMPLATE, default {"to":"{to}","text":"{text}"}
+      http:
+        url: ${SMS_URL:}
+        method: POST
+        auth-header: ${SMS_AUTH_HEADER:}
+    whatsapp:
+      provider: ${WHATSAPP_PROVIDER:log}             # log | http
+      # body: APP_CHANNELS_WHATSAPP_HTTP_BODYTEMPLATE
+      http:
+        url: ${WHATSAPP_URL:}
+        method: POST
+        auth-header: ${WHATSAPP_AUTH_HEADER:}
+    outbox-collection: notificationOutbox
+    poll-ms: ${OUTBOX_POLL_MS:30000}
+    enabled: ${OUTBOX_ENABLED:false}                 # true on the one instance that should send
+  payments:
+    provider: ${PAYMENT_PROVIDER:simulated}          # simulated | (razorpay, stripe ... = one PaymentProvider class)
+    webhook-secret: ${PAYMENT_WEBHOOK_SECRET:dev-secret}
+    allow-simulated: ${PAYMENT_ALLOW_SIMULATED:true} # false in production: refuses to start with the pretend bank or the default secret
+    order-minutes: ${PAYMENT_ORDER_MINUTES:30}       # an order nobody paid is expired after this long
+    reconcile-seconds: ${PAYMENT_RECONCILE_SECONDS:30}   # finishes what a lost webhook left open (0 = off)
+    pending-recheck-seconds: ${PAYMENT_PENDING_RECHECK_SECONDS:20}
+    breaker-timeout-ms: ${PAYMENT_BREAKER_TIMEOUT_MS:8000}
+    breaker-failures: ${PAYMENT_BREAKER_FAILURES:5}
+    breaker-reset-ms: ${PAYMENT_BREAKER_RESET_MS:30000}
+  outbox:                                 # transactional outbox for work that must follow a saved change (payment.settled -> receipt ...)
+    enabled: ${OUTBOX_ENABLED:true}
+    poll-ms: ${OUTBOX_POLL_MS:5000}
+    max-attempts: ${OUTBOX_MAX_ATTEMPTS:8}           # then the event is parked as Dead
+    batch: ${OUTBOX_BATCH:50}
+    webhook-url: ${OUTBOX_WEBHOOK_URL:}              # also POST every event here (feed a queue through a connector)
+  idempotency:                            # Idempotency-Key header on POST/PUT/DELETE/PATCH
+    enabled: ${IDEMPOTENCY_ENABLED:true}
+    hours: ${IDEMPOTENCY_HOURS:24}
+  gst:
+    provider: ${GST_PROVIDER:simulated}              # simulated | (cleartax, masters-india ... = one GstProvider class)
+  security:
+    mode: ${SECURITY_MODE:none}                      # none | api-key | jwt | local (phone sign-in with one-time codes on this server, see app.auth)
+    api-key: ${API_KEY:}
+    tenant-claim: ${JWT_TENANT_CLAIM:community}      # jwt: claim that holds the community slug(s)
+    user-match: ${OIDC_USER_MATCH:subject,phone,email}   # jwt: how a sign-in finds its `users` record, in order
+    unported-hooks: ${UNPORTED_HOOKS:refuse}         # refuse | allow: writes Spring cannot fully check yet (money, e-voting, bookings). Keep `refuse` in production.
+    meta-ttl-ms: ${META_CACHE_MS:0}                  # roles / field rules / approver settings: read fresh for every request (0, the default). A value above 0 keeps them that many ms
+  evoting:
+    delivery: ${EVOTING_DELIVERY:log}                # sms | log | echo. sms texts the one-time code through app.channels.sms; echo returns it to the screen (demo only, refused when PAYMENT_ALLOW_SIMULATED=false)
+  site:                                              # where people open the app: the start of the links in portal invites (Node: PUBLIC_APP_URL)
+    public-url: ${PUBLIC_APP_URL:http://localhost:5173}   # https://app.example.in -> a community lives at lapaloma.example.in; else host/c/<slug>
+    default-community: ${DEFAULT_COMMUNITY:la-paloma}
+  platform:
+    admin-key: ${PLATFORM_ADMIN_KEY:}                # the platform console signs its calls with this (X-Platform-Key); empty = /api/platform is refused
+  auth:                                              # app.security.mode=local only (the same settings as the Node server's AUTH_* / OTP_*)
+    otp-delivery: ${OTP_DELIVERY:log}                # sms (app.channels.sms) | log | echo (demo: the code is returned to the screen; refused when PAYMENT_ALLOW_SIMULATED=false)
+    jwt-secret: ${JWT_SECRET:}                       # HS256 key of the access tokens, at least 32 characters; required in local mode
+    issuer: ${JWT_ISSUER:communityos}
+    access-token-minutes: ${ACCESS_TOKEN_MINUTES:15}
+    refresh-token-days: ${REFRESH_TOKEN_DAYS:7}
+    otp-minutes: ${OTP_MINUTES:5}
+    otp-tries: ${OTP_TRIES:3}
+    resend-seconds: ${OTP_RESEND_SECONDS:20}
+    codes-per-phone-hour: ${OTP_PER_PHONE_HOUR:5}
+    codes-per-ip-hour: ${OTP_PER_IP_HOUR:30}
+    lock-after-failures: ${LOCK_AFTER_FAILURES:5}
+    lock-minutes: ${LOCK_MINUTES:15}
+    demo-roster: ${DEMO_ROSTER:false}                # the demo sign-in tabs; refused when PAYMENT_ALLOW_SIMULATED=false
+    secure-cookie: ${COOKIE_SECURE:false}            # true behind HTTPS (SameSite=None; Secure)
+    trust-proxy: ${TRUST_PROXY:false}                # believe X-Forwarded-For (rate limit per network) only behind your own proxy
+  jobs:
+    interval-seconds: ${JOBS_INTERVAL_SECONDS:300}   # background jobs: utility types, amenity scheduler, recurring bills, late fees, payment and e-voting reminders, GST input credit, report schedules (0 = off; POST /api/admin/jobs/run runs them once)
+  cors:
+    allowed-origins: ${CORS_ORIGINS:http://localhost:5173,http://localhost:5174}
+  admin:
+    allow-tenant-reset: ${ALLOW_TENANT_RESET:false}  # powers the UI "Reset demo data" in back end mode. Keep false in production.

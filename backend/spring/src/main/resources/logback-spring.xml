@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Console logging. Every line of a request carries its request id and community: grep one id to see the whole request.
+     Levels come from application.yml (LOG_LEVEL, APP_LOG_LEVEL, ACCESS_LOG_LEVEL, SQL_LOG_LEVEL).
+     For JSON lines (ELK / OpenSearch / CloudWatch) add logstash-logback-encoder and swap the encoder below; the MDC keys are requestId and community. -->
+<configuration>
+  <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+  <property name="PATTERN" value="%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level [%X{requestId:-no-request}] [%X{community:--}] %logger{36} - %msg%n"/>
+  <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder><pattern>${PATTERN}</pattern></encoder>
+  </appender>
+  <root level="INFO"><appender-ref ref="CONSOLE"/></root>
+</configuration>

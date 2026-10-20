@@ -1,0 +1,53 @@
+# One command for a complete local stack:   docker compose up -d --build
+#   postgres  the database                              localhost:5432
+#   backend   the Spring Boot service                   localhost:8080   (UI: set Data source -> Back end -> http://localhost:8080/api)
+#   minio     S3-compatible file store (optional)       console http://localhost:9001   (profile "s3")
+#   mailpit   catches every e-mail the app sends        inbox http://localhost:8025     (profile "mail")
+# Every external service is optional and is selected by the env vars below, exactly as in production.
+services:
+  postgres:
+    image: postgres:16
+    environment: { POSTGRES_DB: communityos, POSTGRES_USER: communityos, POSTGRES_PASSWORD: communityos }
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U communityos"], interval: 5s, retries: 10 }
+
+  backend:
+    build: { context: ., dockerfile: spring/Dockerfile }
+    depends_on: { postgres: { condition: service_healthy } }
+    ports: ["8080:8080"]
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/communityos
+      DB_USER: communityos
+      DB_PASSWORD: communityos
+      CORS_ORIGINS: http://localhost:5173,http://localhost:5174
+      ALLOW_TENANT_RESET: "true"          # dev only
+      FILES_LOCAL_DIR: /data/files
+      # --- uncomment to use the optional services below -------------------------------------------
+      # FILES_PROVIDER: s3
+      # S3_BUCKET: communityos
+      # S3_ENDPOINT: http://minio:9000
+      # S3_PATH_STYLE: "true"
+      # S3_ACCESS_KEY: minioadmin
+      # S3_SECRET_KEY: minioadmin
+      # EMAIL_PROVIDER: smtp
+      # SMTP_HOST: mailpit
+      # SMTP_PORT: "1025"
+      # SMTP_AUTH: "false"
+      # SMTP_STARTTLS: "false"
+      # OUTBOX_ENABLED: "true"
+    volumes: [files:/data/files]
+
+  minio:
+    profiles: ["s3"]
+    image: minio/minio
+    command: server /data --console-address ":9001"
+    ports: ["9000:9000", "9001:9001"]
+    volumes: [miniodata:/data]
+
+  mailpit:
+    profiles: ["mail"]
+    image: axllent/mailpit
+    ports: ["1025:1025", "8025:8025"]
+
+volumes: { pgdata: {}, files: {}, miniodata: {} }

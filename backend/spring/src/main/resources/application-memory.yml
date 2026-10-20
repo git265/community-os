@@ -1,0 +1,10 @@
+# Try the API with NO database at all:  mvn spring-boot:run -Dspring-boot.run.profiles=memory
+# Data lives in the JVM and is lost on restart. Handy for UI work and for the automated tests.
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      - org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration
+app:
+  storage.provider: memory
+  admin.allow-tenant-reset: true

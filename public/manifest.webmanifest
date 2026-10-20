@@ -1,0 +1,9 @@
+{
+  "name": "CommunityOS",
+  "short_name": "CommunityOS",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f7fa",
+  "theme_color": "#10283f",
+  "icons": []
+}
