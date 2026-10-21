@@ -1201,6 +1201,22 @@ class PostgresFlowTest {
                 var list = as(who, () -> ticketSvc.list(who, new com.communityos.api.maintenance.application.port.TicketRepository.Filter(null, false, null, null, null, null, null), PageQuery.of(200, 0)));
                 assertEquals(list.total(), ts.total(), who.displayName() + ": the ticket count is the list's");
                 assertEquals(list.items().stream().filter((t) -> List.of("Open", "Assigned", "In Progress", "On Hold").contains(t.status().label())).count(), ts.active());
+                // the Maintenance page's own filters and orders, on the server: the same rows as filtering the whole list
+                var liveSt = List.of("Open", "Assigned", "In Progress", "On Hold");
+                var hot = as(who, () -> ticketSvc.list(who, new com.communityos.api.maintenance.application.port.TicketRepository.Filter(null, false, null, null, null, null, null,
+                    liveSt, List.of("High", "Critical"), null, null, null, "sla"), PageQuery.of(200, 0)));
+                assertEquals(list.items().stream().filter((t) -> liveSt.contains(t.status().label()) && List.of("High", "Critical").contains(t.state().priority)).count(), hot.total(), "critical card");
+                for (int k = 1; k < hot.items().size(); k++) {
+                    var a = hot.items().get(k - 1).state().slaDueAt; var b = hot.items().get(k).state().slaDueAt;
+                    assertTrue(a == null || (b != null && !b.isBefore(a)), "SLA soonest first, none first");
+                }
+                var finOnly = as(who, () -> ticketSvc.list(who, new com.communityos.api.maintenance.application.port.TicketRepository.Filter(null, false, null, null, null, null, null,
+                    null, null, null, true, null, "status"), PageQuery.of(200, 0)));
+                assertEquals(list.items().stream().filter((t) -> t.state().financial).count(), finOnly.total(), "financial only");
+                var oneType = list.items().isEmpty() || list.items().get(0).state().taskType == null ? null : list.items().get(0).state().taskType.name();
+                if (oneType != null) assertEquals(list.items().stream().filter((t) -> t.state().taskType != null && oneType.equals(t.state().taskType.name())).count(),
+                    as(who, () -> ticketSvc.list(who, new com.communityos.api.maintenance.application.port.TicketRepository.Filter(null, false, null, null, null, null, null,
+                        null, null, oneType, null, null, null), PageQuery.of(200, 0))).total(), "by task type");
                 var ds = as(who, () -> summaries.dues(who));
                 if (ds != null) {
                     var bills = as(who, () -> dueService.list(who, new DueRepository.Filter(null, null, null, null, null, true), PageQuery.of(200, 0)));

@@ -49,7 +49,15 @@ public final class JdbcTicketRepository implements TicketRepository {
           AND (CAST(:unit AS uuid) IS NULL OR t.unit_id = CAST(:unit AS uuid) OR CAST(:unit AS uuid) = ANY (t.affected_unit_ids))
           AND (CAST(:raisedBy AS uuid) IS NULL OR t.raised_by_id = CAST(:raisedBy AS uuid))
           AND (CAST(:assignee AS uuid) IS NULL OR t.assignee_id = CAST(:assignee AS uuid))
-          AND (CAST(:q AS text) IS NULL OR t.title ILIKE :q ESCAPE '\\' OR t.short_id ILIKE :q ESCAPE '\\')""";
+          AND (CAST(:q AS text) IS NULL OR t.title ILIKE :q ESCAPE '\\' OR t.short_id ILIKE :q ESCAPE '\\')
+          AND (CAST(:statuses AS text) IS NULL OR t.status = ANY (string_to_array(CAST(:statuses AS text), ',')))
+          AND (CAST(:priorities AS text) IS NULL OR t.priority = ANY (string_to_array(CAST(:priorities AS text), ',')))
+          AND (CAST(:taskType AS text) IS NULL OR tt.name = :taskType)
+          AND (CAST(:financial AS boolean) IS NULL OR t.financial = CAST(:financial AS boolean))
+          AND (CAST(:scope AS text) IS NULL OR t.scope = :scope)""";
+    /** The orders a list may ask for (anything else: newest first). */
+    static final Map<String, String> ORDERS = Map.of("created", "t.created_at DESC, t.id", "sla", "t.sla_due_at ASC NULLS FIRST, t.created_at DESC, t.id",
+        "status", "t.status, t.created_at DESC, t.id");
     static final String INSERT = """
         INSERT INTO maintenance.ticket (community_id, id, task_type_id, title, description, unit_id, scope, location, category, sub_category, priority, status,
                                         assignee_id, assigned_at, sla_due_at, preferred_time, raised_by_id, raised_by_role_id, custom)
@@ -66,7 +74,11 @@ public final class JdbcTicketRepository implements TicketRepository {
                cancel_reason = :cancelReason, reopen_count = :reopenCount
         WHERE id = CAST(:id AS uuid) AND version = :version RETURNING version""";
 
-    public static String listSql(String scopeSql) { return COLUMNS + ", count(*) OVER () AS total\n" + FROM + "\n" + FILTER + "\n  AND " + scopeSql + "\nORDER BY t.created_at DESC, t.id LIMIT :limit OFFSET :offset"; }
+    public static String listSql(String scopeSql) { return listSql(scopeSql, "created"); }
+    public static String listSql(String scopeSql, String order) {
+        return COLUMNS + ", count(*) OVER () AS total\n" + FROM + "\n" + FILTER + "\n  AND " + scopeSql + "\nORDER BY " + ORDERS.getOrDefault(order == null ? "created" : order, ORDERS.get("created"))
+            + " LIMIT :limit OFFSET :offset";
+    }
     public static String getSql(String scopeSql) { return COLUMNS + "\n" + FROM + "\nWHERE t.id = CAST(:id AS uuid) AND " + scopeSql; }
 
     private final NamedParameterJdbcTemplate jdbc; private final ObjectMapper json;
@@ -77,9 +89,17 @@ public final class JdbcTicketRepository implements TicketRepository {
         p.put("status", f.status()); p.put("active", f.activeOnly()); p.put("category", f.category()); p.put("unit", f.unit() == null ? null : f.unit().toString());
         p.put("raisedBy", f.raisedBy() == null ? null : f.raisedBy().toString()); p.put("assignee", f.assignee() == null ? null : f.assignee().toString());
         p.put("q", f.q() == null || f.q().isBlank() ? null : Rows.like(f.q().strip())); p.put("limit", page.limit()); p.put("offset", page.offset());
+        p.put("statuses", joined(f.statuses())); p.put("priorities", joined(f.priorities())); p.put("taskType", blank(f.taskType()) ? null : f.taskType());
+        p.put("financial", f.financial()); p.put("scope", blank(f.scope()) ? null : f.scope());
         long[] total = {0};
-        List<Ticket> rows = jdbc.query(listSql(scope.sql()), p, (rs, i) -> { total[0] = rs.getLong("total"); return map(rs); });
+        List<Ticket> rows = jdbc.query(listSql(scope.sql(), f.order()), p, (rs, i) -> { total[0] = rs.getLong("total"); return map(rs); });
         return new Page<>(rows, total[0], page.limit(), page.offset());
+    }
+    private static boolean blank(String s) { return s == null || s.isBlank(); }
+    private static String joined(List<String> xs) {
+        if (xs == null) return null;
+        List<String> v = xs.stream().filter((x) -> x != null && !x.isBlank() && !x.contains(",")).map(String::strip).toList();
+        return v.isEmpty() ? null : String.join(",", v);
     }
     @Override public Optional<Ticket> findById(UUID id, Spec<Ticket> scope) {
         Map<String, Object> p = new HashMap<>(scope.params()); p.put("id", id.toString());

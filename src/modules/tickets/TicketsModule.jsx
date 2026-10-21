@@ -3,6 +3,7 @@ import FilePreview from '../../components/FilePreview.jsx';
 import AdminDelete from '../../components/AdminDelete.jsx';
 import { useDeleteVerdict, DeleteBlockedNote } from '../../components/DeleteGuard.jsx';
 import React, { useEffect, useMemo, useState } from 'react';
+import { getDataSource } from '../../lib/storage/dataSource.js';
 import { useApp, useCollection } from '../../context/AppContext.jsx';
 import { COLLECTIONS } from '../../lib/storage/index.js';
 import { secureStorage } from '../../lib/storage/secureStorage.js';
@@ -70,6 +71,22 @@ const SUMMARY_FILTERS = {
   live: { status: LIVE_STATUSES },
   overdue: {}, // narrowed to the past-SLA ids below
 };
+/** On the v2 back end the tiles' counts come from the server (GET /summary/tickets: counted from the rows this person may see, with the list's
+ *  own rules), so the page does not need every ticket to count them. Refreshed when tickets change. null elsewhere / until loaded. */
+function useTicketSummary() {
+  const on = getDataSource().mode === 'v2';
+  const [sum, setSum] = useState(null);
+  useEffect(() => {
+    if (!on) return undefined;
+    let live = true;
+    const load = () => import('../../lib/storage/v2/V2ApiAdapter.js').then((m) => m.v2Summary('tickets')).then((x) => { if (live) setSum(x); }).catch(() => { /* keep the page's own counts */ });
+    load();
+    const h = (e) => { const c = e?.detail?.collection; if (!c || c === 'tickets') load(); };
+    window.addEventListener('communityos:changed', h);
+    return () => { live = false; window.removeEventListener('communityos:changed', h); };
+  }, [on]);
+  return sum;
+}
 const TAG_CLASS = { Open: 'red', Assigned: 'blue', 'In Progress': 'teal', 'On Hold': 'orange', Completed: 'green', Closed: 'green', Cancelled: 'red', Reopened: 'blue' };
 const RESET_APPROVALS = { plan: '', finalRequired: null, ecApproval: 'Pending', ecApprovedBy: '', ecApprovedAt: '', treasurerApproval: 'Pending', treasurerApprovedBy: '', treasurerApprovedAt: '' };
 
@@ -412,6 +429,12 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
   const [cardKey, setCardKey] = useState(() => { try { const k = sessionStorage.getItem('communityos:ticketCard'); sessionStorage.removeItem('communityos:ticketCard'); return k && SUMMARY_FILTERS[k] ? k : ''; } catch { return ''; } });
   const overdueIds = tickets.filter((t) => LIVE_STATUSES.includes(t.status) && t.slaDueAt && t.slaDueAt < new Date().toISOString().slice(0, 10)).map((t) => t.id);
   const [resetToken, setResetToken] = useState(0);
+  const serverSum = useTicketSummary();
+  const serverCount = (key) => {
+    const by = serverSum?.byStatus || {};
+    const f = SUMMARY_FILTERS[key].status;
+    return (Array.isArray(f) ? f : [f]).reduce((n, st) => n + (Number(by[st]) || 0), 0);
+  };
   const countOf = (key) => visibleTickets.filter((t) => {
     const f = SUMMARY_FILTERS[key];
     return Object.entries(f).every(([k, v]) => (Array.isArray(v) ? v.includes(t[k]) : t[k] === v));
@@ -422,7 +445,7 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
     { key: 'progress', label: 'Active' },
     { key: 'hold', label: 'On hold' },
     { key: 'closed', label: 'Closed' },
-  ].map((c) => ({ ...c, count: c.key === 'all' ? visibleTickets.length : countOf(c.key) }));
+  ].map((c) => ({ ...c, count: serverSum?.byStatus ? (c.key === 'all' ? Number(serverSum.total) : serverCount(c.key)) : c.key === 'all' ? visibleTickets.length : countOf(c.key) }));
   function resetAllFilters() {
     setCardKey(''); setApprovalOnly(false); setConfirmOnly(false); setFinancialOnly(false); setScope('all'); setResetToken((n) => n + 1);
   }

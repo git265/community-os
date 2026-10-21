@@ -54,10 +54,13 @@ public class TicketController {
     public PageResponse<TicketResponse> list(@RequestParam(required = false) String status, @RequestParam(defaultValue = "false") boolean active,
                                              @RequestParam(required = false) String category, @RequestParam(required = false) UUID unit,
                                              @RequestParam(defaultValue = "false") boolean mine, @RequestParam(defaultValue = "false") boolean assignedToMe,
-                                             @RequestParam(required = false) String q, @RequestParam(required = false) Integer limit, @RequestParam(required = false) Integer offset) {
+                                             @RequestParam(required = false) String q, @RequestParam(required = false) Integer limit, @RequestParam(required = false) Integer offset,
+                                             @RequestParam(required = false) List<String> statusIn, @RequestParam(required = false) List<String> priority,
+                                             @RequestParam(required = false) String taskType, @RequestParam(required = false) Boolean financial,
+                                             @RequestParam(required = false) String scope, @RequestParam(required = false) String order) {
         Caller c = CallerHolder.require();
         TicketRepository.Filter f = new TicketRepository.Filter(status, active, category, unit == null ? null : new UnitId(unit), mine ? c.membership() : null,
-            assignedToMe ? c.membership() : null, q);
+            assignedToMe ? c.membership() : null, q, statusIn, priority, taskType, financial, scope, order);
         return PageResponse.of(tickets.list(c, f, PageQuery.of(limit, offset)).map(TicketResponse::of));
     }
     @GetMapping("/api/v1/tickets/{id}")

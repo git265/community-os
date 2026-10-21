@@ -779,8 +779,13 @@ const PAGED = {
   users: { path: '/members', order: ['name:asc'], search: 'q', filters: { status: (v) => ['status', v] },
     rows: async (items) => { const { noById } = await unitIndex(); return items.map((m) => userOf(m, noById)); } },
   dues: { path: '/dues', order: ['dueDate:desc'], search: null, filters: { unit: async (v) => ['unit', await unitParam(v)] }, rows: async (items) => items.map((d) => dueOf(d)) },
-  tickets: { path: '/tickets', order: ['recordCreatedAt:desc'], search: null, files: 'maintenance.ticket',
-    filters: { unit: async (v) => ['unit', await unitParam(v)], status: (v) => ['status', v], category: (v) => ['category', v] },
+  // the Maintenance page's own filters, tiles (several statuses / priorities) and orders; "mine", "waiting for me" and "overdue" stay on the
+  // whole list for now (they narrow by ids the page works out)
+  tickets: { path: '/tickets', order: ['recordCreatedAt:desc', 'slaDueAt:asc', 'status:asc'], orderParam: { 'recordCreatedAt:desc': 'created', 'slaDueAt:asc': 'sla', 'status:asc': 'status' },
+    search: null, files: 'maintenance.ticket', multi: ['status', 'priority'],
+    filters: { unit: async (v) => ['unit', await unitParam(v)], status: (v) => (Array.isArray(v) ? ['statusIn', v.join(',')] : ['status', v]), category: (v) => ['category', v],
+      priority: (v) => ['priority', [].concat(v).join(',')], taskType: (v) => ['taskType', v], financial: (v) => (v === true || v === 'true' ? ['financial', 'true'] : null),
+      scope: (v) => ['scope', v] },
     rows: async (items) => { const { noById } = await unitIndex(); return items.map((t) => ticketOf(t, noById)); } },
 };
 async function serverPage(c, params) {
@@ -793,13 +798,16 @@ async function serverPage(c, params) {
   const q = new URLSearchParams();
   for (const [k, v] of Object.entries(filters)) {
     if (v === '' || v == null || (Array.isArray(v) && v.length === 0)) continue;
-    if (Array.isArray(v) || v === '__none__' || !spec.filters[k]) return null;   // lists of values, "not set", or a filter the server lacks
-    const [name, value] = await spec.filters[k](v);
+    if ((Array.isArray(v) && !spec.multi?.includes(k)) || v === '__none__' || (Array.isArray(v) && v.includes('__none__')) || !spec.filters[k]) return null;   // lists of values, "not set", or a filter the server lacks
+    const pair = await spec.filters[k](v);
+    if (!pair) return null;
+    const [name, value] = pair;
     if (value === '__unknown__') return { rows: [], total: 0, page: 1, pageSize, pages: 1 };
     q.set(name, value);
   }
   if (search) q.set(spec.search, search);
   const size = Math.max(1, pageSize); const p = Math.max(1, page);
+  if (spec.orderParam) q.set('order', spec.orderParam[sort?.key ? `${sort.key}:${sort.dir || 'asc'}` : spec.order[0]]);
   q.set('limit', String(size)); q.set('offset', String((p - 1) * size));
   const res = await call(`${spec.path}?${q.toString()}`);
   let rows = await spec.rows(res.items || []);

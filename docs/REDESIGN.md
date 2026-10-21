@@ -314,7 +314,7 @@ So no leader election is needed.
 | GET | `/api/v1/public/communities/{slug}` | Public: id, name and status for the sign-in page |
 | POST | `/api/v1/auth/otp` · `/auth/token` · `/auth/refresh` · `/auth/logout` | Public, rate-limited |
 | GET | `/api/v1/me` | The caller as the server sees them |
-| GET | `/api/v1/summary/dashboard` · `/summary/tickets` · `/summary/dues` · `/summary/gate` · `/summary/bookings` | The counts above a page, counted now from the rows the caller may see, with the list's own access rules (never stored, so they always match the list). The Command Center uses `dashboard` (one call instead of four whole lists). |
+| GET | `/api/v1/summary/dashboard` · `/summary/tickets` · `/summary/dues` · `/summary/gate` · `/summary/bookings` | The counts above a page, counted now from the rows the caller may see, with the list's own access rules (never stored, so they always match the list). The Command Center uses `dashboard` (one call instead of four whole lists); the Maintenance tiles use `tickets`. |
 | GET | `/api/v1/gate/passes/{id}` · `/gate/visits/{id}` · `/gate/approvals/{id}` | One gate record, with its list's scope |
 | GET | `/api/v1/comms/forum/posts` · `/comms/forum/poll-results` · `/comms/broadcasts/polls` | Every forum post, every forum poll's results, every sent poll (with its voters for the committee), each in one call |
 | GET / PUT | `/api/v1/dev/simulated-bank` | Development only: the simulated payment service normal / slow / down, refunds refused or not |
@@ -332,7 +332,7 @@ So no leader election is needed.
 | POST | `/api/v1/payments` | Office receipt (cash, cheque or bank transfer); `Idempotency-Key` |
 | POST | `/api/v1/webhooks/{provider}` | Signature-checked; always 200 once handled |
 | POST | `/api/v1/dev/simulated-checkout/{ref}` | Only when `cos.payments.simulated.enabled=true`; refused in prod |
-| GET / POST | `/api/v1/tickets`, `/tickets/{id}` | Filters: `status`, `active`, `category`, `unit`, `mine`, `assignedToMe`, `q`. POST takes `Idempotency-Key`. |
+| GET / POST | `/api/v1/tickets`, `/tickets/{id}` | Filters: `status`, `statusIn` (several), `active`, `category`, `unit`, `priority` (several), `taskType` (name), `financial`, `scope`, `mine`, `assignedToMe`, `q`; `order` = `created` (default) · `sla` (soonest, none first) · `status`. The Maintenance page pages its table on these (its tiles count from `/summary/tickets`); "mine", "waiting for my approval" and "overdue" still narrow the whole list in the app. POST takes `Idempotency-Key`. |
 | PATCH | `/api/v1/tickets/{id}` | Field changes, checked field by field for the caller's role; `If-Match` |
 | POST | `/api/v1/tickets/{id}/assign` · `/status` | `{assigneeId}` / `{status, reason}`; `If-Match` |
 | POST / DELETE | `/api/v1/tickets/{id}/me-too` | A resident adds or removes their unit on a community request |

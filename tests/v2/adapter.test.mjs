@@ -662,6 +662,15 @@ test('paging: a page the server can serve is one call with limit / offset and it
   const k = calls.length;
   const none = await storage.query('tickets', { page: 1, pageSize: 10, filters: { unit: 'Villa 999' } });
   assert.equal(none.total, 0); assert.equal(calls.slice(k).filter((c) => /^\/tickets/.test(c.path)).length, 0, 'an unknown unit has nothing to ask for');
+  // the Maintenance page: a tile (several statuses and priorities), a task type, financial only, SLA soonest - one call; "mine" (ids) - the whole list
+  const t = calls.length;
+  await storage.query('tickets', { page: 1, pageSize: 25, sort: { key: 'slaDueAt', dir: 'asc' }, filters: { status: ['Open', 'Assigned'], priority: ['High', 'Critical'], taskType: 'Purchase', financial: true } });
+  const tq = new URL(`http://x${calls.slice(t).find((c) => /^\/tickets\?/.test(c.path)).path}`).searchParams;
+  assert.equal(tq.get('statusIn'), 'Open,Assigned'); assert.equal(tq.get('priority'), 'High,Critical'); assert.equal(tq.get('taskType'), 'Purchase');
+  assert.equal(tq.get('financial'), 'true'); assert.equal(tq.get('order'), 'sla'); assert.equal(tq.get('limit'), '25');
+  const i = calls.length;
+  await storage.query('tickets', { page: 1, pageSize: 25, filters: { id: ['tk-1'] } });
+  assert.ok(calls.slice(i).some((c) => c.path === '/tickets?limit=200&offset=0'), 'narrowed by ids: the whole list, as before');
 });
 
 test('quotations: add what is written, select, decide on the plan, send back; amounts are never edited', async () => {

@@ -82,6 +82,7 @@ public final class SqlCatalog {
             out.add(new Stmt("cos_app", "dues.get." + i, com.communityos.api.billing.adapter.JdbcDueRepository.getSql(ds.sql())));
             Spec<?> ts = new com.communityos.api.maintenance.application.TicketPolicy().readScope(c);
             out.add(new Stmt("cos_app", "tickets.list." + i, com.communityos.api.maintenance.adapter.JdbcTicketRepository.listSql(ts.sql())));
+            for (String o : List.of("sla", "status")) out.add(new Stmt("cos_app", "tickets.list." + o + "." + i, com.communityos.api.maintenance.adapter.JdbcTicketRepository.listSql(ts.sql(), o)));
             out.add(new Stmt("cos_app", "comments.recent." + i, com.communityos.api.maintenance.adapter.JdbcMaintenanceDirectory.recentSql(ts.sql())));
             out.add(new Stmt("cos_app", "tickets.get." + i, com.communityos.api.maintenance.adapter.JdbcTicketRepository.getSql(ts.sql())));
             Spec<?> bs = new com.communityos.api.amenity.application.BookingPolicy().readScope(c);
