@@ -124,6 +124,25 @@ class SecureRecordServiceTest {
     }
 
     @Test
+    void createdAndLastUpdatedAreStampedByTheServerWhateverThePayloadSays() throws Exception {   // r77
+        seedPeople();
+        SecureRecordService s = service("refuse");
+        String forged = ",\"recordCreatedAt\":\"2000-01-01T00:00:00Z\",\"recordCreatedBy\":\"Forged\",\"lastUpdatedAt\":\"2000-01-02T00:00:00Z\",\"lastUpdatedBy\":\"Forged\",\"shortId\":\"FAKE-1\",\"timeline\":[{\"by\":\"Forged\"}]";
+        s.put(C, as("tara@x.in"), "dues", j("{\"id\":\"dm\",\"unit\":\"A-101\",\"amount\":10,\"status\":\"Open\"" + forged + "}"), WriteOptions.NONE);
+        JsonNode first = repo.get(C, "dues", "dm").get();
+        for (String k : List.of("recordCreatedAt", "recordCreatedBy", "lastUpdatedAt", "lastUpdatedBy")) assertFalse(first.get(k).asText().contains("Forged") || first.get(k).asText().startsWith("2000"), k + "=" + first.get(k));
+        assertFalse(first.get("shortId").asText().equals("FAKE-1")); assertFalse(first.toString().contains("\"by\":\"Forged\""));
+        s.put(C, as("tara@x.in"), "dues", j("{\"id\":\"dm\",\"unit\":\"A-101\",\"amount\":11,\"status\":\"Open\"" + forged + "}"), WriteOptions.NONE);
+        JsonNode second = repo.get(C, "dues", "dm").get();
+        assertEquals(first.get("recordCreatedAt").asText(), second.get("recordCreatedAt").asText()); assertEquals(first.get("recordCreatedBy").asText(), second.get("recordCreatedBy").asText());
+        assertFalse(second.get("lastUpdatedBy").asText().contains("Forged")); assertFalse(second.get("lastUpdatedAt").asText().startsWith("2000"));
+        s.updateMany(C, as("tara@x.in"), "dues", List.of(j("{\"id\":\"dm\",\"amount\":12" + forged + "}")), WriteOptions.NONE);
+        JsonNode third = repo.get(C, "dues", "dm").get();
+        assertEquals(first.get("recordCreatedBy").asText(), third.get("recordCreatedBy").asText()); assertFalse(third.get("lastUpdatedBy").asText().contains("Forged"));
+        assertEquals(first.get("shortId").asText(), third.get("shortId").asText());
+    }
+
+    @Test
     void aSignInWithNoAccountIsTurnedAway() throws Exception {
         seedPeople();
         AccessDeniedException e = assertThrows(AccessDeniedException.class, () -> service("refuse").list(C, as("stranger@x.in"), "dues"));
@@ -248,7 +267,7 @@ class SecureRecordServiceTest {
         assertTrue(e.getMessage().contains("is released or paid on this task"), e.getMessage());
         AuthzDeniedException bulk = assertThrows(AuthzDeniedException.class,
                 () -> s.createMany(C, as("boss@x.in"), "releases", List.of(j("{\"id\":\"r9\",\"ticketId\":\"t1\",\"status\":\"Waiting approval\",\"amount\":90}")), WriteOptions.NONE));
-        assertTrue(bulk.getMessage().startsWith("Only \u20b930 of \u20b9100"), bulk.getMessage());
+        assertTrue(bulk.getMessage().startsWith("These records are saved one at a time"), bulk.getMessage());   // r77: releases are never written in bulk
     }
 
     /** A clubhouse booked for a whole day at Rs 1,000 + 18% GST with a Rs 2,000 deposit. */
@@ -447,7 +466,8 @@ class SecureRecordServiceTest {
         assertEquals(6, code.length());
         String proof = otp().verify(C, asha, "b1", code);
         JsonNode mark = s.put(C, as("asha@x.in"), "voteRoll", j("{\"id\":\"m1\",\"ballotId\":\"b1\",\"unit\":\"A-101\",\"proof\":\"" + proof + "\"}"), new WriteOptions("Voter roll", "Voted on Lift"));
-        assertEquals("Asha", mark.get("owner").asText());
+        assertFalse(mark.has("owner") && !mark.get("owner").asText().isEmpty(), "the reply shows the roll mark as the voter may read it (no name)");   // r77
+        assertEquals("Asha", repo.get(C, "voteRoll", mark.get("id").asText()).get().get("owner").asText());   // the server recorded who
         assertEquals("2026-10-19", mark.get("markedOn").asText());
         assertTrue(!mark.has("proof"), "the proof is used up and never stored");
         assertTrue(auditRows().stream().anyMatch((a) -> "voteRoll".equals(a.path("collection").asText())), "a roll mark is audited");

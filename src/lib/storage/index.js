@@ -1,5 +1,6 @@
 import { SessionStorageAdapter } from './SessionStorageAdapter.js';
 import { ApiStorageAdapter } from './ApiStorageAdapter.js';
+import { V2ApiAdapter } from './v2/V2ApiAdapter.js';
 import { getDataSource } from './dataSource.js';
 import { getCommunity } from '../community.js';
 export { COLLECTIONS } from './StorageAdapter.js';
@@ -8,7 +9,7 @@ export { getDataSource, setDataSource, isApiMode, pingBackend } from './dataSour
 // THE swap point. `storage` is a thin facade: every call goes to whichever adapter the Data source setting names RIGHT NOW
 // (session = browser demo store, api = Spring Boot + PostgreSQL). Modules never know which one answered.
 // To add a third kind of store (Firebase, Mongo over REST ...), write an adapter with the same methods and add it to ADAPTERS.
-export const ADAPTERS = { session: SessionStorageAdapter, api: ApiStorageAdapter };
+export const ADAPTERS = { session: SessionStorageAdapter, api: ApiStorageAdapter, v2: V2ApiAdapter };
 export const activeAdapter = () => ADAPTERS[getDataSource().mode] || SessionStorageAdapter;
 // SERVER ONLY (backend/contract-server): the Node service runs this same code per request, bound to that request's database
 // transaction and community. Returns the adapter to use right now, or null in the browser.
@@ -39,7 +40,7 @@ const dropReads = (slug, collection) => { const p = `${slug}|${collection}|`; fo
 export const storage = Object.fromEntries(METHODS.map((m) => [m, (...args) => {
   if (serverAdapter) return serverAdapter()[m](...args);
   const a = activeAdapter();
-  if (a !== ApiStorageAdapter) return a[m](...args);
+  if (a !== ApiStorageAdapter && a !== V2ApiAdapter) return a[m](...args);
   const slug = slugNow(); const collection = typeof args[0] === 'string' ? args[0] : '';
   if (READS.has(m)) {
     const key = `${slug}|${collection}|${m}|${JSON.stringify(args.slice(1))}`;

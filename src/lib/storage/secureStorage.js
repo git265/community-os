@@ -10,7 +10,8 @@ import { COLLECTIONS } from './StorageAdapter.js';
 import { runQuery } from './queryEngine.js';
 import { getPrincipal, getSchema } from '../security/principal.js';
 import { lockError, setLock } from '../finance/lock.js';
-import { authorizeWrite, setSecondStepRoles, setFinalCanDecideEC, canReadCollection, maskRecord, hiddenFieldKeys, rowScope, blockWriteOk, AuthzError, META_KEYS } from '../security/authz.js';
+import { authorizeWrite, setSecondStepRoles, setFinalCanDecideEC, canReadCollection, maskRecord, hiddenFieldKeys, rowScope, blockWriteOk, AuthzError, META_KEYS, prepareWrite, staysInScope, shapeForReader, isAdmin, isResident } from '../security/authz.js';
+import { pickAssignee } from '../../modules/tickets/ticketEngine.js';
 import { diffRecords, snapshotRecord, logChange } from '../audit/auditLog.js';
 import { notifyAfterWrite } from '../notifyExtra.js';
 import { notifyTicketChange, notifyApprovalNeeded, notifyInvoiceChange } from '../notifications.js';
@@ -125,6 +126,57 @@ async function denied(collection, op, record, reason) {
   throw new AuthzError(reason);
 }
 
+// ---- r77: one set of write checks for single and bulk writes -----------------------------------------------------------------------
+/** The caller's row scope for a write (the Super Admin has none). */
+const writeScope = async (collection, p) => (p && !isAdmin(p) ? rowScope(collection, p, readRaw) : {});
+/** A record that points at another one (a comment at its ticket, a review at its contact ...) may only point at one the caller can see. */
+const PARENTS = {
+  [COLLECTIONS.TICKET_COMMENTS]: ['ticketId', COLLECTIONS.TICKETS], [COLLECTIONS.CONTACT_REVIEWS]: ['contactId', COLLECTIONS.SERVICE_CONTACTS],
+  [COLLECTIONS.FORUM_POSTS]: ['topicId', COLLECTIONS.FORUM], [COLLECTIONS.CULTURAL_PHOTOS]: ['eventId', COLLECTIONS.CULTURAL_EVENTS],
+  [COLLECTIONS.CULTURAL_DONATIONS]: ['eventId', COLLECTIONS.CULTURAL_EVENTS], [COLLECTIONS.POLL_VOTES]: ['broadcastId', COLLECTIONS.BROADCASTS],
+  [COLLECTIONS.GATE_LINKS]: ['personId', COLLECTIONS.GATE_PEOPLE], [COLLECTIONS.QUOTATIONS]: ['ticketId', COLLECTIONS.TICKETS],
+};
+async function parentVisible(collection, record, old, p) {
+  const ref = PARENTS[collection];
+  if (!ref || !p || isAdmin(p)) return true;
+  const [key, parentCollection] = ref;
+  const id = record?.[key];
+  if (!id || (old && old[key] === id)) return true;          // not pointing anywhere new
+  if (!canReadCollection(parentCollection, p)) return false;
+  const parent = await storage.get(parentCollection, id);
+  if (!parent) return false;
+  const sc = await rowScope(parentCollection, p, readRaw);
+  return !sc.predicate || sc.predicate(parent);
+}
+/** prepare -> authorize -> blocks -> closed books -> money -> parent: throws (and audits) a refusal, returns the record to save. */
+async function checkWrite(collection, record, old, op, p, schema) {
+  const verb = op === 'create' ? 'Create' : op === 'delete' ? 'Delete' : 'Update';
+  const scope = await writeScope(collection, p);
+  const prep = prepareWrite({ collection, p, schema, old, next: record, op, scope });
+  if (!prep.ok) await denied(collection, verb, old ?? record ?? {}, prep.reason);
+  const rec = prep.record;
+  const verdict = authorizeWrite({ collection, p, schema, old, next: op === 'delete' ? (old ?? {}) : rec, op });
+  if (!verdict.ok) await denied(collection, verb, old ?? rec ?? {}, verdict.reason);
+  { const st = staysInScope({ collection, p, old, record: rec, op, scope }); if (!st.ok) await denied(collection, verb, old ?? rec ?? {}, st.reason); }
+  if (!(await blockWriteOk(collection, op === 'delete' ? old : rec, old, p, readRaw))) await denied(collection, verb, old ?? rec ?? {}, 'This unit is outside the blocks you manage');
+  { const le = lockError(collection, op === 'delete' ? old : rec, old); if (le) await denied(collection, verb, old ?? rec ?? {}, le); }
+  { const me = await moneyPreWrite({ collection, record: op === 'delete' ? old : rec, old, op, list: (c) => storage.list(c) }); if (me) await denied(collection, verb, old ?? rec ?? {}, me); }
+  if (op !== 'delete' && !(await parentVisible(collection, rec, old, p))) await denied(collection, verb, rec, 'That record is not yours to add to');
+  return { record: rec, scope };
+}
+/** A resident's new request: the server, not the browser, decides the type, the first assignee and the starting values. */
+async function residentTicketStart(record) {
+  const types = await storage.list(COLLECTIONS.TASK_TYPES);
+  const tt = types.find((t) => t.name === record.taskType);
+  if (!tt || !(tt.creatorScope === 'Resident' || tt.residentDefault)) return { error: 'Raise this request with a resident request type' };
+  const who = pickAssignee(await storage.list(COLLECTIONS.HANDYMEN), [], record.category);
+  return { record: { ...record, status: who ? 'Assigned' : 'Open', assignedTo: who ? who.name : '', paymentStatus: 'Not Paid', awaitingParts: false, materialsCost: 0, residentRating: 0 } };
+}
+// Bulk writes skip the per-record server steps (prices, votes, ticket rules, money): these collections are saved one record at a time.
+const NO_BULK = new Set([COLLECTIONS.AMENITIES, COLLECTIONS.BALLOTS, COLLECTIONS.VOTE_ROLL, COLLECTIONS.BALLOT_BOX, COLLECTIONS.POLL_VOTES, COLLECTIONS.MEETINGS,
+  COLLECTIONS.TICKETS, COLLECTIONS.TICKET_COMMENTS, COLLECTIONS.RELEASES, COLLECTIONS.LEDGER, COLLECTIONS.QUOTATIONS, COLLECTIONS.FILES, 'notifications']);
+const stripMeta = (r) => { const o = { ...r }; META_KEYS.forEach((k) => { if (k !== 'id') delete o[k]; }); return o; };
+
 const localSecure = {
   async list(collection) {
     const f = await fastScope(collection);
@@ -157,12 +209,21 @@ const localSecure = {
     if (old && record.recVersion != null && old.recVersion != null && Number(record.recVersion) !== Number(old.recVersion) && versionCheck()) throw new ConflictError(old);
     // the final-approval roles are configurable data: load them for the authorization guards below
     if (collection === COLLECTIONS.TICKETS || collection === COLLECTIONS.CULTURAL_EXPENSES || collection === COLLECTIONS.QUOTATIONS || collection === COLLECTIONS.RELEASES) { setSecondStepRoles((await storage.list(COLLECTIONS.APPROVER_SETTINGS))[0]?.roles); setFinalCanDecideEC((await storage.list(COLLECTIONS.FINANCE_SETTINGS))[0]?.finalCanDecideEC); }
-    const verdict = authorizeWrite({ collection, p, schema, old, next: record, op: isNew ? 'create' : 'update' });
-    if (!verdict.ok) await denied(collection, isNew ? 'Create' : 'Update', record, verdict.reason);
-    if (!(await blockWriteOk(collection, record, old, p, readRaw))) await denied(collection, isNew ? 'Create' : 'Update', record, 'This unit is outside the blocks you manage');
-    { const le = lockError(collection, record, old); if (le) await denied(collection, isNew ? 'Create' : 'Update', record, le); }
-    // Money rules (releases / payments / invoices / task approvals) apply to everyone, the Super Admin included.
-    { const me = await moneyPreWrite({ collection, record, old, op: isNew ? 'create' : 'update', list: (c) => storage.list(c) }); if (me) await denied(collection, isNew ? 'Create' : 'Update', record, me); }
+    // r77: what the caller may write is decided here (scope, hidden fields, identity), then authorised; money rules apply to everyone.
+    const checked = await checkWrite(collection, record, old, isNew ? 'create' : 'update', p, schema);
+    record = checked.record;
+    const shape = (r) => shapeForReader(r, { collection, p, schema, scope: checked.scope });
+    // a trade worker hands a ticket only to themselves or a colleague of the same trade (or back to the queue)
+    if (collection === COLLECTIONS.TICKETS && old && p?.roleId?.startsWith('handyman_') && p.roleId !== 'handyman_mep' && (record.assignedTo || '') !== (old.assignedTo || '') && record.assignedTo) {
+      const trade = String(p.role?.name || '').split('·')[1]?.trim();
+      const crew = new Set([p.name, ...(await storage.list(COLLECTIONS.HANDYMEN)).filter((h) => !!trade && h.trade === trade).map((h) => h.name)]);
+      if (!crew.has(record.assignedTo)) await denied(collection, 'Update', record, 'Hand the ticket to yourself or a colleague of your trade');
+    }
+    if (collection === COLLECTIONS.TICKETS && isNew && isResident(p)) {
+      const r = await residentTicketStart(record);
+      if (r.error) await denied(collection, 'Create', record, r.error);
+      record = r.record;
+    }
     // E-voting rules apply to everyone, the Super Admin included: eligibility, 2nd factor, immutability, sealed box.
     if (EV_COLLECTIONS.has(collection)) {
       const ev = await evotingPreWrite({ collection, record, old, p });
@@ -233,7 +294,7 @@ const localSecure = {
     // client can never forge metadata - strip and re-stamp
     META_KEYS.forEach((k) => { if (k !== 'id') delete incoming[k]; });
     const changes = isNew ? snapshotRecord(incoming, schema, 'create') : diffRecords(old, incoming, schema);
-    if (!isNew && changes.length === 0) return old; // nothing changed -> no write, no audit noise
+    if (!isNew && changes.length === 0) return shape(old); // nothing changed -> no write, no audit noise
 
     let shortId = old?.shortId;
     if (!shortId) shortId = await nextShortId(collection);
@@ -286,7 +347,7 @@ const localSecure = {
     }
     if (collection === COLLECTIONS.FINANCE_SETTINGS) setLock(stamped.lockedUntil);
     notify(collection);
-    return saved;
+    return shape(saved);
   },
 
   /** Bulk create (statement import): authorised once, written in one go, one audit line for the whole batch. */
@@ -294,17 +355,22 @@ const localSecure = {
     const p = getPrincipal();
     const schema = getSchema(collection);
     if (!rows.length) return 0;
-    const verdict = authorizeWrite({ collection, p, schema, old: null, next: rows[0], op: 'create' });
-    if (!verdict.ok) await denied(collection, 'Import', rows[0], verdict.reason);
+    if (NO_BULK.has(collection)) await denied(collection, 'Import', rows[0], 'These records are saved one at a time');
+    const checkedRows = [];
+    for (const r of rows) {   // every row is checked, not just the first
+      let rec = (await checkWrite(collection, { ...stripMeta(r), id: undefined }, null, 'create', p, schema)).record;
+      if (collection === COLLECTIONS.PROPERTIES) { const pr = await propertyPreWrite({ record: rec, old: null, isNew: true }); if (pr.error) await denied(collection, 'Import', rec, pr.error); rec = pr.record; }
+      checkedRows.push(rec);
+    }
     const existing = await storage.list(collection);
     const pre = shortPrefix(collection);
     let n = existing.reduce((m, r) => Math.max(m, Number(String(r.shortId || '').replace(`${pre}-`, '')) || 0), 0);
     const now = new Date().toISOString();
-    const stamped = rows.map((r) => ({
+    const stamped = checkedRows.map((r) => ({
       ...r, id: newId(), shortId: `${pre}-${String(++n).padStart(4, '0')}`, recVersion: 1,
       recordCreatedAt: now, recordCreatedBy: actorLabel(p), lastUpdatedAt: now, lastUpdatedBy: actorLabel(p),
     }));
-    await storage.replaceAll(collection, [...existing, ...stamped]);
+    await storage.putMany(collection, stamped);
     await logChange({ who: actorLabel(p), whoName: p.name, what: label ?? schema?.label ?? collection, collection, recordId: '', recordShortId: '', unit: '', action: 'Create', summary: summary || `Imported ${stamped.length} rows`, changes: [] });
     notify(collection);
     return stamped.length;
@@ -318,11 +384,19 @@ const localSecure = {
     const p = getPrincipal();
     const schema = getSchema(collection);
     if (!rows.length) return [];
-    const verdict = authorizeWrite({ collection, p, schema, old: null, next: rows[0], op: 'create' });
-    if (!verdict.ok) await denied(collection, 'Create', rows[0], verdict.reason);
-    for (const r of rows) if (!(await blockWriteOk(collection, r, null, p, readRaw))) await denied(collection, 'Create', r, 'This unit is outside the blocks you manage');
-    for (const r of rows) { const le = lockError(collection, r, null); if (le) await denied(collection, 'Create', r, le); }
+    if (NO_BULK.has(collection)) await denied(collection, 'Create', rows[0], 'These records are saved one at a time');
     const existing = await storage.list(collection);
+    const taken = new Set(existing.map((r) => r.id));
+    const checkedRows = []; let scope = {};
+    for (const r of rows) {   // every row is checked, and a "new" row can never overwrite an existing one
+      if (r.id && taken.has(r.id)) await denied(collection, 'Create', r, 'A record with this id already exists');
+      const c = await checkWrite(collection, stripMeta(r), null, 'create', p, schema); scope = c.scope;
+      let rec = c.record;
+      if (collection === COLLECTIONS.PROPERTIES) { const pr = await propertyPreWrite({ record: rec, old: null, isNew: true }); if (pr.error) await denied(collection, 'Create', rec, pr.error); rec = pr.record; }
+      if (rec.id) taken.add(rec.id);
+      checkedRows.push(rec);
+    }
+    rows = checkedRows;
     const pre = shortPrefix(collection);
     let n = existing.reduce((m, r) => Math.max(m, Number(String(r.shortId || '').replace(`${pre}-`, '')) || 0), 0);
     const now = new Date().toISOString();
@@ -334,7 +408,7 @@ const localSecure = {
     await storage.putMany(collection, stamped);
     await logChange({ who: actorLabel(p), whoName: p.name, what: label ?? schema?.label ?? collection, collection, recordId: '', recordShortId: '', unit: '', action: 'Create', summary: summary || `Created ${stamped.length} records`, changes: [] });
     notify(collection);
-    return stamped;
+    return stamped.map((r) => shapeForReader(r, { collection, p, schema, scope }));
   },
 
   /** Bulk update of existing rows (each keeps its id; fields in the given row replace the old ones). One authorisation check, one write, one audit line. */
@@ -342,23 +416,24 @@ const localSecure = {
     const p = getPrincipal();
     const schema = getSchema(collection);
     if (!rows.length) return [];
+    if (NO_BULK.has(collection)) await denied(collection, 'Update', rows[0], 'These records are saved one at a time');
     const all = await storage.list(collection);
     const byId = new Map(all.map((r) => [r.id, r]));
     const now = new Date().toISOString();
-    const out = [];
+    const out = []; let scope = {};
     for (const r of rows) {
       const old = byId.get(r.id);
       if (!old) continue;
-      const verdict = authorizeWrite({ collection, p, schema, old, next: { ...old, ...r }, op: 'update' });
-      if (!verdict.ok) await denied(collection, 'Update', old, verdict.reason);
-      if (!(await blockWriteOk(collection, { ...old, ...r }, old, p, readRaw))) await denied(collection, 'Update', old, 'This unit is outside the blocks you manage');
-      const merged = { ...old, ...r };
+      const c = await checkWrite(collection, { ...old, ...stripMeta(r), id: old.id }, old, 'update', p, schema); scope = c.scope;
+      let merged = c.record;
+      if (collection === COLLECTIONS.PROPERTIES) { const pr = await propertyPreWrite({ record: merged, old, isNew: false }); if (pr.error) await denied(collection, 'Update', merged, pr.error); merged = pr.record; }
+      META_KEYS.forEach((k) => { if (k in old) merged[k] = old[k]; else delete merged[k]; });   // the server keeps the metadata
       out.push({ ...merged, recVersion: (old.recVersion || 1) + 1, lastUpdatedAt: now, lastUpdatedBy: actorLabel(p), ...trailFor(old, merged, schema, now, actorLabel(p)) });
     }
     await storage.putMany(collection, out);
     await logChange({ who: actorLabel(p), whoName: p.name, what: label ?? schema?.label ?? collection, collection, recordId: '', recordShortId: '', unit: '', action: 'Update', summary: summary || `Updated ${out.length} records`, changes: [] });
     notify(collection);
-    return out;
+    return out.map((r) => shapeForReader(r, { collection, p, schema, scope }));
   },
 
   async remove(collection, id, { summaryOf, label } = {}) {
@@ -367,11 +442,8 @@ const localSecure = {
     const old = await storage.get(collection, id);
     if (collection === COLLECTIONS.AUDIT) await denied(collection, 'Delete', old ?? { id }, 'The audit trail can never be edited or deleted');
     if (EV_IMMUTABLE.has(collection) || (collection === COLLECTIONS.BALLOTS && old && old.status !== 'Draft')) await denied(collection, 'Delete', old ?? { id }, 'Voting records can never be changed or deleted');
-    const verdict = authorizeWrite({ collection, p, schema, old, next: old ?? {}, op: 'delete' });
-    if (!verdict.ok) await denied(collection, 'Delete', old ?? { id }, verdict.reason);
-    if (!(await blockWriteOk(collection, old, old, p, readRaw))) await denied(collection, 'Delete', old ?? { id }, 'This unit is outside the blocks you manage');
-    { const le = lockError(collection, old, old); if (le) await denied(collection, 'Delete', old ?? { id }, le); }
-    { const me = await moneyPreWrite({ collection, record: old, old, op: 'delete', list: (c) => storage.list(c) }); if (me) await denied(collection, 'Delete', old ?? { id }, me); }
+    if (!old && !isAdmin(p)) await denied(collection, 'Delete', { id }, 'Not found');
+    await checkWrite(collection, old ?? { id }, old, 'delete', p, schema);
     await storage.remove(collection, id);
     if (collection === COLLECTIONS.EQUIPMENT && old) await recordMapVersion({ collection, old, who: actorLabel(p), action: 'delete' });
     if (collection !== COLLECTIONS.AUDIT && !NO_AUDIT.has(collection)) {

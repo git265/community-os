@@ -182,6 +182,8 @@ export async function createService({ pool, tenantOf, UPSERT, stamp, ID_RE, Http
     updateMany: guard((t, who, c, rows, opts) => run(t, who, { write: true }, async (x) => { await clientGuard(c, x, 'Update', rows[0]); await lockRows(c, rows.map((r) => r.id)); return secureStorage.updateMany(c, rows, opts || {}); })),
     importMany: guard((t, who, c, rows, opts) => run(t, who, { write: true }, async (x) => { await clientGuard(c, x, 'Import', rows[0]); return secureStorage.importMany(c, rows, opts || {}); })),
     canWrite: (t, who, c) => run(t, who, {}, (x) => !!x.principal && canWriteCollection(c, x.principal)),
+    /** May replace the bytes of a saved file: the Super Admin and document managers (the same rule as editing a file record). */
+    mayManageFiles: (t, who) => run(t, who, {}, (x) => !!x.principal && (x.principal.roleId === 'super_admin' || !!x.principal.role?.permissions?.includes('MANAGE_DOCUMENTS'))),
     canRead: (t, who, c) => run(t, who, {}, (x) => !!x.principal && canReadCollection(c, x.principal)),
   };
 }

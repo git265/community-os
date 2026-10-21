@@ -1,0 +1,16 @@
+# Local development: log the sign-in code, throw-away signing key, simulated payments, the Vite dev server as origin.
+cos:
+  db:
+    app:      { url: "jdbc:postgresql://localhost:5433/cos_v2", username: cos_app, password: cos_app }
+    platform: { url: "jdbc:postgresql://localhost:5433/cos_v2", username: cos_platform, password: cos_platform }
+  auth:
+    otp-sender: log
+    otp-pepper: dev-pepper-dev-pepper-dev-pepper-dev-pepper
+    allow-ephemeral-key: true
+    issuer: http://localhost:8080
+  payments:
+    default-provider: simulated
+    simulated: { enabled: true, secret: dev-simulated-secret }
+  web:
+    allowed-origins: http://localhost:5173
+spring.flyway: { url: "jdbc:postgresql://localhost:5433/cos_v2", user: postgres, password: "" }

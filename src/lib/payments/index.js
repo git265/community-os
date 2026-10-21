@@ -3,6 +3,8 @@
 // Registry: gateways by id; settlers by purpose (what to do once money is confirmed). Both are extension points.
 import SimulatedGateway from './SimulatedGateway.js';
 import ServerGateway from './ServerGateway.js';
+import V2Gateway from './V2Gateway.js';
+import { getDataSource } from '../storage/dataSource.js';
 import { serverDecides } from '../auth/session.js';
 import { OUTCOME, ORDER_STATUS } from './PaymentGateway.js';
 import { region } from '../region/regions.js';
@@ -17,9 +19,11 @@ export const registerSettler = (purpose, fn) => { settlers[purpose] = fn; };
 export const listGateways = () => Object.values(gateways);
 registerGateway(new SimulatedGateway());
 registerGateway(new ServerGateway());
+registerGateway(new V2Gateway());
 
 /** The community's chosen provider if the country supports it, else the first one the country supports, else the simulator. */
 export function activeGateway() {
+  if (getDataSource().mode === 'v2') return gateways.v2;   // the typed v2 API: priced, verified and settled by backend/api
   if (serverDecides()) return gateways.server;   // the server prices, settles and reconciles; the browser only starts and watches
   const want = getCommunityConfig().paymentGateway;
   const ok = region().gateways;

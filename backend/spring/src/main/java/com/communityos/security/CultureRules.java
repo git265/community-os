@@ -74,7 +74,7 @@ final class CultureRules {
         if (!isResident(p) || p.unit().isEmpty()) return deny("Requires permission: MANAGE_CULTURAL or MANAGE_LEDGER");
         if (!unitIs(next, p.unit())) return deny("You can only pledge for your own villa");
         if (c.isDelete()) return Js.is(old, "status", "Pledged") ? OK : deny("A confirmed donation cannot be withdrawn - contact the committee");
-        if (old == null) return Js.is(next, "status", "Pledged") && !Js.truthy(next, "receiptNo") ? OK : deny("A new pledge starts as Pledged; the committee confirms receipt");
+        if (old == null) return R77Rules.pledgeCreate(next);
         if (!Js.is(old, "status", "Pledged")) return deny("This donation is already confirmed and cannot be changed");
         return onlyKeys(old, next, List.of("amount", "towards", "kind", "mode", "reference", "anonymous", "note", "donor", "phone", "members", "sankalpam", "paymentClaimedAt"), "Residents");
     }

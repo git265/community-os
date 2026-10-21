@@ -6,10 +6,10 @@
 # Every external service is optional and is selected by the env vars below, exactly as in production.
 services:
   postgres:
-    image: postgres:16
+    image: postgres:18
     environment: { POSTGRES_DB: communityos, POSTGRES_USER: communityos, POSTGRES_PASSWORD: communityos }
     ports: ["5432:5432"]
-    volumes: [pgdata:/var/lib/postgresql/data]
+    volumes: [pgdata:/var/lib/postgresql]          # 18+ images keep data in /var/lib/postgresql/18/docker: mount the parent
     healthcheck: { test: ["CMD-SHELL", "pg_isready -U communityos"], interval: 5s, retries: 10 }
 
   backend:

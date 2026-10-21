@@ -4,7 +4,7 @@ import { getDataSource, setDataSource, pingBackend } from '../lib/storage/dataSo
 import { copyCommunity } from '../lib/storage/migrate.js';
 import { getCommunity } from '../lib/community.js';
 
-const show = () => import.meta.env.DEV || import.meta.env.VITE_SHOW_DATA_SOURCE === 'true' || getDataSource().mode === 'api';
+const show = () => import.meta.env.DEV || import.meta.env.VITE_SHOW_DATA_SOURCE === 'true' || getDataSource().mode !== 'session';
 
 /** Where the data lives: the browser demo store or the Spring Boot + PostgreSQL back end. Flip, test, copy data across. */
 export function DataSourcePanel({ onClose }) {
@@ -19,7 +19,7 @@ export function DataSourcePanel({ onClose }) {
 
   async function test() {
     setBusy('test'); setErr(''); setHealth(null);
-    try { setHealth(await pingBackend(url, token)); } catch (e) { setErr(e.message); }
+    try { setHealth(await pingBackend(url, token, mode)); } catch (e) { setErr(e.message); }
     setBusy('');
   }
   function apply() {
@@ -45,7 +45,8 @@ export function DataSourcePanel({ onClose }) {
       <div data-testid="ds-panel">
         <label className="gg-row"><input type="radio" name="ds" data-testid="ds-mode-session" checked={mode === 'session'} onChange={() => setMode('session')} style={{ width: 'auto' }} /> <span><b>Browser session</b> <span className="muted">· demo data in this tab, nothing to install, resets when the tab closes</span></span></label>
         <label className="gg-row"><input type="radio" name="ds" data-testid="ds-mode-api" checked={mode === 'api'} onChange={() => setMode('api')} style={{ width: 'auto' }} /> <span><b>Back end</b> <span className="muted">· Spring Boot + PostgreSQL, data survives reloads and is shared</span></span></label>
-        <div className="form-grid" style={{ marginTop: 10, opacity: mode === 'api' ? 1 : 0.6 }}>
+        <label className="gg-row"><input type="radio" name="ds" data-testid="ds-mode-v2" checked={mode === 'v2'} onChange={() => setMode('v2')} style={{ width: 'auto' }} /> <span><b>Back end v2</b> <span className="muted">· the typed API (units, members, bills, payments so far)</span></span></label>
+        <div className="form-grid" style={{ marginTop: 10, opacity: mode !== 'session' ? 1 : 0.6 }}>
           <div className="field"><label>Back end address</label><input data-testid="ds-url" value={url} onChange={(e) => { setUrl(e.target.value); setHealth(null); }} placeholder="/api or https://api.example.com/api" /></div>
           <div className="field"><label>Access key (optional)</label><input data-testid="ds-token" type="password" value={token} onChange={(e) => { setToken(e.target.value); setHealth(null); }} placeholder="only if the server asks for one" autoComplete="off" /></div>
         </div>
@@ -71,10 +72,10 @@ export function DataSourcePanel({ onClose }) {
           </div>
         )}
         <div className="form-actions" style={{ marginTop: 14 }}>
-          <button type="button" className="btn" data-testid="ds-apply" disabled={!!busy || (mode === 'api' && !health)} onClick={apply}>{mode === cur.mode && url === cur.baseUrl && token === cur.token ? 'Reload' : 'Use this and reload'}</button>
+          <button type="button" className="btn" data-testid="ds-apply" disabled={!!busy || (mode !== 'session' && !health)} onClick={apply}>{mode === cur.mode && url === cur.baseUrl && token === cur.token ? 'Reload' : 'Use this and reload'}</button>
           <button type="button" className="btn secondary" onClick={onClose}>Cancel</button>
         </div>
-        {mode === 'api' && !health && <small className="muted">Test the connection first, so the app never reloads onto a back end that is not there.</small>}
+        {mode !== 'session' && !health && <small className="muted">Test the connection first, so the app never reloads onto a back end that is not there.</small>}
       </div>
     </Modal>
   );
@@ -84,11 +85,11 @@ export function DataSourcePanel({ onClose }) {
 export default function DataSourceChip() {
   const [open, setOpen] = useState(false);
   if (!show()) return null;
-  const api = getDataSource().mode === 'api';
+  const api = getDataSource().mode !== 'session';
   return (
     <>
       <button type="button" data-testid="ds-chip" className={`ds-chip${api ? ' on' : ''}`} onClick={() => setOpen(true)} title="Where the data lives">
-        {api ? '● Back end' : '○ Browser demo'}
+        {api ? (getDataSource().mode === 'v2' ? '● Back end v2' : '● Back end') : '○ Browser demo'}
       </button>
       {open && <DataSourcePanel onClose={() => setOpen(false)} />}
     </>

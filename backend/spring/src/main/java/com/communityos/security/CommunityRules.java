@@ -40,10 +40,7 @@ final class CommunityRules {
         if (isResident(p)) return deny("Residents do not have attendance records");
         if (c.isDelete()) return deny("Only a supervisor can delete an attendance entry");
         if (!eq(next, "staffName", p.name())) return deny("You can only clock yourself in or out");
-        if (old == null) return !Js.truthy(next, "clockOut") && Js.is(next, "source", "Self") ? OK : deny("A new entry is a clock-in; clock out later");
-        if (Js.truthy(old, "clockOut")) return deny("This entry is already closed - ask your supervisor to correct it");
-        List<String> allowed = List.of("clockOut", "outLat", "outLng", "outAcc", "outSite", "outDist", "hours", "note");
-        return changedKeys(old, next).stream().allMatch(allowed::contains) ? OK : deny("You can only clock out of your own open entry");
+        return R77Rules.attendanceSelf(c);
     }
 
     static Verdict eventWork(WriteCall c) { return ifOk(canEventWork(c.p()), "Only the EC, Facility Manager, MEP or the event organisers can change event work"); }

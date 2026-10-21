@@ -17,7 +17,7 @@ Opening the app never wipes a database (only the throw-away browser store is res
 ```
 backend/
   db/V1__documents.sql          the one schema (Flyway runs it; the Node stand-in runs the same file)
-  spring/                       the Spring Boot service  (Java 21, Maven)
+  spring/                       the Spring Boot service  (Java 25, Maven)
   contract-server/              a ~250-line Node stand-in that speaks the same REST contract (see 4)
   docker-compose.yml            postgres + service (+ MinIO, Mailpit on request)
   .env.example                  every setting, with its default

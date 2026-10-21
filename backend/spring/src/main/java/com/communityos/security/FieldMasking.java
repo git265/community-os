@@ -49,6 +49,15 @@ public final class FieldMasking {
         if (hidden.isEmpty()) return record;
         ObjectNode out = ((ObjectNode) record).deepCopy();
         out.remove(hidden);
+        // the record's own time trail must not repeat a hidden field (an approval's history, when a hidden date was set)
+        JsonNode tl = out.get("timeline");
+        if (tl != null && tl.isArray()) {
+            com.fasterxml.jackson.databind.node.ArrayNode kept = out.arrayNode();
+            for (JsonNode e : tl) { String f = e != null && e.isObject() ? Js.text(e, "field") : null; if (f == null || !hidden.contains(f)) kept.add(e); }
+            out.set("timeline", kept);
+        }
+        JsonNode ds = out.get("dateStamps");
+        if (ds != null && ds.isObject()) { ObjectNode d = ((ObjectNode) ds).deepCopy(); d.remove(hidden); out.set("dateStamps", d); }
         return out;
     }
 }

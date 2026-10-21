@@ -90,7 +90,7 @@ final class TicketRules {
             if (old == null) {
                 if (Js.is(next, "scope", "Community") && Js.str(next, "location").trim().isEmpty()) return deny("Say where in the community the problem is");
                 if (Js.truthy(next, "createdByRole") && !Js.str(next, "createdByRole").equals(p.roleId())) return deny("Ticket creator mismatch");
-                return OK;
+                return R77Rules.residentTicketCreate(c);
             }
             Verdict base = onlyKeys(old, next, List.of("description", "attachments", "photos", "hasPhotos", "preferredTime", "residentRating", "status", "cancelledAt", "cancelledBy", "affectedUnits", "location"), "Residents");
             if (!base.ok()) return base;

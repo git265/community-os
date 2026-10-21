@@ -59,7 +59,8 @@ describe('e-voting through the API', () => {
 
   test('a vote: roll mark (who) and box row (what) are separate, the proof works once, and the box is sealed until closing', async () => {
     const a = await vote(olive, 'For', 'olive');
-    assert.equal(a.mark.status, 200, JSON.stringify(a.mark.body)); assert.equal(a.mark.body.owner, 'Olive Owner'); assert.equal(a.mark.body.proof, undefined);
+    assert.equal(a.mark.status, 200, JSON.stringify(a.mark.body)); assert.ok(!a.mark.body.owner, 'the reply shows the roll mark as the voter may read it (no name)'); assert.equal(a.mark.body.proof, undefined);
+    assert.equal((await rowsOf(pool, 'voteRoll')).find((r) => r.id === a.mark.body.id)?.owner, 'Olive Owner');   // the server recorded who
     assert.equal(a.box.status, 200, JSON.stringify(a.box.body)); assert.equal(a.box.body.seq, 1); assert.match(a.box.body.receipt, /^[0-9a-f]{12}$/);
     assert.equal(a.box.body.unit, undefined); assert.equal(a.box.body.recordCreatedBy, 'Ballot box'); assert.equal(a.box.body.recordCreatedAt, today);
     const again = await vote(olive, 'Against', 'olive2');                                                // one vote per villa

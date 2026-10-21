@@ -24,6 +24,11 @@ public final class ReadRules {
     static final List<String> ASSET_COLLECTIONS = List.of("logEntries", "plantLogs", "dgFuelLogs", "electricityBills", "assocBills", "villaElectricity", "equipment",
             "infraPlans", "infraLayers", "infraLog", "mapVersions");
 
+    /** The finance permissions that open every bill (MANAGE_DUES, MANAGE_UTILITY_BILLING, MANAGE_LEDGER). */
+    static final List<String> FINANCE_BILL_PERMS = List.of("MANAGE_DUES", "MANAGE_UTILITY_BILLING", "MANAGE_LEDGER");
+    /** A villa's own gate records: visitors, passes, household staff, vehicles, rules, pass presets and the vetted registry. */
+    static final List<String> GATE_VILLA_COLLECTIONS = List.of("gatePeople", "gateLinks", "gatePasses", "gateVisits", "gateApprovals", "gateVehicles", "gateVillaRules", "gatePassTemplates");
+
     private static final Map<String, Predicate<Principal>> RULES = new HashMap<>();
     private static void rule(Predicate<Principal> r, String... collections) { for (String c : collections) RULES.put(c, r); }
 
@@ -58,7 +63,14 @@ public final class ReadRules {
         rule((p) -> isQuoteRole(p) || has(p, "MANAGE_VENDORS"), "vendorComments");
         rule(notResident, "inventory", "inventoryRules");
         rule(Perms::canManageReadings, "readings");
+        // r77: data that belongs to a villa or a person reaches only the people who deal with it
+        rule((p) -> isResident(p) || isEC(p) || anyPerm(p, FINANCE_BILL_PERMS) || canManageReadings(p), "dues");
+        rule((p) -> isResident(p) || isEC(p) || anyPerm(p, "MANAGE_AMENITIES", "MANAGE_DUES", "MANAGE_UTILITY_BILLING", "MANAGE_LEDGER"), "unitCredits");
+        rule((p) -> isResident(p) || isEC(p) || canCultural(p), "culturalDonations");
+        rule((p) -> isResident(p) || Perms.gateOrFM(p), GATE_VILLA_COLLECTIONS.toArray(new String[0]));
+        rule(Perms::gateOrFM, "gateFlags", "gateWorkOrders");
     }
+
 
     /** May this principal read the collection at all? (Row scope and field masking come after.) */
     public static boolean canRead(String collection, Principal p) {

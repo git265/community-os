@@ -31,15 +31,20 @@ public class FileController {
 
     public FileController(FileStorage files, TenantGuard guard, SecureRecordService records) { this.files = files; this.guard = guard; this.records = records; }
 
-    @Operation(summary = "Upload file bytes", description = "The file's record must already exist, or you must be allowed to add files.")
+    @Operation(summary = "Upload file bytes", description = "New bytes go to a new file id only; a saved file's bytes are replaced only by document managers. The type must be on the allow-list and match the content.")
     @PutMapping("/api/files/{id}/content")
     public ResponseEntity<Void> put(@PathVariable String id, @RequestBody byte[] bytes, @RequestHeader("X-Community-Id") String c,
                                     @RequestHeader(value = "Content-Type", required = false) String mime, Authentication who) {
         String t = guard.resolve(c, who);
         boolean known;
         try { records.get(t, who, "files", Names.id(id)); known = true; } catch (NotFoundException e) { known = false; }
+        boolean manager = records.mayManageFiles(t, who);
+        if (known && !manager) throw new AccessDeniedException("Uploaded files cannot be replaced.");
+        if (!known && files.get(t, Names.id(id)).isPresent() && !manager) throw new AccessDeniedException("Uploaded files cannot be replaced.");
         if (!known && !records.canWrite(t, who, "files")) throw new AccessDeniedException("You cannot add files here.");
-        files.put(t, Names.id(id), bytes, mime);
+        FileBytes.Check chk = FileBytes.check(bytes, mime);
+        if (chk.error() != null) throw new BadRequestException(chk.error());
+        files.put(t, Names.id(id), bytes, chk.type());
         return ResponseEntity.noContent().build();
     }
 
@@ -49,7 +54,9 @@ public class FileController {
         String t = guard.resolve(c, who);
         records.get(t, who, "files", Names.id(id));   // 404 when the record is missing or hidden from this caller
         StoredFile f = files.get(t, Names.id(id)).orElseThrow(() -> new NotFoundException("No such file."));
-        return ResponseEntity.ok().contentType(MediaType.parseMediaType(f.mime() == null ? "application/octet-stream" : f.mime())).body(f.bytes());
+        FileBytes.Served h = FileBytes.served(f.mime());   // only allow-listed types are named; anything else is a download, never rendered
+        return ResponseEntity.ok().contentType(MediaType.parseMediaType(h.type())).header("Content-Disposition", h.disposition())
+                .header("Content-Security-Policy", "default-src 'none'; sandbox").header("X-Content-Type-Options", "nosniff").body(f.bytes());
     }
 
     @Operation(summary = "Delete a file", description = "Removes the record (if the rules allow) and then the bytes.")

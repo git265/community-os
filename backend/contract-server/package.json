@@ -4,7 +4,7 @@
   "type": "module",
   "version": "1.0.0",
   "description": "Reference implementation of the CommunityOS REST contract on PostgreSQL, for trying the UI without Java. NOT for production: use backend/spring.",
-  "scripts": { "start": "node server.mjs", "test": "node --test test/api.test.mjs test/payments.test.mjs test/hardening.test.mjs test/scope.test.mjs test/evoting.test.mjs test/platform.test.mjs",
+  "scripts": { "start": "node server.mjs", "test": "node --test test/api.test.mjs test/payments.test.mjs test/hardening.test.mjs test/scope.test.mjs test/evoting.test.mjs test/platform.test.mjs test/tamper.test.mjs",
     "gen:rulebook": "node --import ./register-hooks.mjs test/gen-rulebook-golden.mjs",
     "gen:moneyguard": "node --import ./register-hooks.mjs test/gen-moneyguard-golden.mjs",
     "gen:evoting": "node --import ./register-hooks.mjs test/gen-evoting-golden.mjs", "gen:amenity": "TZ=Asia/Kolkata node --import ./register-hooks.mjs test/gen-amenity-golden.mjs",

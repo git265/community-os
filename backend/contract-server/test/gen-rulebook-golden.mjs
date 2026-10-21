@@ -50,7 +50,7 @@ fs.mkdirSync(path.join(OUT, 'test/resources/rulebook'), { recursive: true });
 fs.writeFileSync(path.join(OUT, 'main/resources/rulebook/default-roles.json'), JSON.stringify(roles));
 fs.writeFileSync(path.join(OUT, 'main/resources/rulebook/default-schemas.json'), JSON.stringify(schemas));
 fs.writeFileSync(path.join(OUT, 'main/resources/rulebook/constants.json'), JSON.stringify({
-  maxBytes: MAX_BYTES, allowedExtensions: ALLOWED_TYPES.flatMap((t) => t.ext), utilityTypes: DEFAULT_UTILITY_TYPES.map((u) => u.name), builtInDocGroups: BUILT_IN_DOC_GROUPS,
+  maxBytes: MAX_BYTES, allowedExtensions: ALLOWED_TYPES.flatMap((t) => t.ext), allowedTypes: ALLOWED_TYPES.map((t) => ({ mime: t.mime, magic: t.magic || null })), utilityTypes: DEFAULT_UTILITY_TYPES.map((u) => u.name), builtInDocGroups: BUILT_IN_DOC_GROUPS,
   collections: ALL,
   shortPrefixes: Object.fromEntries(ALL.map((c) => [c, shortPrefix(c)])),   // TKT, DUE, LED ... the letters in front of a record's short number
 }));
@@ -73,8 +73,20 @@ const fx = {
     { id: 't5', shortId: 'TKT-1055', unit: U1, taskType: 'EC task', status: 'Closed', scope: 'Unit', createdBy: 'Treasurer', createdByRole: 'treasurer', financial: true, ecApproval: 'Approved', ecApprovedBy: 'President', treasurerApproval: 'Approved' },
     { id: 't6', shortId: 'TKT-1056', unit: U1, taskType: 'EC task', status: 'Open', scope: 'Unit', createdBy: 'Treasurer', createdByRole: 'treasurer', financial: true, ecApproval: 'Pending', treasurerApproval: 'Pending',
       plan: JSON.stringify({ version: 1, steps: [{ id: 's1', name: 'EC', approvers: [{ kind: 'group', value: 'EC members' }], needed: 1, canFinish: true, decisions: [] }, { id: 's2', name: 'Final', approvers: [{ kind: 'group', value: 'Final approvers' }], needed: 1, decisions: [] }], overrides: [] }) },
+    // r77: a trade worker sees their trade's queue (not internal tasks) and what is assigned to them or their crew
+    { id: 't7', shortId: 'TKT-1057', unit: U1, taskType: 'EC task', status: 'Open', scope: 'Unit', createdBy: 'FM', createdByRole: 'facility_manager', category: 'Plumbing', assignedTo: 'Vendor' },
+    { id: 't8', shortId: 'TKT-1058', unit: U2, taskType: 'Plumbing', status: 'Assigned', scope: 'Unit', createdBy: 'Chitra', createdByRole: 'owner', category: 'Electrical', assignedTo: 'Handyman · Plumbing P' },
+    { id: 't10', shortId: 'TKT-1060', unit: U1, taskType: 'Plumbing', status: 'Open', scope: 'Unit', category: 'Plumbing', priority: 'Medium', title: 'Tap', description: 'x' },
+    { id: 't9', shortId: 'TKT-1059', unit: U2, taskType: 'Plumbing', status: 'Assigned', scope: 'Unit', createdBy: 'Chitra', createdByRole: 'owner', category: 'Carpentry', assignedTo: 'Ravi' },
   ],
-  ticketComments: [{ id: 'c1', ticketId: 't1', visibility: 'Public', text: 'hi' }, { id: 'c2', ticketId: 't1', visibility: 'Internal', text: 'x' }, { id: 'c3', ticketId: 't2', visibility: 'Public', text: 'y' }],
+  handymen: [{ id: 'hm1', name: 'Ravi', trade: 'Electrical', shift: 'Morning', phone: '1', clockedIn: true }, { id: 'hm2', name: 'Mani', trade: 'Plumbing', shift: 'Morning', phone: '2', clockedIn: false }],
+  notifications: [
+    { id: 'n1', toName: 'Asha', title: 'a' }, { id: 'n2', toUnit: U1, title: 'b' }, { id: 'n3', toUnit: U2, title: 'c' }, { id: 'n4', toRoleIds: ['facility_manager', 'treasurer'], title: 'd' },
+    { id: 'n5', toName: 'FM', toUnit: U1, title: 'e' }, { id: 'n6', title: 'f' }, { id: 'n7', toRoleIds: ['owner'], title: 'g' },
+  ],
+  notificationPrefs: [{ id: 'np1', userName: 'Asha', sms: true }, { id: 'np2', userName: 'FM', email: true }, { id: 'np3', userName: '', sms: false }],
+  unitCredits: [{ id: 'uc1', unit: U1, amount: 100 }, { id: 'uc2', unit: U2, amount: 50 }],
+  ticketComments: [{ id: 'c1', ticketId: 't1', visibility: 'Public', text: 'hi' }, { id: 'c2', ticketId: 't1', visibility: 'Internal', text: 'x' }, { id: 'c3', ticketId: 't2', visibility: 'Public', text: 'y' }, { id: 'c4', ticketId: 't8', visibility: 'Internal', text: 'z' }, { id: 'c5', ticketId: 't7', visibility: 'Public', text: 'w' }],
   dues: [
     { id: 'd1', shortId: 'DUE-0001', unit: U1, category: 'Maintenance', amount: 1000, status: 'Open', dueDate: '2026-11-10' },
     { id: 'd2', shortId: 'DUE-0002', unit: U2, category: 'Water bill', amount: 300, status: 'Open', readingId: 'r1', dueDate: '2026-11-10' },
@@ -113,6 +125,7 @@ const fx = {
   broadcasts: [
     { id: 'br1', status: 'Sent', audience: 'All residents', title: 'A' }, { id: 'br2', status: 'Sent', audience: 'Owners', title: 'B' }, { id: 'br3', status: 'Draft', audience: 'All residents', title: 'C' },
     { id: 'br4', status: 'Sent', audience: 'Selected villas', audienceUnits: [U1], title: 'D' }, { id: 'br5', status: 'Sent', audience: 'EC members', title: 'E' }, { id: 'br6', status: 'Sent', audience: 'All villas', title: 'F' },
+    { id: 'br7', status: 'Sent', audience: 'All residents', subject: 'AGM', signedBy: 'Bala', viewed: 2, recipients: 4 },
   ],
   voteRoll: [{ id: 'vr1', unit: U1, owner: 'Asha', ballotId: 'bl1' }],
   pollVotes: [{ id: 'pv1', unit: U1, voter: 'Asha', pollId: 'x' }, { id: 'pv2', unit: U2, voter: 'Chitra', pollId: 'x' }],
@@ -127,7 +140,7 @@ const fx = {
   culturalPrograms: [{ id: 'cp1', eventId: 'e1', participants: [{ name: 'Asha', unit: U1, phone: '1' }], capacity: 3 }, { id: 'cp2', eventId: 'e2', participants: [], capacity: 0 }],
   culturalSevas: [{ id: 'cs1', eventId: 'e1', volunteers: [{ name: 'Asha', unit: U1, phone: '1' }], needed: 2 }, { id: 'cs2', eventId: 'e2', volunteers: [], needed: 0 }],
   culturalOfferings: [{ id: 'co1', eventId: 'e1', kind: 'Fixed slot', reservedUnit: '' }, { id: 'co2', eventId: 'e1', kind: 'Fixed slot', reservedUnit: U1 }, { id: 'co3', eventId: 'e2', kind: 'Pool' }],
-  culturalDonations: [{ id: 'cd1', unit: U1, status: 'Pledged', amount: 100, donor: 'Asha' }, { id: 'cd2', unit: U2, status: 'Received', amount: 200, receiptNo: 'R1' }],
+  culturalDonations: [{ id: 'cd1', unit: U1, status: 'Pledged', amount: 100, donor: 'Asha' }, { id: 'cd2', unit: U2, status: 'Received', amount: 200, receiptNo: 'R1' }, { id: 'dn1', eventId: 'e1', unit: U1, amount: 100, status: 'Pledged', donor: 'Asha' }],
   culturalExpenses: [
     { id: 'ce1', eventId: 'e1', item: 'Flowers', amount: 100, status: 'Pending approval', ecApproval: 'Pending', recordCreatedBy: 'Treasurer T' },
     { id: 'ce2', eventId: 'e1', item: 'Lights', amount: 100, status: 'Approved', ecApproval: 'Approved', recordCreatedBy: 'Treasurer T' },
@@ -135,7 +148,7 @@ const fx = {
   ],
   culturalPhotos: [{ id: 'ph1', eventId: 'e1', uploadedBy: 'Asha', caption: 'x' }, { id: 'ph2', eventId: 'e1', uploadedBy: 'Chitra', caption: 'y' }],
   gatePeople: [{ id: 'gp1', status: 'Active', invitedByUnit: '' }, { id: 'gp2', status: 'Invited', invitedByUnit: U1 }, { id: 'gp3', status: 'Under review', invitedByUnit: U2 }, { id: 'gp4', status: 'Documents pending', invitedByUnit: U1 }],
-  gateLinks: [{ id: 'gl1', unit: U1 }, { id: 'gl2', unit: U2 }], gatePasses: [{ id: 'gs1', unit: U1 }, { id: 'gs2', unit: U2 }], gateVisits: [{ id: 'gv1', unit: U1 }, { id: 'gv2', unit: U2 }],
+  gateLinks: [{ id: 'gl1', unit: U1 }, { id: 'gl2', unit: U2 }], gatePasses: [{ id: 'gs1', unit: U1 }, { id: 'gs2', unit: U2 }, { id: 'gs3', unit: U1, status: 'Used', usedCount: 1 }], gateVisits: [{ id: 'gv1', unit: U1 }, { id: 'gv2', unit: U2 }],
   gateApprovals: [{ id: 'ga1', unit: U1, status: 'Pending' }, { id: 'ga2', unit: U2, status: 'Pending' }, { id: 'ga3', unit: U1, status: 'Approved' }], gateVehicles: [{ id: 'gh1', unit: U1 }, { id: 'gh2', unit: U2 }],
   gateVillaRules: [{ id: 'gr1', unit: U1 }, { id: 'gr2', unit: U2 }], gatePassTemplates: [{ id: 'gt1', unit: '' }, { id: 'gt2', unit: U1 }, { id: 'gt3', unit: U2 }],
   gateFlags: [{ id: 'gf1', status: 'Open' }], gateScans: [{ id: 'gc1' }], gateWorkOrders: [{ id: 'gw1', status: 'Open' }], gateSettings: [{ id: 'gse1' }],
@@ -143,10 +156,12 @@ const fx = {
   audit: [{ id: 'ad1', unit: U1, action: 'Update', who: 'x', when: '2026-10-01T00:00:00Z' }, { id: 'ad2', unit: U2, action: 'Update', who: 'y' }, { id: 'ad3', unit: '', action: 'Create', who: 'z' }],
   serviceContacts: [{ id: 'sc1', status: 'Active', addedBy: 'Asha', name: 'Plumber' }, { id: 'sc2', status: 'Hidden', addedBy: 'Chitra', name: 'Bad' }],
   contactReviews: [{ id: 'cr1', author: 'Asha', rating: 4, contactId: 'sc1' }, { id: 'cr2', author: 'Chitra', rating: 2, contactId: 'sc1' }],
-  forum: [{ id: 'fo1', title: 'Topic', replies: [], pollOptions: [], voters: [], author: 'Asha' }],
+  forum: [{ id: 'fo1', title: 'Topic', replies: [], pollOptions: [], voters: [], author: 'Asha' },
+    { id: 'fo2', title: 'Poll', kind: 'Poll', replies: 3, pinned: false, status: 'Open', pollOptions: [{ label: 'Yes', votes: 1 }, { label: 'No', votes: 0 }], voters: ['Chitra'] }],
   forumPosts: [{ id: 'fp1', author: 'Asha', authorRoleId: 'owner', topicId: 'fo1', reactions: {} }, { id: 'fp2', author: 'Chitra', authorRoleId: 'owner', topicId: 'fo1', reactions: {} }],
   wishes: [{ id: 'w1', raisedBy: 'Asha', status: 'Submitted', votes: [U2], title: 'Pool' }, { id: 'w2', raisedBy: 'Chitra', status: 'Done', votes: [], title: 'Gym' }],
-  attendance: [{ id: 'at1', staffName: 'FM', clockIn: '2026-10-19T03:00:00Z', clockOut: '', source: 'Self' }, { id: 'at2', staffName: 'Guard', clockIn: '2026-10-19T03:00:00Z', clockOut: '2026-10-19T11:00:00Z', source: 'Self' }],
+  attendance: [{ id: 'at1', staffName: 'FM', clockIn: '2026-10-19T03:00:00Z', clockOut: '', source: 'Self' }, { id: 'at2', staffName: 'Guard', clockIn: '2026-10-19T03:00:00Z', clockOut: '2026-10-19T11:00:00Z', source: 'Self' },
+    { id: 'at3', staffName: 'Handyman · Plumbing P', clockIn: '2026-10-19T11:58:00Z', clockOut: '', source: 'Self' }],
   userProfiles: [{ id: 'up1', userName: 'Asha', bio: 'x' }, { id: 'up2', userName: 'Chitra', bio: 'y' }],
   readings: [{ id: 'rd1', status: 'Draft' }, { id: 'rd2', status: 'Published' }],
   quotations: [
@@ -172,6 +187,7 @@ const fx = {
     { id: 'fl13', name: 'g.pdf', ownerType: 'ledger', ownerId: 'l1', size: 100 }, { id: 'fl14', name: 'h.pdf', ownerType: 'reading', ownerId: 'r1', size: 100 }, { id: 'fl15', name: 'i.pdf', ownerType: 'meeting', size: 100 },
     { id: 'fl16', name: 'j.jpg', ownerType: 'culturalBrochure', ownerId: 'e1', size: 100 }, { id: 'fl17', name: 'k.jpg', ownerType: 'amenityDeposit', ownerId: 'b1', size: 100 }, { id: 'fl18', name: 'x.exe', ownerType: 'ticket', ownerId: 't1', size: 100 },
     { id: 'fl19', name: 'big.pdf', ownerType: 'ticket', ownerId: 't1', size: 99999999 },
+    { id: 'fl20', name: 'l.jpg', ownerType: 'ticket', ownerId: 't8', size: 100 }, { id: 'fl21', name: 'm.jpg', ownerType: 'ticketInternal', ownerId: 't8', size: 100 }, { id: 'fl22', name: 'n.jpg', ownerType: 'ticket', ownerId: 't7', size: 100 },
   ],
   approverSettings: [{ id: 'ap1', roles: ['treasurer', 'president'] }], financeSettings: [{ id: 'fs1', finalCanDecideEC: true }],
 };
@@ -232,13 +248,15 @@ const mutations = (row) => {
   out.push(['_probe', 'x']);
   return out;
 };
-const tuples = [];   // writes: [principal, collection, ctx, op, rowIdx, key, valueJson, ok, reason, blockOk]
+const tuples = [];   // writes: [principal, collection, ctx, op, rowIdx, key, valueJson, ok, reason, blockOk, prepared]
 const reads = [];    // reads:  [principal, collection, canRead, canWrite, hidden[], scopeSql|null, hasPredicate, keptRowsCanonJson, maskedAllRowsCanonJson]
 
+// collections outside COLLECTIONS that are scoped and guarded too (the in-app bell)
+const READ_ONLY = new Set([authz.IN_APP_NOTIFICATIONS]);
 const { setSecondStepRoles, setFinalCanDecideEC } = authz;
 for (let pi = 0; pi < principals.length; pi += 1) {
   const p = principals[pi];
-  for (const c of ALL) {
+  for (const c of [...ALL, ...READ_ONLY]) {
     const schema = schemaOf(c);
     const rows = fx[c];
     // ---- reads
@@ -260,12 +278,15 @@ for (let pi = 0; pi < principals.length; pi += 1) {
         const old = ri == null || op === 'create' ? null : clone(rows[ri]);
         let next = op === 'create' ? clone(rows[ri ?? 0] || { id: 'new' }) : op === 'delete' ? clone(old ?? {}) : clone(old);
         if (op === 'create') { next.id = 'new-1'; delete next.shortId; delete next.recVersion; }
-        if (key != null) next[key] = clone(val);
+        if (key === '*') Object.assign(next, clone(val)); else if (key != null) next[key] = clone(val);
         let v;
         try { v = authz.authorizeWrite({ collection: c, p, schema, old, next, op }); } catch (e) { v = { ok: false, reason: `THROWS:${e.message}` }; }
         let bo;
         try { bo = await authz.blockWriteOk(c, op === 'delete' ? old : next, old, p, readRaw); } catch (e) { bo = null; }
-        tuples.push([pi, c, vi, op, ri == null ? -1 : ri, key, key == null ? 0 : JSON.stringify(val), v.ok ? 1 : 0, v.ok ? 0 : v.reason, bo ? 1 : 0]);
+        // r77: what the server would actually save (prepareWrite: scope, hidden fields, identity) - the reason, or a fingerprint of the record
+        let pw;
+        try { const r = authz.prepareWrite({ collection: c, p, schema, old, next, op, scope }); const st = r.ok ? authz.staysInScope({ collection: c, p, old, record: r.record, op, scope }) : r; pw = r.ok && st.ok ? `=${crypto.createHash('sha1').update(canon(r.record)).digest('hex').slice(0, 16)}` : `!${(r.ok ? st : r).reason}`; } catch (e) { pw = `THROWS:${e.message}`; }
+        tuples.push([pi, c, vi, op, ri == null ? -1 : ri, key, key == null ? 0 : JSON.stringify(val), v.ok ? 1 : 0, v.ok ? 0 : v.reason, bo ? 1 : 0, pw]);
       };
       if (rows.length === 0) { await push('create', null, null); continue; }
       await push('create', 0, null);
@@ -275,6 +296,42 @@ for (let pi = 0; pi < principals.length; pi += 1) {
         for (const [k, v] of mutations(rows[ri])) await push('update', ri, k, v);
       }
     }
+  }
+}
+
+// ---- hand-written tampering cases (r77): several fields at once, for every principal ('*' = merge this patch into the record)
+const CASES = [
+  ['forum', 'update', 'fo2', { replies: 5 }], ['forum', 'update', 'fo2', { replies: 2 }], ['forum', 'update', 'fo2', { replies: -1 }],
+  ['forum', 'update', 'fo2', { pollOptions: [{ label: 'Yes', votes: 2 }, { label: 'No', votes: 0 }], voters: ['Chitra', 'Asha'] }],
+  ['forum', 'update', 'fo2', { pollOptions: [{ label: 'Yes', votes: 1 }, { label: 'No', votes: 1 }], voters: ['Chitra', 'Chitra'] }],
+  ['forum', 'update', 'fo2', { pollOptions: [{ label: 'Yes', votes: 11 }, { label: 'No', votes: 0 }], voters: ['Chitra', 'Asha'] }],
+  ['forum', 'update', 'fo2', { pollOptions: [{ label: 'Yes!', votes: 1 }, { label: 'No', votes: 1 }], voters: ['Chitra', 'Asha'] }],
+  ['forum', 'create', 'fo2', { replies: 0, voters: [], pollOptions: [{ label: 'Yes', votes: 0 }], pinned: false, status: 'Open' }],
+  ['broadcasts', 'update', 'br7', { signedBy: 'Bala, Asha' }], ['broadcasts', 'update', 'br7', { signedBy: '' }], ['broadcasts', 'update', 'br7', { signedBy: 'Bala, Zed' }], ['broadcasts', 'update', 'br7', { viewed: 9 }],
+  ['attendance', 'update', 'at3', { clockOut: '2026-10-19T12:00:00Z', hours: 0.03 }], ['attendance', 'update', 'at3', { clockOut: '2026-10-19T12:00:00Z', hours: 5 }],
+  ['attendance', 'update', 'at3', { clockOut: '2026-10-19T09:00:00Z', hours: 0 }], ['attendance', 'create', 'at3', { clockIn: '2026-10-19T12:01:00Z' }], ['attendance', 'create', 'at3', { clockIn: '2026-10-19T08:00:00Z' }],
+  ['tickets', 'create', 't10', {}], ['tickets', 'create', 't10', { status: 'Completed' }], ['tickets', 'create', 't10', { priority: 'Ultra' }], ['tickets', 'create', 't10', { affectedUnits: [U2] }],
+  ['tickets', 'create', 't10', { residentRating: 4 }], ['tickets', 'create', 't10', { hack: 1 }], ['tickets', 'create', 't10', { slaDueAt: '2020-01-01' }], ['tickets', 'create', 't10', { financial: true, ecApproval: 'Approved', createdBy: 'Chitra' }],
+  ['gatePasses', 'update', 'gs1', { usedCount: 2 }], ['gatePasses', 'update', 'gs1', { status: 'Used' }], ['gatePasses', 'update', 'gs3', { status: 'Active' }], ['gatePasses', 'create', 'gs1', { usedCount: 3 }],
+  ['culturalDonations', 'create', 'dn1', {}], ['culturalDonations', 'create', 'dn1', { gatewayRef: 'pay_1' }], ['culturalDonations', 'create', 'dn1', { confirmedBy: 'T' }], ['culturalDonations', 'create', 'dn1', { receiptNo: 'R9' }],
+  ['notifications', 'update', 'n2', { read: true }], ['notifications', 'update', 'n2', { read: true, title: 'zz' }], ['notifications', 'create', 'n2', { link: 'https://x.example' }],
+  ['notifications', 'create', 'n2', { link: '#/billing' }], ['notifications', 'create', 'n2', { link: '#javascript:x' }],
+  ['forum', 'update', 'fo2', { voters: ['Chitra', 'Asha'] }], ['notifications', 'create', 'n2', { read: true }], ['notifications', 'delete', 'n2', {}],
+];
+for (let pi = 0; pi < principals.length; pi += 1) {
+  const p = principals[pi];
+  setSecondStepRoles(CTX_VARIANTS[0].second); setFinalCanDecideEC(true);
+  for (const [c, op, rowId, patch] of CASES) {
+    const rows = fx[c]; const ri = rows.findIndex((r) => r.id === rowId); const schema = schemaOf(c);
+    const scope = await authz.rowScope(c, p, readRaw);
+    const old = op === 'create' ? null : clone(rows[ri]);
+    const next = op === 'create' ? clone(rows[ri]) : clone(old);
+    if (op === 'create') { next.id = 'new-1'; delete next.shortId; delete next.recVersion; }
+    if (op !== 'delete') Object.assign(next, clone(patch));
+    let v; try { v = authz.authorizeWrite({ collection: c, p, schema, old, next, op }); } catch (e) { v = { ok: false, reason: `THROWS:${e.message}` }; }
+    let bo; try { bo = await authz.blockWriteOk(c, op === 'delete' ? old : next, old, p, readRaw); } catch (e) { bo = null; }
+    let pw; try { const r = authz.prepareWrite({ collection: c, p, schema, old, next, op, scope }); const st = r.ok ? authz.staysInScope({ collection: c, p, old, record: r.record, op, scope }) : r; pw = r.ok && st.ok ? `=${crypto.createHash('sha1').update(canon(r.record)).digest('hex').slice(0, 16)}` : `!${(r.ok ? st : r).reason}`; } catch (e) { pw = `THROWS:${e.message}`; }
+    tuples.push([pi, c, 0, op, ri, '*', JSON.stringify(op === 'delete' ? {} : patch), v.ok ? 1 : 0, v.ok ? 0 : v.reason, bo ? 1 : 0, pw]);
   }
 }
 

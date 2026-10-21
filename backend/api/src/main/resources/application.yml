@@ -1,0 +1,52 @@
+# CommunityOS API v2. Secrets are read from the environment (COS_*), which production fills from the secret manager.
+spring:
+  application.name: communityos-api
+  threads.virtual.enabled: true              # Java 21 virtual threads: a request waiting on the database or a provider holds no platform thread
+  main.banner-mode: off
+  jackson.deserialization.fail-on-unknown-properties: true
+  flyway:                                     # migrations run as the schema OWNER; the two runtime roles cannot change the schema
+    url: ${COS_DB_URL:jdbc:postgresql://localhost:5432/communityos}
+    user: ${COS_DB_OWNER_USER:cos_owner}
+    password: ${COS_DB_OWNER_PASSWORD:}
+    locations: classpath:db/migration
+  mvc.problemdetails.enabled: true
+
+server:
+  port: ${PORT:8080}
+  forward-headers-strategy: framework         # the real client address behind the load balancer (rate limits, audit)
+  compression: { enabled: true, mime-types: application/json, min-response-size: 2048 }
+  http2.enabled: true
+  tomcat: { max-swallow-size: 1MB, max-http-form-post-size: 1MB }
+  error.include-stacktrace: never
+
+cos:
+  db:
+    app:      { url: "${COS_DB_URL:jdbc:postgresql://localhost:5432/communityos}", username: "${COS_DB_APP_USER:cos_app}", password: "${COS_DB_APP_PASSWORD:}", max-pool-size: 20 }
+    platform: { url: "${COS_DB_URL:jdbc:postgresql://localhost:5432/communityos}", username: "${COS_DB_PLATFORM_USER:cos_platform}", password: "${COS_DB_PLATFORM_PASSWORD:}", max-pool-size: 8 }
+  auth:
+    issuer: ${COS_AUTH_ISSUER:https://api.communityos.app}
+    audience: communityos-app
+    access-ttl: 10m
+    refresh-ttl: 30d
+    caller-cache-ttl: 30s
+    otp-pepper: ${COS_OTP_PEPPER:}
+    otp-sender: ${COS_OTP_SENDER:sms}
+    signing-key-pem: ${COS_JWT_SIGNING_KEY:}
+    key-id: ${COS_JWT_KEY_ID:k1}
+    sms: { endpoint: "${COS_SMS_ENDPOINT:}", api-key: "${COS_SMS_API_KEY:}", template-id: "${COS_SMS_TEMPLATE:}", sender-id: "${COS_SMS_SENDER:COSAPP}" }
+  payments:
+    default-provider: ${COS_PAYMENTS_PROVIDER:razorpay}
+    order-ttl: 30m
+    currency: INR
+    razorpay: { enabled: "${COS_RAZORPAY_ENABLED:false}", key-id: "${COS_RAZORPAY_KEY_ID:}", key-secret: "${COS_RAZORPAY_KEY_SECRET:}", webhook-secret: "${COS_RAZORPAY_WEBHOOK_SECRET:}" }
+  web:
+    allowed-origins: ${COS_ALLOWED_ORIGINS:https://app.communityos.app}
+    time-zone: Asia/Kolkata
+
+management:
+  endpoints.web.exposure.include: health,info,prometheus
+  endpoint.health.probes.enabled: true
+  metrics.distribution.percentiles-histogram.http.server.requests: true
+
+springdoc:
+  api-docs.path: /v3/api-docs

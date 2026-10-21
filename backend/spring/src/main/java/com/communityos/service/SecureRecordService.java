@@ -36,6 +36,7 @@ import com.communityos.security.Schema;
 import com.communityos.security.Verdict;
 import com.communityos.security.WriteCall;
 import com.communityos.security.WriteRules;
+import com.communityos.security.WritePrep;
 import com.communityos.service.audit.AuditDiff;
 import com.communityos.service.audit.AuditTrail;
 import com.communityos.service.audit.RecordTrail;
@@ -141,6 +142,8 @@ public class SecureRecordService {
     public Principal principal(String community, Authentication who) { return caller(community, who).p(); }
     public boolean canRead(String community, Authentication who, String collection) { Caller c = caller(community, who); return ReadRules.canRead(collection, c.p()); }
     public boolean canWrite(String community, Authentication who, String collection) { Caller c = caller(community, who); return rules.canWriteCollection(collection, c.p()); }
+    /** May replace the bytes of a saved file: the Super Admin and document managers (the same rule as editing a file record). */
+    public boolean mayManageFiles(String community, Authentication who) { Principal p = caller(community, who).p(); return Perms.isAdmin(p) || Perms.has(p, "MANAGE_DOCUMENTS"); }
 
     // ---- reads -------------------------------------------------------------------------------------------------------------
 
@@ -301,6 +304,7 @@ public class SecureRecordService {
     private void bulkGuard(Caller c, String collection, String op, JsonNode first) {
         if ("amenities".equals(collection)) throw denied(c, collection, op, first, "Amenity bookings are made and changed one at a time, so each one is priced and checked.");
         if (EVotingGuard.covers(collection)) throw denied(c, collection, op, first, "Ballots, voter-roll marks and votes are written one at a time, so each one is checked.");
+        if (NO_BULK.contains(collection)) throw denied(c, collection, op, first, "These records are saved one at a time");
     }
 
     private String builtInRefusal(RawReader raw, String collection, JsonNode record, JsonNode old, String op) {
@@ -308,6 +312,72 @@ public class SecureRecordService {
         if (MoneyGuard.covers(collection)) why = MoneyGuard.preWrite(collection, record, old, op, new MoneyGuard.Lists(raw::read));
         else if (PollRules.covers(collection) && !"delete".equals(op)) why = PollRules.preWrite(record, raw);   // one answer per villa
         return why.isEmpty() ? null : why;
+    }
+
+    // ---- r77: one set of write checks for single and bulk writes (checkWrite in secureStorage.js) ------------------------------------
+    private record Checked(ObjectNode record, RowScope scope) {}
+    /** A record that points at another one may only point at one the caller can see. */
+    private static final Map<String, String[]> PARENTS = Map.of(
+            "ticketComments", new String[]{"ticketId", "tickets"}, "contactReviews", new String[]{"contactId", "serviceContacts"},
+            "forumPosts", new String[]{"topicId", "forum"}, "culturalPhotos", new String[]{"eventId", "culturalEvents"},
+            "culturalDonations", new String[]{"eventId", "culturalEvents"}, "pollVotes", new String[]{"broadcastId", "broadcasts"},
+            "gateLinks", new String[]{"personId", "gatePeople"}, "quotations", new String[]{"ticketId", "tickets"});
+    /** Bulk writes skip the per-record server steps (prices, votes, ticket rules, money): these collections are saved one record at a time. */
+    private static final Set<String> NO_BULK = Set.of("amenities", "ballots", "voteRoll", "ballotBox", "pollVotes", "meetings", "tickets", "ticketComments", "releases", "ledger", "quotations", "files", "notifications");
+
+    private RowScope writeScope(Caller c, String collection, RawReader raw) { return Perms.isAdmin(c.p()) ? RowScope.ALL : RowScopes.rowScope(collection, c.p(), raw, c.meta().ctx()); }
+
+    private boolean parentVisible(Caller c, String collection, JsonNode record, JsonNode old, RawReader raw) {
+        String[] ref = PARENTS.get(collection);
+        if (ref == null || Perms.isAdmin(c.p())) return true;
+        JsonNode idNode = Js.f(record, ref[0]);
+        if (!Js.truthy(idNode) || (old != null && !Js.differs(Js.f(old, ref[0]), idNode))) return true;   // not pointing anywhere new
+        if (!ReadRules.canRead(ref[1], c.p())) return false;
+        String pid = Js.str(idNode);
+        JsonNode parent = raw.read(ref[1]).stream().filter((r) -> Js.is(r, "id", pid)).findFirst().orElse(null);
+        if (parent == null) return false;
+        RowScope sc = RowScopes.rowScope(ref[1], c.p(), raw, c.meta().ctx());
+        return sc.predicate() == null || sc.predicate().test(parent);
+    }
+
+    /** prepare -> authorize -> blocks -> closed books -> money -> parent: a refusal is thrown (and audited); returns the record to save. */
+    private Checked checkWrite(Caller c, String collection, JsonNode record, JsonNode old, String op, Schema schema, RawReader raw) {
+        Principal p = c.p();
+        String verb = "create".equals(op) ? "Create" : "delete".equals(op) ? "Delete" : "Update";
+        JsonNode subject = old != null ? old : record;
+        RowScope scope = writeScope(c, collection, raw);
+        WritePrep.Prepared prep = WritePrep.prepare(collection, p, schema, old, record, op, scope);
+        if (!prep.ok()) throw denied(c, collection, verb, subject, prep.reason());
+        ObjectNode rec = prep.record() != null && prep.record().isObject() ? (ObjectNode) prep.record() : json.createObjectNode();
+        JsonNode judged = "delete".equals(op) ? (old != null ? old : json.createObjectNode()) : rec;
+        Verdict v = rules.authorize(new WriteCall(collection, p, schema, old, judged, op, c.meta().ctx()));
+        if (!v.ok()) throw denied(c, collection, verb, old != null ? old : rec, v.reason());
+        String stays = WritePrep.staysInScope(collection, p, old, rec, op, scope);
+        if (stays != null) throw denied(c, collection, verb, old != null ? old : rec, stays);
+        JsonNode target = "delete".equals(op) ? old : rec;
+        if (!BlockScope.writeOk(collection, target, old, p, raw)) throw denied(c, collection, verb, old != null ? old : rec, "This unit is outside the blocks you manage");
+        String locked = PeriodLock.error(c.meta().lockedUntil(), collection, target, old);
+        if (locked != null) throw denied(c, collection, verb, old != null ? old : rec, locked);
+        String money = builtInRefusal(raw, collection, target, old, op);
+        if (money != null) throw denied(c, collection, verb, old != null ? old : rec, money);
+        if (!"delete".equals(op) && !parentVisible(c, collection, rec, old, raw)) throw denied(c, collection, verb, rec, "That record is not yours to add to");
+        return new Checked(rec, scope);
+    }
+
+    private JsonNode shapeFor(Caller c, String collection, Schema schema, RowScope scope, JsonNode r) { return WritePrep.shapeForReader(r, collection, c.p(), schema, scope); }
+
+    private static ObjectNode withoutMeta(JsonNode r) { ObjectNode o = ((ObjectNode) r).deepCopy(); for (String k : RowScopes.META_KEYS) if (!k.equals("id")) o.remove(k); return o; }
+
+    /** A resident's new request: the server decides the type, the first assignee and the starting values (residentTicketStart). */
+    private ObjectNode residentTicketStart(Caller c, ObjectNode record, RawReader raw) {
+        JsonNode tt = taskType(c.community(), Js.str(record, "taskType"));
+        if (!(Js.is(tt, "creatorScope", "Resident") || Js.truthy(tt, "residentDefault"))) throw denied(c, "tickets", "Create", record, "Raise this request with a resident request type");
+        List<JsonNode> team = raw.read("handymen").stream().filter((h) -> !Js.differs(Js.f(h, "trade"), Js.f(record, "category"))).toList();
+        JsonNode who = team.size() == 1 && Js.truthy(team.get(0), "clockedIn") ? team.get(0) : null;   // pickAssignee: only one person on the trade, and on duty
+        ObjectNode out = record.deepCopy();
+        out.put("status", who != null ? "Assigned" : "Open").put("assignedTo", who != null ? Js.str(who, "name") : "")
+           .put("paymentStatus", "Not Paid").put("awaitingParts", false).put("materialsCost", 0).put("residentRating", 0);
+        return out;
     }
 
     public JsonNode put(String community, Authentication who, String collection, JsonNode body, WriteOptions opts) {
@@ -332,13 +402,12 @@ public class SecureRecordService {
         if (old != null && record.hasNonNull("recVersion") && old.hasNonNull("recVersion")
                 && Js.toNumber(record.get("recVersion")) != Js.toNumber(old.get("recVersion")) && checkVersion) throw new ConflictException(old);
 
-        Verdict verdict = rules.authorize(new WriteCall(collection, p, schema, old, record, op, c.meta().ctx()));
-        if (!verdict.ok()) throw denied(c, collection, opWord, record, verdict.reason());
-        if (!BlockScope.writeOk(collection, record, old, p, raw(c))) throw denied(c, collection, opWord, record, "This unit is outside the blocks you manage");
-        String locked = PeriodLock.error(c.meta().lockedUntil(), collection, record, old);
-        if (locked != null) throw denied(c, collection, opWord, record, locked);
-        String money = builtInRefusal(raw(c), collection, record, old, op);
-        if (money != null) throw denied(c, collection, opWord, record, money);
+        // r77: what the caller may write is decided here (scope, hidden fields, identity), then authorised; money rules apply to everyone
+        RawReader rr = raw(c);
+        Checked checked = checkWrite(c, collection, record, old, op, schema, rr);
+        record = checked.record();
+        final RowScope writeScope = checked.scope();
+        if ("tickets".equals(collection) && isNew && Perms.isResident(p)) record = residentTicketStart(c, record, rr);
         // e-voting: eligibility, the second factor, immutability and the sealed, hash-chained box. For everyone, the Super Admin included.
         if (EVotingGuard.covers(collection)) {
             if (!"ballots".equals(collection) && Js.truthy(record, "ballotId") && record.get("ballotId").isTextual())
@@ -373,7 +442,7 @@ public class SecureRecordService {
         incoming.put("id", id);
         for (String k : RowScopes.META_KEYS) if (!k.equals("id")) incoming.remove(k);
         ArrayNode changes = isNew ? AuditDiff.snapshot(json, incoming, schema, "create") : AuditDiff.diff(json, old, incoming, schema);
-        if (!isNew && changes.isEmpty()) return old;                 // nothing changed: no write, no audit noise
+        if (!isNew && changes.isEmpty()) return shapeFor(c, collection, schema, writeScope, old);   // nothing changed: no write, no audit noise
 
         String shortId = old != null && Js.truthy(old, "shortId") ? Js.str(old, "shortId") : nextShortId(t, collection);
         ObjectNode stamped = incoming.deepCopy();
@@ -404,7 +473,7 @@ public class SecureRecordService {
         }
         notifyAfterSave(t, collection, old, stamped, p);
         if (META_WATCHED.contains(collection)) metas.invalidate(c.community());
-        return saved;
+        return shapeFor(c, collection, schema, writeScope, saved);   // the reply is the record as the caller may read it
     }
 
     /**
@@ -458,6 +527,17 @@ public class SecureRecordService {
         if (!"tickets".equals(collection)) return;
         String t = c.community();
         JsonNode assigned = Js.f(record, "assignedTo");
+        Principal p = c.p();
+        // a trade worker hands a ticket only to themselves or a colleague of the same trade (or back to the queue)
+        if (old != null && p.roleId() != null && p.roleId().startsWith("handyman_") && !"handyman_mep".equals(p.roleId()) && Js.truthy(assigned)
+                && !Changes_orEmpty(record, "assignedTo").equals(Changes_orEmpty(old, "assignedTo"))) {
+            String name = p.role() == null || p.role().name() == null ? "" : p.role().name();
+            String[] parts = name.split("·", -1);
+            String trade = parts.length > 1 ? Js.trim(parts[1]) : "";
+            Set<String> crew = new LinkedHashSet<>(); if (p.name() != null) crew.add(p.name());
+            if (!trade.isEmpty()) for (JsonNode h : repo.list(t, "handymen")) if (Js.is(h, "trade", trade)) crew.add(Js.str(h, "name"));
+            if (!crew.contains(Js.str(assigned))) throw denied(c, collection, opWord, record, "Hand the ticket to yourself or a colleague of your trade");
+        }
         if (isNew && !Js.truthy(assigned)) {
             JsonNode tt = taskType(t, Js.str(record, "taskType"));
             if (Js.is(tt, "creatorScope", "EC / Staff")) throw denied(c, collection, "Create", record, "Assigned to is required");
@@ -491,6 +571,8 @@ public class SecureRecordService {
         }
     }
 
+    private static String Changes_orEmpty(JsonNode rec, String key) { JsonNode v = Js.f(rec, key); return Js.truthy(v) ? Js.str(v) : ""; }
+
     private JsonNode taskType(String tenant, String name) {
         for (JsonNode tt : repo.list(tenant, "taskTypes")) if (name.equals(Js.text(tt, "name"))) return tt;
         return Js.MISSING;
@@ -514,13 +596,8 @@ public class SecureRecordService {
         if ("audit".equals(collection)) throw denied(c, collection, "Delete", subject, "The audit trail can never be edited or deleted");
         if (Set.of("voteRoll", "ballotBox").contains(collection) || ("ballots".equals(collection) && old != null && !Js.is(old, "status", "Draft")))
             throw denied(c, collection, "Delete", subject, "Voting records can never be changed or deleted");
-        Verdict verdict = rules.authorize(new WriteCall(collection, p, schema, old, old != null ? old : json.createObjectNode(), "delete", c.meta().ctx()));
-        if (!verdict.ok()) throw denied(c, collection, "Delete", subject, verdict.reason());
-        if (!BlockScope.writeOk(collection, old, old, p, raw(c))) throw denied(c, collection, "Delete", subject, "This unit is outside the blocks you manage");
-        String locked = PeriodLock.error(c.meta().lockedUntil(), collection, old, old);
-        if (locked != null) throw denied(c, collection, "Delete", subject, locked);
-        String money = builtInRefusal(raw(c), collection, old, old, "delete");
-        if (money != null) throw denied(c, collection, "Delete", subject, money);
+        if (old == null && !Perms.isAdmin(p)) throw denied(c, collection, "Delete", subject, "Not found");
+        checkWrite(c, collection, old != null ? old : ref, old, "delete", schema, raw(c));   // scope, rule, blocks, closed books, money
         String refusal = hookRefusal(collection, old, old);
         if (refusal != null) throw denied(c, collection, "Delete", subject, refusal);
         repo.delete(t, collection, id);
@@ -541,21 +618,28 @@ public class SecureRecordService {
             Principal p = c.p(); String t = tenantFor(c.community(), collection); Schema schema = c.meta().catalog().schema(collection);
             clientGuard(c, collection, "Create", rows.get(0));
             bulkGuard(c, collection, "Create", rows.get(0));
-            Verdict v = rules.authorize(new WriteCall(collection, p, schema, null, rows.get(0), "create", c.meta().ctx()));
-            if (!v.ok()) throw denied(c, collection, "Create", rows.get(0), v.reason());
             RawReader raw = raw(c);
-            for (JsonNode r : rows) {
-                if (!BlockScope.writeOk(collection, r, null, p, raw)) throw denied(c, collection, "Create", r, "This unit is outside the blocks you manage");
-                String le = PeriodLock.error(c.meta().lockedUntil(), collection, r, null);
-                if (le != null) throw denied(c, collection, "Create", r, le);
-                String money = builtInRefusal(raw, collection, r, null, "create");
-                if (money != null) throw denied(c, collection, "Create", r, money);
+            Set<String> taken = new java.util.HashSet<>();
+            for (JsonNode r : raw.read(collection)) taken.add(Js.str(r, "id"));
+            List<JsonNode> checkedRows = new ArrayList<>(); RowScope scope = RowScope.ALL;
+            for (JsonNode r0 : rows) {   // every row is checked, and a "new" row can never overwrite an existing one
+                if (Js.truthy(r0, "id") && taken.contains(Js.str(r0, "id"))) throw denied(c, collection, "Create", r0, "A record with this id already exists");
+                Checked ch = checkWrite(c, collection, withoutMeta(r0), null, "create", schema, raw); scope = ch.scope();
+                ObjectNode r = ch.record();
+                if ("properties".equals(collection)) {
+                    com.communityos.people.PropertyHooks.Pre pre = com.communityos.people.PropertyHooks.preWrite(r, null, raw.read("properties"), () -> UUID.randomUUID().toString());
+                    if (pre.error() != null) throw denied(c, collection, "Create", r, pre.error());
+                    r = pre.record();
+                }
+                String refusal = hookRefusal(collection, null, r);
+                if (refusal != null) throw denied(c, collection, "Create", r, refusal);
+                if (Js.truthy(r, "id")) taken.add(Js.str(r, "id"));
+                checkedRows.add(r);
             }
-            String refusal = hookRefusal(collection, null, rows.get(0));
-            if (refusal != null) throw denied(c, collection, "Create", rows.get(0), refusal);
+            final RowScope replyScope = scope;
             String now = Stamps.iso(clock);
             List<JsonNode> stamped = new ArrayList<>();
-            for (JsonNode r : rows) {
+            for (JsonNode r : checkedRows) {
                 ObjectNode s = ((ObjectNode) r).deepCopy();
                 for (String k : RowScopes.META_KEYS) s.remove(k);
                 s.put("id", Js.truthy(r, "id") ? Js.str(r, "id") : UUID.randomUUID().toString());
@@ -569,7 +653,7 @@ public class SecureRecordService {
                 String summary = opts != null && opts.summary() != null && !opts.summary().isBlank() ? opts.summary() : "Created " + saved.size() + " records";
                 audit.write(c.community(), audit.entry(p, labelOf(c, collection, opts == null ? null : opts.label()), collection, "", "", "", "Create", summary, null));
             }
-            return saved;
+            return saved.stream().map((r) -> shapeFor(c, collection, schema, replyScope, r)).toList();
         });
     }
 
@@ -587,16 +671,20 @@ public class SecureRecordService {
             RawReader raw = raw(c);
             String now = Stamps.iso(clock);
             List<JsonNode> out = new ArrayList<>();
+            RowScope[] lastScope = { RowScope.ALL };
             for (JsonNode r : rows) {
                 JsonNode old = repo.get(t, collection, Js.str(r, "id")).orElse(null);
                 if (old == null) continue;
-                ObjectNode merged = ((ObjectNode) old).deepCopy();
-                merged.setAll((ObjectNode) r);
-                Verdict v = rules.authorize(new WriteCall(collection, p, schema, old, merged, "update", c.meta().ctx()));
-                if (!v.ok()) throw denied(c, collection, "Update", old, v.reason());
-                if (!BlockScope.writeOk(collection, merged, old, p, raw)) throw denied(c, collection, "Update", old, "This unit is outside the blocks you manage");
-                String money = builtInRefusal(raw, collection, merged, old, "update");
-                if (money != null) throw denied(c, collection, "Update", old, money);
+                ObjectNode asked = ((ObjectNode) old).deepCopy();
+                asked.setAll(withoutMeta(r));
+                Checked ch = checkWrite(c, collection, asked, old, "update", schema, raw); lastScope[0] = ch.scope();
+                ObjectNode merged = ch.record();
+                if ("properties".equals(collection)) {
+                    com.communityos.people.PropertyHooks.Pre pre = com.communityos.people.PropertyHooks.preWrite(merged, old, raw.read("properties"), () -> UUID.randomUUID().toString());
+                    if (pre.error() != null) throw denied(c, collection, "Update", merged, pre.error());
+                    merged = pre.record();
+                }
+                for (String k : RowScopes.META_KEYS) { if (old.has(k)) merged.set(k, old.get(k)); else merged.remove(k); }   // the server keeps the metadata
                 String refusal = hookRefusal(collection, old, merged);
                 if (refusal != null) throw denied(c, collection, "Update", old, refusal);
                 ObjectNode s = merged.deepCopy();
@@ -610,7 +698,7 @@ public class SecureRecordService {
                 String summary = opts != null && opts.summary() != null && !opts.summary().isBlank() ? opts.summary() : "Updated " + saved.size() + " records";
                 audit.write(c.community(), audit.entry(p, labelOf(c, collection, opts == null ? null : opts.label()), collection, "", "", "", "Update", summary, null));
             }
-            return saved;
+            return saved.stream().map((r) -> shapeFor(c, collection, schema, lastScope[0], r)).toList();
         });
     }
 }

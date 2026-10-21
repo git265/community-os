@@ -58,6 +58,27 @@ const canAssetsWrite = (p) => isQuoteRole(p) || anyPerm(p, ['MANAGE_UTILITY_READ
 // and by the organisers of cultural events and bookings; every staff role can read it. Reports: set up by the EC, the Facility Manager and notification managers.
 const canEventWork = (p) => isQuoteRole(p) || anyPerm(p, ['MANAGE_CULTURAL', 'MANAGE_AMENITIES']);
 export const canReports = (p) => isEC(p) || p?.roleId === 'facility_manager' || anyPerm(p, ['MANAGE_NOTIFICATIONS']);
+const FINANCE_BILL_PERMS = ['MANAGE_DUES', 'MANAGE_UTILITY_BILLING', 'MANAGE_LEDGER'];
+const GATE_VILLA_COLLECTIONS = [C.GATE_PEOPLE, C.GATE_LINKS, C.GATE_PASSES, C.GATE_VISITS, C.GATE_APPROVALS, C.GATE_VEHICLES, C.GATE_VILLA_RULES, C.GATE_PASS_TEMPLATES];
+/** Trade workers (plumbing, electrical, security, general): they work their trade's queue. MEP coordinates the contract and sees everything. */
+const isTradeWorker = (p) => isHandyman(p) && p.roleId !== 'handyman_mep';
+/** "Handyman · Plumbing" -> "Plumbing" (same as tradeFromRoleName in modules/tickets/ticketEngine.js). */
+const tradeOf = (p) => { const parts = String(p?.role?.name || '').split('·'); return parts.length > 1 ? parts[1].trim() : null; };
+/** The tickets a trade worker deals with: their trade's queue (never the EC / FM internal tasks), and anything assigned to them or their crew. */
+async function tradeTicketIds(p, readRaw) {
+  const trade = tradeOf(p);
+  const internal = new Set((await readRaw(C.TASK_TYPES)).filter((t) => t.creatorScope === 'EC / Staff').map((t) => t.name));
+  const crew = new Set([p.name, ...(await readRaw(C.HANDYMEN)).filter((h) => !!trade && h.trade === trade).map((h) => h.name)].filter(Boolean));
+  return new Set((await readRaw(C.TICKETS)).filter((t) => (!!t.assignedTo && crew.has(t.assignedTo)) || (!!trade && t.category === trade && !internal.has(t.taskType))).map((t) => t.id));
+}
+/** In-app notifications (the bell): a row is for this person by name, by villa (residents) or by role. Also used by lib/notifications.js. */
+export const IN_APP_NOTIFICATIONS = 'notifications';
+export function notificationForMe(n, p) {
+  if (!p || !n) return false;
+  if (n.toName && n.toName === p.name) return true;
+  if (n.toUnit) return p.role?.category === 'Resident' && n.toUnit === p.unit;
+  return Array.isArray(n.toRoleIds) && n.toRoleIds.includes(p.roleId);
+}
 const ASSET_COLLECTIONS = [C.LOG_ENTRIES, C.PLANT_LOGS, C.DG_FUEL_LOGS, C.ELECTRICITY_BILLS, C.ASSOC_BILLS, C.VILLA_ELECTRICITY, C.EQUIPMENT, C.INFRA_PLANS, C.INFRA_LAYERS, C.INFRA_LOG, C.MAP_VERSIONS];
 
 /* ---------------------------------------------------------------- reads -- */
@@ -116,6 +137,17 @@ const READ_RULES = {
   [C.INVENTORY]: (p) => !isResident(p),
   [C.INVENTORY_RULES]: (p) => !isResident(p),
   [C.READINGS]: (p) => canManageReadings(p),
+  // r77 - data that belongs to a villa or a person reaches only the people who deal with it.
+  // Bills: the owner (own unit, rowScope), the EC and the finance roles; meter-reading roles see only the utility bills they publish (rowScope).
+  [C.DUES]: (p) => isResident(p) || isEC(p) || anyPerm(p, FINANCE_BILL_PERMS) || canManageReadings(p),
+  // Refund credits per villa: the owner, the EC, amenity and finance managers.
+  [C.UNIT_CREDITS]: (p) => isResident(p) || isEC(p) || anyPerm(p, ['MANAGE_AMENITIES', ...FINANCE_BILL_PERMS]),
+  // Who gave how much: the donor's villa, the EC and the cultural / accounting roles.
+  [C.CULTURAL_DONATIONS]: (p) => isResident(p) || isEC(p) || canCultural(p),
+  // A villa's visitors, passes, household staff, vehicles and gate rules: that villa, and the security team / Facility Manager.
+  ...Object.fromEntries(GATE_VILLA_COLLECTIONS.map((c) => [c, (p) => isResident(p) || gateOrFM(p)])),
+  [C.GATE_FLAGS]: gateOrFM,
+  [C.GATE_WORKORDERS]: gateOrFM,
 };
 
 export function canReadCollection(collection, p) {
@@ -218,6 +250,9 @@ async function baseRowScope(collection, p, readRaw) {
   const unit = p.unit;
   if (collection === C.FILES) return filesScope(p, readRaw);
   if (collection === C.USER_PROFILES) return has(p, 'MANAGE_USERS') ? {} : { predicate: (r) => r.userName === p.name };
+  // the bell and the message-channel choices are personal
+  if (collection === IN_APP_NOTIFICATIONS) return { predicate: (r) => notificationForMe(r, p) };
+  if (collection === C.NOTIFICATION_PREFS) return anyPerm(p, ['MANAGE_NOTIFICATIONS', 'MANAGE_USERS']) ? {} : { predicate: (r) => !!p.name && r.userName === p.name };
   if (isResident(p)) {
     switch (collection) {
       case C.CULTURAL_EVENTS: return { predicate: (r) => r.visibility === 'Published' };
@@ -288,6 +323,17 @@ async function baseRowScope(collection, p, readRaw) {
     }
   }
   if (collection === C.ATTENDANCE && !has(p, 'MANAGE_FIELD_DUTIES') && !isEC(p)) return { predicate: (r) => r.staffName === p.name }; // staff see only their own punches
+  // trade workers: their trade's queue and what is assigned to them (and the discussion on those tickets)
+  if (isTradeWorker(p) && (collection === C.TICKETS || collection === C.TICKET_COMMENTS)) {
+    const mine = await tradeTicketIds(p, readRaw);
+    return collection === C.TICKETS ? { predicate: (r) => mine.has(r.id) } : { predicate: (r) => mine.has(r.ticketId) };
+  }
+  // a meter-reading role without finance access sees only the utility bills (water / DG ...), never maintenance or other dues
+  if (collection === C.DUES && !isEC(p) && !anyPerm(p, FINANCE_BILL_PERMS)) return { predicate: (r) => isUtility(r.category) };
+  // staff who do not run amenities see when a facility is taken and by which unit, not the money
+  if (collection === C.AMENITIES && !isEC(p) && !anyPerm(p, ['MANAGE_AMENITIES', 'MANAGE_LEDGER'])) {
+    return { transform: (r) => { const out = {}; ['id', 'amenity', 'date', 'slot', 'status', 'unit', 'shortId'].forEach((k) => { if (k in r) out[k] = r[k]; }); return out; } };
+  }
   if (collection === C.DOCUMENTS) return { predicate: (r) => docVisible(r, p) };
   if (collection === C.AUDIT && !has(p, 'VIEW_AUDIT_LOG')) {
     return { predicate: (r) => !!r.unit, sql: S.notEmpty('unit') }; // unit activity only, never the full log
@@ -309,12 +355,13 @@ async function filesScope(p, readRaw) {
   const hiddenDocFiles = new Set(allDocs.filter((r) => !docOk(r)).map((d) => d.fileId)); // files of documents this person's group may not open
   // meter photos: staff who manage readings, and the owner of the villa once the bill is published to them
   const ownReadings = resident ? new Set((await readRaw(C.DUES)).filter((d) => d.unit === p.unit && d.readingId).map((d) => d.readingId)) : null;
+  const tradeTickets = isTradeWorker(p) ? await tradeTicketIds(p, readRaw) : null; // a trade worker: photos of their own tickets only
   return {
     predicate: (r) => {
       switch (r.ownerType) {
-        case 'ticket': return resident ? ownTickets.has(r.ownerId) : true;
+        case 'ticket': return resident ? ownTickets.has(r.ownerId) : tradeTickets ? tradeTickets.has(r.ownerId) : true;
         case 'amenityDeposit': return resident ? ownBookings.has(r.ownerId) : true; // deposit-inspection photos: amenity staff, and the villa that booked
-        case 'ticketInternal': return !resident; // files attached to Internal chat notes
+        case 'ticketInternal': return !resident && (!tradeTickets || tradeTickets.has(r.ownerId)); // files attached to Internal chat notes
         case 'quotation': return isQuoteRole(p);
         case 'audit': return resident ? pubAudits.has(r.ownerId) : true; // audit reports: management, and residents once the audit is published
         case 'ledger': return canReadCollection(C.LEDGER, p);
@@ -348,7 +395,98 @@ export function maskRecord(record, schema, roleId, p) {
   if (hidden.length === 0) return record;
   const out = { ...record };
   hidden.forEach((k) => delete out[k]);
+  // the record's own time trail must not repeat a hidden field (an approval's history, when a hidden date was set)
+  if (Array.isArray(out.timeline)) out.timeline = out.timeline.filter((e) => !hidden.includes(e?.field));
+  if (out.dateStamps && typeof out.dateStamps === 'object' && !Array.isArray(out.dateStamps)) out.dateStamps = Object.fromEntries(Object.entries(out.dateStamps).filter(([k]) => !hidden.includes(k)));
   return out;
+}
+
+/* ------------------------------------------------- what a write may carry -- */
+// r77: the server decides what a saved record contains, whatever the request says. Runs before authorizeWrite, for every write
+// (single and bulk), with the caller's row scope (rowScope). The Super Admin is not limited here.
+
+/** Who wrote it: set by the server on create, never changed afterwards (except by the Super Admin). */
+const IDENTITY = {
+  [C.TICKETS]: { createdBy: 'name', createdByRole: 'roleId' },
+  [C.TICKET_COMMENTS]: { author: 'name', authorRoleId: 'roleId' },
+  [C.FORUM_POSTS]: { author: 'name', authorRoleId: 'roleId' },
+  [C.CONTACT_REVIEWS]: { author: 'name' },
+  [C.SERVICE_CONTACTS]: { addedBy: 'name' },
+  [C.CULTURAL_PHOTOS]: { uploadedBy: 'name' },
+  [C.POLL_VOTES]: { voter: 'name' },
+  [C.USER_PROFILES]: { userName: 'name' },
+  [C.NOTIFICATION_PREFS]: { userName: 'name' },
+  [C.WISHES]: { raisedBy: 'name', raisedByRole: 'roleId' },
+  [IN_APP_NOTIFICATIONS]: { by: 'name' },
+};
+/** For a resident, the villa a record is for is always their own. */
+const RESIDENT_UNIT = { [C.POLL_VOTES]: 'unit', [C.CONTACT_REVIEWS]: 'unit', [C.SERVICE_CONTACTS]: 'addedByUnit', [C.WISHES]: 'unit' };
+/** A new record of these may be out of the creator's own view at first (a photo before its ticket is saved, a message to someone else,
+ *  a document for another group): their create rules live elsewhere. Every other create must be a record the creator may see. */
+const CREATE_OUT_OF_SCOPE_OK = new Set([C.FILES, IN_APP_NOTIFICATIONS, C.DOCUMENTS, C.DOC_FOLDERS, C.TICKET_COMMENTS]);
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+/**
+ * Normalise a write to what this person may actually do, or refuse it.
+ *   - update / delete: the stored record must be one they can see (row scope) - you cannot touch what you cannot see;
+ *   - update: fields they cannot see (masked or hidden by the row scope) keep their stored value, and a field they may not edit
+ *     cannot be removed by leaving it out; they cannot add a field they may not see;
+ *   - create: fields they may not see are dropped;
+ *   (after authorizeWrite, staysInScope checks the result is still in their scope.)
+ *   - identity fields (who raised / wrote / voted) are the caller's on create and frozen afterwards; a resident's villa is their own.
+ * Returns { ok:true, record } or { ok:false, reason }.
+ */
+/** Made by the server on every save: whatever a request says for these is dropped (who/when created and last updated, version, short number, trails). */
+export const SERVER_OWNED = { '*': META_KEYS.filter((k) => k !== 'id'), [C.TICKETS]: ['ticketNumber', 'statusHistory'] };
+const withoutServerOwned = (collection, r) => { const o = { ...(r || {}) }; [...SERVER_OWNED['*'], ...(SERVER_OWNED[collection] || [])].forEach((k) => delete o[k]); return o; };
+
+export function prepareWrite({ collection, p, schema, old, next, op, scope = {} }) {
+  if (!p) return deny('Not signed in');
+  if (op === 'delete') return isAdmin(p) || !old || !scope.predicate || scope.predicate(old) ? { ok: true, record: next } : deny('Not found');
+  if (isAdmin(p)) return { ok: true, record: withoutServerOwned(collection, next) };
+  if (old && scope.predicate && !scope.predicate(old)) return deny('Not found');
+  const rec = withoutServerOwned(collection, next);
+  const fields = schema?.fields || [];
+  const editable = (k) => { const f = fields.find((x) => x.key === k); return !!f && canEdit(f, p.roleId); };
+  const masked = new Set(hiddenFieldKeys(schema, p.roleId, p));                 // fields this role is not shown
+  const writeOnly = (k) => masked.has(k) && editable(k);                          // e.g. a vote's proof: sent, never shown
+  if (old) {
+    // what they were shown: row transform, then field masking
+    const seen = maskRecord(scope.transform ? scope.transform(old) : old, schema, p.roleId, p);
+    const owned = new Set([...SERVER_OWNED['*'], ...(SERVER_OWNED[collection] || [])]);
+    for (const k of Object.keys(old)) {
+      if (owned.has(k)) continue;                                                        // the server stamps these again
+      const shown = k in seen && same(seen[k], old[k]);
+      if (!shown) { if (!(writeOnly(k) && k in rec)) rec[k] = old[k]; }          // not shown to them: keeps its stored value
+      else if (!(k in rec) && !editable(k)) rec[k] = old[k];                       // cannot remove what you may not edit
+    }
+    for (const k of Object.keys(rec)) if (!(k in old) && masked.has(k) && !writeOnly(k)) delete rec[k];   // cannot add a field you may not see
+  } else {
+    for (const k of masked) if (!writeOnly(k)) delete rec[k];
+  }
+  for (const [k, from] of Object.entries(IDENTITY[collection] || {})) {
+    if (!old) rec[k] = p[from] ?? '';
+    else if (k in old) rec[k] = old[k]; else delete rec[k];
+  }
+  const uk = RESIDENT_UNIT[collection];
+  if (uk && isResident(p)) { if (!old) rec[uk] = p.unit || ''; else if (uk in old) rec[uk] = old[uk]; }
+  return { ok: true, record: rec };
+}
+
+/** After authorisation: the saved record must still be one the caller may see (create: except CREATE_OUT_OF_SCOPE_OK). */
+export function staysInScope({ collection, p, old, record, op, scope = {} }) {
+  if (!p || isAdmin(p) || op === 'delete' || !scope.predicate || scope.predicate(record)) return OK;
+  if (!old && CREATE_OUT_OF_SCOPE_OK.has(collection)) return OK;
+  return deny(old ? 'You cannot move this record out of your own view' : 'You can only create records you are allowed to see');
+}
+
+/** What the caller gets back after a write: the record as they would read it, or only its ids when it is not theirs to read. */
+export function shapeForReader(record, { collection, p, schema, scope = {} }) {
+  if (!record || !p) return record;
+  if (isAdmin(p)) return record;
+  const ids = { id: record.id, ...(record.shortId ? { shortId: record.shortId } : {}), ...(record.recVersion != null ? { recVersion: record.recVersion } : {}) };
+  if (!canReadCollection(collection, p) || (scope.predicate && !scope.predicate(record))) return ids;
+  return maskRecord(scope.transform ? scope.transform(record) : record, schema, p.roleId, p);
 }
 
 /* --------------------------------------------------------------- writes -- */
@@ -409,9 +547,21 @@ const WRITE_RULES = {
   [C.USERS]: { perms: ['MANAGE_USERS'] },
   [C.ROLES]: { perms: ['MANAGE_ROLES'] },
   [C.ROLE_GROUPS]: { perms: ['MANAGE_ROLES'] },
+  // r77: every collection has an owner - a write nobody was given is refused (see authorizeWrite: fail closed)
+  [C.BLOCKS]: { perms: ['MANAGE_UNITS'] },
+  [C.FACILITIES]: { perms: ['MANAGE_UNITS', 'MANAGE_AMENITIES'] },
+  [C.SERVICE_NOTICES]: { perms: [], categories: ['EC', 'Staff'] },
+  [C.CULTURAL_BROCHURE]: { perms: ['MANAGE_CULTURAL'] },
+  [C.NOTIFICATION_SETTINGS]: { perms: ['MANAGE_NOTIFICATIONS'] },
+  [C.VENDOR_SERVICES]: { perms: ['MANAGE_VENDORS'] },
+  [C.IMPORTANT_NUMBERS]: { perms: ['MANAGE_FIELD_DUTIES', 'MANAGE_SECURITY'], categories: ['EC'] },
 };
-const ADMIN_ONLY = [C.SCHEMA];
-const SYSTEM_ONLY = [C.AUDIT, C.REPORT_RUNS, C.NOTIFICATION_OUTBOX, C.UNIT_CREDITS, C.PORTAL_INVITES]; // only the audit writer (raw storage) may add rows; nobody edits/deletes
+const ADMIN_ONLY = [C.SCHEMA, C.COMMUNITY_CONFIG, C.NUMBER_SECTIONS];
+const SYSTEM_ONLY = [C.AUDIT, C.REPORT_RUNS, C.NOTIFICATION_OUTBOX, C.UNIT_CREDITS, C.PORTAL_INVITES, C.COMMUNITIES]; // only the audit writer (raw storage) may add rows; nobody edits/deletes
+// Written by any signed-in person, with every rule in their own pre-write step (lib/evoting.js): the voter roll and the sealed box.
+const OPEN_WRITES = new Set([C.VOTE_ROLL, C.BALLOT_BOX]);
+/** Every collection the app knows. A write to any other name is refused (nobody can invent a collection in the database). */
+export const KNOWN_COLLECTIONS = new Set([...Object.values(C), IN_APP_NOTIFICATIONS]);
 
 const changedKeys = (old, next) =>
   Object.keys(next).filter((k) => !META_KEYS.includes(k) && JSON.stringify(next[k]) !== JSON.stringify(old?.[k]));
@@ -530,6 +680,25 @@ const signupGuard = (listKey, limitKey) => ({ p, old, next, op }) => {
   return selfSignupOnly(p, old[listKey], next[listKey], Number(old[limitKey]) || 0);
 };
 
+const RESIDENT_PLEDGE_KEYS = ['eventId', 'offeringId', 'unit', 'status', 'date', 'amount', 'towards', 'kind', 'mode', 'reference', 'anonymous', 'note', 'donor', 'phone', 'members', 'sankalpam', 'paymentClaimedAt', 'receiptNo'];
+/** Fields a resident's new maintenance request may carry besides the ones they can edit; their values are checked below or set by the server. */
+const RESIDENT_TICKET_START = ['taskType', 'scope', 'status', 'priority', 'assignedTo', 'slaDueAt', 'residentRating', 'createdBy', 'createdByRole', 'createdAt'];
+function residentTicketCreate(p, next, schema) {
+  const editable = new Set((schema?.fields || []).filter((f) => canEdit(f, p.roleId)).map((f) => f.key));
+  const bad = Object.keys(next).filter((k) => !META_KEYS.includes(k) && !editable.has(k) && !RESIDENT_TICKET_START.includes(k));
+  if (bad.length) return deny(`A new request cannot set: ${bad.join(', ')}`);
+  if (next.scope != null && !['Unit', 'Community'].includes(next.scope)) return deny('A request is for your unit or the community');
+  if (next.status != null && !['Open', 'Assigned'].includes(next.status)) return deny('A new request starts Open');
+  const prio = (schema?.fields || []).find((f) => f.key === 'priority')?.options;
+  if (next.priority != null && next.priority !== '' && Array.isArray(prio) && !prio.includes(next.priority)) return deny('Pick a priority from the list');
+  if ((next.affectedUnits || []).some((u) => u !== p.unit)) return deny('You can only add your own villa');
+  if (Number(next.residentRating) || 0) return deny('Rate the work once it is done');
+  return ticketSlaGuard(p, null, next);
+}
+const NEAR_MS = 5 * 60 * 1000;
+const nearNow = (iso) => { const t = Date.parse(iso); return Number.isFinite(t) && Math.abs(t - Date.now()) <= NEAR_MS; };
+const hoursBetween = (a, b) => Math.max(0, Math.round(((Date.parse(b) - Date.parse(a)) / 3600000) * 100) / 100);
+
 const CUSTOM = {
   // ---- GateGuard ----------------------------------------------------------------------------------------------------------
   [C.GATE_VISITS]: ({ p }) => (gateStaff(p) ? undefined : deny('Only gate staff record entries and exits')),
@@ -552,7 +721,21 @@ const CUSTOM = {
   },
   // links, passes and delivery rules: staff everything; a villa only its own
   [C.GATE_LINKS]: ({ p, old, next }) => (gateOrFM(p) ? undefined : (isResident(p) && p.unit && (old || next)?.unit === p.unit && (!old || next.unit === p.unit) ? OK : deny('A villa manages only its own household staff'))),
-  [C.GATE_PASSES]: ({ p, old, next }) => (gateStaff(p) ? OK : (isResident(p) && p.unit && (old || next)?.unit === p.unit && (!old || next.unit === p.unit) ? OK : deny('A villa manages only its own guest passes'))),
+  [C.GATE_PASSES]: ({ p, old, next, op }) => {
+    if (gateStaff(p)) return OK;
+    if (!(isResident(p) && p.unit && (old || next)?.unit === p.unit && (!old || next.unit === p.unit))) return deny('A villa manages only its own guest passes');
+    if (op === 'delete') return OK;
+    // the gate counts the uses and closes a used pass: a villa cannot reset either
+    if (!old && (Number(next.usedCount) || 0) !== 0) return deny('A new pass has not been used yet');
+    if (old && (Number(next.usedCount) || 0) !== (Number(old.usedCount) || 0)) return deny('Uses of a pass are counted by the gate');
+    if (next.status === 'Used' && old?.status !== 'Used') return deny('The gate marks a pass as used');
+    if (old && ['Used', 'Expired'].includes(old.status) && next.status !== old.status) return deny('A used or expired pass cannot be reopened - make a new one');
+    return OK;
+  },
+  // patrol set-up and the guard consoles' heartbeat: the security team only
+  [C.GATE_CHECKPOINTS]: ({ p }) => (gateStaff(p) ? undefined : deny('Only the security team sets up patrol checkpoints')),
+  [C.GATE_ROUNDS]: ({ p }) => (gateStaff(p) ? undefined : deny('Only the security team plans patrol rounds')),
+  [C.GATE_PULSE]: ({ p }) => (gateStaff(p) ? OK : deny('Only gate consoles report their heartbeat')),
   [C.GATE_VILLA_RULES]: ({ p, old, next }) => (gateStaff(p) ? undefined : (isResident(p) && p.unit && (old || next)?.unit === p.unit && (!old || next.unit === p.unit) ? OK : deny('A villa sets only its own gate rules'))),
   // an approval is asked by the gate and ANSWERED by the villa (or, for an unlisted worker, by the Facility Manager)
   [C.GATE_APPROVALS]: ({ p, old, next, op }) => {
@@ -635,17 +818,28 @@ const CUSTOM = {
     if (isResident(p)) return deny('Residents do not have attendance records');
     if (op === 'delete') return deny('Only a supervisor can delete an attendance entry');
     if (next.staffName !== p.name) return deny('You can only clock yourself in or out');
-    if (!old) return !next.clockOut && next.source === 'Self' ? OK : deny('A new entry is a clock-in; clock out later');
+    if (!old) {
+      if (next.clockOut || next.source !== 'Self') return deny('A new entry is a clock-in; clock out later');
+      return nearNow(next.clockIn) ? OK : deny('Clock in at the current time');
+    }
     if (old.clockOut) return deny('This entry is already closed - ask your supervisor to correct it');
     const ch = changedKeys(old, next);
-    return ch.every((k) => ['clockOut', 'outLat', 'outLng', 'outAcc', 'outSite', 'outDist', 'hours', 'note'].includes(k)) ? OK : deny('You can only clock out of your own open entry');
+    if (!ch.every((k) => ['clockOut', 'outLat', 'outLng', 'outAcc', 'outSite', 'outDist', 'hours', 'note'].includes(k))) return deny('You can only clock out of your own open entry');
+    if (ch.includes('clockOut') && !nearNow(next.clockOut)) return deny('Clock out at the current time');
+    if (ch.includes('hours') && Math.abs((Number(next.hours) || 0) - hoursBetween(old.clockIn, next.clockOut || old.clockOut)) > 0.011) return deny('Hours are worked out from your clock-in and clock-out');
+    return OK;
   },
   [C.CULTURAL_DONATIONS]: ({ p, old, next, op }) => {
     if (canCultural(p)) return OK;
     if (!isResident(p) || !p.unit) return deny('Requires permission: MANAGE_CULTURAL or MANAGE_LEDGER');
     if (next.unit !== p.unit) return deny('You can only pledge for your own villa');
     if (op === 'delete') return old?.status === 'Pledged' ? OK : deny('A confirmed donation cannot be withdrawn - contact the committee');
-    if (!old) return next.status === 'Pledged' && !next.receiptNo ? OK : deny('A new pledge starts as Pledged; the committee confirms receipt');
+    if (!old) {
+      const bad = Object.keys(next).filter((k) => !META_KEYS.includes(k) && !RESIDENT_PLEDGE_KEYS.includes(k));
+      if (bad.length) return deny(`A pledge cannot set: ${bad.join(', ')}`);
+      if (next.gatewayRef) return deny('Online payments are recorded by the payment service');
+      return next.status === 'Pledged' && !next.receiptNo ? OK : deny('A new pledge starts as Pledged; the committee confirms receipt');
+    }
     if (old.status !== 'Pledged') return deny('This donation is already confirmed and cannot be changed');
     return onlyKeys(old, next, ['amount', 'towards', 'kind', 'mode', 'reference', 'anonymous', 'note', 'donor', 'phone', 'members', 'sankalpam', 'paymentClaimedAt'], 'Residents');
   },
@@ -659,7 +853,7 @@ const CUSTOM = {
     if (op === 'delete') return OK;
     return onlyKeys(old, next, ['caption', 'takenOn'], 'Uploaders');
   },
-  [C.TICKETS]: ({ p, old, next, op }) => {
+  [C.TICKETS]: ({ p, old, next, op, schema }) => {
     if (op === 'delete') return deny('Tickets cannot be deleted - cancel or close them instead');
     if (isResident(p)) {
       if (!p.unit) return deny('Residents can only act on tickets for their own unit');
@@ -675,7 +869,7 @@ const CUSTOM = {
       if (!old) {
         if (next.scope === 'Community' && !String(next.location || '').trim()) return deny('Say where in the community the problem is');
         if (next.createdByRole && next.createdByRole !== p.roleId) return deny('Ticket creator mismatch');
-        return OK;
+        return residentTicketCreate(p, next, schema);
       }
       const base = onlyKeys(old, next, ['description', 'attachments', 'photos', 'hasPhotos', 'preferredTime', 'residentRating', 'status', 'cancelledAt', 'cancelledBy', 'affectedUnits', 'location'], 'Residents');
       if (!base.ok) return base;
@@ -860,8 +1054,25 @@ const CUSTOM = {
 
   [C.FORUM]: ({ p, old, next, op }) => {
     if (op === 'delete') return has(p, 'MODERATE_FORUM') ? OK : deny('Only moderators can delete topics');
-    if (!old || has(p, 'MODERATE_FORUM')) return OK;
-    return onlyKeys(old, next, ['replies', 'pollOptions', 'voters'], 'Members');
+    if (has(p, 'MODERATE_FORUM')) return OK;
+    if (!old) {
+      if (next.pinned || (next.status && next.status !== 'Open') || (Number(next.replies) || 0) !== 0 || (next.voters || []).length || (next.pollOptions || []).some((o) => (Number(o?.votes) || 0) !== 0)) return deny('A new topic starts open, unpinned, with no replies or votes');
+      return OK;
+    }
+    const base = onlyKeys(old, next, ['replies', 'pollOptions', 'voters'], 'Members');
+    if (!base.ok) return base;
+    const r0 = Number(old.replies) || 0; const r1 = Number(next.replies) || 0;
+    if (r1 < 0 || Math.abs(r1 - r0) > 1) return deny('The reply count follows the posts');
+    if (JSON.stringify(old.pollOptions || []) !== JSON.stringify(next.pollOptions || []) || JSON.stringify(old.voters || []) !== JSON.stringify(next.voters || [])) {
+      const v0 = old.voters || []; const v1 = next.voters || [];
+      if (v0.includes(p.name)) return deny('You have already voted');
+      if (v1.length !== v0.length + 1 || v1[v1.length - 1] !== p.name || v0.some((x, i) => v1[i] !== x)) return deny('You can only add your own vote');
+      const o0 = old.pollOptions || []; const o1 = next.pollOptions || [];
+      const sameLabels = o0.length === o1.length && o0.every((o, i) => JSON.stringify({ ...o, votes: 0 }) === JSON.stringify({ ...o1[i], votes: 0 }));
+      const diffs = o1.map((o, i) => (Number(o?.votes) || 0) - (Number(o0[i]?.votes) || 0));
+      if (!sameLabels || diffs.some((d) => d < 0 || d > 1) || diffs.reduce((a, b) => a + b, 0) !== 1) return deny('One vote adds one to one answer');
+    }
+    return OK;
   },
   // Wishlist: anyone with a unit (or the EC) raises an idea as themselves; the raiser edits the text only while it is still
   // Submitted; ANY resident may toggle their own villa in `votes` and nothing else; the EC manages status / decision / conversion.
@@ -913,7 +1124,8 @@ const CUSTOM = {
     if (rest.length && !has(p, 'MANAGE_AMENITIES')) return deny('Requires amenities management access');
     return OK;
   },
-  [C.AMENITY_SETTINGS]: ({ p, old, next }) => {
+  [C.AMENITY_SETTINGS]: ({ p, old, next, op }) => {
+    if (op === 'delete') return has(p, 'MANAGE_AMENITIES') ? OK : deny('Requires amenities management access');
     const changed = old ? changedKeys(old, next) : Object.keys(next).filter((k) => !META_KEYS.includes(k));
     const notif = changed.filter((k) => AMENITY_NOTIFY_KEYS.includes(k));
     const money = changed.filter((k) => !AMENITY_NOTIFY_KEYS.includes(k));
@@ -938,10 +1150,33 @@ const CUSTOM = {
     return has(p, 'MANAGE_AMENITIES') || isEC(p) ? OK : deny('Requires amenities management access');
   },
 
-  [C.BROADCASTS]: ({ p, old, next }) => {
+  [C.BROADCASTS]: ({ p, old, next, op }) => {
     if (isEC(p) || anyPerm(p, ['MANAGE_NOTICE_TEMPLATES', 'MANAGE_GOVERNANCE'])) return OK;
-    if (!old) return deny('Only the committee can send broadcasts');
-    return onlyKeys(old, next, ['signedBy', 'viewed'], 'Members');
+    if (!old || op === 'delete') return deny('Only the committee can send or remove broadcasts');
+    const base = onlyKeys(old, next, ['signedBy'], 'Members');
+    if (!base.ok) return base;
+    const names = (v) => String(v || '').split(',').map((x) => x.trim()).filter(Boolean);
+    const a = names(old.signedBy); const b = names(next.signedBy);
+    if (a.some((x) => !b.includes(x)) || b.filter((x) => !a.includes(x)).some((x) => x !== p.name)) return deny('You can only add your own signature');
+    return OK;
+  },
+  // the bell: anyone signed in may notify someone (the server records who sent it); only the addressee marks it read; nobody deletes
+  [IN_APP_NOTIFICATIONS]: ({ p, old, next, op }) => {
+    if (op === 'delete') return deny('Notifications cannot be deleted');
+    if (!old) {
+      if (next.read) return deny('A new notification starts unread');
+      if (next.link && !/^#\//.test(String(next.link))) return deny('A notification links only to a page of this app');
+      return OK;
+    }
+    if (!notificationForMe(old, p)) return deny('This notification is not addressed to you');
+    return onlyKeys(old, next, ['read'], 'You');
+  },
+  [C.NOTIFICATION_PREFS]: ({ p, old, next, op }) => ((!old || old.userName === p.name) && (op === 'delete' || next.userName === p.name) ? OK : deny('You can only change your own notification choices')),
+  // the field-staff roster: managers add and remove people; a staff member only switches their own (or their trade's) on-duty flag
+  [C.HANDYMEN]: ({ p, old, op }) => {
+    if (anyPerm(p, ['MANAGE_TICKETS', 'MANAGE_FIELD_DUTIES'])) return undefined;
+    if (isStaff(p) && old && op !== 'delete' && (old.name === p.name || (!!tradeOf(p) && old.trade === tradeOf(p)))) return undefined;   // field checks follow (clockedIn only)
+    return deny('Only the Facility Manager or ticket managers change the field-staff roster');
   },
 };
 
@@ -952,20 +1187,21 @@ const CUSTOM = {
 export function authorizeWrite({ collection, p, schema, old, next, op }) {
   if (!p) return deny('Not signed in');
   if (isAdmin(p)) return OK;
+  if (!KNOWN_COLLECTIONS.has(collection)) return deny('Unknown collection');
   if (ADMIN_ONLY.includes(collection)) return deny('Super Admin only');
   if (SYSTEM_ONLY.includes(collection)) return deny('System-managed collection');
 
   const custom = CUSTOM[collection];
   if (custom) {
-    const res = custom({ p, old, next, op });
+    const res = custom({ p, old, next, op, schema });
     if (res && !res.ok) return res;
     if (res && res.ok) return fieldCheck({ collection, p, schema, old, next, op, skipSchema: true });
   } else {
     const rule = WRITE_RULES[collection];
     if (rule) {
       const allowed = anyPerm(p, rule.perms) || (rule.categories || []).includes(p.role?.category);
-      if (!allowed) return deny(`Requires permission: ${rule.perms.join(' or ')}`);
-    }
+      if (!allowed) return deny(rule.perms.length ? `Requires permission: ${rule.perms.join(' or ')}` : 'Your role cannot change these records');
+    } else if (!OPEN_WRITES.has(collection)) return deny('Your role cannot change these records');   // fail closed: no rule, no write
   }
   if (op === 'delete') return OK;
   return fieldCheck({ collection, p, schema, old, next, op, skipSchema: false });
@@ -986,8 +1222,8 @@ export function canWriteCollection(collection, p) {
   if (!p) return false;
   if (isAdmin(p)) return true;
   if (UI_WRITE[collection]) return UI_WRITE[collection](p);
-  if (ADMIN_ONLY.includes(collection) || SYSTEM_ONLY.includes(collection)) return false;
+  if (ADMIN_ONLY.includes(collection) || SYSTEM_ONLY.includes(collection) || !KNOWN_COLLECTIONS.has(collection)) return false;
   const rule = WRITE_RULES[collection];
-  if (!rule) return true;
+  if (!rule) return !!CUSTOM[collection] || OPEN_WRITES.has(collection);   // a custom rule decides per record; no rule at all = nobody
   return anyPerm(p, rule.perms) || (rule.categories || []).includes(p.role?.category);
 }

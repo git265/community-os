@@ -1,0 +1,63 @@
+package com.communityos.api.config;
+
+import com.communityos.api.shared.security.CallerJwtConverter;
+import com.communityos.api.shared.security.CallerJwtDecoder;
+import com.communityos.api.shared.security.CallerLoader;
+import com.communityos.api.shared.security.JwtCodec;
+import java.util.List;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
+import org.springframework.security.config.Customizer;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+
+/**
+ * Stateless bearer-token API. Only sign-in, provider webhooks (signature-checked) and health are open; everything else needs a valid ES256
+ * access token, which is turned into the server-side Caller. No sessions, no CSRF tokens needed (no cookie authenticates an API call; the
+ * refresh cookie is SameSite=Strict and scoped to /api/v1/auth). CORS only for the configured app origins.
+ */
+@Configuration
+public class SecurityConfig {
+    @Bean JwtDecoder jwtDecoder(JwtCodec codec) { return new CallerJwtDecoder(codec); }
+    @Bean CallerJwtConverter callerJwtConverter(CallerLoader loader) { return new CallerJwtConverter(loader); }
+
+    @Bean SecurityFilterChain api(HttpSecurity http, JwtDecoder decoder, CallerJwtConverter converter, CosProperties p) throws Exception {
+        http.csrf((c) -> c.disable())
+            .cors((c) -> c.configurationSource(cors(p.web().allowedOrigins())))
+            .sessionManagement((s) -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            .authorizeHttpRequests((a) -> a
+                .requestMatchers(HttpMethod.POST, "/api/v1/auth/otp", "/api/v1/auth/token", "/api/v1/auth/refresh", "/api/v1/auth/logout").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/v1/webhooks/*").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/v1/public/**").permitAll()
+                .requestMatchers("/actuator/health", "/actuator/health/**", "/v3/api-docs/**", "/swagger-ui/**").permitAll()
+                .anyRequest().authenticated())
+            .oauth2ResourceServer((o) -> o.jwt((j) -> j.decoder(decoder).jwtAuthenticationConverter(converter)))
+            .headers((h) -> h
+                .contentTypeOptions(Customizer.withDefaults())
+                .frameOptions((f) -> f.deny())
+                .httpStrictTransportSecurity((t) -> t.includeSubDomains(true).maxAgeInSeconds(31_536_000))
+                .referrerPolicy((r) -> r.policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER))
+                .contentSecurityPolicy((c) -> c.policyDirectives("default-src 'none'; frame-ancestors 'none'")));
+        return http.build();
+    }
+
+    private static CorsConfigurationSource cors(List<String> origins) {
+        CorsConfiguration c = new CorsConfiguration();
+        c.setAllowedOrigins(origins == null ? List.of() : origins);
+        c.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE"));
+        c.setAllowedHeaders(List.of("Authorization", "Content-Type", "Idempotency-Key", "If-Match", "X-Request-Id"));
+        c.setExposedHeaders(List.of("ETag", "Retry-After", "X-Request-Id"));
+        c.setAllowCredentials(true);                               // the refresh cookie
+        c.setMaxAge(3600L);
+        UrlBasedCorsConfigurationSource s = new UrlBasedCorsConfigurationSource();
+        s.registerCorsConfiguration("/api/**", c);
+        return s;
+    }
+}

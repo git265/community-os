@@ -35,7 +35,7 @@ Each point of the review below is marked with where it stands. **Node** = the `b
 | Redis | **Deliberately not used.** Idempotency keys, sessions, OTP/lockout counters, advisory-locked jobs and the outbox all live in PostgreSQL, which keeps one thing to run and is correct across instances. (You also asked earlier not to add a general cache until needed.) Add Redis for distributed rate limits or hot lookups when measurements ask for it. | |
 | Connection pool | **Done.** `PG_POOL_MAX` (20), connect timeout 10 s, `statement_timeout` 30 s, `idle_in_transaction_session_timeout` 60 s. Spring: Hikari equivalents in `application.yml`. | |
 | Circuit breaker + timeouts | **Node: done.** Calls to a real provider's status API go through a breaker (5 failures → open for 30 s → one trial) with an 8 s timeout; the browser has its own timeouts and safe read retries. Spring: add Resilience4j `@CircuitBreaker` + `@TimeLimiter` on the provider adapter when it is written. | `breaker.mjs`; set `PAY.lookup` in the provider adapter. |
-| Async / virtual threads | Node is non-blocking by design. **Spring:** `spring.threads.virtual.enabled=true` (needs Java 21) set. | |
+| Async / virtual threads | Node is non-blocking by design. **Spring:** `spring.threads.virtual.enabled=true` (Java 21+; the services build on Java 25) set. | |
 | Known scale limit | Row scoping is applied after loading a collection, not in SQL; large collections (1M+ rows, 10M audit lines) need that pushed down and paging for the audit list. See docs/SCALE-AND-CONFIGURATION.md §4. | |
 
 ## 5. Auditing and observability

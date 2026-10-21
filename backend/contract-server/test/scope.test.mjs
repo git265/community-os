@@ -3,6 +3,7 @@
 import { test, before, after, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { startServer, seedTenant, seedExtras, pool as mkPool, purge, rolePhone } from './harness.mjs';
+import { TYPED } from '../store/tables.mjs';
 const TENANT = 'authz-scope';
 const { DEFAULT_ROLES } = await import('../../../src/lib/access/roles.js');
 
@@ -57,6 +58,61 @@ describe('database scope = in-memory scope', () => {
   test('a block-limited secretary sees only the units of their block, plus rows with no unit', async () => {
     const r = await FAST.call('GET', '/dues', { token: tok.fast.blk }); const got = r.body.map((d) => d.id).sort();
     assert.deepEqual(got, ['due-1', 'due-3', 'due-4'], 'V-1 and V-3 are in block A; the unit-less charge stays visible; V-2 (block B) is hidden');
+  });
+});
+
+describe('each role sees only the data that pertains to it (r77)', () => {
+  const rows = (r) => (Array.isArray(r.body) ? r.body : r.body?.rows || []);
+  const list = async (k, c) => { const [a, b] = await both(k, `/${c}`); assert.equal(a.status, b.status, `${k} ${c}`); assert.deepEqual(a.body, b.body, `${k} ${c} fast = slow`); return a; };
+  const doc = (c, r) => (TYPED[c]
+    ? pool.query(`INSERT INTO ${TYPED[c].table} (tenant, id, data) VALUES ($1,$2,$3)`, [TENANT, r.id, JSON.stringify({ recVersion: 1, ...r })])
+    : pool.query('INSERT INTO documents (tenant, collection, id, data) VALUES ($1,$2,$3,$4)', [TENANT, c, r.id, JSON.stringify({ recVersion: 1, ...r })]));
+  const drop = (c, id) => (TYPED[c] ? pool.query(`DELETE FROM ${TYPED[c].table} WHERE tenant=$1 AND id=$2`, [TENANT, id]) : pool.query('DELETE FROM documents WHERE tenant=$1 AND collection=$2 AND id=$3', [TENANT, c, id]));
+  const none = (r) => r.status === 403 || rows(r).length === 0;
+
+  test('a trade worker sees only their trade queue and what is assigned to them', async () => {
+    assert.deepEqual(rows(await list('role-handyman_plumbing', 'tickets')).map((t) => t.id).sort(), ['tk-1']);
+    assert.deepEqual(rows(await list('role-handyman_electrical', 'tickets')).map((t) => t.id).sort(), ['tk-2', 'tk-3']);
+    assert.equal(rows(await list('role-handyman_mep', 'tickets')).length, 3, 'MEP coordinates the contract: every ticket');
+    await doc('tickets', { id: 'tk-a1', unit: 'V-2', title: 'Door', status: 'Assigned', category: 'Carpentry', priority: 'Low', taskType: 'Resident Maintenance', assignedTo: 'Test Handyman · Plumbing', description: 'x' });
+    try { assert.deepEqual(rows(await list('role-handyman_plumbing', 'tickets')).map((t) => t.id).sort(), ['tk-1', 'tk-a1']); } finally { await drop('tickets', 'tk-a1'); }
+  });
+  test('field staff and the guard never see bills, refund credits, donations or (except the guard) villa gate records', async () => {
+    for (const k of ['role-handyman_plumbing', 'guard', 'role-handyman_general']) for (const c of ['dues', 'unitCredits', 'culturalDonations']) assert.ok(none(await list(k, c)), `${k} ${c}`);
+    await doc('gateVisits', { id: 'gv-t1', unit: 'V-1', name: 'Courier', state: 'Inside' });
+    try {
+      assert.ok(none(await list('role-handyman_plumbing', 'gateVisits')), 'a plumber sees no visitors');
+      assert.ok(none(await list('role-helpdesk', 'gateVisits')), 'the helpdesk sees no visitors');
+      assert.deepEqual(rows(await list('guard', 'gateVisits')).map((v) => v.id), ['gv-t1'], 'the guard runs the gate');
+      assert.deepEqual(rows(await list('own1', 'gateVisits')).map((v) => v.id), ['gv-t1'], 'the villa sees its own visitor');
+      assert.ok(none(await list('own2', 'gateVisits')), 'another villa does not');
+    } finally { await drop('gateVisits', 'gv-t1'); }
+  });
+  test('a meter-reading role sees the utility bills only; finance roles see every bill', async () => {
+    await doc('dues', { id: 'due-w1', unit: 'V-2', amount: 300, status: 'Unpaid', category: 'Water', dueDate: '2026-11-10' });
+    try {
+      assert.deepEqual(rows(await list('role-helpdesk', 'dues')).map((d) => d.id), ['due-w1']);
+      assert.ok(rows(await list('treas', 'dues')).length >= 5);
+    } finally { await drop('dues', 'due-w1'); }
+  });
+  test('staff who do not run amenities see the booking and unit, not the money', async () => {
+    const got = rows(await list('role-helpdesk', 'amenities'));
+    assert.ok(got.length >= 3); assert.ok(got.every((b) => b.unit && b.date && !('totalPayable' in b) && !('paymentStatus' in b) && !('bookedBy' in b)), JSON.stringify(got[0]));
+    assert.ok(rows(await list('role-facility_manager', 'amenities')).some((b) => 'totalPayable' in b), 'the Facility Manager runs amenities');
+  });
+  test('the bell and notification choices are personal', async () => {
+    const ns = [{ id: 'n-t1', toUnit: 'V-1', title: 'a' }, { id: 'n-t2', toUnit: 'V-2', title: 'b' }, { id: 'n-t3', toRoleIds: ['treasurer'], title: 'c' }, { id: 'n-t4', toName: 'Olive Owner', title: 'd' }];
+    const ps = [{ id: 'np-t1', userName: 'Olive Owner', sms: true }, { id: 'np-t2', userName: 'Omar Owner', sms: false }];
+    for (const n of ns) await doc('notifications', n); for (const x of ps) await doc('notificationPrefs', x);
+    try {
+      const mine = async (k) => rows(await list(k, 'notifications')).map((n) => n.id).filter((id) => id.startsWith('n-t')).sort();   // ignore what earlier tests sent
+      assert.deepEqual(await mine('own1'), ['n-t1', 'n-t4']);
+      assert.deepEqual(await mine('own2'), ['n-t2']);
+      assert.deepEqual(await mine('treas'), ['n-t3']);
+      assert.ok(rows(await list('own1', 'notifications')).every((n) => n.toUnit === 'V-1' || n.toName === 'Olive Owner' || (n.toRoleIds || []).includes('owner')), 'nothing addressed to someone else');
+      assert.deepEqual(rows(await list('own1', 'notificationPrefs')).map((n) => n.id), ['np-t1']);
+      assert.equal(rows(await list('pres', 'notificationPrefs')).length, 2, 'notification managers see every choice');
+    } finally { for (const n of ns) await drop('notifications', n.id); for (const x of ps) await drop('notificationPrefs', x.id); }
   });
 });
 

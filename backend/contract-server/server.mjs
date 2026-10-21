@@ -14,7 +14,7 @@ import { createAuth, CFG as AUTH, AuthError } from './auth.mjs';
 import { createService } from './service.mjs';
 import { createPayments, PAY } from './payments.mjs';
 import { createJobs } from './jobs.mjs';
-import { findCardData, createLimiter, clientIp, securityHeaders } from './guards.mjs';
+import { findCardData, createLimiter, clientIp, securityHeaders, checkFileBytes, fileResponseHeaders } from './guards.mjs';
 import { createIdempotency } from './idempotency.mjs';
 import { createOutbox } from './outbox.mjs';
 import { createBreaker } from './breaker.mjs';
@@ -95,6 +95,7 @@ const svc = AUTH.mode === 'enforce'
   : null;
 
 const srcDirUrl = pathToFileURL(path.join(here, '..', '..', 'src') + path.sep);
+const { ALLOWED_TYPES, MAX_BYTES } = await import(new URL('lib/files/fileValidation.js', srcDirUrl).href);
 const outbox = createOutbox({ pool });
 outbox.register('payment.settled', async (ev) => { console.log(`[outbox] payment.settled ${ev.payload.orderId} ${ev.payload.unit} ${ev.payload.amount}`); });   // plug mail / invoice / accounting export handlers in here
 const idem = createIdempotency({ pool, HttpError });
@@ -169,17 +170,26 @@ async function enforcedRoute(req, res, url, tenant, who, collection, id, sub) {
   const M = req.method; const body = async () => noCardData(JSON.parse((await readBody(req)).toString() || 'null'));
   if (collection === 'audit' && M !== 'GET') throw new HttpError(403, 'The audit trail is written by the server only.');
   if (collection === 'files' && sub === 'content') {
+    if (!ID_RE.test(id || '')) throw new HttpError(400, 'Bad id.');
     const row = await svc.get(tenant, who, 'files', id);
     if (M === 'GET') {
       if (!row) throw new HttpError(404, 'No such file.');
       const f = filePath(tenant, id); if (!fs.existsSync(f)) throw new HttpError(404, 'No such file.');
-      res.writeHead(200, { 'Content-Type': fs.existsSync(`${f}.mime`) ? fs.readFileSync(`${f}.mime`, 'utf8') : 'application/octet-stream' });
+      res.writeHead(200, fileResponseHeaders(fs.existsSync(`${f}.mime`) ? fs.readFileSync(`${f}.mime`, 'utf8') : '', ALLOWED_TYPES));
       return res.end(fs.readFileSync(f));
     }
     if (M === 'PUT') {
+      // new bytes go to a new file id only; the bytes of a saved file are replaced only by someone who manages documents
+      const f = filePath(tenant, id);
+      const manager = await svc.mayManageFiles(tenant, who);
+      if (row && !manager) throw Object.assign(new HttpError(403, 'Uploaded files cannot be replaced.'), { code: 'denied' });
+      if (!row && fs.existsSync(f) && !manager) throw Object.assign(new HttpError(403, 'Uploaded files cannot be replaced.'), { code: 'denied' });
       if (!row && !(await svc.canWrite(tenant, who, 'files'))) throw new HttpError(403, 'You cannot add files here.');
-      const f = filePath(tenant, id); fs.mkdirSync(path.dirname(f), { recursive: true });
-      fs.writeFileSync(f, await readBody(req)); fs.writeFileSync(`${f}.mime`, req.headers['content-type'] || 'application/octet-stream'); return json(res, 204);
+      const bytes = await readBody(req);
+      const chk = checkFileBytes(bytes, req.headers['content-type'], ALLOWED_TYPES, MAX_BYTES);
+      if (chk.error) throw Object.assign(new HttpError(400, chk.error), { code: 'bad-file' });
+      fs.mkdirSync(path.dirname(f), { recursive: true });
+      fs.writeFileSync(f, bytes); fs.writeFileSync(`${f}.mime`, chk.type); return json(res, 204);
     }
     if (M === 'DELETE') { if (!row) throw new HttpError(404, 'No such file.'); await svc.remove(tenant, who, 'files', id); const f = filePath(tenant, id); fs.rmSync(f, { force: true }); fs.rmSync(`${f}.mime`, { force: true }); return json(res, 204); }
   }

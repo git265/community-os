@@ -7,6 +7,7 @@
 // native push payload would carry (`data: { url }`) once the Spring Boot + FCM/APNs backend replaces this simulation.
 import { storage } from './storage/index.js';
 import { getPrincipal } from './security/principal.js';
+import { notificationForMe } from './security/authz.js';
 import { uuid } from './uuid.js';
 import { notify } from './notify.js';
 import { approvalState, invoiceApproval, finalApproverRoleIds } from '../modules/tickets/ticketEngine.js';
@@ -16,10 +17,7 @@ export const ticketLink = (ticketNumber) => `#/ticket/${ticketNumber}`;
 
 /** Is this row addressed to the signed-in person? (by name, by role for staff, by villa for residents) */
 export function isForMe(n, p = getPrincipal()) {
-  if (!p) return false;
-  if (n.toName && n.toName === p.name) return true;
-  if (n.toUnit) return p.role?.category === 'Resident' && n.toUnit === p.unit;
-  return Array.isArray(n.toRoleIds) && n.toRoleIds.includes(p.roleId);
+  return notificationForMe(n, p); // the same rule scopes the server's reads (lib/security/authz.js)
 }
 
 export async function listMine() {

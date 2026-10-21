@@ -2,6 +2,7 @@
 //
 //   session  the browser demo store (sessionStorage + IndexedDB). Nothing to install; resets with the tab.
 //   api      the Spring Boot + PostgreSQL back end (backend/), reached over HTTP.
+//   v2       the typed v2 API (backend/api: /api/v1, one table per object) - units, members, bills, payments and sign-in so far
 //
 // The choice is kept in localStorage so it survives reloads and tabs, and can be flipped from the "Data source" panel
 // (login screen, and Super Admin -> profile menu) without rebuilding. Build-time defaults:
@@ -12,7 +13,7 @@ import { apiFetch } from '../net/request.js';
 const KEY = 'communityos:dataSource';
 
 const defaults = () => ({
-  mode: import.meta.env.VITE_USE_API === 'true' ? 'api' : 'session',
+  mode: import.meta.env.VITE_USE_API === 'v2' ? 'v2' : import.meta.env.VITE_USE_API === 'true' ? 'api' : 'session',
   baseUrl: import.meta.env.VITE_API_BASE_URL || '/api',
   token: import.meta.env.VITE_API_KEY || '',
 });
@@ -20,12 +21,12 @@ const defaults = () => ({
 export function getDataSource() {
   try {
     const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
-    if (saved && (saved.mode === 'session' || saved.mode === 'api')) return { ...defaults(), ...saved };
+    if (saved && (saved.mode === 'session' || saved.mode === 'api' || saved.mode === 'v2')) return { ...defaults(), ...saved };
   } catch { /* unavailable: use defaults */ }
   return defaults();
 }
 
-export const isApiMode = () => getDataSource().mode === 'api';
+export const isApiMode = () => getDataSource().mode === 'api' || getDataSource().mode === 'v2';   // a back end (either API) holds the data
 
 /** Save the choice. The app must reload afterwards, because screens keep what they loaded in memory. */
 export function setDataSource(next) {
@@ -36,10 +37,10 @@ export function setDataSource(next) {
 }
 
 /** GET {base}/health - { status, database, version, providers:{...} } or throws a readable error. */
-export async function pingBackend(baseUrl = getDataSource().baseUrl, token = getDataSource().token) {
+export async function pingBackend(baseUrl = getDataSource().baseUrl, token = getDataSource().token, mode = getDataSource().mode) {
   let res;
   try {
-    res = await fetch(`${String(baseUrl).replace(/\/+$/, '')}/health`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    res = await fetch(`${String(baseUrl).replace(/\/+$/, '')}${mode === 'v2' ? '/v1/public/health' : '/health'}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
   } catch {
     throw new Error('Cannot reach the back end at that address. Is it running, and is CORS allowed for this site?');
   }

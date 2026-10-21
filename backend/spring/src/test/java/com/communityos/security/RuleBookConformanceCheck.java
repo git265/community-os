@@ -62,6 +62,7 @@ public final class RuleBookConformanceCheck {
         JsonNode fixtures = gold.get("fixtures");
         RawReader raw = (collection) -> { List<JsonNode> out = new ArrayList<>(); JsonNode rows = fixtures.get(collection); if (rows != null) rows.forEach(out::add); return out; };
         WriteRules rules = new WriteRules(constants);
+        Map<String, RowScope> scopes = new java.util.HashMap<>();
 
         for (JsonNode t : gold.get("writes")) {
             writes++;
@@ -73,15 +74,25 @@ public final class RuleBookConformanceCheck {
             JsonNode rows = fixtures.get(collection);
             JsonNode old = rowIdx < 0 || op.equals("create") ? null : rows.get(rowIdx).deepCopy();
             JsonNode next;
-            if (op.equals("create")) { ObjectNode n = rows != null && rows.size() > 0 ? rows.get(0).deepCopy() : json.createObjectNode().put("id", "new"); n.put("id", "new-1"); n.remove("shortId"); n.remove("recVersion"); next = n; }
+            if (op.equals("create")) { ObjectNode n = rows != null && rows.size() > 0 ? rows.get(Math.max(0, rowIdx)).deepCopy() : json.createObjectNode().put("id", "new"); n.put("id", "new-1"); n.remove("shortId"); n.remove("recVersion"); next = n; }
             else next = old == null ? json.createObjectNode() : old.deepCopy();
-            if (!t.get(5).isNull()) ((ObjectNode) next).set(t.get(5).asText(), json.readTree(t.get(6).asText()));
+            if (!t.get(5).isNull() && t.get(5).asText().equals("*")) { JsonNode patch = json.readTree(t.get(6).asText()); patch.fields().forEachRemaining((e) -> ((ObjectNode) next).set(e.getKey(), e.getValue().deepCopy())); }   // a hand-written case: several fields
+            else if (!t.get(5).isNull()) ((ObjectNode) next).set(t.get(5).asText(), json.readTree(t.get(6).asText()));
             Verdict v = rules.authorize(new WriteCall(collection, p, catalog.schema(collection), old, next, op, ctx));
             boolean wantOk = t.get(7).asInt() == 1;
             String wantReason = wantOk ? null : t.get(8).asText();
             if (v.ok() != wantOk || (!wantOk && !wantReason.equals(v.reason()))) {
                 problems.add("WRITE " + collection + " " + op + " as " + p.roleId() + "/" + p.name() + " row=" + rowIdx + " key=" + t.get(5).asText() + " value=" + t.get(6).asText()
                         + "\n    js  : " + (wantOk ? "OK" : wantReason) + "\n    java: " + (v.ok() ? "OK" : v.reason()));
+            }
+            // r77: what the server would save (WritePrep): the refusal, or a fingerprint of the record
+            if (t.size() > 10) {
+                RowScope sc = scopes.computeIfAbsent(t.get(0).asInt() + "|" + collection, (key) -> RowScopes.rowScope(collection, p, raw, ctxs.get(0)));
+                WritePrep.Prepared pw = WritePrep.prepare(collection, p, catalog.schema(collection), old, next, op, sc);
+                String stays = pw.ok() ? WritePrep.staysInScope(collection, p, old, pw.record(), op, sc) : null;
+                String got = pw.ok() && stays == null ? "=" + sha16(canon(pw.record())) : "!" + (pw.ok() ? stays : pw.reason());
+                if (!got.equals(t.get(10).asText())) problems.add("PREPARE " + collection + " " + op + " as " + p.roleId() + "/" + p.name() + " row=" + rowIdx + " key=" + t.get(5).asText() + " value=" + t.get(6).asText()
+                        + "\n    js  : " + t.get(10).asText() + "\n    java: " + got);
             }
             boolean bo = BlockScope.writeOk(collection, op.equals("delete") ? old : next, old, p, raw);
             if (bo != (t.get(9).asInt() == 1)) problems.add("BLOCK " + collection + " " + op + " as " + p.roleId() + " row=" + rowIdx + " js=" + t.get(9).asInt() + " java=" + bo);
@@ -114,6 +125,10 @@ public final class RuleBookConformanceCheck {
         }
     }
 
+    static String sha16(String s) {
+        try { byte[] d = java.security.MessageDigest.getInstance("SHA-1").digest(s.getBytes(java.nio.charset.StandardCharsets.UTF_8)); StringBuilder b = new StringBuilder(); for (byte x : d) b.append(String.format("%02x", x)); return b.substring(0, 16); }
+        catch (java.security.NoSuchAlgorithmException e) { throw new IllegalStateException(e); }
+    }
     private static String trim(String s) { return s.length() > 600 ? s.substring(0, 600) + "…" : s; }
     private static List<String> strings(JsonNode a) { List<String> out = new ArrayList<>(); a.forEach((x) -> out.add(x.asText())); return out; }
 

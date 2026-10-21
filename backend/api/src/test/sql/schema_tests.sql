@@ -1,0 +1,209 @@
+-- Database-level tests for the v2 schema: run as the API role (cos_app), so row-level security and grants are really exercised.
+--   psql -d cos_v2 -v ON_ERROR_STOP=1 -f src/test/sql/schema_tests.sql      (tools/test-schema.sh does migrate + run)
+-- Each test is a DO block that RAISEs on failure; the last line prints the number of tests passed.
+\set QUIET on
+CREATE SCHEMA IF NOT EXISTS test;
+CREATE TABLE IF NOT EXISTS test.result (name text PRIMARY KEY, ok boolean NOT NULL, detail text);
+TRUNCATE test.result;
+GRANT USAGE ON SCHEMA test TO cos_app, cos_platform; GRANT ALL ON test.result TO cos_app, cos_platform;
+
+-- expect_error(sql, sqlstate): runs sql and passes only if it fails with that SQLSTATE (or any error when sqlstate is NULL)
+CREATE OR REPLACE FUNCTION test.expect_error(q text, want text DEFAULT NULL) RETURNS text LANGUAGE plpgsql AS $$
+BEGIN
+  BEGIN EXECUTE q; EXCEPTION WHEN others THEN
+    IF want IS NULL OR SQLSTATE = want THEN RETURN 'ok: ' || SQLSTATE; END IF;
+    RAISE EXCEPTION 'expected % but got % (%)', want, SQLSTATE, SQLERRM;
+  END;
+  RAISE EXCEPTION 'expected an error from: %', q;
+END $$;
+CREATE OR REPLACE FUNCTION test.pass(n text, d text DEFAULT '') RETURNS void LANGUAGE sql AS $$ INSERT INTO test.result VALUES (n, true, d) ON CONFLICT (name) DO UPDATE SET ok = true, detail = EXCLUDED.detail $$;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA test TO cos_app, cos_platform;
+
+-- ---- fixtures (as the owner): two communities, provisioned with default roles, a unit and a member each ------------------------------------------
+DELETE FROM platform.community WHERE slug IN ('test-a', 'test-b');
+INSERT INTO platform.community (id, slug, name) VALUES ('00000000-0000-0000-0000-00000000000a', 'test-a', 'Test A'), ('00000000-0000-0000-0000-00000000000b', 'test-b', 'Test B');
+SELECT platform.provision_community('00000000-0000-0000-0000-00000000000a');
+SELECT platform.provision_community('00000000-0000-0000-0000-00000000000b');
+INSERT INTO identity.person (id, phone_e164, full_name) VALUES ('00000000-0000-0000-0000-0000000000f1', '+919800000011', 'Olive Owner'), ('00000000-0000-0000-0000-0000000000f2', '+919800000012', 'Omar Owner')
+  ON CONFLICT DO NOTHING;
+SELECT set_config('app.community_id', '00000000-0000-0000-0000-00000000000a', false);
+INSERT INTO identity.membership (community_id, id, person_id, display_name) VALUES ('00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-0000000000e1', '00000000-0000-0000-0000-0000000000f1', 'Olive Owner');
+INSERT INTO property.unit (community_id, id, unit_no, unit_type) VALUES ('00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-0000000000c1', 'Villa 1', 'Villa');
+SELECT set_config('app.community_id', '00000000-0000-0000-0000-00000000000b', false);
+INSERT INTO identity.membership (community_id, id, person_id, display_name) VALUES ('00000000-0000-0000-0000-00000000000b', '00000000-0000-0000-0000-0000000000e2', '00000000-0000-0000-0000-0000000000f2', 'Omar Owner');
+INSERT INTO property.unit (community_id, id, unit_no, unit_type) VALUES ('00000000-0000-0000-0000-00000000000b', '00000000-0000-0000-0000-0000000000c2', 'Villa 1', 'Villa');
+RESET app.community_id;
+
+-- ---- 1. every tenant table is protected -------------------------------------------------------------------------------------------------------
+DO $$ DECLARE missing text; BEGIN
+  SELECT string_agg(format('%I.%I', n.nspname, c.relname), ', ') INTO missing
+  FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+  WHERE n.nspname = ANY (platform.tenant_schemas()) AND c.relkind IN ('r', 'p') AND NOT c.relispartition
+    AND EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attname = 'community_id')
+    AND NOT (n.nspname = 'platform' AND c.relname = 'short_id_counter')
+    AND NOT (c.relrowsecurity AND c.relforcerowsecurity AND EXISTS (SELECT 1 FROM pg_policy p WHERE p.polrelid = c.oid));
+  IF missing IS NOT NULL THEN RAISE EXCEPTION 'tables without forced RLS + policy: %', missing; END IF;
+  PERFORM test.pass('every tenant table has forced row-level security and a policy');
+END $$;
+DO $$ DECLARE missing text; BEGIN
+  SELECT string_agg(format('%I.%I', n.nspname, c.relname), ', ') INTO missing
+  FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+  WHERE n.nspname = ANY (platform.tenant_schemas()) AND c.relkind IN ('r', 'p') AND NOT c.relispartition
+    AND EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attname = 'updated_by')
+    AND NOT EXISTS (SELECT 1 FROM pg_trigger t WHERE t.tgrelid = c.oid AND t.tgname = 'stamp_row');
+  IF missing IS NOT NULL THEN RAISE EXCEPTION 'tables whose audit columns are not stamped: %', missing; END IF;
+  PERFORM test.pass('every table with audit columns has the stamping trigger');
+END $$;
+
+SET ROLE cos_app;
+
+-- ---- 2. isolation ---------------------------------------------------------------------------------------------------------------------------------
+DO $$ DECLARE n int; BEGIN
+  PERFORM set_config('app.community_id', '', true);
+  SELECT count(*) INTO n FROM property.unit; IF n <> 0 THEN RAISE EXCEPTION 'no context, yet % units visible', n; END IF;
+  PERFORM set_config('app.community_id', '00000000-0000-0000-0000-00000000000a', true);
+  SELECT count(*) INTO n FROM property.unit; IF n <> 1 THEN RAISE EXCEPTION 'community A sees % units', n; END IF;
+  SELECT count(*) INTO n FROM identity.membership; IF n <> 1 THEN RAISE EXCEPTION 'community A sees % memberships', n; END IF;
+  SELECT count(*) INTO n FROM identity.person; IF n <> 1 THEN RAISE EXCEPTION 'community A sees % people', n; END IF;
+  SELECT count(*) INTO n FROM platform.community; IF n <> 1 THEN RAISE EXCEPTION 'community A sees % communities', n; END IF;
+  SELECT count(*) INTO n FROM identity.role; IF n <> 18 THEN RAISE EXCEPTION 'community A sees % roles (expected its own 18)', n; END IF;
+  PERFORM test.pass('a community sees only its own rows; no context sees nothing');
+END $$;
+DO $$ BEGIN
+  PERFORM set_config('app.community_id', '00000000-0000-0000-0000-00000000000a', true);
+  PERFORM test.expect_error($q$INSERT INTO property.unit (community_id, unit_no, unit_type) VALUES ('00000000-0000-0000-0000-00000000000b', 'Villa 9', 'Villa')$q$, '42501');
+  UPDATE property.unit SET community_id = '00000000-0000-0000-0000-00000000000b' WHERE unit_no = 'Villa 1';   -- the trigger keeps the stored community
+  IF NOT EXISTS (SELECT 1 FROM property.unit WHERE unit_no = 'Villa 1' AND community_id = '00000000-0000-0000-0000-00000000000a') THEN RAISE EXCEPTION 'the unit left community A'; END IF;
+  PERFORM test.pass('a row cannot be written into, or moved to, another community');
+END $$;
+DO $$ DECLARE n int; BEGIN
+  PERFORM set_config('app.community_id', '00000000-0000-0000-0000-00000000000a', true);
+  UPDATE property.unit SET occupancy = 'Vacant' WHERE id = '00000000-0000-0000-0000-0000000000c2';   -- community B's unit
+  GET DIAGNOSTICS n = ROW_COUNT; IF n <> 0 THEN RAISE EXCEPTION 'updated another community''s unit'; END IF;
+  DELETE FROM property.unit WHERE id = '00000000-0000-0000-0000-0000000000c2'; GET DIAGNOSTICS n = ROW_COUNT; IF n <> 0 THEN RAISE EXCEPTION 'deleted another community''s unit'; END IF;
+  PERFORM test.pass('another community''s row cannot be updated or deleted, even by id');
+END $$;
+
+-- ---- 3. server-stamped columns ----------------------------------------------------------------------------------------------------------------------
+DO $$ DECLARE r record; v1 bigint; BEGIN
+  PERFORM set_config('app.community_id', '00000000-0000-0000-0000-00000000000a', true);
+  PERFORM set_config('app.user_id', '00000000-0000-0000-0000-0000000000e1', true);
+  INSERT INTO property.block (community_id, name, created_at, created_by, updated_at, updated_by, version, short_id)
+    VALUES ('00000000-0000-0000-0000-00000000000a', 'Tower T', '2000-01-01', gen_random_uuid(), '2000-01-01', gen_random_uuid(), 99, 'FAKE-1');
+  SELECT * INTO r FROM property.block WHERE name = 'Tower T';
+  IF r.created_at < now() - interval '1 minute' OR r.created_by <> '00000000-0000-0000-0000-0000000000e1' OR r.version <> 1 OR r.short_id = 'FAKE-1' OR r.updated_by <> r.created_by THEN
+    RAISE EXCEPTION 'forged audit columns were kept: %', row_to_json(r); END IF;
+  v1 := r.version;
+  UPDATE property.block SET kind = 'Tower', created_at = '1999-01-01', created_by = gen_random_uuid(), version = 1000, short_id = 'FAKE-2', id = gen_random_uuid() WHERE name = 'Tower T';
+  SELECT * INTO r FROM property.block WHERE name = 'Tower T';
+  IF r.version <> v1 + 1 OR r.created_at < now() - interval '1 minute' OR r.short_id = 'FAKE-2' OR r.kind <> 'Tower' THEN RAISE EXCEPTION 'update kept forged values: %', row_to_json(r); END IF;
+  PERFORM test.pass('created/updated time and person, version, id and short number are the database''s, whatever the statement says');
+END $$;
+DO $$ DECLARE a text; b text; BEGIN
+  PERFORM set_config('app.community_id', '00000000-0000-0000-0000-00000000000a', true);
+  INSERT INTO property.block (community_id, name) VALUES ('00000000-0000-0000-0000-00000000000a', 'Tower U') RETURNING short_id INTO a;
+  INSERT INTO property.block (community_id, name) VALUES ('00000000-0000-0000-0000-00000000000a', 'Tower V') RETURNING short_id INTO b;
+  IF a IS NULL OR b IS NULL OR a = b OR a !~ '^BLK-[0-9]{4}$' THEN RAISE EXCEPTION 'short numbers %, %', a, b; END IF;
+  -- past 9 999 the number grows instead of being cut to four digits
+  UPDATE platform.short_id_counter SET last_value = 9999 WHERE community_id = '00000000-0000-0000-0000-00000000000a' AND kind = 'BLK';
+  INSERT INTO property.block (community_id, name) VALUES ('00000000-0000-0000-0000-00000000000a', 'Tower W') RETURNING short_id INTO b;
+  IF b <> 'BLK-10000' THEN RAISE EXCEPTION 'number after 9999 is %', b; END IF;
+  PERFORM test.pass('short numbers are given in order and never repeat, past 9 999 too', a || ' ' || b);
+END $$;
+
+-- ---- 4. money integrity -----------------------------------------------------------------------------------------------------------------------------
+DO $$ DECLARE cat uuid; BEGIN
+  PERFORM set_config('app.community_id', '00000000-0000-0000-0000-00000000000a', true);
+  SELECT id INTO cat FROM billing.charge_category WHERE code = 'Maintenance';
+  PERFORM test.expect_error(format($q$INSERT INTO billing.due (community_id, unit_id, category_id, amount, due_date) VALUES ('00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-0000000000c1', %L, -5, current_date)$q$, cat), '23514');
+  PERFORM test.expect_error(format($q$INSERT INTO billing.due (community_id, unit_id, category_id, amount, paid_amount, due_date, status, paid_at) VALUES ('00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-0000000000c1', %L, 100, 150, current_date, 'Paid', now())$q$, cat), '23514');
+  PERFORM test.expect_error(format($q$INSERT INTO billing.due (community_id, unit_id, category_id, amount, paid_amount, due_date, status, paid_at) VALUES ('00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-0000000000c1', %L, 100, 40, current_date, 'Paid', now())$q$, cat), '23514');
+  PERFORM test.expect_error(format($q$INSERT INTO billing.due (community_id, unit_id, category_id, amount, due_date, status) VALUES ('00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-0000000000c1', %L, 100, current_date, 'Cancelled')$q$, cat), '23514');
+  PERFORM test.expect_error(format($q$INSERT INTO billing.due (community_id, unit_id, category_id, amount, due_date) VALUES ('00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-0000000000c2', %L, 100, current_date)$q$, cat), '23503');
+  PERFORM test.pass('a bill cannot be negative, overpaid, "Paid" when it is not, cancelled without a reason, or for another community''s unit');
+END $$;
+
+-- payment allocations and the ledger are checked at COMMIT: these run in their own transactions (BEGIN/COMMIT blocks), outside DO
+SET app.community_id = '00000000-0000-0000-0000-00000000000a';
+BEGIN;
+INSERT INTO billing.due (community_id, id, unit_id, category_id, amount, due_date)
+  SELECT '00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000d001', '00000000-0000-0000-0000-0000000000c1', id, 1000, current_date FROM billing.charge_category WHERE code = 'Maintenance';
+INSERT INTO billing.payment (community_id, id, unit_id, amount, method, received_at) VALUES ('00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000a001', '00000000-0000-0000-0000-0000000000c1', 500, 'Cash', now());
+INSERT INTO billing.payment_allocation (community_id, payment_id, due_id, amount) VALUES ('00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000a001', '00000000-0000-0000-0000-00000000d001', 500);
+COMMIT;
+DO $$ BEGIN
+  PERFORM set_config('app.community_id', '00000000-0000-0000-0000-00000000000a', true);
+  -- a deferred constraint is checked at commit; SET CONSTRAINTS ALL IMMEDIATE checks it now, inside this block
+  PERFORM test.expect_error($q$INSERT INTO billing.payment_allocation (community_id, payment_id, due_id, amount) SELECT '00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000a001', id, 1 FROM billing.due WHERE id = '00000000-0000-0000-0000-00000000d001' ON CONFLICT (community_id, payment_id, due_id) DO UPDATE SET amount = 501; SET CONSTRAINTS ALL IMMEDIATE$q$, '23514');
+  PERFORM test.expect_error($q$INSERT INTO billing.payment (community_id, unit_id, amount, method, provider, provider_payment_ref, received_at) VALUES ('00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-0000000000c1', 10, 'UPI', 'razorpay', 'pay_1', now()), ('00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-0000000000c1', 10, 'UPI', 'razorpay', 'pay_1', now())$q$, '23505');
+  PERFORM test.expect_error($q$DELETE FROM billing.payment WHERE id = '00000000-0000-0000-0000-00000000a001'$q$, '42501');
+  PERFORM test.pass('a payment is allocated at most once over, recorded once per provider reference, and never deleted');
+END $$;
+
+DO $$ DECLARE e uuid; bank uuid; inc uuid; BEGIN
+  PERFORM set_config('app.community_id', '00000000-0000-0000-0000-00000000000a', true);
+  SELECT id INTO bank FROM finance.account WHERE code = '1000'; SELECT id INTO inc FROM finance.account WHERE code = '4000';
+  -- unbalanced: refused when posted
+  INSERT INTO finance.journal_entry (community_id, entry_date, memo, source_type) VALUES ('00000000-0000-0000-0000-00000000000a', current_date, 'unbalanced', 'manual') RETURNING id INTO e;
+  INSERT INTO finance.journal_line (community_id, entry_id, line_no, account_id, debit) VALUES ('00000000-0000-0000-0000-00000000000a', e, 1, bank, 100);
+  INSERT INTO finance.journal_line (community_id, entry_id, line_no, account_id, credit) VALUES ('00000000-0000-0000-0000-00000000000a', e, 2, inc, 90);
+  PERFORM test.expect_error(format($q$UPDATE finance.journal_entry SET status = 'Posted' WHERE id = %L; SET CONSTRAINTS ALL IMMEDIATE$q$, e), '23514');
+  PERFORM test.expect_error(format($q$INSERT INTO finance.journal_line (community_id, entry_id, line_no, account_id, debit, credit) VALUES ('00000000-0000-0000-0000-00000000000a', %L, 3, %L, 5, 5)$q$, e, bank), '23514');
+  -- balanced: posted, and from then on immutable
+  UPDATE finance.journal_line SET credit = 100 WHERE entry_id = e AND line_no = 2;
+  UPDATE finance.journal_entry SET status = 'Posted' WHERE id = e;
+  SET CONSTRAINTS ALL IMMEDIATE;
+  PERFORM test.expect_error(format($q$UPDATE finance.journal_line SET debit = 1000 WHERE entry_id = %L AND line_no = 1$q$, e), '55000');
+  PERFORM test.expect_error(format($q$INSERT INTO finance.journal_line (community_id, entry_id, line_no, account_id, debit) VALUES ('00000000-0000-0000-0000-00000000000a', %L, 9, %L, 1)$q$, e, bank), '55000');
+  PERFORM test.expect_error(format($q$UPDATE finance.journal_entry SET memo = 'edited' WHERE id = %L$q$, e), '55000');
+  PERFORM test.pass('a journal entry must balance to be posted, and a posted entry is never edited, extended or deleted');
+END $$;
+RESET ROLE;
+INSERT INTO finance.period_lock (community_id, locked_until) VALUES ('00000000-0000-0000-0000-00000000000a', current_date - 1) ON CONFLICT (community_id) DO UPDATE SET locked_until = EXCLUDED.locked_until;
+SET ROLE cos_app;
+DO $$ BEGIN
+  PERFORM set_config('app.community_id', '00000000-0000-0000-0000-00000000000a', true);
+  PERFORM test.expect_error($q$INSERT INTO finance.journal_entry (community_id, entry_date, memo, source_type) VALUES ('00000000-0000-0000-0000-00000000000a', current_date - 5, 'back-dated', 'manual')$q$, '55000');
+  PERFORM test.pass('nothing is posted into a closed period');
+END $$;
+
+-- ---- 5. audit trail ---------------------------------------------------------------------------------------------------------------------------------
+DO $$ DECLARE r record; BEGIN
+  PERFORM set_config('app.community_id', '00000000-0000-0000-0000-00000000000a', true);
+  PERFORM set_config('app.user_id', '00000000-0000-0000-0000-0000000000e1', true);
+  -- partitioned tables: a forged time would need the row moved to another month, which PostgreSQL refuses - so the insert fails instead
+  PERFORM test.expect_error($q$INSERT INTO audit.audit_event (community_id, at, actor_label, action, entity, summary) VALUES ('00000000-0000-0000-0000-00000000000a', '2000-01-01', 'Olive', 'Update', 'billing.due', 'x')$q$, NULL);
+  INSERT INTO audit.audit_event (community_id, actor_id, actor_label, action, entity, summary) VALUES ('00000000-0000-0000-0000-00000000000a', gen_random_uuid(), 'Olive', 'Update', 'billing.due', 'x');
+  SELECT * INTO r FROM audit.audit_event ORDER BY at DESC LIMIT 1;
+  IF r.at < now() - interval '1 minute' OR r.actor_id <> '00000000-0000-0000-0000-0000000000e1' THEN RAISE EXCEPTION 'audit time/actor forged: %', row_to_json(r); END IF;
+  PERFORM test.expect_error($q$UPDATE audit.audit_event SET summary = 'rewritten'$q$, NULL);
+  PERFORM test.expect_error($q$DELETE FROM audit.audit_event$q$, NULL);
+  PERFORM test.pass('the audit trail is append-only and its time and actor are the server''s');
+END $$;
+
+-- ---- 6. partitions, sign-in tables, privileges ----------------------------------------------------------------------------------------------------
+DO $$ DECLARE part text; BEGIN
+  PERFORM set_config('app.community_id', '00000000-0000-0000-0000-00000000000a', true);
+  INSERT INTO comms.notification (community_id, to_unit_id, event, title, link) VALUES ('00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-0000000000c1', 'bill', 'Your bill', '#/billing');
+  SELECT tableoid::regclass::text INTO part FROM comms.notification LIMIT 1;
+  IF part NOT LIKE 'comms.notification_20%' THEN RAISE EXCEPTION 'notification landed in %', part; END IF;
+  PERFORM test.expect_error($q$INSERT INTO comms.notification (community_id, to_unit_id, event, title, link) VALUES ('00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-0000000000c1', 'x', 'Pay here', 'https://evil.example')$q$, '23514');
+  PERFORM test.expect_error(format('SELECT * FROM %s', part), '42501');
+  PERFORM test.pass('notifications go to the month''s partition, link only inside the app, and partitions are not readable directly', part);
+END $$;
+DO $$ BEGIN
+  PERFORM test.expect_error('SELECT * FROM identity.refresh_token', '42501');
+  PERFORM test.expect_error('SELECT * FROM identity.otp_challenge', '42501');
+  PERFORM test.expect_error('CREATE TABLE property.hack (x int)', '42501');
+  PERFORM test.expect_error('DROP TABLE property.unit', '42501');
+  PERFORM test.pass('the API role cannot read sign-in secrets or change the schema');
+END $$;
+DO $$ BEGIN
+  PERFORM set_config('app.community_id', '00000000-0000-0000-0000-00000000000a', true);
+  PERFORM test.expect_error($q$INSERT INTO maintenance.ticket_comment (community_id, ticket_id, body) VALUES ('00000000-0000-0000-0000-00000000000a', gen_random_uuid(), 'orphan')$q$, '23503');
+  PERFORM test.expect_error($q$INSERT INTO gate.pass (community_id, unit_id, visitor_name) VALUES ('00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-0000000000c2', 'x')$q$, '23503');
+  PERFORM test.pass('module tables keep their references: no comment without its ticket, no pass for another community''s unit');
+END $$;
+RESET ROLE;
+
+SELECT format('%s schema tests passed', count(*)) AS result FROM test.result WHERE ok;

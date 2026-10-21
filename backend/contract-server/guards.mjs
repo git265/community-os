@@ -40,3 +40,23 @@ export function securityHeaders(res, { https }) {
   res.setHeader('Cache-Control', 'no-store'); res.setHeader('Cross-Origin-Resource-Policy', 'same-site');
   if (https) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
 }
+
+// ---- 5. uploaded bytes ---------------------------------------------------------------------------------------------------------------
+// The browser checks a file before it is sent; the server checks again, because a request can be made without the browser: the type must be
+// on the allow-list (src/lib/files/fileValidation.js), the first bytes must match that type, and the size must be within the limit.
+export function checkFileBytes(buf, mime, allowed, maxBytes) {
+  const type = String(mime || '').split(';')[0].trim().toLowerCase();
+  if (!buf || !buf.length) return { error: 'The file is empty.' };
+  if (buf.length > maxBytes) return { error: `The file is larger than ${Math.round(maxBytes / 1048576)} MB.` };
+  const kind = allowed.find((t) => t.mime.includes(type));
+  if (!kind) return { error: `Files of type "${type || 'unknown'}" are not allowed.` };
+  if (kind.magic && !kind.magic.some((sig) => sig.every((b, i) => buf[i] === b))) return { error: 'The file content does not match its type.' };
+  return { type };
+}
+/** How stored bytes are sent back: only allow-listed types are named; anything else is a download, never rendered by the browser. */
+export function fileResponseHeaders(mime, allowed) {
+  const type = String(mime || '').split(';')[0].trim().toLowerCase();
+  const known = allowed.some((t) => t.mime.includes(type));
+  const inline = known && (type.startsWith('image/') || type === 'application/pdf');
+  return { 'Content-Type': known ? type : 'application/octet-stream', 'Content-Disposition': inline ? 'inline' : 'attachment', 'Content-Security-Policy': "default-src 'none'; sandbox", 'X-Content-Type-Options': 'nosniff' };
+}

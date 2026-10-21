@@ -1,0 +1,162 @@
+package com.communityos.api.billing.application;
+
+import com.communityos.api.billing.application.gateway.GatewayRegistry;
+import com.communityos.api.billing.application.gateway.PaymentGateway;
+import com.communityos.api.billing.application.port.DueRepository;
+import com.communityos.api.billing.application.port.InboundEvents;
+import com.communityos.api.billing.application.port.OrderLocator;
+import com.communityos.api.billing.application.port.PaymentOrderRepository;
+import com.communityos.api.billing.application.port.PaymentRepository.Receipt;
+import com.communityos.api.billing.domain.Due;
+import com.communityos.api.billing.domain.OrderStatus;
+import com.communityos.api.billing.domain.PaymentOrder;
+import com.communityos.api.shared.domain.DomainException;
+import com.communityos.api.shared.domain.Ids.DueId;
+import com.communityos.api.shared.domain.Ids.OrderId;
+import com.communityos.api.shared.events.DomainEvents;
+import com.communityos.api.shared.security.AccessDenied;
+import com.communityos.api.shared.security.Caller;
+import com.communityos.api.shared.security.Permission;
+import com.communityos.api.shared.security.SystemCaller;
+import com.communityos.api.shared.tenancy.CallerHolder;
+import com.communityos.api.shared.tx.Tx;
+import java.time.Clock;
+import java.time.Duration;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * Online payments:
+ *   createOrder(dues)          the server prices the bills (what is owed now) - the app sends bill ids only, never an amount;
+ *                              the same Idempotency-Key returns the same order instead of charging twice
+ *   confirm(order, payment)    the app's checkout callback: signature checked, then the provider's own record fetched and settled
+ *   webhook(provider, body)    the provider's server call: signature on the raw body, de-duplicated, settled (whichever of the two comes first wins;
+ *                              the other finds the receipt already there)
+ *   reconcile()                a job for orders whose webhook never came: asks the provider, settles or expires them
+ */
+public final class PaymentService {
+    private static final Logger log = LoggerFactory.getLogger(PaymentService.class);
+    public record CreateOrder(List<DueId> dueIds) {}
+    public record OrderView(PaymentOrder order, Map<String, Object> checkout) {}
+
+    private final DueRepository dues; private final PaymentOrderRepository orders; private final GatewayRegistry gateways; private final GatewaySettlement settlement;
+    private final InboundEvents inbound; private final OrderLocator locator; private final DomainEvents events; private final Tx tx;
+    private final Clock clock; private final Duration orderTtl; private final String currency;
+    private final DuePolicy policy = new DuePolicy();
+
+    public PaymentService(DueRepository dues, PaymentOrderRepository orders, GatewayRegistry gateways, GatewaySettlement settlement, InboundEvents inbound,
+                          OrderLocator locator, DomainEvents events, Tx tx, Clock clock, Duration orderTtl, String currency) {
+        this.dues = dues; this.orders = orders; this.gateways = gateways; this.settlement = settlement; this.inbound = inbound; this.locator = locator;
+        this.events = events; this.tx = tx; this.clock = clock; this.orderTtl = orderTtl; this.currency = currency;
+    }
+
+    public OrderView createOrder(Caller c, CreateOrder cmd, String idempotencyKey) {
+        if (c.membership() == null) throw new AccessDenied("Sign in to pay");
+        if (idempotencyKey == null || idempotencyKey.length() < 8 || idempotencyKey.length() > 128)
+            throw new DomainException.RuleViolated("idempotency-key-required", "Send an Idempotency-Key header (8-128 characters) with a payment");
+        if (cmd.dueIds() == null || cmd.dueIds().isEmpty() || cmd.dueIds().size() > 24) throw new DomainException.RuleViolated("bad-dues", "Choose 1 to 24 bills");
+        Optional<PaymentOrder> again = orders.findByIdempotencyKey(c.membership(), idempotencyKey);
+        if (again.isPresent()) {
+            PaymentOrder o = again.get();
+            if (!new LinkedHashSet<>(o.items().stream().map(PaymentOrder.Item::due).toList()).equals(new LinkedHashSet<>(cmd.dueIds())))
+                throw new DomainException.RuleViolated("idempotency-key-reused", "This Idempotency-Key was already used for other bills");
+            return new OrderView(o, checkoutOf(o));
+        }
+        PaymentGateway gateway = gateways.defaultGateway();
+        PaymentOrder order = tx.inTx(() -> {
+            List<Due> bills = new java.util.ArrayList<>();
+            for (DueId id : new LinkedHashSet<>(cmd.dueIds())) {
+                Due d = dues.findById(id, policy.readScope(c)).orElseThrow(AccessDenied.NotVisible::new);
+                if (!policy.mayPay(c, d)) throw new AccessDenied("You cannot pay this bill");
+                bills.add(d);
+            }
+            PaymentOrder o = PaymentOrder.price(c.community(), bills.get(0).unit(), c.membership(), bills, currency, gateway.name(), idempotencyKey, clock.instant().plus(orderTtl));
+            orders.insert(o);
+            return o;
+        });
+        // the provider call happens OUTSIDE the transaction: no database connection is held while waiting on the network
+        PaymentGateway.ProviderOrder po = gateway.createOrder(new PaymentGateway.OrderRequest(order.id().toString(), order.shortId(), order.amount(), order.currency(),
+            Map.of("community", c.community().toString(), "order", order.id().toString())));
+        PaymentOrder saved = tx.inTx(() -> {
+            PaymentOrder o = orders.findForUpdate(order.id()).orElseThrow();
+            if (o.status() == OrderStatus.CREATED) { o.handedToProvider(po.providerOrderRef()); if (!orders.save(o)) throw new DomainException.Conflict("Payment order"); }
+            return o;
+        });
+        return new OrderView(saved, po.checkout());
+    }
+
+    public OrderView getOrder(Caller c, OrderId id) {
+        PaymentOrder o = orders.findById(id).orElseThrow(AccessDenied.NotVisible::new);
+        if (!o.payer().equals(c.membership()) && !c.isSuperAdmin() && !c.hasAny(Permission.MANAGE_DUES, Permission.MANAGE_LEDGER)) throw new AccessDenied.NotVisible();
+        return new OrderView(o, checkoutOf(o));
+    }
+
+    public Receipt confirm(Caller c, OrderId id, String providerPaymentRef, String signature) {
+        PaymentOrder o = orders.findById(id).orElseThrow(AccessDenied.NotVisible::new);
+        if (!o.payer().equals(c.membership())) throw new AccessDenied.NotVisible();
+        PaymentGateway g = gateways.get(o.provider());
+        if (o.providerOrderRef() == null || providerPaymentRef == null || !g.verifyCheckout(o.providerOrderRef(), providerPaymentRef, signature))
+            throw new DomainException.RuleViolated("bad-signature", "The payment confirmation could not be verified");
+        PaymentGateway.ProviderPayment p = g.fetchPayment(providerPaymentRef);
+        return settlement.settle(c, new GatewaySettlement.Request(id, g, p));
+    }
+
+    /** A provider webhook. Returns normally for anything we do not act on (so the provider stops retrying); throws BadSignature for a forgery. */
+    public void webhook(String provider, Map<String, String> headers, byte[] rawBody) {
+        PaymentGateway g = gateways.get(provider);
+        Optional<PaymentGateway.WebhookEvent> read = g.readWebhook(headers, rawBody);
+        if (read.isEmpty()) return;
+        PaymentGateway.WebhookEvent e = read.get();
+        if (inbound.alreadyProcessed(provider, e.eventId())) return;
+        Optional<OrderLocator.Located> where = e.providerOrderRef() == null ? Optional.empty() : locator.byProviderRef(provider, e.providerOrderRef());
+        inbound.received(provider, e.eventId(), where.map((w) -> w.community().value()).orElse(null), e.type());
+        if (where.isEmpty()) { log.warn("{} webhook {} for unknown order {}", provider, e.eventId(), e.providerOrderRef()); inbound.markProcessed(provider, e.eventId()); return; }
+        Caller system = SystemCaller.of(where.get().community(), "payments " + provider);
+        CallerHolder.runAs(system, () -> { applyProviderState(system, g, where.get().order(), e.providerPaymentRef()); return null; });
+        inbound.markProcessed(provider, e.eventId());
+    }
+
+    /** Orders that stayed open: ask the provider. Run by a scheduler every few minutes. */
+    public int reconcile(int batch) {
+        int n = 0;
+        for (OrderLocator.Located l : locator.openOlderThan(clock.instant().minus(Duration.ofMinutes(5)), batch)) {
+            Caller system = SystemCaller.of(l.community(), "payments reconcile");
+            try { CallerHolder.runAs(system, () -> { reconcileOne(system, l.order()); return null; }); n++; }
+            catch (RuntimeException ex) { log.warn("reconcile of order {} failed: {}", l.order(), ex.toString()); }
+        }
+        return n;
+    }
+
+    private void reconcileOne(Caller system, OrderId id) {
+        PaymentOrder o = orders.findById(id).orElse(null);
+        if (o == null || o.status().isFinal()) return;
+        PaymentGateway g = gateways.get(o.provider());
+        if (o.providerOrderRef() != null) {
+            for (PaymentGateway.ProviderPayment p : g.paymentsOf(o.providerOrderRef())) if (p.captured()) { settlement.settle(system, new GatewaySettlement.Request(id, g, p)); return; }
+        }
+        tx.run(() -> {
+            PaymentOrder locked = orders.findForUpdate(id).orElseThrow();
+            if (locked.expireIfDue(clock.instant())) { orders.save(locked); events.publish(locked.pullEvents()); }
+        });
+    }
+
+    private void applyProviderState(Caller system, PaymentGateway g, OrderId order, String providerPaymentRef) {
+        if (providerPaymentRef == null) return;
+        PaymentGateway.ProviderPayment p = g.fetchPayment(providerPaymentRef);        // trust the provider's record, not the webhook body
+        if (p.captured()) { settlement.settle(system, new GatewaySettlement.Request(order, g, p)); return; }
+        if (p.failed()) tx.run(() -> {
+            PaymentOrder o = orders.findForUpdate(order).orElseThrow();
+            o.failed(p.failureReason(), clock.instant());
+            orders.save(o);
+            events.publish(o.pullEvents());
+        });
+    }
+
+    private Map<String, Object> checkoutOf(PaymentOrder o) {
+        return o.providerOrderRef() == null ? Map.of() : Map.of("provider", o.provider(), "providerOrderRef", o.providerOrderRef(), "amount", o.amount().toString(), "currency", o.currency());
+    }
+}

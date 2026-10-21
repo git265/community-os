@@ -1079,6 +1079,16 @@ Billing → **Tax split** (needs ledger access; the Super Admin can switch the t
 - Writes that need Node-only checks (money caps, e-voting, amenity pricing) are refused by default (`app.security.unported-hooks`). Details and the differences from Node: docs/BACKEND.md section 10.
 - **Honest status: written and exercised only with stubs (40 plain-Java tests + the conformance replay). Maven has never run; nothing has run on PostgreSQL. Run `mvn test` on a machine with Maven access.**
 
+### Round 77: role-scoped data and tamper-proof writes, v2 redesign (one table per object, typed API), Java 25 + PostgreSQL 18
+- **Each role sees only its own data, on every API and every save.** An owner gets only their unit's records; a changed or forged payload (another unit, another person's record, a hidden field, a different role) is refused on Node and Spring (`authz.js`, `guards.mjs`, `R77Rules`, `WritePrep`).
+- **Created / updated date and by are set by the server.** Whatever the payload says is ignored.
+- **Spring start-up fix:** `JobRunner` failed with "No default constructor found".
+- **New v2 back end (`backend/api`, docs/REDESIGN.md):** a PostgreSQL schema with a table for every object (156 tables, one schema per area, row-level security per community, stamping triggers, double-entry ledger, monthly partitions). Built for 100 communities x 1 000 units; the main queries run in 0.1-6 ms at that size.
+- **A Spring Boot service on that schema**, with sign-in (one-time code, ES256 bearer token, rotating refresh token), units, members, bills and payments (server pricing, signed webhooks, retries, circuit breaker, outbox, audit). Other modules have their tables but no endpoints yet.
+- **The app can use it:** Data source -> "Back end v2" (units, members, bills, payments, sign-in).
+- **Java 25 and PostgreSQL 18:** both Spring services move to Java 25 and Spring Boot 3.5.16; docker-compose uses `postgres:18` (volume now mounted at `/var/lib/postgresql`).
+- **Honest status:** checked on PostgreSQL 18.4 and OpenJDK 25: schema 15/15; v2 Java 40/40 including an end-to-end flow on PostgreSQL; 103/103 SQL statements run as their database role; Node 118/118; legacy Spring 54/54 of the tests that compile with stubs; web adapter 6/6; `vite build` builds. **Maven has never run; neither Spring service has started for real.** Run `mvn verify` in `backend/api` and `backend/spring` first.
+
 ### Round 76: saves no longer clash with themselves, no caches, data loaded when shown, property / meeting hooks on Spring, several units, new communities
 - **"Another user changed this record" on your own edits: fixed.** Saving the same record two or more times in a row works; an edit someone else made in between is still caught.
 - **No caching.** The reference-list, late-fee, search and server meta caches are removed (BACKEND.md section 8).

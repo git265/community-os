@@ -62,6 +62,7 @@ public class JobRunner {
     private final ZoneId zone = ZoneId.systemDefault();   // the community's local time (set TZ / -Duser.timezone): due dates, "20:00" and "the 1st" are read on this clock
     private final java.util.concurrent.atomic.AtomicBoolean running = new java.util.concurrent.atomic.AtomicBoolean();
 
+    @org.springframework.beans.factory.annotation.Autowired   // two constructors: this is the one Spring uses (the other is for tests)
     public JobRunner(DocumentRepository repo, AuditTrail audit, ObjectMapper json, Clock clock, Constants constants, Tx tx, AppProperties props, GstProvider gst,
                      CommunityMetaLoader metas, ObjectProvider<JdbcTemplate> jdbc) {
         this(repo, audit, json, clock, constants, tx, props == null || props.jobs() == null ? 300 : props.jobs().intervalSeconds(), gst, metas, advisoryLock(jdbc.getIfAvailable()));

@@ -1,6 +1,8 @@
 package com.communityos.security;
 
+import static com.communityos.security.Perms.anyPerm;
 import static com.communityos.security.Perms.has;
+import static com.communityos.security.Perms.isHandyman;
 import static com.communityos.security.Perms.isAdmin;
 import static com.communityos.security.Perms.isEC;
 import static com.communityos.security.Perms.isQuoteRole;
@@ -78,6 +80,10 @@ public final class RowScopes {
         String unit = p.unit();
         if (collection.equals("files")) return filesScope(p, raw, ctx);
         if (collection.equals("userProfiles")) return has(p, "MANAGE_USERS") ? RowScope.ALL : RowScope.of((r) -> p.name() != null && p.name().equals(Js.text(r, "userName")));
+        // the bell and the message-channel choices are personal
+        if (collection.equals(IN_APP_NOTIFICATIONS)) return RowScope.of((r) -> notificationForMe(r, p));
+        if (collection.equals("notificationPrefs")) return anyPerm(p, "MANAGE_NOTIFICATIONS", "MANAGE_USERS") ? RowScope.ALL
+                : RowScope.of((r) -> p.name() != null && !p.name().isEmpty() && p.name().equals(Js.text(r, "userName")));
         if (isResident(p)) {
             switch (collection) {
                 case "culturalEvents": case "audits": return RowScope.of((r) -> Js.is(r, "visibility", "Published"));
@@ -129,6 +135,15 @@ public final class RowScopes {
             }
         }
         if (collection.equals("attendance") && !has(p, "MANAGE_FIELD_DUTIES") && !isEC(p)) return RowScope.of((r) -> p.name() != null && p.name().equals(Js.text(r, "staffName")));   // staff see only their own punches
+        // trade workers: their trade's queue and what is assigned to them (and the discussion on those tickets)
+        if (isTradeWorker(p) && (collection.equals("tickets") || collection.equals("ticketComments"))) {
+            Set<String> mine = tradeTicketIds(p, raw);
+            return collection.equals("tickets") ? RowScope.of((r) -> inSet(mine, Js.text(r, "id"))) : RowScope.of((r) -> inSet(mine, Js.text(r, "ticketId")));
+        }
+        // a meter-reading role without finance access sees only the utility bills, never maintenance or other dues
+        if (collection.equals("dues") && !isEC(p) && !anyPerm(p, ReadRules.FINANCE_BILL_PERMS)) return RowScope.of((r) -> { String c = Js.text(r, "category"); return c != null && ctx.utilityNames().contains(c); });
+        // staff who do not run amenities see when a facility is taken and by which unit, not the money
+        if (collection.equals("amenities") && !isEC(p) && !anyPerm(p, "MANAGE_AMENITIES", "MANAGE_LEDGER")) return RowScope.transform(RowScopes::staffBookingStub);
         if (collection.equals("documents")) return RowScope.of((r) -> DocGroups.docVisible(r, p, ctx));
         if (collection.equals("audit") && !has(p, "VIEW_AUDIT_LOG")) return RowScope.of((r) -> Js.truthy(r, "unit"), new ScopeNode.NotEmpty("unit"));   // unit activity only, never the full log
         return RowScope.ALL;
@@ -154,14 +169,15 @@ public final class RowScopes {
         // meter photos: staff who manage readings, and the owner of the villa once the bill is published to them
         Set<String> ownReadings = new LinkedHashSet<>();
         if (resident) for (JsonNode d : raw.read("dues")) if (unitIs(d, p.unit()) && Js.truthy(d, "readingId")) ownReadings.add(Js.str(d, "readingId"));
+        Set<String> tradeTickets = isTradeWorker(p) ? tradeTicketIds(p, raw) : null;   // a trade worker: photos of their own tickets only
         return RowScope.of((r) -> {
             String type = Js.text(r, "ownerType");
             String owner = Js.text(r, "ownerId");
             if (type == null) type = "";
             switch (type) {
-                case "ticket": return !resident || inSet(ownTickets, owner);
+                case "ticket": return resident ? inSet(ownTickets, owner) : tradeTickets == null || inSet(tradeTickets, owner);
                 case "amenityDeposit": return !resident || inSet(ownBookings, owner);
-                case "ticketInternal": return !resident;
+                case "ticketInternal": return !resident && (tradeTickets == null || inSet(tradeTickets, owner));
                 case "quotation": return isQuoteRole(p);
                 case "audit": return !resident || inSet(pubAudits, owner);
                 case "ledger": return ReadRules.canRead("ledger", p);
@@ -174,6 +190,48 @@ public final class RowScopes {
                 default: { String id = Js.text(r, "id"); return resident ? inSet(docIds, id) : !inSet(hiddenDocFiles, id); }
             }
         });
+    }
+
+    // ---- r77: personal and trade scopes ------------------------------------------------------------------------------
+    /** The in-app bell's rows (not a schema collection; written by the server). */
+    public static final String IN_APP_NOTIFICATIONS = "notifications";
+
+    /** A bell row is for this person by name, by villa (residents) or by role (notificationForMe in authz.js). */
+    public static boolean notificationForMe(JsonNode n, Principal p) {
+        if (p == null || n == null) return false;
+        if (Js.truthy(n, "toName") && Js.text(n, "toName") != null && Js.text(n, "toName").equals(p.name())) return true;
+        if (Js.truthy(n, "toUnit")) return "Resident".equals(p.category()) && Js.is(n, "toUnit", p.unit());
+        return Js.f(n, "toRoleIds").isArray() && Js.strings(n, "toRoleIds").contains(p.roleId());
+    }
+
+    /** Trade workers (plumbing, electrical, security, general) work their trade's queue; MEP coordinates the contract and sees everything. */
+    static boolean isTradeWorker(Principal p) { return isHandyman(p) && !"handyman_mep".equals(p.roleId()); }
+
+    /** "Handyman · Plumbing" -> "Plumbing" (tradeFromRoleName in ticketEngine.js); null when the role name has no trade. */
+    static String tradeOf(Principal p) {
+        String name = p.role() == null || p.role().name() == null ? "" : p.role().name();
+        String[] parts = name.split("·", -1);
+        return parts.length > 1 ? Js.trim(parts[1]) : null;
+    }
+
+    /** Their trade's queue (never the EC / FM internal tasks) and anything assigned to them or their crew. */
+    static Set<String> tradeTicketIds(Principal p, RawReader raw) {
+        String trade = tradeOf(p);
+        boolean hasTrade = trade != null && !trade.isEmpty();
+        Set<String> internal = new java.util.HashSet<>();
+        for (JsonNode t : raw.read("taskTypes")) if (Js.is(t, "creatorScope", "EC / Staff")) internal.add(Js.text(t, "name"));
+        Set<String> crew = new LinkedHashSet<>();
+        if (p.name() != null && !p.name().isEmpty()) crew.add(p.name());
+        if (hasTrade) for (JsonNode h : raw.read("handymen")) if (Js.is(h, "trade", trade) && Js.truthy(h, "name") && Js.text(h, "name") != null) crew.add(Js.text(h, "name"));
+        return ids(raw.read("tickets"), (t) -> (Js.truthy(t, "assignedTo") && inSet(crew, Js.text(t, "assignedTo")))
+                || (hasTrade && Js.is(t, "category", trade) && !internal.contains(Js.text(t, "taskType"))));
+    }
+
+    /** A booking as staff who do not run amenities see it: when, what, which unit and its state. */
+    private static JsonNode staffBookingStub(JsonNode r) {
+        ObjectNode o = JsonNodeFactory.instance.objectNode();
+        for (String k : new String[]{"id", "amenity", "date", "slot", "status", "unit", "shortId"}) if (Js.has(r, k)) o.set(k, r.get(k));
+        return o;
     }
 
     // ---- small helpers -------------------------------------------------------------------------------------------------

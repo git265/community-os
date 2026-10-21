@@ -19,8 +19,10 @@ public final class WriteRules {
 
     private record Plain(List<String> perms, List<String> categories) {}
 
-    private static final List<String> ADMIN_ONLY = List.of("schema");
-    private static final List<String> SYSTEM_ONLY = List.of("audit", "reportRuns", "notificationOutbox", "unitCredits", "portalInvites");
+    private static final List<String> ADMIN_ONLY = List.of("schema", "communityConfig", "numberSections");
+    private static final List<String> SYSTEM_ONLY = List.of("audit", "reportRuns", "notificationOutbox", "unitCredits", "portalInvites", "communities");
+    /** Written by any signed-in person, with every rule in the e-voting guard: the voter roll and the sealed box. */
+    private static final List<String> OPEN_WRITES = List.of("voteRoll", "ballotBox");
 
     private static final Map<String, Plain> PLAIN = plain();
     private static void put(Map<String, Plain> t, String collection, List<String> perms, List<String> categories) { t.put(collection, new Plain(perms, categories)); }
@@ -80,6 +82,14 @@ public final class WriteRules {
         put(t, "users", List.of("MANAGE_USERS"), List.of());
         put(t, "roles", List.of("MANAGE_ROLES"), List.of());
         put(t, "roleGroups", List.of("MANAGE_ROLES"), List.of());
+        // r77: every collection has an owner; a write nobody was given is refused (fail closed)
+        put(t, "blocks", List.of("MANAGE_UNITS"), List.of());
+        put(t, "facilities", List.of("MANAGE_UNITS", "MANAGE_AMENITIES"), List.of());
+        put(t, "serviceNotices", List.of(), List.of("EC", "Staff"));
+        put(t, "culturalBrochure", List.of("MANAGE_CULTURAL"), List.of());
+        put(t, "notificationSettings", List.of("MANAGE_NOTIFICATIONS"), List.of());
+        put(t, "vendorServices", List.of("MANAGE_VENDORS"), List.of());
+        put(t, "importantNumbers", List.of("MANAGE_FIELD_DUTIES", "MANAGE_SECURITY"), List.of("EC"));
         return Map.copyOf(t);
     }
 
@@ -94,7 +104,13 @@ public final class WriteRules {
         m.put("gateWorkOrders", GateRules::workOrders);
         m.put("gatePeople", GateRules::people);
         m.put("gateLinks", GateRules::links);
-        m.put("gatePasses", GateRules::passes);
+        m.put("gatePasses", R77Rules::gatePasses);
+        m.put("gateCheckpoints", R77Rules::gateCheckpoints);
+        m.put("gateRounds", R77Rules::gateRounds);
+        m.put("gatePulse", R77Rules::gatePulse);
+        m.put(RowScopes.IN_APP_NOTIFICATIONS, R77Rules::notifications);
+        m.put("notificationPrefs", R77Rules::notificationPrefs);
+        m.put("handymen", R77Rules::handymen);
         m.put("gateVillaRules", GateRules::villaRules);
         m.put("gateApprovals", GateRules::approvals);
         m.put("ledger", FinanceRules::ledger);
@@ -128,20 +144,26 @@ public final class WriteRules {
         m.put("audits", CommunityRules::audits);
         m.put("serviceContacts", CommunityRules::serviceContacts);
         m.put("contactReviews", CommunityRules::contactReviews);
-        m.put("forum", CommunityRules::forum);
+        m.put("forum", R77Rules::forum);
         m.put("wishes", CommunityRules::wishes);
         m.put("forumPosts", CommunityRules::forumPosts);
         m.put("amenityTypes", CommunityRules::amenityTypes);
-        m.put("amenitySettings", CommunityRules::amenitySettings);
+        m.put("amenitySettings", R77Rules::amenitySettings);
         m.put("notificationTemplates", CommunityRules::notificationTemplates);
         m.put("amenities", CommunityRules::amenities);
-        m.put("broadcasts", CommunityRules::broadcasts);
+        m.put("broadcasts", R77Rules::broadcasts);
         return Map.copyOf(m);
     }
 
     private final Map<String, Rule> custom;
+    /** Every collection the app knows; a write to any other name is refused. */
+    private final java.util.Set<String> known;
 
-    public WriteRules(Constants constants) { this.custom = custom(constants); }
+    public WriteRules(Constants constants) {
+        this.custom = custom(constants);
+        java.util.Set<String> k = new java.util.HashSet<>(constants.collections()); k.add(RowScopes.IN_APP_NOTIFICATIONS);
+        this.known = java.util.Set.copyOf(k);
+    }
 
     private static boolean plainAllowed(Plain r, Principal p) { return anyPerm(p, r.perms()) || (r.categories().contains(p.category()) && p.category() != null); }
 
@@ -150,6 +172,7 @@ public final class WriteRules {
         Principal p = c.p();
         if (p == null) return deny("Not signed in");
         if (isAdmin(p)) return OK;
+        if (!known.contains(c.collection())) return deny("Unknown collection");
         if (ADMIN_ONLY.contains(c.collection())) return deny("Super Admin only");
         if (SYSTEM_ONLY.contains(c.collection())) return deny("System-managed collection");
         Rule rule = custom.get(c.collection());
@@ -159,7 +182,8 @@ public final class WriteRules {
             if (res != null) return fieldCheck(c, true);
         } else {
             Plain plain = PLAIN.get(c.collection());
-            if (plain != null && !plainAllowed(plain, p)) return deny("Requires permission: " + String.join(" or ", plain.perms()));
+            if (plain != null && !plainAllowed(plain, p)) return deny(plain.perms().isEmpty() ? "Your role cannot change these records" : "Requires permission: " + String.join(" or ", plain.perms()));
+            if (plain == null && !OPEN_WRITES.contains(c.collection())) return deny("Your role cannot change these records");   // fail closed: no rule, no write
         }
         if (c.isDelete()) return OK;
         return fieldCheck(c, false);
@@ -191,8 +215,9 @@ public final class WriteRules {
             default: break;
         }
         if (ReadRules.ASSET_COLLECTIONS.contains(collection)) return Perms.canAssetsWrite(p);
-        if (ADMIN_ONLY.contains(collection) || SYSTEM_ONLY.contains(collection)) return false;
+        if (ADMIN_ONLY.contains(collection) || SYSTEM_ONLY.contains(collection) || !known.contains(collection)) return false;
         Plain r = PLAIN.get(collection);
-        return r == null || plainAllowed(r, p);
+        if (r == null) return custom.containsKey(collection) || OPEN_WRITES.contains(collection);   // a custom rule decides per record; no rule at all = nobody
+        return plainAllowed(r, p);
     }
 }
