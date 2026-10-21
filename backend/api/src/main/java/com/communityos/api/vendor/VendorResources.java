@@ -34,7 +34,7 @@ public final class VendorResources {
             @Override public VendorFields validate(Caller c, VendorFields f, VendorFields old) {
                 String gstin = f.gstin() == null || f.gstin().isBlank() ? null : f.gstin().strip().toUpperCase(Locale.ROOT);
                 Checks.rule(gstin == null || gstin.matches("[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][0-9A-Z]Z[0-9A-Z]"), "bad-gstin", "A GSTIN is 15 characters, like 29ABCDE1234F1Z5");
-                String email = f.contactEmail() == null || f.contactEmail().isBlank() ? null : f.contactEmail().strip();
+                String email = com.communityos.api.shared.domain.Names.email(f.contactEmail());   // stored in lower case
                 Checks.rule(email == null || email.matches("[^@\\s]+@[^@\\s]+\\.[^@\\s]+"), "bad-email", "That e-mail address does not look right");
                 return new VendorFields(Checks.text(Checks.required(f.name(), "Name"), "Name", 200), Checks.oneOf(f.category(), "Category", CATEGORIES), gstin,
                     Checks.oneOf(f.contractType(), "Contract", CONTRACTS), Checks.text(f.service(), "Service", 200), Checks.text(f.contactPhone(), "Phone", 30), email,

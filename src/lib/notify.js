@@ -9,6 +9,7 @@ import { logEvent, getPrincipalLabel } from './audit/auditLog.js';
 import { storage, COLLECTIONS } from './storage/index.js';
 import { pushNotifications } from './notifications.js';
 import { uuid } from './uuid.js';
+import { sameName, key as nameKey } from './unitNaming.js';
 
 export const CHANNELS = ['WhatsApp', 'SMS', 'Email'];
 export const chKey = (c) => c.toLowerCase();
@@ -78,12 +79,12 @@ export async function saveSettings(events) {
   changed(COLLECTIONS.NOTIFICATION_SETTINGS);
 }
 export async function getMyPrefs(name) {
-  const row = (await storage.list(COLLECTIONS.NOTIFICATION_PREFS)).find((r) => r.userName === name);
+  const row = (await storage.list(COLLECTIONS.NOTIFICATION_PREFS)).find((r) => sameName(r.userName, name));
   return { whatsapp: !!row?.whatsapp, sms: !!row?.sms, email: !!row?.email };
 }
 export async function saveMyPrefs(name, prefs) {
   const rows = await storage.list(COLLECTIONS.NOTIFICATION_PREFS);
-  const old = rows.find((r) => r.userName === name);
+  const old = rows.find((r) => sameName(r.userName, name));
   const now = new Date().toISOString();
   await storage.put(COLLECTIONS.NOTIFICATION_PREFS, { ...(old || { id: uuid(), recordCreatedAt: now }), userName: name, whatsapp: !!prefs.whatsapp, sms: !!prefs.sms, email: !!prefs.email, lastUpdatedAt: now });
   logEvent({ what: 'Notification Settings', action: 'Update', summary: `${name}: notification preferences changed (WhatsApp ${prefs.whatsapp ? 'on' : 'off'}, SMS ${prefs.sms ? 'on' : 'off'}, email ${prefs.email ? 'on' : 'off'})`, who: name });
@@ -146,7 +147,7 @@ export async function queueExtraChannels(items, rows) {
     const settings = (await storage.list(COLLECTIONS.NOTIFICATION_SETTINGS)).find((r) => r.id === 'default')?.events || {};
     const offeredFor = (event) => CHANNELS.filter((c) => (settings[event] ? settings[event][chKey(c)] !== false : true));
     const [users, prefs, outbox] = await Promise.all([storage.list(COLLECTIONS.USERS), storage.list(COLLECTIONS.NOTIFICATION_PREFS), storage.list(COLLECTIONS.NOTIFICATION_OUTBOX)]);
-    const prefBy = new Map(prefs.map((x) => [x.userName, x]));
+    const prefBy = new Map(prefs.map((x) => [nameKey(x.userName), x]));
     const ix = indexUsers(users);
     let seq = outbox.reduce((m, r) => Math.max(m, Number(String(r.shortId || '').replace('OUT-', '')) || 0), 0);
     const now = new Date().toISOString(); const out = [];
@@ -155,7 +156,7 @@ export async function queueExtraChannels(items, rows) {
       if (!offered.length) return;
       for (const u of recipientsOf(it, ix)) {
         if (it.by && u.name === it.by) continue;
-        const pr = prefBy.get(u.name);
+        const pr = prefBy.get(nameKey(u.name));
         if (!pr) continue;
         for (const c of offered) if (pr[chKey(c)]) { out.push(outboxRow(++seq, c, it.event, u, rows[i].title, rows[i].body, now)); queued += 1; }
       }

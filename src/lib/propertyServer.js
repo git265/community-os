@@ -20,6 +20,10 @@ import { uuid } from './uuid.js';
 import { validatePhone, phoneKey } from './phone.js';
 import { peopleOf, isOwnerRelation } from './people.js';
 import { getCommunity, communityUrl } from './community.js';
+import { normalize as tidyUnit, key as unitKey, unitProblem, ruleFor } from './unitNaming.js';
+const lowerEmail = (e) => String(e || '').trim().toLowerCase();
+/** The owner of a unit added in bulk before its owner is known (filled in later, or by the Excel import). */
+export const OWNER_LATER = 'To be updated';
 
 const SYSTEM = 'System · portal access';
 const INVITE_DAYS = 7;
@@ -43,13 +47,25 @@ async function systemPut(collection, prefix, row) {
 
 export async function propertyPreWrite({ record, old, isNew }) {
   const r = { ...record };
+  // the unit number: the character rules, the block's (or the community's) naming pattern, one unit per number whatever its case
+  r.unit = tidyUnit(r.unit);
+  if (isNew || !old || old.unit !== r.unit || (old.zone || '') !== (r.zone || '')) {
+    const [cfg] = await storage.list(C.COMMUNITY_CONFIG);
+    const rule = ruleFor(r.zone, await storage.list(C.BLOCKS), cfg?.unitPattern);
+    const why = unitProblem(r.unit, rule.pattern, rule.block);
+    if (why) return { error: why };
+    const clash = (await storage.list(C.PROPERTIES)).find((p) => p.id !== r.id && unitKey(p.unit) === unitKey(r.unit));
+    if (clash) return { error: `There is already a unit “${clash.unit}” (unit numbers are the same whatever their case)` };
+  }
+  // e-mail addresses are kept in lower case
+  for (const k of ['ownerEmail', 'tenantEmail']) if (r[k]) r[k] = lowerEmail(r[k]);
   // fold the old "secondary owner" columns into the people list
   if (!Array.isArray(r.people) && (r.secondaryOwner || old?.secondaryOwner)) {
     r.people = r.secondaryOwner ? [{ id: uuid(), relation: 'Additional owner', name: r.secondaryOwner, phone: r.secondaryOwnerPhone || '', email: '' }] : [];
   }
   delete r.secondaryOwner; delete r.secondaryOwnerPhone;
   if (!Array.isArray(r.people)) r.people = [];
-  r.people = r.people.map((x) => ({ ...x, id: x.id || uuid(), name: String(x.name || '').trim(), email: String(x.email || '').trim() }));
+  r.people = r.people.map((x) => ({ ...x, id: x.id || uuid(), name: String(x.name || '').trim(), email: lowerEmail(x.email) }));
 
   if (!String(r.owner || '').trim()) return { error: 'The primary owner (on the lease / title) is required' };
   if (!r.occupancy) return { error: 'Say who occupies the property: owner, tenant or vacant' };
@@ -65,7 +81,7 @@ export async function propertyPreWrite({ record, old, isNew }) {
     seen.set(v.e164, name);
     return v.e164;
   };
-  const slots = [['Primary owner', r.owner, 'ownerPhone', true]];
+  const slots = [['Primary owner', r.owner, 'ownerPhone', String(r.owner).trim() !== OWNER_LATER]];   // a placeholder owner has no phone yet
   if (String(r.tenant || '').trim()) slots.push(['Tenant', r.tenant, 'tenantPhone', true]);
   for (const [label, name, key, req] of slots) {
     const out = check(label, name, r[key], req);

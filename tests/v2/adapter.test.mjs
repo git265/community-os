@@ -78,6 +78,15 @@ globalThis.fetch = async (url, init = {}) => {
   if (path === '/me') return ok({ membershipId: M1, personId: 'p', communityId: 'c', displayName: 'Asha', category: 'Resident', roles: ['owner'], permissions: [], units: [A], blocks: [], trade: null });
   if (path === '/roles') return ok([{ code: 'owner', name: 'Owner', category: 'Resident', permissions: [] }, { code: 'treasurer', name: 'Treasurer', category: 'EC', permissions: ['MANAGE_DUES'] }]);
   let m;
+  if (path === '/blocks' && method === 'GET') return ok(state.blocks || []);
+  if (path === '/blocks' && method === 'POST') { const b = { id: uuid(), shortId: 'BLK-1', name: body.name, code: body.code, kind: body.kind, unitPattern: body.unitPattern, custom: body.custom, units: 0, version: 1 }; (state.blocks ||= []).push(b); return ok(b, 201); }
+  if (path === '/units/naming') { if (method === 'PUT') state.naming = { unitPattern: body.unitPattern, version: (state.naming?.version || 0) + 1 }; return ok(state.naming || { unitPattern: null, version: 0 }); }
+  if (path === '/units/batch' && method === 'POST') {
+    const added = []; const skipped = [];
+    for (const r of body.units) { if (state.units.some((u) => u.unitNo.toLowerCase() === r.unitNo.toLowerCase())) { skipped.push(r.unitNo); continue; } const u = { id: uuid(), shortId: 'UNIT-9', unitNo: r.unitNo, blockId: r.blockId, unitType: r.unitType || 'Villa', occupancy: r.occupancy || 'Vacant', status: 'Active', custom: {}, version: 1 }; state.units.push(u); added.push({ id: u.id, shortId: u.shortId, unitNo: u.unitNo }); }
+    return ok({ added, skipped }, 201);
+  }
+  if (path === '/units' && method === 'POST') { const u = { id: uuid(), shortId: 'UNIT-8', unitNo: body.unitNo, blockId: body.blockId, unitType: body.unitType || 'Villa', occupancy: body.occupancy || 'Vacant', status: 'Active', custom: {}, version: 1 }; state.units.push(u); return ok(u, 201); }
   if (path === '/units') return ok(page(state.units));
   if ((m = /^\/units\/([^/]+)$/.exec(path))) {
     const unit = state.units.find((x) => x.id === m[1]); if (!unit) return problem(404, 'not-found', 'Not found');
@@ -518,9 +527,9 @@ test('demo: the roster only when the server offers one; signing in by id or by r
 test('units: list mapped; a change sends only the changed, allowed fields with If-Match', async () => {
   const props = await storage.list('properties');
   assert.equal(props[0].unit, 'Villa 101'); assert.equal(props[0].areaSqft, 2400); assert.equal(props[0].zone, 'Block 1');
-  const saved = await storage.put('properties', { ...props[0], occupancy: 'Tenant occupied', unit: 'Villa 999', createdBy: 'me', version: 4 });
+  const saved = await storage.put('properties', { ...props[0], occupancy: 'Tenant occupied', zone: 'Block 9', createdBy: 'me', version: 4 });
   const c = last('PATCH', /^\/units\//);
-  assert.deepEqual(c.body, { occupancy: 'Tenant occupied' }, 'the unit number and audit fields are never sent');
+  assert.deepEqual(c.body, { occupancy: 'Tenant occupied' }, 'the block and audit fields are never sent (a new number is: see the unit naming test)');
   assert.equal(c.headers['If-Match'], '"4"');
   assert.equal(saved.version, 5);
   assert.equal(saved.recVersion, 5, 'the server version is the record revision the forms watch (a saved form re-seeds, its save bar goes)');
@@ -1027,4 +1036,36 @@ test('cache: reference lists are kept for a short while on the back end; any wri
   await storage.put('properties', { ...(await storage.list('properties'))[0] }).catch(() => {});
   await storage.list('users');
   assert.equal(count(/^\/members/), a + 1, 'a write drops what was kept');
+});
+
+test('unit numbers: the same rules as the server; lookups by number, block and task type ignore case', async () => {
+  const n = await import('../../src/lib/unitNaming.js');
+  assert.equal(n.normalize('  Villa   12 '), 'Villa 12'); assert.equal(n.key(' VILLA  12'), 'villa 12');
+  assert.equal(n.unitProblem('A-1204'), ''); assert.ok(n.unitProblem('Villa #12')); assert.ok(n.unitProblem('-12')); assert.ok(n.unitProblem('x'.repeat(41)));
+  assert.equal(n.unitProblem('villa 135', 'Villa {n}'), '', 'the text ignores case'); assert.ok(n.unitProblem('V7', 'Villa {n}').includes('Villa 1'), 'says an example');
+  assert.equal(n.unitProblem('T2-1204', '{block}-{floor}{n:2}', 'T2'), ''); assert.ok(n.unitProblem('T3-1204', '{block}-{floor}{n:2}', 'T2'));
+  assert.ok(n.unitProblem('A-07', 'A-{n:3}')); assert.equal(n.unitProblem('12B', '{n}{letter}'), '');
+  assert.equal(n.patternProblem(''), ''); assert.ok(n.patternProblem('Villa {num}')); assert.ok(n.patternProblem('{n}-{n}')); assert.ok(n.patternProblem('{block}')); assert.ok(n.patternProblem('{n:9}'));
+  assert.equal(n.make('{block}-{floor}{n:2}', 'T2', 12, 4), 'T2-1204'); assert.equal(n.make('{n}{letter}', null, null, 4), null);
+  const c = n.checkUnits([{ unit: ' villa 101' }, { unit: 'Villa 900' }, { unit: 'VILLA 900' }, { unit: 'V901', zone: 'Block 1' }],
+    { existing: [{ id: 'x', unit: 'Villa 101' }], blocks: [{ name: 'block 1', unitPattern: 'Villa {n}' }] });
+  assert.deepEqual(c.duplicates, ['villa 101', 'VILLA 900'], 'the same unit whatever its case'); assert.equal(c.rows.map((r) => r.unit).join(), 'Villa 900');
+  assert.equal(c.problems.length, 1, 'the block (named in another case) has its own pattern');
+  const { unitIdByNo } = await import('../../src/lib/storage/v2/V2ApiAdapter.js');
+  assert.equal(await unitIdByNo('  villa   101 '), A, 'a unit found whatever its case or spacing');
+});
+
+test('units and blocks on the back end: add a block with its code and pattern, add one unit, add many in one call, rename; the naming pattern', async () => {
+  const b = await storage.put('blocks', { name: 'Tower 2', code: 'T2', kind: 'Tower', unitPattern: '{block}-{floor}{n:2}', plannedUnits: 40 });
+  assert.equal(last('POST', /^\/blocks$/).body.kind, 'Tower'); assert.equal(last('POST', /^\/blocks$/).body.custom.plannedUnits, 40); assert.equal(b.unitPattern, '{block}-{floor}{n:2}');
+  const u = await storage.put('properties', { unit: 'T2-1204', zone: 'tower 2', type: 'Apartment', occupancy: 'Vacant' });
+  assert.deepEqual(last('POST', /^\/units$/).body, { unitNo: 'T2-1204', blockId: b.id, unitType: 'Apartment', occupancy: 'Vacant', areaSqft: null }, 'the block by id, found whatever its case');
+  const many = await storage.putMany('properties', [{ unit: 'T2-1205', zone: 'Tower 2' }, { unit: 't2-1204', zone: 'Tower 2' }]);
+  assert.equal(last('POST', /^\/units\/batch$/).body.units.length, 2, 'one call'); assert.equal(many.length, 1, 'the one already there is skipped by the server');
+  await storage.put('properties', { ...(await storage.get('properties', u.id)), unit: 'T2-1206' });
+  assert.equal(last('PATCH', /^\/units\//).body.unitNo, 'T2-1206', 'a rename goes to the server');
+  const { saveCommunityPattern, loadCommunityPattern } = await import('../../src/lib/unitNaming.js');
+  await assert.rejects(saveCommunityPattern('Villa {num}', 0), /Use only/);
+  await saveCommunityPattern('Villa {n}', 0);
+  assert.equal(last('PUT', /^\/units\/naming$/).body.unitPattern, 'Villa {n}'); assert.equal((await loadCommunityPattern()).pattern, 'Villa {n}');
 });

@@ -2,6 +2,7 @@
 // community (thousands of units) in one go: columns are recognised by their heading, every row is checked, and the whole file is
 // written in a single operation. The same checks as the Add-property form apply (owner, valid phone, tenant when tenant occupied).
 import { validatePhone } from './phone.js';
+import { normalize as tidyUnit, key as unitKey, unitProblem, ruleFor } from './unitNaming.js';
 
 export const UNIT_FIELDS = [
   ['unit', 'Unit number', true], ['zone', 'Block / tower', false], ['type', 'Property type', false], ['owner', 'Owner name', true], ['ownerPhone', 'Owner phone', true],
@@ -55,18 +56,23 @@ const OCC = (v, hasTenant) => {
  * Turn the sheet into rows. `existing` = the current directory. Returns { rows, errors, news, updates } where each row is
  * { line, record, isNew } and each error { line, unit, message }.
  */
-export function buildUnitRows(grid, headerRow, map, { existing = [], defaultType = 'Villa' } = {}) {
-  const byUnit = new Map(existing.map((p) => [String(p.unit).trim().toLowerCase(), p]));
+export function buildUnitRows(grid, headerRow, map, { existing = [], defaultType = 'Villa', blocks = [], communityPattern = '' } = {}) {
+  const byUnit = new Map(existing.map((p) => [unitKey(p.unit), p]));   // the same unit whatever its case or spacing
   const get = (r, f) => (map[f] >= 0 ? String(r[map[f]] ?? '').trim() : '');
   const rows = []; const errors = []; const seenUnit = new Set(); const phoneOwner = new Map();
   existing.forEach((p) => { const v = p.ownerPhone && validatePhone(p.ownerPhone); if (v?.ok) phoneOwner.set(v.e164, `${p.owner}|${p.unit}`); });
   for (let i = headerRow + 1; i < grid.length; i += 1) {
     const r = grid[i]; if (!r || r.every((c) => String(c ?? '').trim() === '')) continue;
-    const line = i + 1; const unit = get(r, 'unit');
+    const line = i + 1; const unit = tidyUnit(get(r, 'unit'));
     const fail = (message) => errors.push({ line, unit: unit || '—', message });
     if (!unit) { fail('Unit number is missing'); continue; }
-    if (seenUnit.has(unit.toLowerCase())) { fail('This unit appears twice in the file'); continue; }
-    seenUnit.add(unit.toLowerCase());
+    if (seenUnit.has(unitKey(unit))) { fail('This unit appears twice in the file'); continue; }
+    seenUnit.add(unitKey(unit));
+    if (!byUnit.has(unitKey(unit))) {                                   // a new unit: its number follows the rules
+      const rule = ruleFor(get(r, 'zone'), blocks, communityPattern);
+      const why = unitProblem(unit, rule.pattern, rule.block);
+      if (why) { fail(why); continue; }
+    }
     const owner = get(r, 'owner'); if (!owner) { fail('Owner name is missing'); continue; }
     const ph = validatePhone(get(r, 'ownerPhone'));
     if (!ph.ok) { fail(`Owner phone: ${ph.error}`); continue; }
@@ -81,7 +87,7 @@ export function buildUnitRows(grid, headerRow, map, { existing = [], defaultType
     if (clash && clash.split('|')[1].toLowerCase() !== unit.toLowerCase() && clash.split('|')[0].toLowerCase() !== owner.toLowerCase()) { fail(`Phone already belongs to ${clash.split('|')[0]} (${clash.split('|')[1]})`); continue; }
     phoneOwner.set(ph.e164, `${owner}|${unit}`);
     const num = (f) => { const v = get(r, f); return v === '' || Number.isNaN(Number(v)) ? undefined : Number(v); };
-    const old = byUnit.get(unit.toLowerCase());
+    const old = byUnit.get(unitKey(unit));
     const record = {
       ...(old ? { id: old.id } : {}), unit: old?.unit || unit, type: get(r, 'type') || old?.type || defaultType, zone: get(r, 'zone') || old?.zone || '', owner, ownerPhone: ph.e164,
       ownerEmail: get(r, 'ownerEmail') || old?.ownerEmail || '', occupancy: occ, tenant: occ === 'Tenant occupied' ? tenant : '', tenantPhone,

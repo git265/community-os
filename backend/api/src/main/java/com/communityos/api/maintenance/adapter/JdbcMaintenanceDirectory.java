@@ -30,13 +30,13 @@ public final class JdbcMaintenanceDirectory implements MaintenanceDirectory, Com
     static final String CANDIDATES = """
         SELECT DISTINCT ON (m.id) m.id, m.display_name, x.kind, x.clocked_in, x.trade FROM (
             SELECT fs.membership_id AS mid, 'Field staff' AS kind, fs.clocked_in, fs.trade, 1 AS rank FROM maintenance.field_staff fs
-             WHERE fs.trade = :category AND fs.membership_id IS NOT NULL AND NOT CAST(:internal AS boolean)
+             WHERE lower(fs.trade) = lower(:category) AND fs.membership_id IS NOT NULL AND NOT CAST(:internal AS boolean)
             UNION ALL
             SELECT mr.membership_id, 'Coordinator', false, r.trade, 2 FROM maintenance.category_coverage cc
               JOIN identity.role r ON r.community_id = cc.community_id AND (r.code = ANY (cc.coordinator)
                    OR ('group:EC' = ANY (cc.coordinator) AND EXISTS (SELECT 1 FROM identity.role_group g WHERE g.community_id = r.community_id AND g.id = r.group_id AND g.category = 'EC')))
               JOIN identity.membership_role mr ON mr.community_id = r.community_id AND mr.role_id = r.id
-             WHERE cc.category = :category
+             WHERE lower(cc.category) = lower(:category)
             UNION ALL
             SELECT mr.membership_id, 'EC', false, NULL, 3 FROM identity.membership_role mr
               JOIN identity.role r ON r.community_id = mr.community_id AND r.id = mr.role_id

@@ -9,6 +9,7 @@ import SectionPage from '../../components/SectionPage.jsx';
 import DynamicForm from '../../components/DynamicForm.jsx';
 import Modal from '../../components/Modal.jsx';
 import UnitImport from './UnitImport.jsx';
+import { loadCommunityPattern, saveCommunityPattern, patternProblem, ruleFor, make, example, usesFloor, unitProblem, key as unitKey } from '../../lib/unitNaming.js';
 import { propertyTypes, getCommunityConfig } from '../../lib/locale.js';
 import { letterheadFrom } from '../../lib/documents/letterhead.js';
 import { receiptHtml, statementHtml } from '../../lib/documents/templates.js';
@@ -57,9 +58,10 @@ function BlocksTab() {
       <div className="card">
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
           <div><h2 style={{ margin: 0 }}>Blocks, towers &amp; phases</h2><p className="muted" style={{ margin: '2px 0 0' }}>Group the community&apos;s units. Announcements, dues, reports and block-limited staff all work by block.</p></div>
-          {canEdit && <div style={{ display: 'flex', gap: 8 }}><button className="btn secondary" data-testid="import-units" onClick={() => setImp(true)}>Import units from Excel</button><button className="btn secondary" data-testid="bulk-units" onClick={() => setBulk({ block: blocks[0]?.name || '', type: propertyTypes()[0], prefix: '', from: 1, to: 10, pad: 0, occupancy: 'Vacant' })}>Add units in bulk</button><button className="btn" data-testid="add-block" onClick={() => setEditing({ active: true })}>+ Add block</button></div>}
+          {canEdit && <div style={{ display: 'flex', gap: 8 }}><button className="btn secondary" data-testid="import-units" onClick={() => setImp(true)}>Import units from Excel</button><button className="btn secondary" data-testid="bulk-units" onClick={() => setBulk({ block: blocks[0]?.name || '', type: propertyTypes()[0], prefix: '', from: 1, to: 10, pad: 0, floorFrom: 1, floorTo: 1, occupancy: 'Vacant' })}>Add units in bulk</button><button className="btn" data-testid="add-block" onClick={() => setEditing({ active: true })}>+ Add block</button></div>}
         </div>
         {msg && <div className="notice" style={{ marginTop: 8 }} data-testid="blocks-msg">{msg}</div>}
+        <UnitNamingCard canEdit={canEdit} onSaved={(t) => setMsg(t)} />
         {orphans.length > 0 && canEdit && <div className="notice" style={{ marginTop: 8 }}>Units use {orphans.length} block name{orphans.length > 1 ? 's' : ''} that {orphans.length > 1 ? 'are' : 'is'} not in this list: <b>{orphans.join(', ')}</b>. <button className="link-btn" data-testid="adopt-blocks" onClick={adoptOrphans}>Add {orphans.length > 1 ? 'them' : 'it'}</button></div>}
         <div className="table-wrap" style={{ marginTop: 10 }}>
           <table className="resp-table">
@@ -67,7 +69,7 @@ function BlocksTab() {
             <tbody>
               {blocks.map((b) => { const s = stats.get(b.name) || { units: 0, occupied: 0, vacant: 0 }; return (
                 <tr key={b.id} data-testid="block-row">
-                  <td data-label="Block"><b>{b.name}</b>{b.active === false ? <span className="tag orange" style={{ marginLeft: 6 }}>Inactive</span> : null}</td><td data-label="Code">{b.code || '—'}</td><td data-label="Kind">{b.kind || '—'}</td>
+                  <td data-label="Block"><b>{b.name}</b>{b.active === false ? <span className="tag orange" style={{ marginLeft: 6 }}>Inactive</span> : null}</td><td data-label="Code">{b.code || '—'}{b.unitPattern ? <div className="muted" style={{ fontSize: 12 }}>Units: {b.unitPattern}</div> : null}</td><td data-label="Kind">{b.kind || '—'}</td>
                   <td data-label="Units"><b>{s.units}</b></td><td data-label="Planned">{b.plannedUnits || '—'}</td><td data-label="Occupied">{s.occupied}</td><td data-label="Vacant">{s.vacant}</td>
                   {canEdit && <td><button className="btn secondary sm" onClick={() => setEditing(b)}>Edit</button> <button className="btn secondary sm" onClick={() => delBlock(b)}>Delete</button></td>}
                 </tr>
@@ -96,14 +98,54 @@ function BlocksTab() {
   );
 }
 
+/** The community's naming pattern for unit numbers: shown, explained and changed here (blocks may have their own, in the block form). */
+function UnitNamingCard({ canEdit, onSaved }) {
+  const [cur, setCur] = useState(null); const [draft, setDraft] = useState(''); const [err, setErr] = useState(''); const [busy, setBusy] = useState(false);
+  React.useEffect(() => { loadCommunityPattern().then((x) => { setCur(x); setDraft(x.pattern || ''); }).catch(() => setCur({ pattern: '', version: 0 })); }, []);
+  if (!cur) return null;
+  const why = patternProblem(draft); const ex = draft && !why ? example(draft.trim(), 'A') : '';
+  async function save() {
+    setBusy(true); setErr('');
+    try { const x = await saveCommunityPattern(draft, cur.version); setCur(x); setDraft(x.pattern || ''); onSaved?.(x.pattern ? `Unit numbers now follow “${x.pattern}”.` : 'Unit numbers no longer follow a pattern.'); }
+    catch (e) { setErr(e.message || 'Could not save the pattern'); }
+    setBusy(false);
+  }
+  return (
+    <div className="card" style={{ marginTop: 12, background: 'var(--surface-2, transparent)' }} data-testid="unit-naming">
+      <b>Unit numbers</b>
+      <p className="muted" style={{ margin: '4px 0 8px' }}>
+        Every unit number uses letters, digits, space, “.”, “/” and “-”, and two numbers that differ only in case are the same unit. A pattern adds a shape for new and renamed units:
+        {' '}<code>{'{n}'}</code> a number, <code>{'{n:3}'}</code> exactly 3 digits, <code>{'{floor}'}</code> a floor, <code>{'{letter}'}</code> one letter, <code>{'{block}'}</code> the block&apos;s code.
+        {' '}For example <code>{'Villa {n}'}</code> or <code>{'{block}-{floor}{n:2}'}</code> (A-1204). A block can have its own pattern (edit the block).
+      </p>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <input aria-label="Unit naming pattern" data-testid="unit-pattern" value={draft} disabled={!canEdit} onChange={(e) => setDraft(e.target.value)} placeholder="No pattern: any number that follows the rules" style={{ minWidth: 260, flex: 1 }} />
+        {canEdit && <button type="button" className="btn secondary" data-testid="unit-pattern-save" disabled={busy || !!why || draft.trim() === (cur.pattern || '')} onClick={save}>{busy ? 'Saving…' : 'Save pattern'}</button>}
+      </div>
+      {why ? <div className="field-error">{why}</div> : ex ? <small className="muted">e.g. {ex}</small> : null}
+      {err && <div className="field-error" data-testid="unit-pattern-error">{err}</div>}
+    </div>
+  );
+}
+
 function BulkUnits({ draft, setDraft, blocks, existing, onDone }) {
   const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }));
+  const [community, setCommunity] = useState('');
+  React.useEffect(() => { loadCommunityPattern().then((x) => setCommunity(x.pattern || '')).catch(() => {}); }, []);
+  const rule = ruleFor(draft.block, blocks, community);          // the block's pattern, else the community's
+  const floors = usesFloor(rule.pattern);
   const from = Number(draft.from) || 0; const to = Number(draft.to) || 0;
-  const label = (n) => `${draft.prefix}${draft.pad ? String(n).padStart(Number(draft.pad), '0') : n}`;
-  const have = useMemo(() => new Set(existing.map((p) => p.unit)), [existing]);
-  const names = []; for (let n = from; n <= to && names.length <= BULK_MAX; n += 1) names.push(label(n));
-  const fresh = names.filter((u) => !have.has(u));
-  const tooMany = names.length > BULK_MAX; const bad = !draft.block || to < from || tooMany;
+  const fFrom = Number(draft.floorFrom) || 0; const fTo = floors ? Number(draft.floorTo) || 0 : 0;
+  const label = (floor, n) => (rule.pattern ? make(rule.pattern, rule.block, floor, n) : `${draft.prefix}${draft.pad ? String(n).padStart(Number(draft.pad), '0') : n}`);
+  const have = useMemo(() => new Set(existing.map((p) => unitKey(p.unit))), [existing]);
+  const names = []; let cannot = '';
+  for (let fl = floors ? fFrom : 0; fl <= (floors ? fTo : 0) && names.length <= BULK_MAX; fl += 1) {
+    for (let n = from; n <= to && names.length <= BULK_MAX; n += 1) { const x = label(floors ? fl : null, n); if (x == null) { cannot = `The pattern “${rule.pattern}” has a part that cannot be numbered here ({letter}, or {block} without a block code): add these units one by one or import them.`; break; } names.push(x); }
+    if (cannot) break;
+  }
+  const problem = !cannot && names.map((u) => unitProblem(u, rule.pattern, rule.block)).find(Boolean);
+  const fresh = names.filter((u) => !have.has(unitKey(u)));
+  const tooMany = names.length > BULK_MAX; const bad = !draft.block || to < from || (floors && fTo < fFrom) || tooMany || !!cannot || !!problem;
   const [busy, setBusy] = useState(false); const [err, setErr] = useState('');
   async function go() {
     setBusy(true); setErr('');
@@ -118,13 +160,19 @@ function BulkUnits({ draft, setDraft, blocks, existing, onDone }) {
       <div className="form-grid">
         <div className="field"><label>Block *</label><select aria-label="Block" value={draft.block} onChange={(e) => set('block', e.target.value)}><option value="">Select…</option>{blocks.map((b) => <option key={b.id}>{b.name}</option>)}</select></div>
         <div className="field"><label>Property type</label><select aria-label="Property type" value={draft.type} onChange={(e) => set('type', e.target.value)}>{propertyTypes().map((t) => <option key={t}>{t}</option>)}</select></div>
-        <div className="field"><label>Unit prefix</label><input aria-label="Prefix" value={draft.prefix} onChange={(e) => set('prefix', e.target.value)} placeholder="e.g. A-  or  Villa " /></div>
-        <div className="field"><label>Zero-pad to</label><input aria-label="Pad" type="number" min="0" max="6" value={draft.pad} onChange={(e) => set('pad', e.target.value)} /></div>
-        <div className="field"><label>From number</label><input aria-label="From" type="number" value={draft.from} onChange={(e) => set('from', e.target.value)} /></div>
-        <div className="field"><label>To number</label><input aria-label="To" type="number" value={draft.to} onChange={(e) => set('to', e.target.value)} /></div>
+        {rule.pattern ? (
+          <div className="field" style={{ gridColumn: '1 / -1' }}><label>Naming pattern</label><div data-testid="bulk-pattern"><code>{rule.pattern}</code> <span className="muted">({blocks.some((b) => b.name === draft.block && b.unitPattern) ? "this block's" : "the community's"}; numbers are made from it)</span></div></div>
+        ) : (<>
+          <div className="field"><label>Unit prefix</label><input aria-label="Prefix" value={draft.prefix} onChange={(e) => set('prefix', e.target.value)} placeholder="e.g. A-  or  Villa " /></div>
+          <div className="field"><label>Zero-pad to</label><input aria-label="Pad" type="number" min="0" max="6" value={draft.pad} onChange={(e) => set('pad', e.target.value)} /></div>
+        </>)}
+        {floors && <div className="field"><label>From floor</label><input aria-label="From floor" type="number" value={draft.floorFrom ?? 1} onChange={(e) => set('floorFrom', e.target.value)} /></div>}
+        {floors && <div className="field"><label>To floor</label><input aria-label="To floor" type="number" value={draft.floorTo ?? 1} onChange={(e) => set('floorTo', e.target.value)} /></div>}
+        <div className="field"><label>{floors ? 'From number (each floor)' : 'From number'}</label><input aria-label="From" type="number" value={draft.from} onChange={(e) => set('from', e.target.value)} /></div>
+        <div className="field"><label>{floors ? 'To number (each floor)' : 'To number'}</label><input aria-label="To" type="number" value={draft.to} onChange={(e) => set('to', e.target.value)} /></div>
         <div className="field"><label>Occupancy</label><select aria-label="Occupancy" value={draft.occupancy} onChange={(e) => set('occupancy', e.target.value)}><option>Vacant</option><option>Owner occupied</option></select></div>
       </div>
-      <p className="muted" data-testid="bulk-preview">{tooMany ? `That is more than ${BULK_MAX} units at once.` : to < from ? '“To” must not be smaller than “From”.' : `${fresh.length} new unit${fresh.length === 1 ? '' : 's'}: ${fresh.slice(0, 3).join(', ')}${fresh.length > 3 ? ` … ${fresh[fresh.length - 1]}` : ''}${names.length - fresh.length ? ` · ${names.length - fresh.length} already exist and are skipped` : ''}`}</p>
+      <p className="muted" data-testid="bulk-preview">{cannot || problem || (tooMany ? `That is more than ${BULK_MAX} units at once.` : to < from ? '“To” must not be smaller than “From”.' : `${fresh.length} new unit${fresh.length === 1 ? '' : 's'}: ${fresh.slice(0, 3).join(', ')}${fresh.length > 3 ? ` … ${fresh[fresh.length - 1]}` : ''}${names.length - fresh.length ? ` · ${names.length - fresh.length} already exist and are skipped` : ''}`)}</p>
       {err && <div className="field-error">{err}</div>}
       <div className="form-actions"><button className="btn" data-testid="bulk-go" disabled={bad || !fresh.length || busy} onClick={go}>{busy ? 'Adding…' : `Add ${fresh.length} units`}</button></div>
     </div>

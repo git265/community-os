@@ -27,7 +27,7 @@ public final class TicketRules {
     static boolean ownsUnit(Caller c, Ticket t) { return t.unit() != null && c.units().contains(t.unit()); }
     static boolean raisedIt(Caller c, Ticket t) { return c.membership() != null && c.membership().equals(t.raisedBy()); }
     static boolean assignedTo(Caller c, Ticket t) { return c.membership() != null && c.membership().equals(t.assignee()); }
-    static boolean sameTrade(Caller c, Ticket t) { return c.trade() != null && c.trade().equals(t.category()); }
+    static boolean sameTrade(Caller c, Ticket t) { return c.trade() != null && com.communityos.api.shared.domain.Names.same(c.trade(), t.category()); }
 
     /** Which task types this caller may raise. Within staff only the Facility Manager and MEP raise tasks. */
     public static boolean mayRaise(Caller c, TaskType tt) {

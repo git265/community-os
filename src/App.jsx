@@ -117,7 +117,7 @@ function ProfileModal({ onClose }) {
   const [phone, setPhone] = useState(currentUser?.phone ?? '');
   const [nameErr, setNameErr] = useState('');
   const { records: profiles, save: saveProfile } = useCollection(COLLECTIONS.USER_PROFILES, 'My profile details');
-  const mine = profiles.find((x) => x.userName === currentUser?.name);
+  const mine = profiles.find((x) => String(x.userName || '').trim().toLowerCase() === String(currentUser?.name || '').trim().toLowerCase());
   const [edits, setEdits] = useState({});
   const [err, setErr] = useState('');
   const val = (k) => edits[k] ?? mine?.[k] ?? '';

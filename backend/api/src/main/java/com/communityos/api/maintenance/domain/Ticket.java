@@ -5,6 +5,7 @@ import com.communityos.api.maintenance.domain.TicketEvents.TicketRaised;
 import com.communityos.api.maintenance.domain.TicketEvents.TicketStatusChanged;
 import com.communityos.api.shared.domain.AggregateRoot;
 import com.communityos.api.shared.domain.DomainException;
+import com.communityos.api.shared.domain.Names;
 import com.communityos.api.shared.domain.Ids.BlockId;
 import com.communityos.api.shared.domain.Ids.CommunityId;
 import com.communityos.api.shared.domain.Ids.MembershipId;
@@ -54,7 +55,8 @@ public final class Ticket extends AggregateRoot {
     public static Ticket raise(State s, Instant now) {
         if (s.title == null || s.title.strip().length() < 3 || s.title.length() > 200) throw new DomainException.RuleViolated("bad-title", "Give a short title (3-200 characters)");
         if (s.description != null && s.description.length() > 10_000) throw new DomainException.RuleViolated("too-long", "The description is too long");
-        if (!CATEGORIES.contains(s.category)) throw new DomainException.RuleViolated("bad-category", "Pick a category from the list");
+        if (Names.pick(CATEGORIES, s.category) == null) throw new DomainException.RuleViolated("bad-category", "Pick a category from the list");
+        s.category = Names.pick(CATEGORIES, s.category);
         if (!PRIORITIES.contains(s.priority)) throw new DomainException.RuleViolated("bad-priority", "Pick a priority from the list");
         if (!"Unit".equals(s.scope) && !"Community".equals(s.scope)) throw new DomainException.RuleViolated("bad-scope", "A request is for a unit or the community");
         if ("Unit".equals(s.scope) && s.unit == null) throw new DomainException.RuleViolated("unit-required", "Say which unit");
@@ -124,9 +126,9 @@ public final class Ticket extends AggregateRoot {
         if (s.status.finished()) throw new DomainException.RuleViolated("ticket-finished", "This ticket is " + s.status.label() + " - reopen it first");
         if (c.title() != null) { if (c.title().strip().length() < 3 || c.title().length() > 200) throw new DomainException.RuleViolated("bad-title", "Give a short title (3-200 characters)"); s.title = c.title().strip(); }
         if (c.description() != null) { if (c.description().length() > 10_000) throw new DomainException.RuleViolated("too-long", "The description is too long"); s.description = c.description(); }
-        if (c.category() != null) { if (!CATEGORIES.contains(c.category())) throw new DomainException.RuleViolated("bad-category", "Pick a category from the list"); s.category = c.category(); }
+        if (c.category() != null) { String k = Names.pick(CATEGORIES, c.category()); if (k == null) throw new DomainException.RuleViolated("bad-category", "Pick a category from the list"); s.category = k; }
         if (c.subCategory() != null) s.subCategory = c.subCategory().isBlank() ? null : c.subCategory().strip();
-        if (c.priority() != null) { if (!PRIORITIES.contains(c.priority())) throw new DomainException.RuleViolated("bad-priority", "Pick a priority from the list"); s.priority = c.priority(); }
+        if (c.priority() != null) { String k = Names.pick(PRIORITIES, c.priority()); if (k == null) throw new DomainException.RuleViolated("bad-priority", "Pick a priority from the list"); s.priority = k; }
         if (c.location() != null) {
             if ("Community".equals(s.scope) && c.location().isBlank()) throw new DomainException.RuleViolated("location-required", "Say where in the community the problem is");
             s.location = c.location().isBlank() ? null : c.location().strip();

@@ -56,7 +56,7 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 @Configuration
 public class ModulesConfig {
     @Bean UnitService unitService(NamedParameterJdbcTemplate jdbc, ObjectMapper json, CustomFields custom, AuditWriter audit, Tx tx) {
-        return new UnitService(new JdbcUnitRepository(jdbc, json), custom, audit, tx);
+        return new UnitService(new JdbcUnitRepository(jdbc, json), custom, audit, tx, new com.communityos.api.property.adapter.JdbcPropertySetup(jdbc, json));
     }
 
     // ---- maintenance ----------------------------------------------------------------------------------------------------------------------

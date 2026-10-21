@@ -167,7 +167,7 @@ class PostgresFlowTest {
             JdbcPlatformPayments pp = new JdbcPlatformPayments(platform);
             PaymentService pay = new PaymentService(dues, payments, orders, new GatewayRegistry(List.of(sim), "simulated"), gs, pp, pp, events, app, clock, Duration.ofMinutes(30), "INR");
             DueService dueService = new DueService(dues, lookups, lookups, events, audit, app, clock);
-            UnitService units = new UnitService(new JdbcUnitRepository(app, json), new CustomFields(new JdbcFieldDefinitions(app)), audit, app);
+            UnitService units = new UnitService(new JdbcUnitRepository(app, json), new CustomFields(new JdbcFieldDefinitions(app)), audit, app, new com.communityos.api.property.adapter.JdbcPropertySetup(app, json));
             MemberService memberService = new MemberService(new JdbcMemberRepository(app, json), new JdbcRoleCatalog(app), new JdbcPersonDirectory(platform), refreshStore,
                 callers, audit, app, clock, "+91");
             Idempotency idem = new Idempotency(new JdbcIdempotencyStore(app), json);
@@ -1266,6 +1266,51 @@ class PostgresFlowTest {
             assertEquals(0, as(admin, () -> trail.list(admin, new com.communityos.api.auditlog.AuditLog.Filter(null, null, null, null, null, today.plusDays(1), today.plusDays(2), null), PageQuery.of(20, 0))).total(), "nothing tomorrow");
             assertThrows(AccessDenied.class, () -> as(ownerC, () -> trail.list(ownerC, none, PageQuery.of(20, 0))));
             assertTrue(as(demoAdmin, () -> trail.list(demoAdmin, none, PageQuery.of(200, 0))).items().stream().noneMatch((e) -> page1.items().stream().anyMatch((x) -> x.id().equals(e.id()))), "another community's trail is its own");
+
+            // ---- 13. unit numbers: blocks with a code and a pattern, the community's pattern, any case is the same unit, rename -----------------------------
+            var tower = as(admin, () -> units.saveBlock(admin, null, null, new com.communityos.api.property.application.port.PropertySetup.BlockFields(" Tower  2 ", "T2", "Tower", 5, "{block}-{floor}{n:2}")));
+            assertEquals("Tower 2", tower.name()); assertEquals("T2", tower.token());
+            assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> units.saveBlock(admin, null, null, new com.communityos.api.property.application.port.PropertySetup.BlockFields("tower 2", null, "Tower", 0, null))), "a block name in another case");
+            assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> units.saveBlock(admin, null, null, new com.communityos.api.property.application.port.PropertySetup.BlockFields("Tower 3", "t2", "Tower", 0, null))), "a code in another case");
+            assertThrows(AccessDenied.class, () -> as(ownerC, () -> units.saveBlock(ownerC, null, null, new com.communityos.api.property.application.port.PropertySetup.BlockFields("Mine", null, "Block", 0, null))));
+            var naming = as(admin, () -> units.setNaming(admin, "Villa {n}", as(admin, () -> units.naming(admin)).version()));
+            assertEquals("Villa {n}", naming.unitPattern());
+            java.util.function.Function<String, com.communityos.api.property.application.port.PropertySetup.NewUnit> villa = (no) -> new com.communityos.api.property.application.port.PropertySetup.NewUnit(no, null, null, null, null);
+            var oneNew = as(admin, () -> units.add(admin, List.of(villa.apply("  Villa   901 "))));
+            assertEquals("Villa 901", oneNew.added().get(0).unitNo(), "trimmed, single spaces");
+            assertEquals(List.of("villa 901"), as(admin, () -> units.add(admin, List.of(villa.apply("villa 901")))).skipped(), "the same unit whatever its case");
+            var bad = assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> units.add(admin, List.of(villa.apply("Villa 902"), villa.apply("V903"), villa.apply("Villa #904")))));
+            assertTrue(bad.getMessage().contains("2 problems") && bad.getMessage().contains("Villa {n}"), bad.getMessage());
+            assertFalse(owner.sql("SELECT unit_no FROM property.unit WHERE community_id = '" + cid + "' AND unit_no = 'Villa 902'").size() > 0, "nothing of a refused batch is added");
+            var inTower = as(admin, () -> units.add(admin, List.of(new com.communityos.api.property.application.port.PropertySetup.NewUnit("T2-1204", tower.id(), null, "Vacant", null),
+                new com.communityos.api.property.application.port.PropertySetup.NewUnit("t2-1205", tower.id(), null, null, null), new com.communityos.api.property.application.port.PropertySetup.NewUnit("T2-1204", tower.id(), null, null, null))));
+            assertEquals(2, inTower.added().size(), "the block's own pattern, not the community's"); assertEquals(List.of("T2-1204"), inTower.skipped(), "twice in one batch");
+            assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> units.add(admin, List.of(new com.communityos.api.property.application.port.PropertySetup.NewUnit("Villa 905", tower.id(), null, null, null)))));
+            assertThrows(AccessDenied.class, () -> as(ownerC, () -> units.add(ownerC, List.of(villa.apply("Villa 906")))));
+            // renaming: checked the same way, audited; the unit keeps its id (bills, tickets and bookings point at it)
+            UUID u901 = oneNew.added().get(0).id();
+            var u0 = as(admin, () -> units.get(admin, new UnitId(u901)));
+            var renamed = as(admin, () -> units.change(admin, new UnitId(u901), u0.version(), " Villa 911", new com.communityos.api.property.domain.Unit.Changes(null, null, null, null, null), Map.of()));
+            assertEquals("Villa 911", renamed.unitNo()); assertEquals(u901, renamed.id().value());
+            assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> units.change(admin, new UnitId(u901), renamed.version(), "VILLA 911x", new com.communityos.api.property.domain.Unit.Changes(null, null, null, null, null), Map.of())));
+            assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> units.change(admin, new UnitId(u901), renamed.version(), "T2-1205", new com.communityos.api.property.domain.Unit.Changes(null, null, null, null, null), Map.of())), "not this block's pattern");
+            UUID u912 = as(admin, () -> units.add(admin, List.of(villa.apply("Villa 912")))).added().get(0).id();
+            var v912 = as(admin, () -> units.get(admin, new UnitId(u912)));
+            var dup = assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> units.change(admin, new UnitId(u912), v912.version(), "villa 911", new com.communityos.api.property.domain.Unit.Changes(null, null, null, null, null), Map.of())));
+            assertEquals("duplicate-unit", dup.code());
+            assertTrue(owner.sql("SELECT changes::text AS c FROM audit.audit_event WHERE community_id = '" + cid + "' AND entity = 'property.unit' AND entity_id = '" + u901 + "' AND action = 'Update'").get(0).get("c").toString().contains("Villa 911"), "the rename is audited");
+            // the database holds the same rules (whoever writes)
+            assertThrows(RuntimeException.class, () -> owner.sql("INSERT INTO property.unit (community_id, unit_no, unit_type) VALUES ('" + cid + "', 'VILLA 911', 'Villa') RETURNING 1"), "any case is one unit");
+            assertThrows(RuntimeException.class, () -> owner.sql("INSERT INTO property.unit (community_id, unit_no, unit_type) VALUES ('" + cid + "', ' Villa 913', 'Villa') RETURNING 1"), "spaces at the ends");
+            assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> { units.deleteBlock(admin, tower.id(), tower.version()); return null; }), "a block with units stays");
+            as(admin, () -> units.setNaming(admin, null, as(admin, () -> units.naming(admin)).version()));
+            // names compare whatever their case: a filter typed in lower case finds the same tickets
+            var asTyped = as(admin, () -> ticketSvc.list(admin, new com.communityos.api.maintenance.application.port.TicketRepository.Filter(null, false, "PLUMBING", null, null, null, null), PageQuery.of(200, 0))).total();
+            assertEquals(as(admin, () -> ticketSvc.list(admin, new com.communityos.api.maintenance.application.port.TicketRepository.Filter(null, false, "Plumbing", null, null, null, null), PageQuery.of(200, 0))).total(), asTyped);
+            assertTrue(asTyped > 0);
+            // e-mail addresses are kept in lower case, whoever writes them
+            owner.sql("UPDATE identity.person SET email = '  Asha.Owner.' || '" + tag + "' || '@Example.COM ' WHERE id = '" + persons[0] + "' RETURNING 1");
+            assertEquals("asha.owner." + tag.toLowerCase() + "@example.com", owner.sql("SELECT email::text AS e FROM identity.person WHERE id = '" + persons[0] + "'").get(0).get("e"));
 
             System.out.println("flow: " + (app.statements + platform.statements) + " statements through cos_app / cos_platform");
         }

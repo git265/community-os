@@ -21,9 +21,10 @@ public final class FieldStaffService {
 
     public List<FieldStaff> list(Caller c) { return TicketPolicy.canSeeInternal(c) ? staff.all() : List.of(); }
 
-    public FieldStaff add(Caller c, MembershipId member, String trade, String shift, String phone) {
+    public FieldStaff add(Caller c, MembershipId member, String tradeAsTyped, String shift, String phone) {
         if (!(c.isSuperAdmin() || c.has(Permission.MANAGE_FIELD_DUTIES))) throw new AccessDenied("You cannot manage field staff");
-        if (!Ticket.CATEGORIES.contains(trade)) throw new DomainException.RuleViolated("bad-trade", "Pick a trade from the list");
+        String trade = com.communityos.api.shared.domain.Names.pick(Ticket.CATEGORIES, tradeAsTyped);   // any case: the list's own spelling
+        if (trade == null) throw new DomainException.RuleViolated("bad-trade", "Pick a trade from the list");
         if (shift != null && !List.of("Morning", "Afternoon", "Night").contains(shift)) throw new DomainException.RuleViolated("bad-shift", "Morning, Afternoon or Night");
         String name = directory.memberName(member).orElseThrow(() -> new DomainException.RuleViolated("unknown-member", "Add the person as a member first"));
         return tx.inTx(() -> {

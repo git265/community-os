@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { loadCommunityPattern } from '../../lib/unitNaming.js';
 import Modal from '../../components/Modal.jsx';
 import { COLLECTIONS } from '../../lib/storage/index.js';
 import { secureStorage } from '../../lib/storage/secureStorage.js';
@@ -13,6 +14,8 @@ export default function UnitImport({ existing, blocks, onClose, onDone }) {
   const [grid, setGrid] = useState([]); const [headerRow, setHeaderRow] = useState(0); const [map, setMap] = useState({});
   const [result, setResult] = useState(null); const [busy, setBusy] = useState(false); const [err, setErr] = useState('');
   const [addBlocks, setAddBlocks] = useState(true);
+  const [pattern, setPattern] = useState('');
+  useEffect(() => { loadCommunityPattern().then((x) => setPattern(x.pattern || '')).catch(() => {}); }, []);
 
   async function pick(f) {
     if (!f) return; setErr(''); setBusy(true);
@@ -25,7 +28,7 @@ export default function UnitImport({ existing, blocks, onClose, onDone }) {
   }
   function changeSheet(name) { const g = sheetGrid(wbx.XLSX, wbx.wb, name); const h = guessUnitHeaderRow(g); setSheet(name); setGrid(g); setHeaderRow(h); setMap(autoMapUnits(g[h] || [])); }
   const headers = (grid[headerRow] || []).map((h, i) => ({ i, label: String(h || `Column ${i + 1}`) }));
-  const built = step === 'review' ? buildUnitRows(grid, headerRow, map, { existing, defaultType: propertyTypes()[0] }) : null;
+  const built = step === 'review' ? buildUnitRows(grid, headerRow, map, { existing, defaultType: propertyTypes()[0], blocks, communityPattern: pattern }) : null;
   const missing = UNIT_FIELDS.filter(([f, , req]) => req && !(map[f] >= 0)).map(([, l]) => l);
 
   async function run() {
@@ -33,7 +36,7 @@ export default function UnitImport({ existing, blocks, onClose, onDone }) {
     try {
       const news = built.rows.filter((x) => x.isNew).map((x) => x.record); const ups = built.rows.filter((x) => !x.isNew).map((x) => x.record);
       if (addBlocks) {
-        const have = new Set(blocks.map((b) => b.name)); const want = [...new Set(built.rows.map((x) => x.record.zone).filter((z) => z && !have.has(z)))];
+        const have = new Set(blocks.map((b) => String(b.name).trim().toLowerCase())); const want = [...new Map(built.rows.map((x) => x.record.zone).filter((z) => z && !have.has(String(z).trim().toLowerCase())).map((z) => [String(z).trim().toLowerCase(), z])).values()];   // block names compare whatever their case
         if (want.length) await secureStorage.createMany(COLLECTIONS.BLOCKS, want.map((name) => ({ name, kind: 'Other', active: true, plannedUnits: built.rows.filter((x) => x.record.zone === name).length })), { label: 'Blocks & Towers', summary: `Added ${want.length} blocks from the unit file` });
       }
       if (news.length) await secureStorage.createMany(COLLECTIONS.PROPERTIES, news.map((r) => ({ ...r, residentsCount: 0, outstanding: 0 })), { label: 'Properties & Residents', summary: `Imported ${news.length} units from Excel` });

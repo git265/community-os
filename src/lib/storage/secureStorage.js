@@ -141,6 +141,8 @@ async function checkWrite(collection, record, old, op, p, schema) {
   { const le = lockError(collection, op === 'delete' ? old : rec, old); if (le) await denied(collection, verb, old ?? rec ?? {}, le); }
   { const me = await moneyPreWrite({ collection, record: op === 'delete' ? old : rec, old, op, list: (c) => storage.list(c) }); if (me) await denied(collection, verb, old ?? rec ?? {}, me); }
   if (op !== 'delete' && !(await parentVisible(collection, rec, old, p))) await denied(collection, verb, rec, 'That record is not yours to add to');
+  // e-mail addresses (where mail goes, and the sign-in name for e-mail sign-in) are stored in lower case, in every collection
+  for (const k of Object.keys(rec)) if ((k === 'email' || /Email$/.test(k)) && typeof rec[k] === 'string') rec[k] = rec[k].trim().toLowerCase();
   return { record: rec, scope };
 }
 /** A resident's new request: the server, not the browser, decides the type, the first assignee and the starting values. */
@@ -154,6 +156,12 @@ async function residentTicketStart(record) {
 // Bulk writes skip the per-record server steps (prices, votes, ticket rules, money): these collections are saved one record at a time.
 const NO_BULK = new Set([COLLECTIONS.AMENITIES, COLLECTIONS.BALLOTS, COLLECTIONS.VOTE_ROLL, COLLECTIONS.BALLOT_BOX, COLLECTIONS.POLL_VOTES, COLLECTIONS.MEETINGS,
   COLLECTIONS.TICKETS, COLLECTIONS.TICKET_COMMENTS, COLLECTIONS.RELEASES, COLLECTIONS.LEDGER, COLLECTIONS.QUOTATIONS, COLLECTIONS.FILES, 'notifications']);
+// one unit per number in a batch too (whatever its case)
+async function unitOnce(rec, seen) {
+  const k = String(rec.unit || '').toLowerCase();
+  if (seen.has(k)) await denied(COLLECTIONS.PROPERTIES, 'Create', rec, `“${rec.unit}” is in this batch twice (unit numbers are the same whatever their case)`);
+  seen.add(k);
+}
 const stripMeta = (r) => { const o = { ...r }; META_KEYS.forEach((k) => { if (k !== 'id') delete o[k]; }); return o; };
 
 const localSecure = {
@@ -188,8 +196,9 @@ const localSecure = {
     // a trade worker hands a ticket only to themselves or a colleague of the same trade (or back to the queue)
     if (collection === COLLECTIONS.TICKETS && old && p?.roleId?.startsWith('handyman_') && p.roleId !== 'handyman_mep' && (record.assignedTo || '') !== (old.assignedTo || '') && record.assignedTo) {
       const trade = String(p.role?.name || '').split('·')[1]?.trim();
-      const crew = new Set([p.name, ...(await storage.list(COLLECTIONS.HANDYMEN)).filter((h) => !!trade && h.trade === trade).map((h) => h.name)]);
-      if (!crew.has(record.assignedTo)) await denied(collection, 'Update', record, 'Hand the ticket to yourself or a colleague of your trade');
+      const lc = (x) => String(x || '').trim().toLowerCase();
+      const crew = new Set([p.name, ...(await storage.list(COLLECTIONS.HANDYMEN)).filter((h) => !!trade && lc(h.trade) === lc(trade)).map((h) => h.name)].map(lc));
+      if (!crew.has(lc(record.assignedTo))) await denied(collection, 'Update', record, 'Hand the ticket to yourself or a colleague of your trade');
     }
     if (collection === COLLECTIONS.TICKETS && isNew && isResident(p)) {
       const r = await residentTicketStart(record);
@@ -220,6 +229,18 @@ const localSecure = {
       if (r.error) await denied(collection, isNew ? 'Create' : 'Update', record, r.error);
       record = r.record;
       propertyChange = { old };
+    }
+    // Blocks: a name and a code are unique whatever their case; a block's own naming pattern must be one the rules understand
+    if (collection === COLLECTIONS.BLOCKS) {
+      const { patternProblem, key: nameKey } = await import('../unitNaming.js');
+      record = { ...record, name: String(record.name || '').trim().replace(/\s+/g, ' '), code: String(record.code || '').trim(), unitPattern: String(record.unitPattern || '').trim() };
+      const why = patternProblem(record.unitPattern);
+      if (why) await denied(collection, isNew ? 'Create' : 'Update', record, why);
+      for (const b of await storage.list(COLLECTIONS.BLOCKS)) {
+        if (b.id === record.id) continue;
+        if (nameKey(b.name) === nameKey(record.name)) await denied(collection, isNew ? 'Create' : 'Update', record, `There is already a block “${b.name}”`);
+        if (record.code && nameKey(b.code) === nameKey(record.code)) await denied(collection, isNew ? 'Create' : 'Update', record, `Block “${b.name}” already has the code ${b.code}`);
+      }
     }
     let meetingChange = null;
     if (collection === COLLECTIONS.MEETINGS) {
@@ -328,10 +349,10 @@ const localSecure = {
     const schema = getSchema(collection);
     if (!rows.length) return 0;
     if (NO_BULK.has(collection)) await denied(collection, 'Import', rows[0], 'These records are saved one at a time');
-    const checkedRows = [];
+    const checkedRows = []; const batchUnits = new Set();
     for (const r of rows) {   // every row is checked, not just the first
       let rec = (await checkWrite(collection, { ...stripMeta(r), id: undefined }, null, 'create', p, schema)).record;
-      if (collection === COLLECTIONS.PROPERTIES) { const pr = await propertyPreWrite({ record: rec, old: null, isNew: true }); if (pr.error) await denied(collection, 'Import', rec, pr.error); rec = pr.record; }
+      if (collection === COLLECTIONS.PROPERTIES) { const pr = await propertyPreWrite({ record: rec, old: null, isNew: true }); if (pr.error) await denied(collection, 'Import', rec, pr.error); rec = pr.record; await unitOnce(rec, batchUnits); }
       checkedRows.push(rec);
     }
     const existing = await storage.list(collection);
@@ -359,12 +380,12 @@ const localSecure = {
     if (NO_BULK.has(collection)) await denied(collection, 'Create', rows[0], 'These records are saved one at a time');
     const existing = await storage.list(collection);
     const taken = new Set(existing.map((r) => r.id));
-    const checkedRows = []; let scope = {};
+    const checkedRows = []; let scope = {}; const batchUnits = new Set();
     for (const r of rows) {   // every row is checked, and a "new" row can never overwrite an existing one
       if (r.id && taken.has(r.id)) await denied(collection, 'Create', r, 'A record with this id already exists');
       const c = await checkWrite(collection, stripMeta(r), null, 'create', p, schema); scope = c.scope;
       let rec = c.record;
-      if (collection === COLLECTIONS.PROPERTIES) { const pr = await propertyPreWrite({ record: rec, old: null, isNew: true }); if (pr.error) await denied(collection, 'Create', rec, pr.error); rec = pr.record; }
+      if (collection === COLLECTIONS.PROPERTIES) { const pr = await propertyPreWrite({ record: rec, old: null, isNew: true }); if (pr.error) await denied(collection, 'Create', rec, pr.error); rec = pr.record; await unitOnce(rec, batchUnits); }
       if (rec.id) taken.add(rec.id);
       checkedRows.push(rec);
     }

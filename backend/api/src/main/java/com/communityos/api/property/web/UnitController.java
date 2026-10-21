@@ -19,6 +19,10 @@ import java.util.UUID;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import com.communityos.api.shared.security.Caller;
+import com.communityos.api.property.application.UnitService;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -31,7 +35,7 @@ import org.springframework.web.bind.annotation.RestController;
 @Tag(name = "Units")
 public class UnitController {
     /** The only fields a unit manager may change; the number, block, status and audit columns are not in it, so they cannot be sent. */
-    public record UnitPatch(@Size(max = 40) String unitType, @Size(max = 20) String occupancy, BigDecimal areaSqft, @Size(max = 20) String maintenancePlan,
+    public record UnitPatch(@Size(max = 60) String unitNo, @Size(max = 40) String unitType, @Size(max = 20) String occupancy, BigDecimal areaSqft, @Size(max = 20) String maintenancePlan,
                             BigDecimal sanctionedKw, @Size(max = 50) Map<String, Object> custom) {}
     public record UnitResponse(UUID id, String shortId, String unitNo, UUID blockId, String blockName, String unitType, String occupancy, BigDecimal areaSqft,
                                String maintenancePlan, BigDecimal sanctionedKw, String status, Map<String, Object> custom, Instant updatedAt, long version) {
@@ -57,8 +61,37 @@ public class UnitController {
     }
     @PatchMapping("/{id}")
     public ResponseEntity<UnitResponse> patch(@PathVariable UUID id, @Valid @RequestBody UnitPatch b, @RequestHeader(name = "If-Match", required = false) String ifMatch) {
-        Unit u = units.change(CallerHolder.require(), new UnitId(id), ETags.require(ifMatch),
+        Unit u = units.change(CallerHolder.require(), new UnitId(id), ETags.require(ifMatch), b.unitNo(),
             new Unit.Changes(b.unitType(), b.occupancy(), b.areaSqft(), b.maintenancePlan(), b.sanctionedKw()), b.custom());
         return ResponseEntity.ok().header("ETag", ETags.of(u.version())).body(UnitResponse.of(u));
+    }
+
+    // ---- adding units, the naming pattern --------------------------------------------------------------------------------------------------------
+    public record NewUnitRequest(@jakarta.validation.constraints.NotBlank @Size(max = 60) String unitNo, UUID blockId, @Size(max = 40) String unitType,
+                                 @Size(max = 20) String occupancy, BigDecimal areaSqft) {
+        com.communityos.api.property.application.port.PropertySetup.NewUnit row() { return new com.communityos.api.property.application.port.PropertySetup.NewUnit(unitNo, blockId, unitType, occupancy, areaSqft); }
+    }
+    public record BatchRequest(@jakarta.validation.constraints.NotNull @Size(min = 1, max = UnitService.BATCH_MAX) java.util.List<@Valid NewUnitRequest> units) {}
+    public record NamingRequest(@Size(max = 60) String unitPattern) {}
+
+    /** One new unit: its number follows the community's rules (or 422 with what is wrong); a number already in use (any case) is 422 duplicate-unit. */
+    @PostMapping
+    public ResponseEntity<UnitResponse> add(@Valid @RequestBody NewUnitRequest b) {
+        Caller c = CallerHolder.require();
+        UnitService.Batch r = units.add(c, java.util.List.of(b.row()));
+        if (r.added().isEmpty()) throw new com.communityos.api.shared.domain.DomainException.RuleViolated("duplicate-unit", "There is already a unit “" + r.skipped().get(0) + "” (numbers are the same whatever their case)");
+        Unit u = units.get(c, new UnitId(r.added().get(0).id()));
+        return ResponseEntity.status(201).header("ETag", ETags.of(u.version())).body(UnitResponse.of(u));
+    }
+    /** Many at once (bulk add, import): all are checked first; numbers already there are skipped and listed. */
+    @PostMapping("/batch")
+    public ResponseEntity<UnitService.Batch> addMany(@Valid @RequestBody BatchRequest b) {
+        return ResponseEntity.status(201).body(units.add(CallerHolder.require(), b.units().stream().map(NewUnitRequest::row).toList()));
+    }
+    @GetMapping("/naming")
+    public com.communityos.api.property.application.port.PropertySetup.Setting naming() { return units.naming(CallerHolder.require()); }
+    @PutMapping("/naming")
+    public com.communityos.api.property.application.port.PropertySetup.Setting setNaming(@Valid @RequestBody NamingRequest b, @RequestHeader(name = "If-Match", required = false) String ifMatch) {
+        return units.setNaming(CallerHolder.require(), b.unitPattern(), ifMatch == null ? 0 : ETags.require(ifMatch));
     }
 }

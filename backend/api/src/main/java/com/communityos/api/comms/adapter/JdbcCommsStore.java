@@ -99,7 +99,7 @@ public final class JdbcCommsStore implements CommsStore {
     static final String TOPIC_COLUMNS = """
         SELECT t.id, t.short_id, t.title, t.category, t.kind, t.poll_options, t.pinned, t.status, t.replies, t.author_id, m.display_name AS author, t.last_post_at, t.created_at, t.version
         FROM comms.forum_topic t LEFT JOIN identity.membership m ON m.community_id = t.community_id AND m.id = t.author_id""";
-    static final String TOPICS = TOPIC_COLUMNS + "\nWHERE (CAST(:category AS text) IS NULL OR t.category = :category)\nORDER BY t.pinned DESC, coalesce(t.last_post_at, t.created_at) DESC LIMIT 500";
+    static final String TOPICS = TOPIC_COLUMNS + "\nWHERE (CAST(:category AS text) IS NULL OR lower(t.category) = lower(:category))\nORDER BY t.pinned DESC, coalesce(t.last_post_at, t.created_at) DESC LIMIT 500";
     static final String TOPIC = TOPIC_COLUMNS + "\nWHERE t.id = CAST(:id AS uuid)";
     static final String TOPIC_INSERT = """
         INSERT INTO comms.forum_topic (community_id, id, title, category, kind, poll_options, pinned, status, replies, author_id)

@@ -33,8 +33,27 @@ export function propertyOf(u) {
     version: u.version, updatedAt: u.updatedAt,
   };
 }
-const UNIT_FIELDS = { type: 'unitType', occupancy: 'occupancy', areaSqft: 'areaSqft', maintenancePlan: 'maintenancePlan', sanctionedKw: 'sanctionedKw' };
-const UNIT_FIXED = new Set(['id', 'shortId', 'unit', 'zone', 'blockId', 'status', 'version', 'updatedAt', 'createdAt', 'createdBy', 'lastUpdatedAt', 'lastUpdatedBy',
+// ---- blocks ---------------------------------------------------------------------------------------------------------------------------------------
+// The server's block kinds and the app's words for them.
+const KIND_IN = { Tower: 'Tower', Phase: 'Phase', Lane: 'Villa lane / cluster', Block: 'Wing', Zone: 'Other' };
+const KIND_OUT = Object.fromEntries(Object.entries(KIND_IN).map(([k, v]) => [v, k]));
+export function blockOf(b) {
+  return { ...(b.custom || {}), id: b.id, shortId: b.shortId, name: b.name, code: b.code || '', kind: KIND_IN[b.kind] || b.kind, unitPattern: b.unitPattern || '', unitCount: b.units, version: b.version, recVersion: b.version };
+}
+export function blockBody(rec) {
+  return { name: rec.name, code: rec.code || null, kind: KIND_OUT[rec.kind] || (Object.keys(KIND_IN).includes(rec.kind) ? rec.kind : 'Block'), sortOrder: Number(rec.sortOrder) || 0, unitPattern: rec.unitPattern || null,
+    custom: { plannedUnits: rec.plannedUnits === '' || rec.plannedUnits == null ? null : Number(rec.plannedUnits), active: rec.active !== false, notes: rec.notes || null } };
+}
+/** A new unit as the server takes it (the block by id; owners and residents are added as members afterwards). */
+export function newUnitBody(rec, blocks = []) {
+  const k = (s) => String(s ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+  const b = rec.zone ? blocks.find((x) => k(x.name) === k(rec.zone)) : null;
+  if (rec.zone && !b) throw new Error(`Block ${rec.zone} is not known to the back end - add it first.`);
+  return { unitNo: rec.unit, blockId: b ? b.id : null, unitType: rec.type || null, occupancy: rec.occupancy || null, areaSqft: rec.areaSqft === '' || rec.areaSqft == null ? null : Number(rec.areaSqft) };
+}
+
+const UNIT_FIELDS = { unit: 'unitNo', type: 'unitType', occupancy: 'occupancy', areaSqft: 'areaSqft', maintenancePlan: 'maintenancePlan', sanctionedKw: 'sanctionedKw' };
+const UNIT_FIXED = new Set(['id', 'shortId', 'zone', 'blockId', 'status', 'version', 'updatedAt', 'createdAt', 'createdBy', 'lastUpdatedAt', 'lastUpdatedBy',
   'owner', 'ownerPhone', 'ownerEmail', 'tenant', 'tenantPhone', 'tenantEmail', 'people', 'secondaryOwner', 'secondaryOwnerPhone', 'billTo', 'outstanding']);
 /** Only what changed, as the PATCH body (null when nothing the server accepts changed). Unknown keys go to `custom` (the server checks them). */
 export function unitPatch(before, after) {

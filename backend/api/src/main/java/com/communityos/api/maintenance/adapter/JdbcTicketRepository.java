@@ -45,14 +45,14 @@ public final class JdbcTicketRepository implements TicketRepository {
     static final String FILTER = """
         WHERE (CAST(:status AS text) IS NULL OR t.status = :status)
           AND (CAST(:active AS boolean) IS FALSE OR t.status IN ('Open', 'Assigned', 'In Progress', 'On Hold'))
-          AND (CAST(:category AS text) IS NULL OR t.category = :category)
+          AND (CAST(:category AS text) IS NULL OR lower(t.category) = lower(:category))
           AND (CAST(:unit AS uuid) IS NULL OR t.unit_id = CAST(:unit AS uuid) OR CAST(:unit AS uuid) = ANY (t.affected_unit_ids))
           AND (CAST(:raisedBy AS uuid) IS NULL OR t.raised_by_id = CAST(:raisedBy AS uuid))
           AND (CAST(:assignee AS uuid) IS NULL OR t.assignee_id = CAST(:assignee AS uuid))
           AND (CAST(:q AS text) IS NULL OR t.title ILIKE :q ESCAPE '\\' OR t.short_id ILIKE :q ESCAPE '\\')
           AND (CAST(:statuses AS text) IS NULL OR t.status = ANY (string_to_array(CAST(:statuses AS text), ',')))
           AND (CAST(:priorities AS text) IS NULL OR t.priority = ANY (string_to_array(CAST(:priorities AS text), ',')))
-          AND (CAST(:taskType AS text) IS NULL OR tt.name = :taskType)
+          AND (CAST(:taskType AS text) IS NULL OR lower(tt.name) = lower(:taskType))
           AND (CAST(:financial AS boolean) IS NULL OR t.financial = CAST(:financial AS boolean))
           AND (CAST(:scope AS text) IS NULL OR t.scope = :scope)""";
     /** The orders a list may ask for (anything else: newest first). */

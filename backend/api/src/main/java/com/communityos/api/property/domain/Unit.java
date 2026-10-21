@@ -15,7 +15,7 @@ public final class Unit extends AggregateRoot {
     public static final List<String> OCCUPANCY = List.of("Owner occupied", "Tenant occupied", "Vacant");
     public static final List<String> PLANS = List.of("Monthly", "Quarterly", "Yearly");
 
-    private final UnitId id; private final String shortId; private final String unitNo; private final BlockId block; private final String blockName;
+    private final UnitId id; private final String shortId; private String unitNo; private final BlockId block; private final String blockName;
     private String unitType; private String occupancy; private BigDecimal areaSqft; private String maintenancePlan; private BigDecimal sanctionedKw;
     private final String status; private Map<String, Object> custom; private final Instant updatedAt;
 
@@ -32,25 +32,33 @@ public final class Unit extends AggregateRoot {
     public void change(Changes c, Set<String> allowedTypes) {
         if ("Archived".equals(status)) throw new DomainException.RuleViolated("unit-archived", "An archived unit cannot be changed");
         if (c.unitType() != null) {
-            if (!allowedTypes.contains(c.unitType())) throw new DomainException.RuleViolated("bad-unit-type", "Unit type must be one of " + allowedTypes);
-            unitType = c.unitType();
+            String t = com.communityos.api.shared.domain.Names.pick(allowedTypes, c.unitType());
+            if (t == null) throw new DomainException.RuleViolated("bad-unit-type", "Unit type must be one of " + allowedTypes);
+            unitType = t;
         }
         if (c.occupancy() != null) {
-            if (!OCCUPANCY.contains(c.occupancy())) throw new DomainException.RuleViolated("bad-occupancy", "Occupancy must be one of " + OCCUPANCY);
-            occupancy = c.occupancy();
+            String o = com.communityos.api.shared.domain.Names.pick(OCCUPANCY, c.occupancy());
+            if (o == null) throw new DomainException.RuleViolated("bad-occupancy", "Occupancy must be one of " + OCCUPANCY);
+            occupancy = o;
         }
         if (c.areaSqft() != null) {
             if (c.areaSqft().signum() <= 0 || c.areaSqft().compareTo(BigDecimal.valueOf(100_000)) > 0) throw new DomainException.RuleViolated("bad-area", "Area must be between 1 and 100000 sq ft");
             areaSqft = c.areaSqft();
         }
         if (c.maintenancePlan() != null) {
-            if (!PLANS.contains(c.maintenancePlan())) throw new DomainException.RuleViolated("bad-plan", "Plan must be one of " + PLANS);
-            maintenancePlan = c.maintenancePlan();
+            String m = com.communityos.api.shared.domain.Names.pick(PLANS, c.maintenancePlan());
+            if (m == null) throw new DomainException.RuleViolated("bad-plan", "Plan must be one of " + PLANS);
+            maintenancePlan = m;
         }
         if (c.sanctionedKw() != null) {
             if (c.sanctionedKw().signum() < 0 || c.sanctionedKw().compareTo(BigDecimal.valueOf(1000)) > 0) throw new DomainException.RuleViolated("bad-load", "Sanctioned load must be 0 to 1000 kW");
             sanctionedKw = c.sanctionedKw();
         }
+    }
+    /** A new number (already checked against the naming rules by the service). */
+    public void rename(String newNo) {
+        if ("Archived".equals(status)) throw new DomainException.RuleViolated("unit-archived", "An archived unit cannot be changed");
+        unitNo = newNo;
     }
     public void replaceCustom(Map<String, Object> merged) { custom = Map.copyOf(merged); }
 

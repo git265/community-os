@@ -29,7 +29,8 @@ import { AuthzError, ConflictError } from '../../security/errors.js';
 import { SessionStorageAdapter } from '../SessionStorageAdapter.js';
 import { propertyOf, unitPatch, userOf, dueOf, raiseBody, roleOf, ticketOf, ticketPatch, raiseTicketBody, commentOf, fieldStaffOf, quotationOf, addDocumentBody,
   quotationCommands, RESOURCES, resourceOf, resourceBody, isUuid, bookingOf, busyOf, bookBody, bookingCommand, gatePassOf, gateVisitOf, gateApprovalOf, gateFlagOf, gateScanOf,
-  passBody, ledgerOf, ledgerBody, bookedByServer, releaseOf, releaseCommands, payRequestOf, bankTxnOf, donationOf, donationBody, expenseOf, expenseBody, expenseCommands, fileMeta, fileRowOf, dataUrlBytes, bytesDataUrl, documentOf, documentBody, notificationOf, broadcastOf, broadcastDraft, broadcastCommands, pollVoteRows, topicOf, postOf, meetingOf, meetingBody, ballotOf, ballotBody, voteMarksOf, boxRowOf, voteUnit, contactOf, contactBody, reviewOf, attendanceOf, teamOf, auditOf, auditFilterOf } from './v2map.js';
+  passBody, ledgerOf, ledgerBody, bookedByServer, releaseOf, releaseCommands, payRequestOf, bankTxnOf, donationOf, donationBody, expenseOf, expenseBody, expenseCommands, fileMeta, fileRowOf, dataUrlBytes, bytesDataUrl, documentOf, documentBody, notificationOf, broadcastOf, broadcastDraft, broadcastCommands, pollVoteRows, topicOf, postOf, meetingOf, meetingBody, ballotOf, ballotBody, voteMarksOf, boxRowOf, voteUnit, contactOf, contactBody, reviewOf, attendanceOf, teamOf, auditOf, auditFilterOf, blockOf, blockBody, newUnitBody } from './v2map.js';
+import { key as nameKey } from '../../unitNaming.js';
 import { getAuthUser } from '../../auth/session.js';
 import { getPrincipal } from '../../security/principal.js';
 
@@ -37,7 +38,7 @@ const GATE_DESK = ['gatePasses', 'gateVisits', 'gateApprovals', 'gateFlags', 'ga
 const DOCS = ['files', 'documents', 'culturalDonations', 'culturalExpenses', 'ledger', 'releases', 'payRequests', 'bankTxns'];
 const COMMS = ['notifications', 'broadcasts', 'pollVotes', 'forum', 'forumPosts'];
 const GOVERNANCE = ['meetings', 'ballots', 'voteRoll', 'ballotBox', 'serviceContacts', 'contactReviews', 'attendance', 'workforce'];
-export const V2_COLLECTIONS = ['properties', 'users', 'audit', 'dues', 'roles', 'tickets', 'ticketComments', 'handymen', 'quotations', 'amenities', ...GATE_DESK, ...COMMS, ...DOCS, ...GOVERNANCE, ...Object.keys(RESOURCES)];
+export const V2_COLLECTIONS = ['properties', 'blocks', 'users', 'audit', 'dues', 'roles', 'tickets', 'ticketComments', 'handymen', 'quotations', 'amenities', ...GATE_DESK, ...COMMS, ...DOCS, ...GOVERNANCE, ...Object.keys(RESOURCES)];
 export const LOCAL_COLLECTIONS = ['schema', 'communityConfig', 'roleGroups'];
 
 export class NotOnV2Error extends Error { constructor(collection) { super(`"${collection}" is not on the v2 back end yet - this screen works with the Browser session or the v1 back end.`); this.name = 'NotOnV2Error'; } }
@@ -77,7 +78,7 @@ export async function myOpenTickets() {
   return (p?.items || []).map((t) => rev(ticketOf(t, noById)));
 }
 /** unit number -> unit id (for the payment gateway, which knows units by number). */
-export async function unitIdByNo(no) { return (await unitIndex()).idByNo[no] || null; }
+export async function unitIdByNo(no) { return (await unitIndex()).idByNo[no] || null; }   // any case
 // The units (number <-> id, blocks) are the community's set-up: they change only when the platform adds units or a unit manager edits one.
 // Every task, member, notice and gate read needs them, so they are read once and shared for UNIT_TTL (and dropped at once after a unit write).
 const UNIT_TTL = 60e3;
@@ -90,9 +91,14 @@ function allUnits() {
 }
 function dropUnits() { unitsP = null; }
 if (typeof window !== 'undefined') window.addEventListener?.('communityos:changed', (e) => { if (e?.detail?.collection === 'properties') dropUnits(); });
+/** A lookup by name that ignores case and spacing ("villa  12" finds "Villa 12"), keeping the names' own spelling as its keys. */
+export function byName(entries) {
+  const exact = Object.fromEntries(entries); const loose = new Map(entries.map(([k, v]) => [nameKey(k), v]));
+  return new Proxy(exact, { get: (t, k) => (typeof k === 'string' && !(k in t) ? loose.get(nameKey(k)) : t[k]) });
+}
 async function unitIndex() {
   const units = await allUnits();
-  return { noById: Object.fromEntries(units.map((u) => [u.id, u.unitNo])), idByNo: Object.fromEntries(units.map((u) => [u.unitNo, u.id])) };
+  return { noById: Object.fromEntries(units.map((u) => [u.id, u.unitNo])), idByNo: byName(units.map((u) => [u.unitNo, u.id])) };
 }
 
 const readers = {
@@ -145,7 +151,7 @@ async function placeIndex() {
   const units = await allUnits();
   return {
     unitNoById: Object.fromEntries(units.map((u) => [u.id, u.unitNo])), unitIdByNo: Object.fromEntries(units.map((u) => [u.unitNo, u.id])),
-    blockNameById: Object.fromEntries(units.filter((u) => u.blockId).map((u) => [u.blockId, u.blockName])), blockIdByName: Object.fromEntries(units.filter((u) => u.blockId).map((u) => [u.blockName, u.blockId])),
+    blockNameById: Object.fromEntries(units.filter((u) => u.blockId).map((u) => [u.blockId, u.blockName])), blockIdByName: byName(units.filter((u) => u.blockId).map((u) => [u.blockName, u.blockId])),
   };
 }
 readers.notifications = { list: async () => (await call('/notifications?limit=200')).map((n) => notificationOf(n, myName())) };
@@ -253,6 +259,21 @@ readers.files = {
     return fileRowOf(f, res.ok ? bytesDataUrl(await res.arrayBuffer(), f.mimeType) : '');
   },
 };
+// ---- the layout: blocks and the unit naming pattern ---------------------------------------------------------------------------------------------
+readers.blocks = { list: async () => (await call('/blocks')).map(blockOf) };
+readers.blocks.get = async (id) => (await readers.blocks.list()).find((b) => b.id === id) || null;
+async function putBlock(rec) {
+  const before = isUuid(rec.id) ? await readers.blocks.get(rec.id) : null;
+  const out = before ? await call(`/blocks/${rec.id}`, json('PUT', blockBody(rec), ifMatch(rec.version ?? before.version))) : await call('/blocks', json('POST', blockBody(rec)));
+  dropUnits(); return blockOf(out);
+}
+/** The community's naming pattern for unit numbers: { pattern, version }. */
+export async function v2Naming() { const n = await call('/units/naming'); return { pattern: n?.unitPattern || '', version: n?.version ?? 0 }; }
+export async function v2SetNaming(pattern, version) {
+  const n = await call('/units/naming', json('PUT', { unitPattern: pattern || null }, version ? ifMatch(version) : {}));
+  return { pattern: n?.unitPattern || '', version: n?.version ?? 0 };
+}
+
 /** The newest `max` rows of a paged list (a few calls of 200), never the whole of it. */
 async function latest(path, max) {
   const out = []; const sep = path.includes('?') ? '&' : '?';
@@ -316,7 +337,7 @@ async function putTicket(rec) {
   if (!before) {
     const types = await call('/task-types');
     const resident = getAuthUser()?.category === 'Resident';
-    let t = await call('/tickets', json('POST', raiseTicketBody(rec, { taskTypeIdByName: Object.fromEntries(types.map((x) => [x.name, x.id])), unitIdByNo: idByNo, resident })));
+    let t = await call('/tickets', json('POST', raiseTicketBody(rec, { taskTypeIdByName: byName(types.map((x) => [x.name, x.id])), unitIdByNo: idByNo, resident })));
     if (rec.assignedTo && rec.assignedTo !== t.assigneeName) {
       t = await call(`/tickets/${t.id}/assign`, json('POST', { assigneeId: await assigneeId(t.id, rec.assignedTo) }, ifMatch(t.version)));
     }
@@ -362,8 +383,12 @@ async function putFieldStaff(rec) {
 }
 
 async function putProperty(rec) {
-  const before = await readers.properties.get(rec.id);
-  if (!before) throw new NotOnV2Error('new units');   // units are created when the community is set up
+  const before = isUuid(rec.id) ? await readers.properties.get(rec.id) : null;
+  if (!before) {                                                     // a new unit: the server checks its number (rules, pattern, any case)
+    const blocks = await readers.blocks.list();
+    const u = await call('/units', json('POST', newUnitBody(rec, blocks)));
+    dropUnits(); return propertyOf(u);
+  }
   const body = unitPatch(before, rec);
   if (!body) return before;
   return propertyOf(await call(`/units/${encodeURIComponent(rec.id)}`, json('PATCH', body, ifMatch(rec.version ?? before.version))));
@@ -776,7 +801,7 @@ async function putBooking(rec) {
   return bookingOf(await call(`/amenities/bookings/${encodeURIComponent(rec.id)}/${cmd.path}`, json('POST', cmd.body, ifMatch(before.version))));
 }
 
-const WRITERS = { reportSchedules: putReportSchedule, attendance: putAttendance, workforce: async () => { throw new Error('Teams are worked out from field staff.'); }, inventory: putInventory, infraLog: putConditionLog, serviceContacts: putContact, contactReviews: putReview, meetings: putMeeting, ballots: putBallot, voteRoll: putVoteMark, ballotBox: putBoxRow, ledger: putLedger, releases: putRelease, payRequests: putPayRequest, bankTxns: putBankTxn, culturalDonations: putDonation, culturalExpenses: putExpense, culturalOfferings: putOffering, culturalEvents: putEvent, culturalPhotos: putPhoto, culturalSevas: signing('culturalSevas', 'seva', 'volunteers'), culturalPrograms: signing('culturalPrograms', 'programme', 'participants'), files: putFile, documents: putDocument, notificationOutbox: async (r) => r /* the server queues channel messages itself, from the event */, notifications: putNotification, broadcasts: putBroadcast, pollVotes: putPollVote, forum: putTopic, forumPosts: putPost, gatePasses: putPass, gateApprovals: putApproval, gateFlags: putFlag, gateVisits: deskOnly, gateScans: deskOnly, gatePulse: async (r) => r, amenities: putBooking, properties: putProperty, users: putUser, dues: putDue, tickets: putTicket, ticketComments: putComment, handymen: putFieldStaff, quotations: putQuotation };
+const WRITERS = { reportSchedules: putReportSchedule, attendance: putAttendance, workforce: async () => { throw new Error('Teams are worked out from field staff.'); }, inventory: putInventory, infraLog: putConditionLog, serviceContacts: putContact, contactReviews: putReview, meetings: putMeeting, ballots: putBallot, voteRoll: putVoteMark, ballotBox: putBoxRow, ledger: putLedger, releases: putRelease, payRequests: putPayRequest, bankTxns: putBankTxn, culturalDonations: putDonation, culturalExpenses: putExpense, culturalOfferings: putOffering, culturalEvents: putEvent, culturalPhotos: putPhoto, culturalSevas: signing('culturalSevas', 'seva', 'volunteers'), culturalPrograms: signing('culturalPrograms', 'programme', 'participants'), files: putFile, documents: putDocument, notificationOutbox: async (r) => r /* the server queues channel messages itself, from the event */, notifications: putNotification, blocks: putBlock, broadcasts: putBroadcast, pollVotes: putPollVote, forum: putTopic, forumPosts: putPost, gatePasses: putPass, gateApprovals: putApproval, gateFlags: putFlag, gateVisits: deskOnly, gateScans: deskOnly, gatePulse: async (r) => r, amenities: putBooking, properties: putProperty, users: putUser, dues: putDue, tickets: putTicket, ticketComments: putComment, handymen: putFieldStaff, quotations: putQuotation };
 WRITERS.tickets = attaching(WRITERS.tickets, 'maintenance.ticket', 'attachments');
 WRITERS.ticketComments = attaching(WRITERS.ticketComments, 'maintenance.comment', 'attachments');
 WRITERS.quotations = attaching(WRITERS.quotations, 'maintenance.quotation', 'attachments');
@@ -873,6 +898,20 @@ export const V2ApiAdapter = {
     throw new NotOnV2Error(c);
   },
   async putMany(c, list) {
+    if (c === 'properties' && list.length > 1) {                     // bulk add / import: new units in one call, the rest one by one
+      const fresh = list.filter((r) => !isUuid(r.id)); const known = list.filter((r) => isUuid(r.id));
+      const out = [];
+      if (fresh.length) {
+        const blocks = await readers.blocks.list();
+        for (let i = 0; i < fresh.length; i += 3000) {
+          const r = await call('/units/batch', json('POST', { units: fresh.slice(i, i + 3000).map((x) => newUnitBody(x, blocks)) }));
+          out.push(...(r.added || []).map((a) => ({ id: a.id, shortId: a.shortId, unit: a.unitNo })));
+        }
+        dropUnits();
+      }
+      for (const r of known) out.push(await this.put(c, r));
+      return out;
+    }
     if (c === 'bankTxns' && list.length > 1 && list.every((r) => !isUuid(r.id))) {           // a whole statement in one import
       const byAccount = {};
       for (const r of list) (byAccount[r.account] ||= []).push(bankLineBody(r));
@@ -888,6 +927,7 @@ export const V2ApiAdapter = {
     if (c === 'ledger') throw new Error('A payment is not deleted - reverse it.');
     if (c === 'voteRoll' || c === 'ballotBox') throw new Error('Voting records can never be changed or deleted');
     if (c === 'attendance') { const a = isUuid(id) ? await readers.attendance.get(id) : null; if (a) await call(`/workforce/attendance/${id}`, { method: 'DELETE', headers: ifMatch(a.version) }); return; }
+    if (c === 'blocks') { const b = isUuid(id) ? await readers.blocks.get(id) : null; if (b) await call(`/blocks/${id}`, { method: 'DELETE', headers: ifMatch(b.version) }); dropUnits(); return; }
     if (c === 'contactReviews') { if (isUuid(id)) await call(`/vendors/reviews/${id}`, { method: 'DELETE' }); return; }
     if (c === 'serviceContacts') { const x = isUuid(id) ? await readers.serviceContacts.get(id) : null; if (x) await call(`/vendors/directory/${id}`, { method: 'DELETE', headers: ifMatch(x.version) }); return; }
     if (c === 'meetings' || c === 'ballots') {

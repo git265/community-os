@@ -20,8 +20,9 @@ public final class Checks {
     }
     public static String oneOf(String v, String label, Collection<String> allowed) {
         if (v == null || v.isBlank()) return null;
-        if (!allowed.contains(v)) throw new DomainException.RuleViolated("bad-" + label.toLowerCase().replace(' ', '-'), label + " must be one of: " + String.join(", ", allowed));
-        return v;
+        String k = com.communityos.api.shared.domain.Names.pick(allowed, v);     // "plumbing" is "Plumbing": the list's own spelling is kept
+        if (k == null) throw new DomainException.RuleViolated("bad-" + label.toLowerCase().replace(' ', '-'), label + " must be one of: " + String.join(", ", allowed));
+        return k;
     }
     public static String requiredOneOf(String v, String label, Collection<String> allowed) {
         if (v == null || v.isBlank()) throw new DomainException.RuleViolated("required", label + " is required");

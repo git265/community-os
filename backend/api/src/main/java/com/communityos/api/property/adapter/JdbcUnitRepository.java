@@ -34,7 +34,7 @@ public final class JdbcUnitRepository implements UnitRepository {
     public static String listSql(String scopeSql) { return SELECT + "\n" + FILTER + "\n  AND " + scopeSql + "\nORDER BY length(u.unit_no), u.unit_no LIMIT :limit OFFSET :offset"; }
     public static String getSql(String scopeSql) { return SELECT + "\nWHERE u.id = CAST(:id AS uuid) AND " + scopeSql; }
     static final String UPDATE = """
-        UPDATE property.unit SET unit_type = :type, occupancy = :occupancy, area_sqft = :area, maintenance_plan = :plan, sanctioned_kw = :kw, custom = CAST(:custom AS jsonb)
+        UPDATE property.unit SET unit_no = :unitNo, unit_type = :type, occupancy = :occupancy, area_sqft = :area, maintenance_plan = :plan, sanctioned_kw = :kw, custom = CAST(:custom AS jsonb)
         WHERE id = CAST(:id AS uuid) AND version = :version""";
     static final String TYPES = "SELECT property_types FROM platform.community_settings";
 
@@ -57,7 +57,7 @@ public final class JdbcUnitRepository implements UnitRepository {
     }
     @Override public boolean save(Unit u, long expectedVersion) {
         Map<String, Object> p = new HashMap<>();
-        p.put("id", u.id().toString()); p.put("version", expectedVersion); p.put("type", u.unitType()); p.put("occupancy", u.occupancy()); p.put("area", u.areaSqft());
+        p.put("id", u.id().toString()); p.put("version", expectedVersion); p.put("unitNo", u.unitNo()); p.put("type", u.unitType()); p.put("occupancy", u.occupancy()); p.put("area", u.areaSqft());
         p.put("plan", u.maintenancePlan()); p.put("kw", u.sanctionedKw());
         try { p.put("custom", json.writeValueAsString(u.custom())); } catch (Exception e) { throw new IllegalStateException(e); }
         return jdbc.update(UPDATE, p) == 1;

@@ -1189,6 +1189,7 @@ const RAW_SCHEMAS = [
     fields: [
       { key: 'name', label: 'Block / tower / phase name', type: 'text', required: true, viewableBy: ALL, editableBy: STAFF, showInTable: true },
       { key: 'code', label: 'Short code (e.g. A, B, P1)', type: 'text', viewableBy: ALL, editableBy: STAFF, showInTable: true },
+      { key: 'unitPattern', label: 'Unit naming pattern (blank = the community\'s), e.g. {block}-{floor}{n:2}', type: 'text', viewableBy: ALL, editableBy: STAFF },
       { key: 'kind', label: 'Kind', type: 'select', options: ['Tower', 'Villa lane / cluster', 'Phase', 'Wing', 'Other'], viewableBy: ALL, editableBy: STAFF, showInTable: true },
       { key: 'plannedUnits', label: 'Planned number of units', type: 'number', viewableBy: ALL, editableBy: STAFF, showInTable: true },
       { key: 'active', label: 'Active', type: 'boolean', viewableBy: ALL, editableBy: STAFF },

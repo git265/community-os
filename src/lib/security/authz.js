@@ -250,7 +250,7 @@ async function baseRowScope(collection, p, readRaw) {
   if (isAdmin(p)) return {};
   const unit = p.unit;
   if (collection === C.FILES) return filesScope(p, readRaw);
-  if (collection === C.USER_PROFILES) return has(p, 'MANAGE_USERS') ? {} : { predicate: (r) => r.userName === p.name };
+  if (collection === C.USER_PROFILES) return has(p, 'MANAGE_USERS') ? {} : { predicate: (r) => String(r.userName || '').trim().toLowerCase() === String(p.name || '').trim().toLowerCase() };
   // the bell and the message-channel choices are personal
   if (collection === IN_APP_NOTIFICATIONS) return { predicate: (r) => notificationForMe(r, p) };
   if (collection === C.NOTIFICATION_PREFS) return anyPerm(p, ['MANAGE_NOTIFICATIONS', 'MANAGE_USERS']) ? {} : { predicate: (r) => !!p.name && r.userName === p.name };
