@@ -16,10 +16,16 @@ import com.communityos.api.billing.application.PaymentService;
 import com.communityos.api.billing.application.gateway.GatewayRegistry;
 import com.communityos.api.billing.application.gateway.PaymentGateway;
 import com.communityos.api.maintenance.adapter.JdbcMaintenanceDirectory;
-import com.communityos.api.maintenance.adapter.JdbcMaintenanceReference;
+import com.communityos.api.approval.adapter.JdbcApprovalSettings;
+import com.communityos.api.approval.application.PlanCodec;
+import com.communityos.api.maintenance.adapter.JdbcQuotationRepository;
 import com.communityos.api.maintenance.adapter.JdbcTicketRepository;
 import com.communityos.api.maintenance.application.FieldStaffService;
+import com.communityos.api.maintenance.application.QuotationService;
 import com.communityos.api.maintenance.application.TicketService;
+import com.communityos.api.maintenance.application.WishVotes;
+import com.communityos.api.shared.resource.ResourceRegistry;
+import com.communityos.api.shared.resource.ResourceService;
 import com.communityos.api.property.adapter.JdbcUnitRepository;
 import com.communityos.api.property.application.UnitService;
 import com.communityos.api.shared.audit.AuditWriter;
@@ -55,10 +61,18 @@ public class ModulesConfig {
 
     // ---- maintenance ----------------------------------------------------------------------------------------------------------------------
     @Bean JdbcMaintenanceDirectory maintenanceDirectory(NamedParameterJdbcTemplate jdbc) { return new JdbcMaintenanceDirectory(jdbc); }
-    @Bean JdbcMaintenanceReference maintenanceReference(NamedParameterJdbcTemplate jdbc) { return new JdbcMaintenanceReference(jdbc); }
-    @Bean TicketService ticketService(NamedParameterJdbcTemplate jdbc, ObjectMapper json, JdbcMaintenanceDirectory dir, DomainEvents events, AuditWriter audit, Tx tx, Clock clock) {
-        return new TicketService(new JdbcTicketRepository(jdbc, json), dir, dir, events, audit, tx, clock);
+    @Bean PlanCodec planCodec(ObjectMapper json) { return new PlanCodec(json); }
+    @Bean JdbcApprovalSettings approvalSettings(NamedParameterJdbcTemplate jdbc, ObjectMapper json) { return new JdbcApprovalSettings(jdbc, json); }
+    @Bean JdbcTicketRepository ticketRepository(NamedParameterJdbcTemplate jdbc, ObjectMapper json) { return new JdbcTicketRepository(jdbc, json); }
+    @Bean JdbcQuotationRepository quotationRepository(NamedParameterJdbcTemplate jdbc, PlanCodec plans) { return new JdbcQuotationRepository(jdbc, plans); }
+    @Bean TicketService ticketService(JdbcTicketRepository repo, JdbcMaintenanceDirectory dir, JdbcQuotationRepository money, DomainEvents events, AuditWriter audit, Tx tx, Clock clock) {
+        return new TicketService(repo, dir, dir, money, events, audit, tx, clock);
     }
+    @Bean QuotationService quotationService(JdbcTicketRepository repo, JdbcQuotationRepository docs, JdbcApprovalSettings approvals, DomainEvents events, AuditWriter audit,
+                                            Tx tx, Clock clock) {
+        return new QuotationService(repo, docs, docs, approvals, events, audit, tx, clock);
+    }
+    @Bean WishVotes wishVotes(NamedParameterJdbcTemplate jdbc, ResourceService resources, ResourceRegistry registry, ObjectMapper json) { return new WishVotes(jdbc, resources, registry, json); }
     @Bean FieldStaffService fieldStaffService(JdbcMaintenanceDirectory dir, AuditWriter audit, Tx tx) { return new FieldStaffService(dir, dir, audit, tx); }
 
     // ---- billing ------------------------------------------------------------------------------------------------------------------------------

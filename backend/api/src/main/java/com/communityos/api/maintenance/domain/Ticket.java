@@ -36,6 +36,15 @@ public final class Ticket extends AggregateRoot {
         public MembershipId raisedBy; public String raisedByName; public String raisedByRole; public boolean awaitingParts; public Money materialsCost;
         public boolean financial; public LocalDate workDone; public Instant assignedAt, startedAt, completedAt, closedAt, cancelledAt; public String cancelReason;
         public int reopenCount; public Map<String, Object> custom = Map.of(); public Instant createdAt, updatedAt; public long version;
+        /** Where the money side stands (written by the quotation workflow, read-only here). */
+        public Approval approval = Approval.NONE;
+    }
+
+    /** The money side of a task: the selected quotation / invoice and their approvals (two-slot summary), and the approved amount. */
+    public record Approval(String quotationStatus, String invoiceStatus, Money approvedAmount, UUID selectedQuotationId, UUID selectedInvoiceId,
+                           String ecApproval, String treasurerApproval, Boolean finalRequired) {
+        public static final Approval NONE = new Approval(null, null, null, null, null, null, null, null);
+        public boolean quotationApproved() { return "Approved".equals(quotationStatus); }
     }
 
     private final State s;
@@ -135,6 +144,7 @@ public final class Ticket extends AggregateRoot {
     public UnitId unit() { return s.unit; } public BlockId block() { return s.block; } public String scope() { return s.scope; } public String category() { return s.category; }
     public MembershipId assignee() { return s.assignee; } public MembershipId raisedBy() { return s.raisedBy; } public Instant createdAt() { return s.createdAt; }
     public boolean community() { return "Community".equals(s.scope); }
+    public boolean financial() { return s.financial; } public Approval approval() { return s.approval; } public String title() { return s.title; }
     /** Shortened numbers for logs; never used for decisions. */
     @Override public String toString() { return s.shortId + " " + s.status.label(); }
     public void numbered(String shortId) { s.shortId = shortId; }

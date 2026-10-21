@@ -71,6 +71,7 @@ In total there are 156 tables. 150 of them are tenant tables.
 | V9 | Security for every tenant table (`platform.apply_security()`) |
 | V10 | Permissions and per-community provisioning, generated from `roles.js` |
 | V11 | Maintenance in its typed shape: tickets point at their task type, unit, raiser and assignee by id; status, priority, scope, rating and cancel reason are checked; comments have a visibility; field staff are members. Default task types, quick phrases, category coverage and final approvers for every community. |
+| V12 | Money on tasks: quotations / invoices always belong to a ticket, with checked kinds, GST modes, amounts and approval slots; the ticket's money summary is checked; releases have a checked status (and a reason when cancelled); approval rules have unique names and valid ranges; finance settings and approver lists are one row per community (`provision_finance`); wishes, service notices and event work have checked statuses. |
 
 ### Tenancy
 
@@ -132,8 +133,21 @@ identity   domain (Phone, OtpChallenge, RefreshToken, MemberView) · application
 property   Unit aggregate · UnitPolicy, UnitService · JdbcUnitRepository · UnitController
 billing    Due, PaymentOrder (state machines), Journal, events · DuePolicy, DueService, PaymentService, Settlement (+ Gateway / Counter),
            LedgerPoster, PaymentGateway + registry · JDBC repositories, Razorpay + simulated gateways · controllers
-config     DataConfig (two pools), SecurityConfig, AuthConfig, ModulesConfig, CoreConfig, Jobs, CosProperties
+maintenance  Ticket, TicketStatus, Quotation · TicketPolicy, TicketRules, TicketService, QuotationService, FieldStaffService, WishVotes ·
+           JDBC (tickets, quotations + the task's money position, directory) · TicketController, QuotationController · MaintenanceResources
+approval   Plan (steps, decisions, the two slots), Policy (rules -> plan) · Approvers (who may decide), ApprovalSettings port · JdbcApprovalSettings
+shared.resource  the resource kit: ResourceTable (record -> SQL), ResourceRules (strategy per resource), JdbcResourceRepository,
+           ResourceService, ResourceRegistry, ResourceController (/api/v1/{module}/{resource}), Checks
+config     DataConfig (two pools), SecurityConfig, AuthConfig, ModulesConfig, ResourcesConfig, CoreConfig, Jobs, CosProperties
 ```
+
+**Two kinds of module code.** A *workflow* (tickets, quotations and their approvals, bills, payments, and in later modules bookings, gate visits,
+e-voting ...) has its own aggregate, rules, service, repository and controller. A *register* (task types, categories, wishes, approval rules,
+settings, and most of the 150 tables) is a **resource**: a Java record that lists exactly the fields a caller may send, a `ResourceRules`
+(who reads - as a `Spec` -, who writes, which rows a caller may change, how a record is checked and normalised, whether it may be deleted), and a
+`ResourceTable` that names the table. Columns only the server writes (who created it, a status a workflow moves, a vote list) are *server
+columns*: returned read-only, set on insert from SQL (`platform.current_actor()`), never read from the body. The kit gives every resource the same
+list / get / create / replace / delete with versions, audit and an outbox event, and the SQL check runs every statement it can send.
 
 The domain and application layers have no Spring imports. They depend on ports, and `Tx` is one of those ports. Use cases are therefore tested with in-memory adapters, and the same classes run against PostgreSQL in the flow test.
 
@@ -147,7 +161,8 @@ Persistence uses explicit SQL on `NamedParameterJdbcTemplate`, with no ORM. Ever
 | Strategy | `AccessPolicy` (`UnitPolicy`, `DuePolicy`, `MemberPolicy`), `PaymentGateway`, `OtpSender`, `EventPublisher` |
 | Chain of Responsibility | `Guard` / `GuardChain` |
 | State | `DueStatus`, `OrderStatus`: each state lists where it may go; final states are final |
-| Template Method | `Settlement.settle()`: verify → idempotency → lock → record and allocate → hook → events and audit |
+| Template Method | `Settlement.settle()`: verify → idempotency → lock → record and allocate → hook → events and audit; `JdbcResourceRepository` (the same JDBC steps for every resource) |
+| Strategy (2) | `ResourceRules` per register; approval `Policy` rules joined into one `Plan` |
 | Observer | `DomainEvents` → in-process handlers (`LedgerPoster`), in the same transaction, then the outbox |
 | Factory / Registry | `GatewayRegistry`, `Due.raise`, `PaymentOrder.price` |
 | Decorator | `Resilient` (timeout + circuit breaker + retry around a call); `TenantDataSource` around the pool |
@@ -276,7 +291,13 @@ So no leader election is needed.
 | POST | `/api/v1/tickets/{id}/rating` | 1–5, by the resident, once the work is done |
 | GET | `/api/v1/tickets/{id}/assignees` | Who this ticket may be given to |
 | GET / POST | `/api/v1/tickets/{id}/comments`, GET `/api/v1/ticket-comments` | Internal comments are never sent to residents |
-| GET | `/api/v1/task-types`, `/maintenance/categories`, `/maintenance/quick-phrases` | Reference lists; task types say whether the caller may raise them |
+| GET | `/api/v1/task-types` | The task types the caller may raise |
+| GET / POST | `/api/v1/tickets/{id}/quotations`, GET `/api/v1/quotations`, `/quotations/{id}` | A quotation or invoice as written on it (`kind, vendor, amount, gstMode, gstRate, quoteDate, note`); the server computes GST and totals, builds the approval plan from the community's rules, and flags an invoice over its approved quotation. Not for residents. |
+| POST | `/api/v1/quotations/{id}/select` · `/decision` · `/send-back`, DELETE `/quotations/{id}` | `If-Match`. A decision is `{value: Approved \| Rejected \| Pending (undo), comment, finish}`, checked against the waiting step, the approver, once per person, and (if the community keeps them separate) never one's own request. An approved invoice is sent back only while nothing is paid on it; it is never deleted. |
+| GET | `/api/v1/tickets/{id}/money` | The task's money position: basis (invoice / quotation), cap, released, paid directly, committed, remaining, open releases. A financial task closes only when no release is open, and is cancelled only when nothing is committed. |
+| POST | `/api/v1/maintenance/wishes/{id}/vote` | `{vote}`: one vote per member while the wish is open |
+| GET / POST / PUT / DELETE | `/api/v1/{module}/{resource}[/{id}]` | The registers of every module (resource kit). POST takes `Idempotency-Key`; PUT (the whole record) and DELETE need `If-Match`. List filters where a resource has them (`?eventId=`). `GET /api/v1/meta/resources` lists each resource with the fields its request type carries. |
+| | maintenance: `task-types`, `categories`, `quick-phrases`, `approver-settings`, `wishes`, `service-notices`, `event-work`, `trade-availability`; finance: `approval-policies`, `settings` | |
 | GET / POST / PATCH | `/api/v1/field-staff`, `/field-staff/{id}` | Add a member as field staff; clock in / out (`If-Match`) |
 
 OpenAPI is at `/v3/api-docs`, and metrics at `/actuator/prometheus`.
@@ -291,11 +312,12 @@ To use it, pick **Back end v2** in the Data source panel, or set `VITE_USE_API=v
 | `users` | members. A new user is POSTed; a role change is a PUT; Inactive means deactivate. |
 | `dues` | bills. A new bill is POSTed: the typed amount is before tax, and the server adds the category's tax. Cancelled or Waived become cancel / waive. Amount edits are not sent; delete is refused. |
 | `roles` | `GET /roles`, read only |
-| `tickets` | A new ticket is POSTed (a resident's SLA is left to the committee). A change becomes the commands it needs: PATCH for fields, assign, status, rating, me-too. Quotations, invoices, approvals and photos are refused for now. Delete is refused. |
+| `tickets` | A new ticket is POSTed (a resident's SLA is left to the committee). A change becomes the commands it needs: PATCH for fields, assign, status, rating, me-too. The money side (quotation / invoice status, approvals, approved amount) is read from the server and never written on a ticket. Photos are refused until files arrive; delete is refused. |
+| `quotations` | A new one is POSTed with what is written on it; a change becomes its command: select, a decision (found by comparing the plan's decisions, or the two slots), send back with a correction note. Amount edits are refused. Plans come back with names in `by`, as the app's approval engine expects. |
+| registers (`RESOURCES` in `v2map.js`) | `taskTypes`, `categoryMap`, `quickPhrases`, `approverSettings`, `wishes`, `serviceNotices`, `eventWork`, `tradeAvailability`, `approvalPolicies`, `financeSettings`: read from the resource kit; a write sends exactly the fields of the resource's request type (from `/meta/resources`), with unit numbers turned into unit ids and the few renamed fields mapped; PUT and DELETE carry `If-Match`; settings are one row. |
 | `ticketComments` | The latest comments on tickets the caller may see; a new comment is POSTed; comments are never edited |
-| `taskTypes`, `categoryMap`, `quickPhrases` | Read only |
 | `handymen` | Field staff: clock in / out; a new one must already be a member |
-| `schema`, `communityConfig`, `financeSettings`, `roleGroups` | Kept in this browser until v2 has endpoints for them |
+| `schema`, `communityConfig`, `roleGroups` | Kept in this browser until v2 has endpoints for them |
 | anything else | Read as empty; a write is refused with "not on the v2 back end yet" |
 
 **Sign-in** (`src/lib/auth/v2Auth.js`): `authApi.js` switches to it in v2 mode. The page's community id goes into the token request, so there is no community picker. The refresh token is the HttpOnly cookie.
@@ -346,10 +368,10 @@ A new community needs a `platform.community` row, then `SELECT platform.provisio
 | Check | Result |
 |---|---|
 | Schema tests (`tools/test-schema.sh`): isolation, stamping, money rules, ledger balance, append-only audit, partitions, privileges, ticket rules | 16 / 16 |
-| Java unit tests (javac against hand-written Spring stubs, JUnit shim): kernel, auth, members, access policies, billing, maintenance | 46 / 46 |
-| **PostgreSQL flow test** (`it/PostgresFlowTest`): the real adapters as `cos_app` / `cos_platform`, through a psql bridge, about 300 statements (now with a ticket's whole life) | 1 / 1 |
-| Adapter SQL check (`tools/check-adapter-sql.sh`): every statement, including the list and detail queries composed with the real access rules of five kinds of caller, run with `PREPARE` + `EXPLAIN EXECUTE` as its role | 133 / 133 |
-| Web adapter tests (`node tests/v2/run.mjs`): sign-in, units, bills, members, tickets, refusals and payment against a fake of the API | 7 / 7 |
+| Java unit tests (javac against hand-written Spring stubs, JUnit shim): kernel, auth, members, access policies, billing, maintenance, approvals, resource kit | 57 / 57 |
+| **PostgreSQL flow test** (`it/PostgresFlowTest`): the real adapters as `cos_app` / `cos_platform`, through a psql bridge (a ticket's whole life; a quotation and an invoice through EC and final approval; a release blocking closing; registers through the kit) | 1 / 1 |
+| Adapter SQL check (`tools/check-adapter-sql.sh`): every statement, including the list and detail queries composed with the real access rules of five kinds of caller and every resource's list / get / insert / update / delete, run with `PREPARE` + `EXPLAIN EXECUTE` as its role | 283 / 283 |
+| Web adapter tests (`node tests/v2/run.mjs`): sign-in, units, bills, members, tickets, quotations, registers, refusals and payment against a fake of the API | 9 / 9 |
 | Production build (`npx vite build`) | Builds |
 
 The adapter SQL check found two real bugs in the composed list and detail SQL (`JdbcDueRepository`, `JdbcMemberRepository`). Text blocks lost the leading space of a fragment, so `...d.version` + `FROM` became `d.versionFROM`. Both are fixed, and the check now composes exactly the strings the repositories run.
@@ -367,8 +389,7 @@ The adapter SQL check found two real bugs in the composed list and detail SQL (`
 ## 13. Next
 
 1. Run `mvn verify` and the Spring context test.
-2. Maintenance, second step: quotations, invoices and the EC → final approval chain, advances, the ledger link, photos and files, and editing task types / categories / phrases.
-3. Port the remaining modules onto their V6 tables, one at a time, each with a policy, a service, a controller and a v2 mapping: amenities, gate, notices, cultural, documents.
+2. Port the remaining modules onto their V6 tables, one at a time (workflows as services, registers as resources), each with tests and a v2 mapping: amenities, gate, comms, documents and files, cultural, finance, governance, vendors / assets / workforce / reports.
 4. Add endpoints for the app's configuration collections (field definitions, settings).
 5. Add refunds, late fees and bill runs: a bulk `POST /dues:batch`, keyset-paged.
 6. Add ShedLock if a job must run on exactly one instance.

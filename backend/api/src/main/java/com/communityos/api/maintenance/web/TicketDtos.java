@@ -43,14 +43,18 @@ public final class TicketDtos {
                                  String location, String category, String subCategory, String priority, String status, UUID assigneeId, String assigneeName, LocalDate slaDueAt,
                                  String preferredTime, List<UUID> affectedUnitIds, Integer residentRating, UUID raisedById, String raisedByName, String raisedByRole,
                                  boolean awaitingParts, Money materialsCost, boolean financial, LocalDate workDone, Instant assignedAt, Instant startedAt, Instant completedAt,
-                                 Instant closedAt, Instant cancelledAt, String cancelReason, int reopenCount, Instant createdAt, Instant updatedAt, long version) {
+                                 Instant closedAt, Instant cancelledAt, String cancelReason, int reopenCount, Instant createdAt, Instant updatedAt, long version,
+                                 String quotationStatus, String invoiceStatus, Money approvedAmount, UUID selectedQuotationId, UUID selectedInvoiceId, String ecApproval,
+                                 String treasurerApproval, Boolean finalRequired) {
         static TicketResponse of(Ticket t) {
             Ticket.State s = t.state();
             return new TicketResponse(s.id, s.shortId, s.taskType == null ? null : s.taskType.id(), s.taskType == null ? null : s.taskType.name(), s.title, s.description,
                 s.unit == null ? null : s.unit.value(), s.unitNo, s.scope, s.location, s.category, s.subCategory, s.priority, s.status.label(),
                 s.assignee == null ? null : s.assignee.value(), s.assigneeName, s.slaDueAt, s.preferredTime, s.affectedUnits.stream().map((u) -> u.value()).toList(),
                 s.residentRating, s.raisedBy.value(), s.raisedByName, s.raisedByRole, s.awaitingParts, s.materialsCost, s.financial, s.workDone, s.assignedAt, s.startedAt,
-                s.completedAt, s.closedAt, s.cancelledAt, s.cancelReason, s.reopenCount, s.createdAt, s.updatedAt, t.version());
+                s.completedAt, s.closedAt, s.cancelledAt, s.cancelReason, s.reopenCount, s.createdAt, s.updatedAt, t.version(),
+                s.approval.quotationStatus(), s.approval.invoiceStatus(), s.approval.approvedAmount(), s.approval.selectedQuotationId(), s.approval.selectedInvoiceId(),
+                s.approval.ecApproval(), s.approval.treasurerApproval(), s.approval.finalRequired());
         }
     }
     public record TaskTypeResponse(UUID id, String name, String icon, String creatorScope, String assignmentMode, String quotationStage, String ecApprovalStage,

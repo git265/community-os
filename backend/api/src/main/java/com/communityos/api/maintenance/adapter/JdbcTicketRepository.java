@@ -31,7 +31,8 @@ public final class JdbcTicketRepository implements TicketRepository {
                t.status, t.assignee_id, a.display_name AS assignee_name, t.sla_due_at::date AS sla_due_at, t.preferred_time, t.affected_unit_ids, t.resident_rating,
                t.raised_by_id, r.display_name AS raised_by_name, rr.code AS raised_by_role, t.awaiting_parts, t.materials_cost, t.financial, t.work_done,
                t.assigned_at, t.started_at, t.completed_at, t.closed_at, t.cancelled_at, t.cancel_reason, t.reopen_count, t.custom::text AS custom,
-               t.created_at, t.updated_at, t.version,
+               t.created_at, t.updated_at, t.version, t.quotation_status, t.invoice_status, t.approved_amount, t.selected_quotation_id, t.selected_invoice_id,
+               t.ec_approval, t.treasurer_approval, t.final_required,
                tt.id AS tt_id, tt.name AS tt_name, tt.icon AS tt_icon, tt.creator_scope, tt.assignment_mode, tt.quotation_stage, tt.ec_approval_stage, tt.treasurer_stage,
                tt.invoice_stage, tt.payment_stage, tt.resident_visible, tt.resident_default, tt.active AS tt_active""";
     static final String FROM = """
@@ -127,6 +128,9 @@ public final class JdbcTicketRepository implements TicketRepository {
         s.closedAt = Rows.instant(rs, "closed_at"); s.cancelledAt = Rows.instant(rs, "cancelled_at"); s.cancelReason = rs.getString("cancel_reason"); s.reopenCount = rs.getInt("reopen_count");
         try { s.custom = json.readValue(rs.getString("custom"), new TypeReference<Map<String, Object>>() {}); } catch (java.io.IOException e) { throw new SQLException(e); }
         s.createdAt = Rows.instant(rs, "created_at"); s.updatedAt = Rows.instant(rs, "updated_at"); s.version = rs.getLong("version");
+        s.approval = new Ticket.Approval(rs.getString("quotation_status"), rs.getString("invoice_status"), Rows.money(rs, "approved_amount"), Rows.uuid(rs, "selected_quotation_id"),
+            Rows.uuid(rs, "selected_invoice_id"), rs.getString("ec_approval"), rs.getString("treasurer_approval"),
+            rs.getString("final_required") == null ? null : rs.getBoolean("final_required"));
         UUID tt = Rows.uuid(rs, "tt_id");
         if (tt != null) s.taskType = new TaskType(tt, rs.getString("tt_name"), rs.getString("tt_icon"), rs.getString("creator_scope"), rs.getString("assignment_mode"),
             rs.getString("quotation_stage"), rs.getString("ec_approval_stage"), rs.getString("treasurer_stage"), rs.getString("invoice_stage"), rs.getString("payment_stage"),

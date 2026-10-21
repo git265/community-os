@@ -1,6 +1,5 @@
 package com.communityos.api.maintenance.web;
 
-import com.communityos.api.maintenance.adapter.JdbcMaintenanceReference;
 import com.communityos.api.maintenance.application.FieldStaffService;
 import com.communityos.api.maintenance.application.TicketService;
 import com.communityos.api.maintenance.application.port.TicketRepository;
@@ -46,9 +45,9 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @Tag(name = "Maintenance")
 public class TicketController {
-    private final TicketService tickets; private final FieldStaffService staff; private final JdbcMaintenanceReference reference; private final Idempotency idempotency;
-    public TicketController(TicketService tickets, FieldStaffService staff, JdbcMaintenanceReference reference, Idempotency idempotency) {
-        this.tickets = tickets; this.staff = staff; this.reference = reference; this.idempotency = idempotency;
+    private final TicketService tickets; private final FieldStaffService staff; private final Idempotency idempotency;
+    public TicketController(TicketService tickets, FieldStaffService staff, Idempotency idempotency) {
+        this.tickets = tickets; this.staff = staff; this.idempotency = idempotency;
     }
 
     @GetMapping("/api/v1/tickets")
@@ -112,10 +111,6 @@ public class TicketController {
 
     @GetMapping("/api/v1/task-types")
     public List<TaskTypeResponse> taskTypes() { Caller c = CallerHolder.require(); return tickets.taskTypes(c).stream().map((t) -> TaskTypeResponse.of(t, c)).toList(); }
-    @GetMapping("/api/v1/maintenance/categories")
-    public List<JdbcMaintenanceReference.Category> categories() { CallerHolder.require(); return reference.categories(); }
-    @GetMapping("/api/v1/maintenance/quick-phrases")
-    public List<JdbcMaintenanceReference.Phrase> phrases() { CallerHolder.require(); return reference.phrases(); }
 
     @GetMapping("/api/v1/field-staff")
     public List<FieldStaffResponse> fieldStaff() { return staff.list(CallerHolder.require()).stream().map(FieldStaffResponse::of).toList(); }

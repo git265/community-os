@@ -8,17 +8,21 @@
 //   roles       GET /v1/roles (read-only here)
 //   tickets     GET /v1/tickets, POST /v1/tickets (new), then the commands a change needs: PATCH (fields), /assign, /status, /rating, /me-too
 //   ticketComments  GET /v1/ticket-comments (the latest on tickets I may see), POST /v1/tickets/{id}/comments (comments are never edited)
-//   taskTypes, categoryMap, quickPhrases  read-only reference lists;  handymen  GET /v1/field-staff, clock in / out, add a member as field staff
+//   quotations  GET /v1/quotations, POST /v1/tickets/{id}/quotations (new), then the command a change means: /select, /decision, /send-back; DELETE
+//   handymen  GET /v1/field-staff, clock in / out, add a member as field staff
+//   registers (RESOURCES in v2map.js: task types, categories, phrases, wishes, approval rules, finance settings ...)  the resource kit:
+//               GET /v1/{module}/{resource}, POST (new), PUT with If-Match (change), DELETE with If-Match - the server's rules decide each one
 //   app configuration (schema, communityConfig, financeSettings, roleGroups): kept in this browser until the v2 API has endpoints for them
 //   everything else: not on the v2 API yet - reads answer empty, writes are refused with a clear message (nothing is silently dropped)
 import { apiFetch } from '../../net/request.js';
 import { AuthzError, ConflictError } from '../../security/errors.js';
 import { SessionStorageAdapter } from '../SessionStorageAdapter.js';
-import { propertyOf, unitPatch, userOf, dueOf, raiseBody, roleOf, ticketOf, ticketPatch, raiseTicketBody, TICKET_FINANCE, commentOf, taskTypeOf, fieldStaffOf, categoryOf, phraseOf } from './v2map.js';
+import { propertyOf, unitPatch, userOf, dueOf, raiseBody, roleOf, ticketOf, ticketPatch, raiseTicketBody, commentOf, fieldStaffOf, quotationOf, addDocumentBody,
+  quotationCommands, RESOURCES, resourceOf, resourceBody, isUuid } from './v2map.js';
 import { getAuthUser } from '../../auth/session.js';
 
-export const V2_COLLECTIONS = ['properties', 'users', 'dues', 'roles', 'tickets', 'ticketComments', 'taskTypes', 'handymen', 'categoryMap', 'quickPhrases'];
-export const LOCAL_COLLECTIONS = ['schema', 'communityConfig', 'financeSettings', 'roleGroups'];
+export const V2_COLLECTIONS = ['properties', 'users', 'dues', 'roles', 'tickets', 'ticketComments', 'handymen', 'quotations', ...Object.keys(RESOURCES)];
+export const LOCAL_COLLECTIONS = ['schema', 'communityConfig', 'roleGroups'];
 
 export class NotOnV2Error extends Error { constructor(collection) { super(`"${collection}" is not on the v2 back end yet - this screen works with the Browser session or the v1 back end.`); this.name = 'NotOnV2Error'; } }
 
@@ -64,11 +68,32 @@ const readers = {
     get: async (id) => { const t = await call(`/tickets/${encodeURIComponent(id)}`); if (!t) return null; const { noById } = await unitIndex(); return ticketOf(t, noById); },
   },
   ticketComments: { list: async () => (await call('/ticket-comments?limit=1000')).map(commentOf), get: async (id) => (await readers.ticketComments.list()).find((c) => c.id === id) || null },
-  taskTypes: { list: async () => (await call('/task-types')).map(taskTypeOf), get: async (id) => (await readers.taskTypes.list()).find((t) => t.id === id) || null },
   handymen: { list: async () => (await call('/field-staff')).map(fieldStaffOf), get: async (id) => (await readers.handymen.list()).find((h) => h.id === id) || null },
-  categoryMap: { list: async () => (await call('/maintenance/categories')).map(categoryOf), get: async (id) => (await readers.categoryMap.list()).find((c) => c.id === id) || null },
-  quickPhrases: { list: async () => (await call('/maintenance/quick-phrases')).map(phraseOf), get: async (id) => (await readers.quickPhrases.list()).find((p) => p.id === id) || null },
+  quotations: { list: async () => (await call('/quotations')).map(quotationOf), get: async (id) => { if (!isUuid(id)) return null; const q = await call(`/quotations/${id}`); return q && quotationOf(q); } },
 };
+// every register of the resource kit reads the same way
+for (const [c, spec] of Object.entries(RESOURCES)) {
+  readers[c] = {
+    list: async () => (await call(`/${spec.path}`)).map((r) => resourceOf(r, spec)),
+    get: async (id) => { if (!isUuid(id)) return null; const r = await call(`/${spec.path}/${id}`); return r && resourceOf(r, spec); },
+  };
+}
+// task types also say which ones this person may raise (the ticket form offers only those)
+const taskTypeList = readers.taskTypes.list;
+readers.taskTypes.list = async () => {
+  const [all, mine] = await Promise.all([taskTypeList(), call('/task-types')]);
+  const can = Object.fromEntries((mine || []).map((t) => [t.id, t.canRaise !== false]));
+  return all.map((t) => ({ ...t, canRaise: !!can[t.id] }));
+};
+
+let metaCache = null;
+/** collection -> the fields its request type carries (from the server, once per session). */
+async function resourceFields(c) {
+  if (!metaCache) metaCache = Object.fromEntries((await call('/meta/resources')).map((m) => [m.collection, m]));
+  const m = metaCache[c];
+  if (!m) throw new NotOnV2Error(c);
+  return m.fields;
+}
 
 const sameList = (a = [], b = []) => JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
 
@@ -94,8 +119,7 @@ async function putTicket(rec) {
     }
     return map(t);
   }
-  const fin = TICKET_FINANCE.filter((k) => k in rec && JSON.stringify(rec[k] ?? '') !== JSON.stringify(before[k] ?? '') && rec[k] !== '' && rec[k] != null);
-  if (fin.length) throw new NotOnV2Error('quotations, invoices and approvals');
+  // the money side (quotation / invoice status, approvals, approved amount) follows the quotations - it is never written on the ticket
   let version = rec.version ?? before.version; let out = null;
   const step = async (path, body) => { out = await call(`/tickets/${encodeURIComponent(rec.id)}${path}`, json(path ? 'POST' : 'PATCH', body, ifMatch(version))); version = out.version; };
   const patch = ticketPatch(before, rec);
@@ -180,7 +204,45 @@ async function putDue(rec) {
   return before;   // a bill's amounts are never edited: a correction is a new bill
 }
 
-const WRITERS = { properties: putProperty, users: putUser, dues: putDue, tickets: putTicket, ticketComments: putComment, handymen: putFieldStaff };
+async function putQuotation(rec) {
+  const before = isUuid(rec.id) ? await readers.quotations.get(rec.id) : null;
+  if ((rec.attachments || []).length) throw new NotOnV2Error('files on quotations and invoices');
+  if (!before) {
+    if (!rec.ticketId) throw new Error('A quotation belongs to a task.');
+    let q = await call(`/tickets/${encodeURIComponent(rec.ticketId)}/quotations`, json('POST', addDocumentBody(rec)));
+    if (rec.selected && q.kind === 'Quotation') q = await call(`/quotations/${q.id}/select`, json('POST', {}, ifMatch(q.version)));
+    return quotationOf(q);
+  }
+  let version = before.version; let out = null;
+  for (const cmd of quotationCommands(before, rec)) {
+    out = await call(`/quotations/${encodeURIComponent(rec.id)}/${cmd.path}`, json('POST', cmd.body || {}, ifMatch(version)));
+    version = out.version;
+  }
+  return out ? quotationOf(out) : before;
+}
+
+async function putResource(c, rec) {
+  const spec = RESOURCES[c];
+  const fields = await resourceFields(c);
+  let before = isUuid(rec.id) ? await call(`/${spec.path}/${rec.id}`) : null;
+  if (!before && spec.singleton) before = (await call(`/${spec.path}`))[0] || null;
+  const { idByNo } = spec.unit ? await unitIndex() : { idByNo: {} };
+  const merged = before ? { ...resourceOf(before, spec), ...rec } : rec;          // a write is the whole record: keep what the app did not send
+  const body = resourceBody(merged, spec, fields, idByNo);
+  const out = before
+    ? await call(`/${spec.path}/${before.id}`, json('PUT', body, ifMatch(rec.version && rec.id === before.id ? rec.version : before.version)))
+    : await call(`/${spec.path}`, json('POST', body));
+  return resourceOf(out, spec);
+}
+async function removeResource(c, id) {
+  const spec = RESOURCES[c];
+  const before = isUuid(id) ? await call(`/${spec.path}/${id}`) : null;
+  if (!before) return;
+  await call(`/${spec.path}/${id}`, { method: 'DELETE', headers: ifMatch(before.version) });
+}
+
+const WRITERS = { properties: putProperty, users: putUser, dues: putDue, tickets: putTicket, ticketComments: putComment, handymen: putFieldStaff, quotations: putQuotation };
+for (const c of Object.keys(RESOURCES)) WRITERS[c] = (rec) => putResource(c, rec);
 const warned = new Set();
 const notYet = (c) => { if (!warned.has(c)) { warned.add(c); console.info(`[v2] "${c}" is not on the v2 back end yet; showing it empty.`); } };
 
@@ -209,6 +271,8 @@ export const V2ApiAdapter = {
   async putMany(c, list) { const out = []; for (const r of list) out.push(await this.put(c, r)); return out; },
   async remove(c, id) {
     if (LOCAL_COLLECTIONS.includes(c)) return SessionStorageAdapter.remove(c, id);
+    if (RESOURCES[c]) return removeResource(c, id);
+    if (c === 'quotations') { const q = isUuid(id) ? await call(`/quotations/${id}`) : null; if (q) await call(`/quotations/${id}`, { method: 'DELETE', headers: ifMatch(q.version) }); return; }
     throw new Error(c === 'dues' ? 'A bill is not deleted: cancel it with a reason.' : c === 'users' ? 'Deactivate the member instead.' : c === 'tickets' ? 'Tickets cannot be deleted - cancel or close them instead.' : `"${c}" cannot be removed on the v2 back end.`);
   },
   async replaceAll(c, records) { if (LOCAL_COLLECTIONS.includes(c)) return SessionStorageAdapter.replaceAll(c, records); throw new NotOnV2Error(c); },

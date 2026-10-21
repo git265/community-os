@@ -19,8 +19,24 @@ const state = {
     { id: B, shortId: 'UNIT-2', unitNo: 'Villa 202', blockId: null, blockName: 'Block 2', unitType: 'Villa', occupancy: 'Vacant', areaSqft: null, maintenancePlan: null, sanctionedKw: null, status: 'Active', custom: {}, updatedAt: '2026-10-20T06:00:00Z', version: 1 },
   ],
   dues: [], members: [{ id: M1, displayName: 'Asha', phone: '+919800000001', status: 'Active', roles: [{ code: 'owner', name: 'Owner', primary: true }], units: [A], createdAt: null, updatedAt: null, version: 2 }],
-  orders: [], tickets: [], comments: [], staff: [{ id: 'fs-1', shortId: 'HMN-0001', membershipId: 'm-plumber', name: 'Ravi Plumber', trade: 'Plumbing', shift: 'Morning', phone: null, clockedIn: false, version: 1 }],
+  orders: [], tickets: [], comments: [], quotes: [], kit: {
+    'maintenance/task-types': [{ id: 'tt-res', shortId: 'TT-1', name: 'Resident Maintenance', icon: '🔧', creatorScope: 'Resident', assignmentMode: 'Role queue (staff accepts)', residentVisible: true, residentDefault: true, active: true, version: 1 },
+      { id: 'tt-pur', shortId: 'TT-2', name: 'Purchase', icon: '🧾', creatorScope: 'EC / Staff', assignmentMode: 'Direct assign', residentVisible: false, residentDefault: false, active: true, version: 1 }],
+    'maintenance/categories': [{ id: 'cat-1', category: 'Plumbing', subCategories: ['Leakage'], coordinator: ['facility_manager'], assetLink: null, vendor: null, notes: null, version: 1 }],
+    'maintenance/quick-phrases': [{ id: 'qp-1', phrase: 'Send a plumber', category: 'Plumbing', version: 1 }],
+    'finance/settings': [{ id: '00000000-0000-4000-8000-0000000000f5', shortId: 'FS-1', approvalSeparate: false, finalCanDecideEc: true, invoiceTolerancePct: '5.00', invoiceSkipWithinQuote: false, version: 3 }],
+  }, staff: [{ id: 'fs-1', shortId: 'HMN-0001', membershipId: 'm-plumber', name: 'Ravi Plumber', trade: 'Plumbing', shift: 'Morning', phone: null, clockedIn: false, version: 1 }],
 };
+let uuidSeq = 0;
+const uuid = () => `00000000-0000-4000-8000-${String(++uuidSeq).padStart(12, '0')}`;
+const KIT_FIELDS = {
+  'maintenance/task-types': ['name', 'icon', 'creatorScope', 'assignmentMode', 'quotationStage', 'ecApprovalStage', 'treasurerStage', 'invoiceStage', 'paymentStage', 'residentVisible', 'residentDefault', 'active'],
+  'maintenance/categories': ['category', 'subCategories', 'vendor', 'assetLink', 'coordinator', 'notes'],
+  'maintenance/quick-phrases': ['phrase', 'category'],
+  'maintenance/wishes': ['title', 'description', 'category', 'location', 'unitId', 'status', 'estimate', 'decisionNote'],
+  'finance/settings': ['approvalSeparate', 'finalCanDecideEc', 'invoiceTolerancePct', 'invoiceSkipWithinQuote'],
+};
+const KIT_COLLECTION = { 'maintenance/task-types': 'taskTypes', 'maintenance/categories': 'categoryMap', 'maintenance/quick-phrases': 'quickPhrases', 'maintenance/wishes': 'wishes', 'finance/settings': 'financeSettings' };
 const TT = [{ id: 'tt-res', name: 'Resident Maintenance', icon: '🔧', creatorScope: 'Resident', assignmentMode: 'Role queue (staff accepts)', residentVisible: true, residentDefault: true, canRaise: true }];
 const page = (items) => ({ items, total: items.length, limit: 200, offset: 0 });
 const ok = (body, status = 200, headers = {}) => new Response(body == null ? null : JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...headers } });
@@ -76,8 +92,42 @@ globalThis.fetch = async (url, init = {}) => {
   }
   if ((m = /^\/payment-orders\/([^/]+)$/.exec(path))) return ok(state.orders.find((x) => x.id === m[1]));
   if (path === '/task-types') return ok(TT);
-  if (path === '/maintenance/categories') return ok([{ id: 'cat-1', category: 'Plumbing', subCategories: ['Leakage'], coordinatorRoles: ['facility_manager'], assetLink: null, notes: '' }]);
-  if (path === '/maintenance/quick-phrases') return ok([{ id: 'qp-1', phrase: 'Send a plumber', category: 'Plumbing' }]);
+  if (path === '/meta/resources') return ok(Object.entries(KIT_FIELDS).map(([p, fields]) => ({ collection: KIT_COLLECTION[p], path: p, fields, readOnly: [], filters: [] })));
+  if (path === '/quotations' && method === 'GET') return ok(state.quotes);
+  if ((m = /^\/tickets\/([^/]+)\/quotations$/.exec(path)) && method === 'POST') {
+    const amount = body.gstMode === 'Extra' ? (Number(body.amount) * (1 + body.gstRate / 100)).toFixed(2) : body.amount;
+    const q = { id: uuid(), shortId: `QUO-${++seq}`, ticketId: m[1], ...body, amount, baseAmount: body.amount, selected: body.kind === 'Invoice', ecApproval: 'Pending', finalApproval: 'Pending',
+      plan: { version: 1, steps: [{ id: 's1', name: 'EC', approvers: [{ kind: 'group', value: 'EC members' }], needed: 1, canFinish: true, decisions: [] }, { id: 's2', name: 'Final approval', approvers: [{ kind: 'group', value: 'Final approvers' }], needed: 1, decisions: [] }] },
+      status: 'Received', whyNotMe: null, version: 1 };
+    state.quotes.push(q); return ok(q, 201);
+  }
+  if ((m = /^\/quotations\/([^/]+)(\/[a-z-]+)?$/.exec(path))) {
+    const q = state.quotes.find((x) => x.id === m[1]); if (!q) return problem(404, 'not-found', 'Not found');
+    if (method === 'GET') return ok(q);
+    if (h['If-Match'] !== `"${q.version}"`) return problem(409, 'conflict', 'changed');
+    if (method === 'DELETE') { state.quotes = state.quotes.filter((x) => x !== q); return ok(null, 204); }
+    if (m[2] === '/select') q.selected = true;
+    if (m[2] === '/decision') { q.plan.steps[0].decisions.push({ by: M1, name: 'Asha', at: '2026-10-20T10:00:00Z', value: body.value, comment: body.comment }); q.ecApproval = body.value; q.ecApprovedBy = 'Asha'; }
+    if (m[2] === '/send-back') q.correctionNote = body.note;
+    q.version++; return ok(q);
+  }
+  if ((m = /^\/(maintenance|finance)\/([a-z-]+)(?:\/([^/]+))?$/.exec(path)) && KIT_FIELDS[`${m[1]}/${m[2]}`]) {
+    const key = `${m[1]}/${m[2]}`; const rows = (state.kit[key] ||= []);
+    if (!m[3] && method === 'GET') return ok(rows);
+    if (!m[3] && method === 'POST') {
+      const extra = Object.keys(body).filter((k) => !KIT_FIELDS[key].includes(k));
+      if (extra.length) return problem(400, 'bad-request', `unknown properties ${extra}`);
+      const r = { id: uuid(), shortId: `K-${++seq}`, version: 1, ...body, ...(key === 'maintenance/wishes' ? { status: 'Submitted', unit: state.units.find((x) => x.id === body.unitId)?.unitNo || null, raisedBy: 'Asha', votes: [] } : {}) };
+      rows.push(r); return ok(r, 201);
+    }
+    const r = rows.find((x) => x.id === m[3]); if (!r) return problem(404, 'not-found', 'Not found');
+    if (method === 'GET') return ok(r);
+    if (h['If-Match'] !== `"${r.version}"`) return problem(409, 'conflict', 'changed');
+    if (method === 'DELETE') { state.kit[key] = rows.filter((x) => x !== r); return ok(null, 204); }
+    const extra = Object.keys(body).filter((k) => !KIT_FIELDS[key].includes(k));
+    if (extra.length) return problem(400, 'bad-request', `unknown properties ${extra}`);
+    Object.assign(r, body, { version: r.version + 1 }); return ok(r);
+  }
   if (path === '/field-staff' && method === 'GET') return ok(state.staff);
   if ((m = /^\/field-staff\/([^/]+)$/.exec(path))) { const f = state.staff.find((x) => x.id === m[1]); if (h['If-Match'] !== `"${f.version}"`) return problem(409, 'conflict', 'changed'); f.clockedIn = body.clockedIn; f.version++; return ok(f); }
   if (path === '/ticket-comments') return ok(state.comments);
@@ -193,7 +243,9 @@ test('tickets: raise (no SLA from a resident), accept, work, close, rate; commen
   const closed = await storage.put('tickets', { ...w, status: 'Closed' });
   const rated = await storage.put('tickets', { ...closed, residentRating: 4 });
   assert.equal(last('POST', /\/rating$/).body.rating, 4); assert.equal(rated.residentRating, 4);
-  await assert.rejects(storage.put('tickets', { ...rated, quotationStatus: 'Requested' }), /quotations, invoices and approvals/);
+  const before = calls.filter((x) => x.method !== 'GET').length;
+  await storage.put('tickets', { ...rated, quotationStatus: 'Requested', approvedAmount: 99 });
+  assert.equal(calls.filter((x) => x.method !== 'GET').length, before, 'the money side of a ticket is never written on the ticket');
   await assert.rejects(storage.put('tickets', { id: 'x', title: 'With photo', category: 'Plumbing', attachments: [{ id: 'f1' }] }), /photos and files/);
   await assert.rejects(storage.remove('tickets', t.id), /cancel or close/);
   await storage.put('ticketComments', { ticketId: t.id, body: 'Coming at 4', visibility: 'Public', author: 'Asha', createdAt: new Date().toISOString() });
@@ -204,4 +256,40 @@ test('tickets: raise (no SLA from a resident), accept, work, close, rate; commen
   assert.equal(last('PATCH', /^\/field-staff\//).headers['If-Match'], '"1"'); assert.equal(clocked.clockedIn, true);
   assert.equal((await storage.list('categoryMap'))[0].coordinator[0], 'facility_manager');
   assert.equal((await storage.list('quickPhrases'))[0].phrase, 'Send a plumber');
+});
+
+test('registers through the resource kit: exactly the request type, units by number, If-Match, a singleton', async () => {
+  const types = await storage.list('taskTypes');
+  assert.deepEqual(types.map((t) => [t.name, t.canRaise]), [['Resident Maintenance', true], ['Purchase', false]], 'all types, and which I may raise');
+  const w = await storage.put('wishes', { id: 'local-1', title: 'Shade over the park', description: '', unit: 'Villa 101', votes: ['x'], raisedBy: 'someone', createdAt: 'now' });
+  const post = last('POST', /^\/maintenance\/wishes$/);
+  assert.deepEqual(post.body, { title: 'Shade over the park', description: null, unitId: A }, 'only the request type\'s fields; the unit number becomes its id; who raised it is the server\'s');
+  assert.equal(w.unit, 'Villa 101'); assert.equal(w.status, 'Submitted'); assert.equal(w.raisedBy, 'Asha');
+  const w2 = await storage.put('wishes', { ...w, title: 'Shade over the kids\' park' });
+  const put = last('PUT', /^\/maintenance\/wishes\//);
+  assert.equal(put.headers['If-Match'], '"1"'); assert.equal(put.body.title, 'Shade over the kids\' park'); assert.equal(put.body.unitId, A); assert.equal(w2.version, 2);
+  assert.equal(Object.keys(put.body).includes('votes'), false);
+  await storage.remove('wishes', w.id);
+  assert.equal(last('DELETE', /^\/maintenance\/wishes\//).headers['If-Match'], '"2"');
+  const s = await storage.put('financeSettings', { id: 'whatever', finalCanDecideEC: false, invoiceTolerancePct: 10 });
+  const sp = last('PUT', /^\/finance\/settings\//);
+  assert.equal(sp.body.finalCanDecideEc, false, 'renamed for the API'); assert.equal(sp.body.invoiceTolerancePct, 10); assert.equal(sp.headers['If-Match'], '"3"', 'the one settings row');
+  assert.equal(s.finalCanDecideEC, false, 'and back');
+  assert.equal((await storage.list('categoryMap'))[0].coordinator[0], 'facility_manager');
+});
+
+test('quotations: add what is written, select, decide on the plan, send back; amounts are never edited', async () => {
+  const q = await storage.put('quotations', { ticketId: 'tk-1', kind: 'Quotation', vendor: 'Aqua', baseAmount: 10000, amount: 11800, gstMode: 'Extra', gstRate: 18, selected: true });
+  assert.deepEqual(last('POST', /\/quotations$/).body, { kind: 'Quotation', vendor: 'Aqua', amount: '10000.00', gstMode: 'Extra', gstRate: 18, quoteDate: null, note: null });
+  assert.equal(last('POST', /\/select$/).headers['If-Match'], '"1"'); assert.equal(q.selected, true); assert.equal(q.amount, 11800);
+  const plan = JSON.parse(q.plan);
+  plan.steps[0].decisions.push({ by: 'Asha', at: '2026-10-20', value: 'Approved', comment: 'fine' });
+  const d = await storage.put('quotations', { ...q, plan: JSON.stringify(plan), ecApproval: 'Approved' });
+  assert.deepEqual(last('POST', /\/decision$/).body, { value: 'Approved', comment: 'fine', finish: false });
+  assert.equal(d.ecApproval, 'Approved'); assert.equal(JSON.parse(d.plan).steps[0].decisions[0].by, 'Asha', 'decisions carry names for the app');
+  await assert.rejects(storage.put('quotations', { ...d, amount: 1 }), /not edited/);
+  await storage.put('quotations', { ...d, correctionNote: 'wrong GSTIN' });
+  assert.deepEqual(last('POST', /\/send-back$/).body, { note: 'wrong GSTIN' });
+  await storage.remove('quotations', q.id);
+  assert.equal(last('DELETE', /^\/quotations\//).method, 'DELETE');
 });

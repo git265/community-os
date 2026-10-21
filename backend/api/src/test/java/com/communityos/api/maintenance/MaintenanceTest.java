@@ -85,7 +85,16 @@ class MaintenanceTest {
         public Optional<String> memberName(MembershipId id) { return Optional.of("x"); }
     };
     final Fixtures.Outbox outbox = new Fixtures.Outbox();
-    TicketService svc() { return new TicketService(repo, comments, dir, Fixtures.events(List.of(), outbox), new Fixtures.Audit(), Tx.direct(), clock); }
+    final com.communityos.api.maintenance.application.port.TaskMoney.Position[] money = {position(0, 0)};
+    static com.communityos.api.maintenance.application.port.TaskMoney.Position position(long committed, int open) {
+        com.communityos.api.shared.domain.Money z = com.communityos.api.shared.domain.Money.ZERO, c = com.communityos.api.shared.domain.Money.of(committed);
+        return new com.communityos.api.maintenance.application.port.TaskMoney.Position("None", z, z, z, c, z, c, c, null, open);
+    }
+    final com.communityos.api.maintenance.application.port.TaskMoney taskMoney = new com.communityos.api.maintenance.application.port.TaskMoney() {
+        public Position position(UUID ticketId) { return money[0]; }
+        public com.communityos.api.shared.domain.Money paidOn(UUID documentId) { return com.communityos.api.shared.domain.Money.ZERO; }
+    };
+    TicketService svc() { return new TicketService(repo, comments, dir, taskMoney, Fixtures.events(List.of(), outbox), new Fixtures.Audit(), Tx.direct(), clock); }
 
     Ticket leak(Caller who) { return svc().raise(who, new TicketService.RaiseTicket(null, "Leak in kitchen", "Water under the sink", null, "Unit", null, "Plumbing", null, "High", null, null)); }
 
@@ -144,6 +153,19 @@ class MaintenanceTest {
         Ticket cancelled = svc().changeStatus(owner, t.id(), reopened.version(), TicketStatus.CANCELLED, "fixed it myself");
         assertEquals("fixed it myself", cancelled.state().cancelReason);
         assertThrows(DomainException.class, () -> svc().changeStatus(treasurer, t.id(), cancelled.version(), TicketStatus.COMPLETED, null), "no such move");
+    }
+
+    @Test void aTaskWithMoneyOnItClosesOnlyWhenNothingIsOpen() {
+        Ticket t = leak(owner);
+        Caller boss = Fixtures.superAdmin();
+        Ticket f = svc().edit(boss, t.id(), t.version(), new Ticket.Changes(null, null, null, null, null, null, null, null, null, null, true, null));
+        money[0] = position(5000, 1);
+        DomainException.RuleViolated open = assertThrows(DomainException.RuleViolated.class, () -> svc().changeStatus(treasurer, t.id(), f.version(), TicketStatus.CLOSED, null));
+        assertTrue(open.getMessage().contains("1 release is still waiting"), open.getMessage());
+        DomainException.RuleViolated paid = assertThrows(DomainException.RuleViolated.class, () -> svc().changeStatus(treasurer, t.id(), f.version(), TicketStatus.CANCELLED, "x"));
+        assertTrue(paid.getMessage().contains("5000"), paid.getMessage());
+        money[0] = position(0, 0);
+        assertEquals(TicketStatus.CANCELLED, svc().changeStatus(treasurer, t.id(), f.version(), TicketStatus.CANCELLED, "not needed").status());
     }
 
     @Test void whoEditsWhat() {

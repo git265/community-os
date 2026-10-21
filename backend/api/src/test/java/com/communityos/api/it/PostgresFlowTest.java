@@ -227,8 +227,10 @@ class PostgresFlowTest {
             assertEquals("Plumbing", plumberC.trade());
             as(plumberC, () -> staffSvc.clock(plumberC, fs.id(), true, fs.version()));
             assertThrows(AccessDenied.class, () -> as(ownerC, () -> staffSvc.clock(ownerC, fs.id(), false, fs.version() + 1)));
-            com.communityos.api.maintenance.application.TicketService ticketSvc = new com.communityos.api.maintenance.application.TicketService(
-                new com.communityos.api.maintenance.adapter.JdbcTicketRepository(app, json), mdir, mdir, events, audit, app, clock);
+            var planCodec = new com.communityos.api.approval.application.PlanCodec(json);
+            var qrepo = new com.communityos.api.maintenance.adapter.JdbcQuotationRepository(app, planCodec);
+            var trepo = new com.communityos.api.maintenance.adapter.JdbcTicketRepository(app, json);
+            com.communityos.api.maintenance.application.TicketService ticketSvc = new com.communityos.api.maintenance.application.TicketService(trepo, mdir, mdir, qrepo, events, audit, app, clock);
             var leak = as(ownerC, () -> ticketSvc.raise(ownerC, new com.communityos.api.maintenance.application.TicketService.RaiseTicket(null, "Leak in kitchen", "Under the sink", null, "Unit", null, "Plumbing", null, "High", null, null)));
             assertEquals("TKT-1051", leak.shortId()); assertEquals("Assigned", leak.status().label(), "the one clocked-in plumber got it");
             assertEquals(new MembershipId(plumberMember), leak.assignee());
@@ -249,6 +251,79 @@ class PostgresFlowTest {
             assertEquals(1, as(ownerC, () -> ticketSvc.meToo(ownerC, street.id(), null, true)).state().affectedUnits.size());
             assertEquals("Closed", owner.sql("SELECT status FROM maintenance.ticket WHERE id = '" + leak.id() + "'").get(0).get("status"));
             assertEquals(1, as(plumberC, () -> ticketSvc.list(plumberC, new com.communityos.api.maintenance.application.port.TicketRepository.Filter(null, false, null, null, null, new MembershipId(plumberMember), null), PageQuery.of(50, 0))).total());
+
+            // ---- 6c. money on a task: quotation -> EC + final approval -> invoice over budget -> release blocks closing ----------------------------
+            var docsSvc = new com.communityos.api.maintenance.application.QuotationService(trepo, qrepo, qrepo, new com.communityos.api.approval.adapter.JdbcApprovalSettings(app, json),
+                events, audit, app, clock);
+            UUID purchase = id(owner, "SELECT id FROM maintenance.task_type WHERE community_id = '" + cid + "' AND name = 'Purchase'");
+            var pump = as(admin, () -> ticketSvc.raise(admin, new com.communityos.api.maintenance.application.TicketService.RaiseTicket(purchase, "Replace borewell pump", null, null, "Community", "Pump room", "MEP", null, "High", null, null)));
+            assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> docsSvc.add(admin, pump.id(), new com.communityos.api.maintenance.application.QuotationService.AddDocument("Quotation", "Aqua Pumps", new java.math.BigDecimal("10000"), "Extra", new java.math.BigDecimal("18"), today, null))),
+                "not marked as involving money yet");
+            var pumpFin = as(admin, () -> ticketSvc.edit(admin, pump.id(), pump.version(), new com.communityos.api.maintenance.domain.Ticket.Changes(null, null, null, null, null, null, null, null, null, null, true, null)));
+            assertTrue(pumpFin.financial());
+            var quote = as(admin, () -> docsSvc.add(admin, pump.id(), new com.communityos.api.maintenance.application.QuotationService.AddDocument("Quotation", "Aqua Pumps", new java.math.BigDecimal("10000"), "Extra", new java.math.BigDecimal("18"), today, "2 HP")));
+            assertEquals(0, Money.of("11800").compareTo(quote.amount())); assertEquals("QUO", quote.shortId().substring(0, 3));
+            assertThrows(DomainException.RuleViolated.class, () -> as(treasurer, () -> docsSvc.decide(treasurer, quote.id(), quote.version(), "Approved", null, false)), "select it first");
+            assertThrows(AccessDenied.class, () -> as(ownerC, () -> docsSvc.ofTicket(ownerC, pump.id())), "residents do not see the money side");
+            var sel = as(admin, () -> docsSvc.select(admin, quote.id(), quote.version()));
+            assertTrue(sel.selected());
+            var ec = as(treasurer, () -> docsSvc.decide(treasurer, quote.id(), sel.version(), "Approved", "OK", false));
+            assertEquals("Approved", ec.state().ecApproval); assertTrue(ec.state().finalRequired); assertEquals("pending-final", ec.approvalKey());
+            owner.sql("UPDATE finance.finance_setting SET approval_separate = true WHERE community_id = '" + cid + "' RETURNING 1");
+            var sep = assertThrows(AccessDenied.class, () -> as(treasurer, () -> docsSvc.decide(treasurer, quote.id(), ec.version(), "Approved", null, false)), "separate approvers: one step each");
+            assertTrue(sep.getMessage().contains("another step"), sep.getMessage());
+            owner.sql("UPDATE finance.finance_setting SET approval_separate = false WHERE community_id = '" + cid + "' RETURNING 1");
+            var fin = as(admin, () -> docsSvc.decide(admin, quote.id(), ec.version(), "Approved", null, false));
+            assertTrue(fin.approved());
+            var pumpNow = as(admin, () -> ticketSvc.get(admin, pump.id()));
+            assertEquals("Approved", pumpNow.approval().quotationStatus()); assertEquals(0, Money.of("11800").compareTo(pumpNow.approval().approvedAmount()));
+            var inv = as(admin, () -> docsSvc.add(admin, pump.id(), new com.communityos.api.maintenance.application.QuotationService.AddDocument("Invoice", "Aqua Pumps", new java.math.BigDecimal("11000"), "Extra", new java.math.BigDecimal("18"), today, null)));
+            assertTrue(inv.state().overBudget, "12980 is above 11800 + 5%"); assertEquals("pending-ec", inv.approvalKey());
+            var inv1 = as(treasurer, () -> docsSvc.decide(treasurer, inv.id(), inv.version(), "Approved", null, false));
+            var inv2 = as(admin, () -> docsSvc.decide(admin, inv.id(), inv1.version(), "Approved", null, false));
+            assertTrue(inv2.approved());
+            var pos = as(treasurer, () -> docsSvc.position(treasurer, pump.id()));
+            assertEquals("Invoice", pos.basis()); assertEquals(0, Money.of("12980").compareTo(pos.cap())); assertEquals(0, Money.ZERO.compareTo(pos.committed()));
+            owner.sql("SELECT set_config('app.community_id', '" + cid + "', false)");
+            owner.sql("INSERT INTO finance.release (community_id, ticket_id, kind, amount, status) VALUES ('" + cid + "', '" + pump.id() + "', 'Against invoice', 5000, 'Waiting approval') RETURNING 1");
+            assertEquals(1, as(treasurer, () -> docsSvc.position(treasurer, pump.id())).openReleases());
+            var pumpV = as(admin, () -> ticketSvc.get(admin, pump.id()));
+            var e1 = assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> ticketSvc.changeStatus(admin, pump.id(), pumpV.version(), com.communityos.api.maintenance.domain.TicketStatus.CANCELLED, "no longer needed")));
+            assertTrue(e1.getMessage().contains("5000"), e1.getMessage());
+            var e2 = assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> docsSvc.decide(admin, quote.id(), fin.version(), "Pending", null, false)));
+            assertTrue(e2.getMessage().contains("released or paid"), e2.getMessage());
+            assertEquals(2, as(admin, () -> docsSvc.all(admin)).size());
+            assertEquals("Nothing is waiting for a decision", docsSvc.whyNot(treasurer, inv2));
+
+            // ---- 6d. registers through the resource kit: task types as a resident sees them, a wish with votes -----------------------------------
+            var kit = new com.communityos.api.shared.resource.ResourceService(events, audit, app, clock);
+            var ttRepo = new com.communityos.api.shared.resource.JdbcResourceRepository<>(com.communityos.api.maintenance.MaintenanceResources.TASK_TYPES.table(), app, json);
+            var residentTypes = as(ownerC, () -> kit.list(ownerC, com.communityos.api.maintenance.MaintenanceResources.TASK_TYPES, ttRepo));
+            assertEquals(2, residentTypes.size(), "Resident Maintenance + Pest Control: " + residentTypes);
+            assertEquals(6, as(admin, () -> kit.list(admin, com.communityos.api.maintenance.MaintenanceResources.TASK_TYPES, ttRepo)).size());
+            assertThrows(AccessDenied.class, () -> as(ownerC, () -> kit.create(ownerC, com.communityos.api.maintenance.MaintenanceResources.TASK_TYPES, ttRepo,
+                new com.communityos.api.maintenance.MaintenanceResources.TaskTypeFields("Painting", null, "Anyone", "Direct assign", null, null, null, null, null, true, false, true))));
+            var paint = as(admin, () -> kit.create(admin, com.communityos.api.maintenance.MaintenanceResources.TASK_TYPES, ttRepo,
+                new com.communityos.api.maintenance.MaintenanceResources.TaskTypeFields("Painting", "🎨", "Anyone", "Direct assign", "No", null, null, null, null, true, false, true)));
+            assertEquals("Painting", paint.data().name());
+            assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> { kit.delete(admin, com.communityos.api.maintenance.MaintenanceResources.TASK_TYPES, ttRepo, paint.id(), paint.version()); return null; }));
+            var wishRepo = new com.communityos.api.shared.resource.JdbcResourceRepository<>(com.communityos.api.maintenance.MaintenanceResources.WISHES.table(), app, json);
+            var wish = as(ownerC, () -> kit.create(ownerC, com.communityos.api.maintenance.MaintenanceResources.WISHES, wishRepo,
+                new com.communityos.api.maintenance.MaintenanceResources.WishFields("Shade over the kids' park", "Afternoons are too hot", "Amenities", "Park", null, "Planned", java.math.BigDecimal.TEN, "x")));
+            assertEquals("Submitted", wish.data().status(), "the server sets the status of a new wish"); assertNull(wish.data().estimate());
+            assertEquals(unitA, wish.data().unitId()); assertEquals("Villa 101", wish.server("unit")); assertEquals(members[0].toString(), String.valueOf(wish.server("raisedById")));
+            var registry = new com.communityos.api.shared.resource.ResourceRegistry(app, json).add(com.communityos.api.maintenance.MaintenanceResources.WISHES);
+            var votes = new com.communityos.api.maintenance.application.WishVotes(app, kit, registry, json);
+            as(treasurer, () -> votes.vote(treasurer, wish.id(), true));
+            var voted = as(admin, () -> votes.vote(admin, wish.id(), true));
+            assertEquals(2, voted.path("votes").size());
+            var reviewed = as(admin, () -> kit.replace(admin, com.communityos.api.maintenance.MaintenanceResources.WISHES, wishRepo, wish.id(), voted.path("version").asLong(),
+                new com.communityos.api.maintenance.MaintenanceResources.WishFields("Shade over the kids' park", "Afternoons are too hot", "Amenities", "Park", null, "Planned", new java.math.BigDecimal("85000"), "In the next budget")));
+            assertEquals("Planned", reviewed.data().status()); assertEquals(unitA, reviewed.data().unitId(), "the unit does not move");
+            assertThrows(DomainException.RuleViolated.class, () -> as(ownerC, () -> kit.replace(ownerC, com.communityos.api.maintenance.MaintenanceResources.WISHES, wishRepo, wish.id(), reviewed.version(),
+                new com.communityos.api.maintenance.MaintenanceResources.WishFields("Shade", null, null, null, null, "Planned", null, null))), "being reviewed now");
+            assertThrows(AccessDenied.class, () -> as(plumberC, () -> kit.replace(plumberC, com.communityos.api.maintenance.MaintenanceResources.WISHES, wishRepo, wish.id(), reviewed.version(),
+                new com.communityos.api.maintenance.MaintenanceResources.WishFields("Shade", null, null, null, null, "Withdrawn", null, null))), "not theirs");
 
             // ---- 7. audit, outbox ----------------------------------------------------------------------------------------------------------------
             assertTrue(Integer.parseInt((String) owner.sql("SELECT count(*)::text AS n FROM audit.audit_event WHERE community_id = '" + cid + "'").get(0).get("n")) >= 7);

@@ -29,7 +29,8 @@ public final class SqlCatalog {
         for (String c : List.of("shared.jdbc.JdbcOutboxWriter", "shared.jdbc.JdbcAuditWriter", "shared.jdbc.JdbcIdempotencyStore", "shared.jdbc.JdbcFieldDefinitions",
                 "identity.adapter.JdbcMemberRepository", "identity.adapter.JdbcRoleCatalog", "property.adapter.JdbcUnitRepository", "billing.adapter.JdbcDueRepository",
                 "billing.adapter.JdbcBillingLookups", "billing.adapter.JdbcPaymentOrderRepository", "billing.adapter.JdbcPaymentRepository", "billing.adapter.JdbcJournalWriter",
-                "maintenance.adapter.JdbcTicketRepository", "maintenance.adapter.JdbcMaintenanceDirectory", "maintenance.adapter.JdbcMaintenanceReference"))
+                "maintenance.adapter.JdbcTicketRepository", "maintenance.adapter.JdbcMaintenanceDirectory", "maintenance.adapter.JdbcQuotationRepository",
+                "maintenance.application.WishVotes", "approval.adapter.JdbcApprovalSettings"))
             CLASSES.put(c, "cos_app");
         for (String c : List.of("shared.jdbc.JdbcOutboxStore", "identity.adapter.JdbcOtpStore", "identity.adapter.JdbcRefreshTokenStore", "identity.adapter.JdbcPersonDirectory",
                 "identity.adapter.JdbcRateLimiter", "identity.adapter.JdbcCallerLoader", "identity.adapter.JdbcCommunityDirectory", "billing.adapter.JdbcPlatformPayments", "shared.integration.WebhookFanout",
@@ -39,7 +40,8 @@ public final class SqlCatalog {
     /** fragments that are only valid once composed */
     static final Set<String> FRAGMENTS = Set.of("JdbcMemberRepository.SELECT", "JdbcMemberRepository.FILTER", "JdbcUnitRepository.SELECT", "JdbcUnitRepository.FILTER",
         "JdbcDueRepository.COLUMNS", "JdbcDueRepository.FROM", "JdbcDueRepository.FILTER",
-        "JdbcTicketRepository.COLUMNS", "JdbcTicketRepository.FROM", "JdbcTicketRepository.FILTER", "JdbcMaintenanceDirectory.STAFF", "JdbcMaintenanceDirectory.RECENT_COMMENTS");
+        "JdbcTicketRepository.COLUMNS", "JdbcTicketRepository.FROM", "JdbcTicketRepository.FILTER", "JdbcMaintenanceDirectory.STAFF", "JdbcMaintenanceDirectory.RECENT_COMMENTS",
+        "JdbcQuotationRepository.COLUMNS", "JdbcQuotationRepository.LIVE");
 
     public static void main(String[] a) throws Exception {
         List<Stmt> out = new ArrayList<>();
@@ -70,6 +72,21 @@ public final class SqlCatalog {
             out.add(new Stmt("cos_app", "tickets.list." + i, com.communityos.api.maintenance.adapter.JdbcTicketRepository.listSql(ts.sql())));
             out.add(new Stmt("cos_app", "comments.recent." + i, com.communityos.api.maintenance.adapter.JdbcMaintenanceDirectory.recentSql(ts.sql())));
             out.add(new Stmt("cos_app", "tickets.get." + i, com.communityos.api.maintenance.adapter.JdbcTicketRepository.getSql(ts.sql())));
+            out.add(new Stmt("cos_app", "quotations.all." + i, com.communityos.api.maintenance.adapter.JdbcQuotationRepository.allSql(ts.sql())));
+            // every resource of the kit: its list / detail with this caller's scope, a filtered list
+            for (com.communityos.api.shared.resource.Resource<?> r : com.communityos.api.config.ResourcesConfig.all()) {
+                Spec<?> rs = r.rules().readScope(c);
+                var t = r.table();
+                out.add(new Stmt("cos_app", t.collection() + ".list." + i, t.selectSql(rs.sql())));
+                out.add(new Stmt("cos_app", t.collection() + ".get." + i, t.getSql(rs.sql())));
+                if (!t.filters().isEmpty()) out.add(new Stmt("cos_app", t.collection() + ".filter." + i, t.selectSql(rs.sql(), t.filterSql(t.filters()))));
+            }
+        }
+        for (com.communityos.api.shared.resource.Resource<?> r : com.communityos.api.config.ResourcesConfig.all()) {
+            var t = r.table();
+            out.add(new Stmt("cos_app", t.collection() + ".insert", t.insertSql()));
+            out.add(new Stmt("cos_app", t.collection() + ".update", t.updateSql()));
+            out.add(new Stmt("cos_app", t.collection() + ".delete", t.deleteSql()));
         }
         StringBuilder sb = new StringBuilder("\\set ON_ERROR_STOP 0\n");
         int n = 0;

@@ -37,11 +37,12 @@ public final class TicketService {
                               String priority, String preferredTime, LocalDate slaDueAt) {}
 
     private final TicketRepository tickets; private final CommentRepository comments; private final MaintenanceDirectory directory; private final DomainEvents events;
-    private final AuditWriter audit; private final Tx tx; private final Clock clock;
+    private final AuditWriter audit; private final Tx tx; private final Clock clock; private final com.communityos.api.maintenance.application.port.TaskMoney money;
     private final TicketPolicy policy = new TicketPolicy();
 
-    public TicketService(TicketRepository tickets, CommentRepository comments, MaintenanceDirectory directory, DomainEvents events, AuditWriter audit, Tx tx, Clock clock) {
-        this.tickets = tickets; this.comments = comments; this.directory = directory; this.events = events; this.audit = audit; this.tx = tx; this.clock = clock;
+    public TicketService(TicketRepository tickets, CommentRepository comments, MaintenanceDirectory directory, com.communityos.api.maintenance.application.port.TaskMoney money,
+                         DomainEvents events, AuditWriter audit, Tx tx, Clock clock) {
+        this.tickets = tickets; this.comments = comments; this.directory = directory; this.money = money; this.events = events; this.audit = audit; this.tx = tx; this.clock = clock;
     }
 
     // ---- reads ----------------------------------------------------------------------------------------------------------------------------
@@ -124,6 +125,7 @@ public final class TicketService {
     public Ticket changeStatus(Caller c, UUID id, long version, TicketStatus to, String reason) {
         return change(c, id, version, "Moved to " + to.label(), (t) -> {
             TicketRules.checkStatus(c, t, to, directory.finalApproverRoles());
+            if (t.financial() && (to == TicketStatus.CLOSED || to == TicketStatus.CANCELLED)) moneyAllows(t, to);
             t.changeStatus(to, reason, clock.instant());
         });
     }
@@ -190,6 +192,15 @@ public final class TicketService {
             audit.write(c, AuditWriter.Action.Create, "maintenance.ticket_comment", out.id(), out.shortId(), unitValue(t), vis + " comment on " + t.shortId(), List.of());
             return out;
         });
+    }
+
+    /** A task with money on it closes only once no release is waiting or unpaid, and is cancelled only when nothing is released or paid. */
+    private void moneyAllows(Ticket t, TicketStatus to) {
+        var m = money.position(t.id());
+        if (to == TicketStatus.CLOSED && m.openReleases() > 0)
+            throw new DomainException.RuleViolated("open-releases", m.openReleases() + (m.openReleases() == 1 ? " release is" : " releases are") + " still waiting or unpaid - pay or cancel " + (m.openReleases() == 1 ? "it" : "them") + " before closing the task");
+        if (to == TicketStatus.CANCELLED && m.committed().amount().compareTo(java.math.BigDecimal.valueOf(0.5)) > 0)
+            throw new DomainException.RuleViolated("money-committed", m.committed().amount().toPlainString() + " is released or paid on this task - cancel the releases and reverse the payments before cancelling it");
     }
 
     private static UUID unitValue(Ticket t) { return t.unit() == null ? null : t.unit().value(); }
