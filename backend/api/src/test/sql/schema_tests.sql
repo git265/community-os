@@ -344,6 +344,29 @@ DO $$ DECLARE r uuid; BEGIN
   PERFORM test.expect_error(format($q$UPDATE reports.run SET title = 'x' WHERE id = %L$q$, r), '42501');
   PERFORM test.pass('reports: a schedule names a known report (a custom one its recipe) and known channels; a sent report is kept as sent');
 END $$;
+DO $$ DECLARE missing text; dup text; BEGIN
+  -- every foreign key has an index on its columns (V27), except the ones that only record who did something (memberships are never deleted)
+  SELECT string_agg(format('%s(%s)', c.conrelid::regclass, cols), ', ') INTO missing FROM (
+    SELECT c.oid, c.conrelid, c.conkey, string_agg(a.attname, ',' ORDER BY u.o) AS cols, bool_or(a.attname ~ '(_by_id|_by_unit_id|author_id|reserved_unit_id)$' OR a.attname = 'permission') AS who
+    FROM pg_constraint c JOIN pg_class r ON r.oid = c.conrelid JOIN LATERAL unnest(c.conkey) WITH ORDINALITY u(k, o) ON true
+    JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = u.k
+    WHERE c.contype = 'f' AND NOT r.relispartition AND r.relnamespace::regnamespace::text NOT IN ('test')
+    GROUP BY c.oid, c.conrelid, c.conkey) c
+  WHERE NOT c.who AND NOT EXISTS (SELECT 1 FROM pg_index i WHERE i.indrelid = c.conrelid
+    AND (i.indkey::int2[])[0:cardinality(c.conkey) - 1] @> c.conkey AND (i.indkey::int2[])[0:cardinality(c.conkey) - 1] <@ c.conkey);
+  IF missing IS NOT NULL THEN RAISE EXCEPTION 'foreign keys without an index: %', missing; END IF;
+  -- no plain index is only the leading columns of another one
+  WITH ix AS (SELECT i.indrelid t, i.indexrelid x, string_to_array(i.indkey::text, ' ') k, i.indisunique u FROM pg_index i JOIN pg_class c ON c.oid = i.indrelid
+              WHERE i.indpred IS NULL AND i.indexprs IS NULL AND NOT c.relispartition AND c.relnamespace::regnamespace::text NOT LIKE 'pg_%' AND c.relnamespace::regnamespace::text NOT IN ('information_schema', 'test'))
+  SELECT string_agg(format('%s (covered by %s)', a.x::regclass, b.x::regclass), ', ') INTO dup FROM ix a JOIN ix b ON a.t = b.t AND a.x <> b.x AND NOT a.u
+    AND cardinality(a.k) <= cardinality(b.k) AND a.k = b.k[1:cardinality(a.k)] AND (cardinality(a.k) < cardinality(b.k) OR a.x > b.x);
+  IF dup IS NOT NULL THEN RAISE EXCEPTION 'redundant indexes: %', dup; END IF;
+  PERFORM test.pass('indexes: every foreign key that is joined or deleted through has one; none repeats another');
+END $$;
 RESET ROLE;
+DO $$ BEGIN   -- as the owner (the platform console's role changes communities)
+  PERFORM test.expect_error($q$UPDATE platform.community SET time_zone = 'Mars/Olympus' WHERE slug = 'test-a'$q$, '23514');
+  PERFORM test.pass('a community time zone must be one PostgreSQL knows');
+END $$;
 
 SELECT format('%s schema tests passed', count(*)) AS result FROM test.result WHERE ok;
