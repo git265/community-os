@@ -54,4 +54,19 @@ public final class FileKinds {
         files.register(new OwnerKind("vendor.vendor", (c, id) -> com.communityos.api.vendor.application.VendorPolicy.reader(c) && exists.test(id),
             (c, id) -> com.communityos.api.vendor.application.VendorPolicy.manager(c) && exists.test(id)));
     }
+    /** equipment, stock, DG and electricity bills, custom log entries  read: the asset readers (not residents) · attach: the asset writers
+     *  audit reports  read: as the audit (residents a published one) · attach: the coordinators */
+    public static void registerAssets(FileService files, org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate jdbc) {
+        java.util.Map<String, String> tables = java.util.Map.of("assets.equipment", "assets.equipment", "assets.inventory", "assets.inventory_item", "assets.dg_fuel", "assets.dg_fuel_log",
+            "assets.electricity_bill", "assets.electricity_bill", "assets.log_entry", "assets.log_entry");
+        for (var t : tables.entrySet()) {
+            java.util.function.Predicate<java.util.UUID> exists = (id) -> !jdbc.query("SELECT 1 AS x FROM " + t.getValue() + " WHERE id = CAST(:id AS uuid)", java.util.Map.of("id", id.toString()), (rs, i) -> 1).isEmpty();
+            files.register(new OwnerKind(t.getKey(), (c, id) -> com.communityos.api.assets.application.AssetPolicy.reader(c) && exists.test(id),
+                (c, id) -> com.communityos.api.assets.application.AssetPolicy.writer(c) && exists.test(id)));
+        }
+        java.util.function.BiPredicate<com.communityos.api.shared.security.Caller, java.util.UUID> auditReads = (c, id) -> !jdbc.query(
+            "SELECT 1 AS x FROM assets.facility_audit WHERE id = CAST(:id AS uuid) AND (:all OR visibility = 'Published')",
+            java.util.Map.of("id", id.toString(), "all", com.communityos.api.assets.application.AssetPolicy.reader(c)), (rs, i) -> 1).isEmpty() && com.communityos.api.assets.application.AssetPolicy.member(c);
+        files.register(new OwnerKind("assets.audit", auditReads, (c, id) -> com.communityos.api.assets.application.AssetPolicy.coordinator(c) && auditReads.test(c, id)));
+    }
 }

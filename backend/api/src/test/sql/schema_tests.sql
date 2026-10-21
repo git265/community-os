@@ -304,6 +304,25 @@ DO $$ DECLARE v uuid; k uuid; BEGIN
   PERFORM test.expect_error(format($q$INSERT INTO vendor.contact_review (community_id, contact_id, rating, author_id) VALUES ('00000000-0000-0000-0000-00000000000a', %L, 6, '00000000-0000-0000-0000-0000000000e2')$q$, k), '23514');
   PERFORM test.pass('vendors: one vendor per name, a GSTIN that looks like one, no negative workers, a hidden contact has who hid it, 1-5 stars, one review per household');
 END $$;
+DO $$ DECLARE i uuid; e uuid; BEGIN
+  PERFORM set_config('app.community_id', '00000000-0000-0000-0000-00000000000a', true);
+  INSERT INTO assets.equipment (community_id, name) VALUES ('00000000-0000-0000-0000-00000000000a', 'STP pump A') RETURNING id INTO e;
+  PERFORM test.expect_error($q$INSERT INTO assets.equipment (community_id, name) VALUES ('00000000-0000-0000-0000-00000000000a', 'stp PUMP a')$q$, '23505');
+  PERFORM test.expect_error(format($q$UPDATE assets.equipment SET status = 'Broken' WHERE id = %L$q$, e), '23514');
+  PERFORM test.expect_error(format($q$UPDATE assets.equipment SET quantity = 2, faulty = 3 WHERE id = %L$q$, e), '23514');
+  INSERT INTO assets.inventory_item (community_id, item) VALUES ('00000000-0000-0000-0000-00000000000a', 'Salt') RETURNING id INTO i;
+  PERFORM test.expect_error(format($q$UPDATE assets.inventory_item SET quantity = -1 WHERE id = %L$q$, i), '23514');
+  INSERT INTO assets.inventory_movement (community_id, item_id, kind, quantity, balance, on_date) VALUES ('00000000-0000-0000-0000-00000000000a', i, 'Received', 5, 5, current_date);
+  PERFORM test.expect_error(format($q$UPDATE assets.inventory_movement SET quantity = 50 WHERE item_id = %L$q$, i), '42501');
+  PERFORM test.expect_error(format($q$INSERT INTO assets.inventory_movement (community_id, item_id, kind, quantity, balance, on_date) VALUES ('00000000-0000-0000-0000-00000000000a', %L, 'Issued', 0, 5, current_date)$q$, i), '23514');
+  INSERT INTO assets.plant_log (community_id, date) VALUES ('00000000-0000-0000-0000-00000000000a', current_date);
+  PERFORM test.expect_error($q$INSERT INTO assets.plant_log (community_id, date) VALUES ('00000000-0000-0000-0000-00000000000a', current_date)$q$, '23505');
+  PERFORM test.expect_error($q$INSERT INTO assets.plant_log (community_id, date, bh_open, bh_close) VALUES ('00000000-0000-0000-0000-00000000000a', current_date - 1, 10, 5)$q$, '23514');
+  PERFORM test.expect_error($q$INSERT INTO assets.electricity_bill (community_id, status) VALUES ('00000000-0000-0000-0000-00000000000a', 'Paid')$q$, '23514');
+  PERFORM test.expect_error($q$INSERT INTO assets.unit_electricity (community_id, unit_id, month) VALUES ('00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-0000000000c1', '2026-13')$q$, '23514');
+  PERFORM test.expect_error($q$INSERT INTO assets.dg_fuel_log (community_id, date, litres) VALUES ('00000000-0000-0000-0000-00000000000a', current_date, 0)$q$, '23514');
+  PERFORM test.pass('assets: one asset per name, a condition from the list, stock never below zero and its movements kept, one plant log a day, meters forward, a paid bill has a date');
+END $$;
 RESET ROLE;
 
 SELECT format('%s schema tests passed', count(*)) AS result FROM test.result WHERE ok;

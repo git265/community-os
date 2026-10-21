@@ -240,6 +240,21 @@ export const RESOURCES = {
   vendors: { path: 'vendors/vendors' },
   vendorServices: { path: 'vendors/service-lines', refs: { vendorName: { field: 'vendorId', collection: 'vendors', key: 'name' } } },
   vendorComments: { path: 'vendors/comments' },
+  equipment: { path: 'assets/equipment', jsonText: ['specs'] },
+  inventory: { path: 'assets/inventory' },
+  inventoryRules: { path: 'assets/inventory-rules' },
+  plantLogs: { path: 'assets/plant-logs' },
+  dgFuelLogs: { path: 'assets/dg-fuel' },
+  electricityBills: { path: 'assets/electricity-bills' },
+  villaElectricity: { path: 'assets/unit-electricity', unit: true },
+  villaImportRules: { path: 'assets/unit-import-rules' },
+  audits: { path: 'assets/audits' },
+  logTypes: { path: 'assets/log-types' },
+  logEntries: { path: 'assets/log-entries' },
+  infraPlans: { path: 'assets/site-plans' },
+  infraLayers: { path: 'assets/map-layers' },
+  mapVersions: { path: 'assets/map-history' },
+  infraLog: { path: 'assets/condition-log' },
   numberSections: { path: 'comms/number-sections' },
   mergeFields: { path: 'comms/merge-fields' },
   noticeTemplates: { path: 'comms/notice-templates' },
@@ -256,6 +271,7 @@ export function resourceOf(row, spec = {}) {
   const out = {};
   for (const [k, v] of Object.entries(row)) out[back[k] || k] = v === null ? '' : v;
   for (const [appKey, apiField] of Object.entries(unitFields(spec))) { out[apiField] = row[apiField] || ''; out[appKey] = row[appKey] || ''; }
+  for (const f of spec.jsonText || []) out[f] = row[f] == null || row[f] === '' ? '' : JSON.stringify(row[f]);   // the app keeps these as JSON text
   if (spec.alias) { out.serverId = row.id; out.id = spec.alias; }   // the app finds this one row by a fixed id ('default')
   return out;
 }
@@ -277,7 +293,7 @@ export function resourceBody(rec, spec, fields, unitIdByNo = {}, refIds = {}) {
       v = rec[f] || (no ? unitIdByNo[no] : null) || null;
       if (no && !v) throw new Error(`Unit ${no} is not known to the back end.`);
     } else v = rec[appKey[f] || f];
-    if ((spec.json || []).includes(f) && typeof v === 'string') { try { v = v ? JSON.parse(v) : null; } catch { throw new Error(`${f} is not valid JSON.`); } }
+    if ([...(spec.json || []), ...(spec.jsonText || [])].includes(f) && typeof v === 'string') { try { v = v ? JSON.parse(v) : null; } catch { throw new Error(`${f} is not valid JSON.`); } }
     if (v === undefined) continue;
     body[f] = v === '' ? null : v;
   }

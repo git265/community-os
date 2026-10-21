@@ -47,8 +47,10 @@ const KIT_FIELDS = {
   'cultural/offerings': ['eventId', 'title', 'kind', 'pledgeValue'],
   'vendors/vendors': ['name', 'category', 'gstin', 'contractType', 'service', 'contactPhone', 'contactEmail', 'address', 'contractEnds', 'description'],
   'vendors/service-lines': ['vendorId', 'service', 'signedWorkers', 'shift', 'note'],
+  'assets/equipment': ['name', 'area', 'type', 'status', 'quantity', 'faulty', 'specs', 'lastInspected'],
+  'assets/inventory': ['item', 'category', 'location', 'uom', 'minStock', 'vendor', 'notes'],
 };
-const KIT_COLLECTION = { 'amenities/types': 'amenityTypes', 'amenities/items': 'amenityItems', 'maintenance/task-types': 'taskTypes', 'maintenance/categories': 'categoryMap', 'maintenance/quick-phrases': 'quickPhrases', 'maintenance/wishes': 'wishes', 'finance/settings': 'financeSettings', 'cultural/events': 'culturalEvents', 'cultural/seva': 'culturalSevas', 'cultural/offerings': 'culturalOfferings', 'vendors/vendors': 'vendors', 'vendors/service-lines': 'vendorServices' };
+const KIT_COLLECTION = { 'amenities/types': 'amenityTypes', 'amenities/items': 'amenityItems', 'maintenance/task-types': 'taskTypes', 'maintenance/categories': 'categoryMap', 'maintenance/quick-phrases': 'quickPhrases', 'maintenance/wishes': 'wishes', 'finance/settings': 'financeSettings', 'cultural/events': 'culturalEvents', 'cultural/seva': 'culturalSevas', 'cultural/offerings': 'culturalOfferings', 'vendors/vendors': 'vendors', 'vendors/service-lines': 'vendorServices', 'assets/equipment': 'equipment', 'assets/inventory': 'inventory' };
 const TT = [{ id: 'tt-res', name: 'Resident Maintenance', icon: '🔧', creatorScope: 'Resident', assignmentMode: 'Role queue (staff accepts)', residentVisible: true, residentDefault: true, canRaise: true }];
 const page = (items) => ({ items, total: items.length, limit: 200, offset: 0 });
 const ok = (body, status = 200, headers = {}) => new Response(body == null ? null : JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...headers } });
@@ -162,7 +164,7 @@ globalThis.fetch = async (url, init = {}) => {
     if (m[2] === '/send-back') q.correctionNote = body.note;
     q.version++; return ok(q);
   }
-  if ((m = /^\/(maintenance|finance|amenities|cultural|vendors)\/([a-z-]+)(?:\/([^/]+))?$/.exec(path)) && KIT_FIELDS[`${m[1]}/${m[2]}`]) {
+  if ((m = /^\/(maintenance|finance|amenities|cultural|vendors|assets)\/([a-z-]+)(?:\/([^/]+))?$/.exec(path)) && KIT_FIELDS[`${m[1]}/${m[2]}`]) {
     const key = `${m[1]}/${m[2]}`; const rows = (state.kit[key] ||= []);
     if (!m[3] && method === 'GET') return ok(rows);
     if (!m[3] && method === 'POST') {
@@ -382,6 +384,18 @@ globalThis.fetch = async (url, init = {}) => {
     if (method === 'DELETE') { state.ballots = state.ballots.filter((y) => y !== b); return ok(null, 204); }
     if (b.status !== 'Draft') return problem(422, 'ballot-open', 'An open ballot cannot be edited');
     Object.assign(b, body); b.version++; return ok(ballotView(b));
+  }
+  // ---- assets: stock movements and the condition log
+  if ((m = /^\/assets\/inventory\/([^/]+)\/movements$/.exec(path)) && method === 'POST') {
+    const it = state.kit['assets/inventory'].find((x) => x.id === m[1]);
+    const q = Number(body.quantity); const bal = body.kind === 'Received' ? Number(it.quantity || 0) + q : body.kind === 'Issued' ? Number(it.quantity || 0) - q : q;
+    if (bal < 0) return problem(422, 'not-enough', 'Only so much in stock');
+    it.quantity = String(bal); it.version++; state.lastMove = body;
+    return ok({ item: { id: it.id, quantity: it.quantity, minStock: it.minStock, lastRestocked: body.kind === 'Received' ? '2026-10-20' : null }, movement: { kind: body.kind, balance: String(bal) } }, 201);
+  }
+  if (path === '/assets/condition-log' && method === 'POST') {
+    const eq = state.kit['assets/equipment'].find((x) => x.id === body.assetId); eq.status = body.condition; eq.version++;
+    return ok({ id: uuid(), shortId: 'ILG-1', ...body, assetName: eq.name }, 201);
   }
   // ---- the service directory
   state.contacts ||= []; state.reviews ||= [];
@@ -768,5 +782,25 @@ test('vendors: the register through the kit (a service line names its vendor by 
   assert.equal(last('DELETE', /^\/vendors\/reviews\//).path, `/vendors/reviews/${rv.id}`);
   await storage.put('serviceContacts', { ...(await storage.get('serviceContacts', c.id)), status: 'Hidden', hiddenReason: 'Complaints' });
   assert.equal(last('PUT', /^\/vendors\/directory\//).body.hiddenReason, 'Complaints');
+});
+
+test('assets: specs stay JSON text in the app; a quantity change is a stock movement; a condition entry goes to the server, which moves the asset', async () => {
+  const eq = await storage.put('equipment', { name: 'STP pump A', area: 'STP', type: 'Pump', status: 'Working', quantity: 2, faulty: 0, specs: '{"Power (kW)":"7.5"}', files: [] });
+  assert.deepEqual(last('POST', /^\/assets\/equipment$/).body.specs, { 'Power (kW)': '7.5' }, 'sent as JSON');
+  assert.equal((await storage.get('equipment', eq.id)).specs, '{"Power (kW)":"7.5"}', 'and read back as text');
+  const salt = await storage.put('inventory', { item: 'Softener salt', uom: 'Kg', minStock: 20, quantity: 50, attachments: [] });
+  assert.equal('quantity' in last('POST', /^\/assets\/inventory$/).body, false, 'the quantity is not a field');
+  assert.deepEqual(state.lastMove, { kind: 'Counted', quantity: 50, note: null }, 'the opening count');
+  assert.equal(salt.quantity, 50);
+  await storage.put('inventory', { ...(await storage.get('inventory', salt.id)), quantity: 17.5 });
+  assert.deepEqual(state.lastMove, { kind: 'Counted', quantity: 17.5, note: null });
+  const before = calls.length;
+  await storage.put('inventory', { ...(await storage.get('inventory', salt.id)), notes: 'Keep dry' });
+  assert.equal(calls.slice(before).filter((x) => /movements/.test(x.path)).length, 0, 'no movement when the quantity did not change');
+  const entry = await storage.put('infraLog', { assetId: eq.id, assetName: 'STP pump A', date: '2026-10-20', condition: 'Needs attention', source: 'Inspection', note: 'Noisy', by: 'Asha' });
+  assert.equal('by' in last('POST', /^\/assets\/condition-log$/).body, false, 'who recorded it is the server\'s');
+  assert.equal(entry.assetName, 'STP pump A');
+  assert.equal((await storage.get('equipment', eq.id)).status, 'Needs attention');
+  await assert.rejects(storage.remove('infraLog', entry.id), /kept as written/);
 });
 

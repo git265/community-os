@@ -177,6 +177,10 @@ readers.ticketComments = withFiles(readers.ticketComments, 'maintenance.comment'
 readers.quotations = withFiles(readers.quotations, 'maintenance.quotation', 'attachments');
 readers.amenities = withFiles(readers.amenities, 'amenity.booking', 'depositPhotos');
 readers.vendors = withFiles(readers.vendors, 'vendor.vendor', 'attachments');
+// asset papers are files attached to the record
+const ASSET_FILES = { equipment: ['assets.equipment', 'files'], inventory: ['assets.inventory', 'attachments'], dgFuelLogs: ['assets.dg_fuel', 'bill'],
+  electricityBills: ['assets.electricity_bill', 'billFile'], audits: ['assets.audit', 'report'], logEntries: ['assets.log_entry', 'attachments'] };
+for (const [c, [owner, field]] of Object.entries(ASSET_FILES)) readers[c] = withFiles(readers[c], owner, field);
 // the service directory: ratings and counts are worked out by the server
 readers.serviceContacts = { list: async () => (await call('/vendors/directory')).map(contactOf), get: async (id) => { if (!isUuid(id)) return null; const c = await call(`/vendors/directory/${id}`); return c && contactOf(c); } };
 readers.contactReviews = { list: async () => (await Promise.all((await call('/vendors/directory')).map((c) => call(`/vendors/directory/${c.id}/reviews`)))).flat().map(reviewOf) };
@@ -495,6 +499,24 @@ async function putReview(rec) {
   if (!isUuid(rec.contactId)) throw new Error('Which contact?');
   return reviewOf(await call(`/vendors/directory/${rec.contactId}/review`, json('PUT', { rating: Number(rec.rating), comment: rec.comment || null, recommend: rec.recommend || null })));
 }
+/** An item's details through the kit; a change of quantity is a movement (a count to the new quantity) - the server keeps the stock. */
+async function putInventory(rec) {
+  const before = isUuid(rec.id) ? await readers.inventory.get(rec.id) : null;
+  const out = await putResource('inventory', rec);
+  const want = Number(rec.quantity); const had = Number(before?.quantity ?? out.quantity ?? 0);
+  if (rec.quantity === '' || rec.quantity == null || !Number.isFinite(want) || want === had) return out;
+  const r = await call(`/assets/inventory/${out.id}/movements`, json('POST', { kind: want > had && rec.lastRestocked && rec.lastRestocked !== before?.lastRestocked ? 'Received' : 'Counted',
+    quantity: want > had && rec.lastRestocked && rec.lastRestocked !== before?.lastRestocked ? want - had : want, note: rec.movementNote || null }));
+  return { ...out, quantity: Number(r.item.quantity), lastRestocked: r.item.lastRestocked || '', stockStatus: Number(r.item.quantity) <= 0 ? 'Out of stock' : r.item.minStock != null && Number(r.item.quantity) <= Number(r.item.minStock) ? 'Low' : 'In stock' };
+}
+/** What was found on an asset: the server keeps the entry and moves the asset's condition with it. */
+async function putConditionLog(rec) {
+  if (isUuid(rec.id) && await readers.infraLog.get(rec.id)) throw new Error('The condition log is kept as written - add a new entry.');
+  if (!isUuid(rec.assetId)) throw new Error('Which asset?');
+  const e = await call('/assets/condition-log', json('POST', { assetId: rec.assetId, date: rec.date || null, condition: rec.condition, source: rec.source || null, note: rec.note || null,
+    ticketId: isUuid(rec.ticketId) ? rec.ticketId : null }));
+  return { id: e.id, shortId: e.shortId, assetId: e.assetId, assetName: e.assetName, date: e.date, condition: e.condition, source: e.source || '', note: e.note || '', ticketId: e.ticketId || '', by: rec.by || '' };
+}
 async function putMeeting(rec) {
   const before = isUuid(rec.id) ? await readers.meetings.get(rec.id) : null;
   const body = meetingBody({ ...(before || {}), ...rec });
@@ -679,7 +701,7 @@ async function putBooking(rec) {
   return bookingOf(await call(`/amenities/bookings/${encodeURIComponent(rec.id)}/${cmd.path}`, json('POST', cmd.body, ifMatch(before.version))));
 }
 
-const WRITERS = { serviceContacts: putContact, contactReviews: putReview, meetings: putMeeting, ballots: putBallot, voteRoll: putVoteMark, ballotBox: putBoxRow, ledger: putLedger, releases: putRelease, payRequests: putPayRequest, bankTxns: putBankTxn, culturalDonations: putDonation, culturalExpenses: putExpense, culturalOfferings: putOffering, culturalEvents: putEvent, culturalPhotos: putPhoto, culturalSevas: signing('culturalSevas', 'seva', 'volunteers'), culturalPrograms: signing('culturalPrograms', 'programme', 'participants'), files: putFile, documents: putDocument, notificationOutbox: async (r) => r /* the server queues channel messages itself, from the event */, notifications: putNotification, broadcasts: putBroadcast, pollVotes: putPollVote, forum: putTopic, forumPosts: putPost, gatePasses: putPass, gateApprovals: putApproval, gateFlags: putFlag, gateVisits: deskOnly, gateScans: deskOnly, gatePulse: async (r) => r, amenities: putBooking, properties: putProperty, users: putUser, dues: putDue, tickets: putTicket, ticketComments: putComment, handymen: putFieldStaff, quotations: putQuotation };
+const WRITERS = { inventory: putInventory, infraLog: putConditionLog, serviceContacts: putContact, contactReviews: putReview, meetings: putMeeting, ballots: putBallot, voteRoll: putVoteMark, ballotBox: putBoxRow, ledger: putLedger, releases: putRelease, payRequests: putPayRequest, bankTxns: putBankTxn, culturalDonations: putDonation, culturalExpenses: putExpense, culturalOfferings: putOffering, culturalEvents: putEvent, culturalPhotos: putPhoto, culturalSevas: signing('culturalSevas', 'seva', 'volunteers'), culturalPrograms: signing('culturalPrograms', 'programme', 'participants'), files: putFile, documents: putDocument, notificationOutbox: async (r) => r /* the server queues channel messages itself, from the event */, notifications: putNotification, broadcasts: putBroadcast, pollVotes: putPollVote, forum: putTopic, forumPosts: putPost, gatePasses: putPass, gateApprovals: putApproval, gateFlags: putFlag, gateVisits: deskOnly, gateScans: deskOnly, gatePulse: async (r) => r, amenities: putBooking, properties: putProperty, users: putUser, dues: putDue, tickets: putTicket, ticketComments: putComment, handymen: putFieldStaff, quotations: putQuotation };
 WRITERS.tickets = attaching(WRITERS.tickets, 'maintenance.ticket', 'attachments');
 WRITERS.ticketComments = attaching(WRITERS.ticketComments, 'maintenance.comment', 'attachments');
 WRITERS.quotations = attaching(WRITERS.quotations, 'maintenance.quotation', 'attachments');
@@ -687,6 +709,7 @@ WRITERS.amenities = attaching(WRITERS.amenities, 'amenity.booking', 'depositPhot
 WRITERS.meetings = attaching(attaching(WRITERS.meetings, 'governance.agenda', 'agendaFiles'), 'governance.minutes', 'minutesFiles');
 for (const c of Object.keys(RESOURCES)) if (!WRITERS[c]) WRITERS[c] = (rec) => putResource(c, rec);
 WRITERS.vendors = attaching(WRITERS.vendors, 'vendor.vendor', 'attachments');
+for (const [c, [owner, field]] of Object.entries(ASSET_FILES)) WRITERS[c] = attaching(WRITERS[c], owner, field);
 const warned = new Set();
 const notYet = (c) => { if (!warned.has(c)) { warned.add(c); console.info(`[v2] "${c}" is not on the v2 back end yet; showing it empty.`); } };
 
@@ -723,6 +746,7 @@ export const V2ApiAdapter = {
   },
   async remove(c, id) {
     if (LOCAL_COLLECTIONS.includes(c)) return SessionStorageAdapter.remove(c, id);
+    if (c === 'infraLog' || c === 'mapVersions') throw new Error('A history is kept as written.');
     if (RESOURCES[c]) return removeResource(c, id);
     if (c === 'ledger') throw new Error('A payment is not deleted - reverse it.');
     if (c === 'voteRoll' || c === 'ballotBox') throw new Error('Voting records can never be changed or deleted');

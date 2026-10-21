@@ -841,7 +841,7 @@ class PostgresFlowTest {
             var theBox = as(ownerC, () -> ballotSvc.box(ownerC, gbal.id));
             assertTrue(theBox.matchesClose()); assertEquals(receipt.receipt(), theBox.rows().get(0).receipt()); assertEquals("For", theBox.rows().get(0).choice());
             assertThrows(RuntimeException.class, () -> owner.sql("UPDATE governance.ballot SET description = 'x' WHERE id = '" + gbal.id + "' RETURNING 1"), "a closed ballot never changes");
-            assertTrue(as(ownerC, () -> inboxSvc.mine(ownerC, false, 200)).stream().anyMatch((n) -> n.event().equals("ballot") && n.title().startsWith("Voting closed")));
+            assertTrue(as(ownerC, () -> inboxSvc.mine(ownerC, false, 200)).stream().anyMatch((n) -> n.event().equals("ballot_result") && n.title().startsWith("Voting closed")));
             assertTrue(owner.sql("SELECT summary FROM audit.audit_event WHERE community_id = '" + cid + "' AND entity = 'governance.vote_roll'").stream().noneMatch((ar) -> String.valueOf(ar.get("summary")).contains("For")),
                 "the audit trail says who voted, never what");
 
@@ -877,6 +877,44 @@ class PostgresFlowTest {
                 "+91 98450 12345", "Whitefield", "500 a visit", null, null, "Hidden", "Complaints about safety")));
             assertEquals("Hidden", rajuHidden.status);
             assertTrue(as(plumberC, () -> dir.list(plumberC)).stream().noneMatch((x) -> x.id.equals(raju.id)), "hidden from others");
+
+            // ---- 6m. assets: equipment and its condition log, stock that moves only by movements, readings worked out, one row a day / month -------------
+            var eqRepo = new com.communityos.api.shared.resource.JdbcResourceRepository<>(com.communityos.api.assets.AssetResources.EQUIPMENT.table(), app, json);
+            var invRepo = new com.communityos.api.shared.resource.JdbcResourceRepository<>(com.communityos.api.assets.AssetResources.INVENTORY.table(), app, json);
+            var plRepo = new com.communityos.api.shared.resource.JdbcResourceRepository<>(com.communityos.api.assets.AssetResources.PLANT_LOGS.table(), app, json);
+            var ueRepo = new com.communityos.api.shared.resource.JdbcResourceRepository<>(com.communityos.api.assets.AssetResources.UNIT_ELECTRICITY.table(), app, json);
+            var assetSvc = new com.communityos.api.assets.application.AssetService(new com.communityos.api.assets.adapter.JdbcAssetStore(app), events, audit, app, clock, ZoneId.of("Asia/Kolkata"));
+            var stpPump = as(admin, () -> kit.create(admin, com.communityos.api.assets.AssetResources.EQUIPMENT, eqRepo, new com.communityos.api.assets.AssetResources.EquipmentFields("STP pump A", "STP", "Pump",
+                "Plumbing", List.of("Electrical"), "STP room", 2, Map.of("Power (kW)", "7.5"), null, null, "Kirloskar", "KDS", null, null, null, null, null, null, null, null, null, "Working", 0,
+                List.of(), null, null, null, null, null, null, null)));
+            assertEquals("7.5", ((Map<?, ?>) stpPump.data().specs()).get("Power (kW)"));
+            assertTrue(as(ownerC, () -> kit.list(ownerC, com.communityos.api.assets.AssetResources.EQUIPMENT, eqRepo)).isEmpty(), "residents do not see the register");
+            var cond = as(admin, () -> assetSvc.condition(admin, stpPump.id(), today, "Needs attention", "Inspection", "Noisy bearing", leak.id()));
+            assertEquals("STP pump A", cond.assetName()); assertEquals(members[2], cond.byId());
+            assertEquals("Needs attention", as(admin, () -> kit.get(admin, com.communityos.api.assets.AssetResources.EQUIPMENT, eqRepo, stpPump.id())).data().status(), "the condition follows its log");
+            assertThrows(RuntimeException.class, () -> owner.sql("UPDATE assets.condition_log SET condition = 'Working' WHERE asset_id = '" + stpPump.id() + "' RETURNING 1"), "the log is kept as written");
+            var saltItem = as(admin, () -> kit.create(admin, com.communityos.api.assets.AssetResources.INVENTORY, invRepo, new com.communityos.api.assets.AssetResources.InventoryFields("Softener salt", "Chemicals", "STP store", "Kg",
+                new java.math.BigDecimal("20"), null, null, null, null, null)));
+            assertEquals("Out of stock", saltItem.server("stockStatus"));
+            as(admin, () -> assetSvc.move(admin, saltItem.id(), "Received", new java.math.BigDecimal("50"), null, null, "Tata Chemicals", null));
+            assertEquals("not-enough", assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> assetSvc.move(admin, saltItem.id(), "Issued", new java.math.BigDecimal("80"), null, null, null, null))).code());
+            var issued = as(admin, () -> assetSvc.move(admin, saltItem.id(), "Issued", new java.math.BigDecimal("32.5"), null, leak.id(), null, "softener"));
+            assertEquals(0, new java.math.BigDecimal("17.5").compareTo(issued.item().quantity()));
+            var saltNow = as(admin, () -> kit.get(admin, com.communityos.api.assets.AssetResources.INVENTORY, invRepo, saltItem.id()));
+            assertEquals("Low", saltNow.server("stockStatus")); assertEquals(today.toString(), String.valueOf(saltNow.server("lastRestocked")));
+            assertEquals(2, as(admin, () -> assetSvc.movements(admin, saltItem.id())).size());
+            assertThrows(RuntimeException.class, () -> owner.sql("DELETE FROM assets.inventory_movement WHERE item_id = '" + saltItem.id() + "' RETURNING 1"), "movements are kept");
+            assertThrows(RuntimeException.class, () -> owner.sql("UPDATE assets.inventory_item SET quantity = -1 WHERE id = '" + saltItem.id() + "' RETURNING 1"));
+            var pl = as(admin, () -> kit.create(admin, com.communityos.api.assets.AssetResources.PLANT_LOGS, plRepo, new com.communityos.api.assets.AssetResources.PlantLogFields(today, new java.math.BigDecimal("1000"),
+                new java.math.BigDecimal("1062"), null, null, null, null, null, null, null, null, null, null, null, null)));
+            assertEquals(0, new java.math.BigDecimal("62").compareTo(pl.data().bhKl()));
+            assertThrows(RuntimeException.class, () -> as(admin, () -> kit.create(admin, com.communityos.api.assets.AssetResources.PLANT_LOGS, plRepo, new com.communityos.api.assets.AssetResources.PlantLogFields(today,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null))), "one plant log a day");
+            var ue = as(admin, () -> kit.create(admin, com.communityos.api.assets.AssetResources.UNIT_ELECTRICITY, ueRepo, new com.communityos.api.assets.AssetResources.UnitElectricityFields(unitA, "2026-09",
+                new java.math.BigDecimal("412"), null, null, new java.math.BigDecimal("3296"), null, new java.math.BigDecimal("6.2"), new java.math.BigDecimal("5"), null)));
+            assertEquals("Villa 101", ue.server("unit"));
+            assertThrows(RuntimeException.class, () -> as(admin, () -> kit.create(admin, com.communityos.api.assets.AssetResources.UNIT_ELECTRICITY, ueRepo, new com.communityos.api.assets.AssetResources.UnitElectricityFields(unitA,
+                "2026-09", null, null, null, null, null, null, null, null))), "one row per unit and month");
 
             // ---- 7. audit, outbox ----------------------------------------------------------------------------------------------------------------
             assertTrue(Integer.parseInt((String) owner.sql("SELECT count(*)::text AS n FROM audit.audit_event WHERE community_id = '" + cid + "'").get(0).get("n")) >= 7);

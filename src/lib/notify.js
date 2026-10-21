@@ -47,6 +47,7 @@ export const EVENTS = [
   { id: 'gate_override', label: 'Gate: guard override or manual open', group: 'Security' },
   { id: 'gate_blocked', label: 'Gate: blocked person attempt', group: 'Security' },
   { id: 'gate_vetting', label: 'Gate: vetting expiring or rejected', group: 'Security' },
+  { id: 'stock_low', label: 'Stock running low (supplies at or below their minimum)', group: 'Assets' },
 ];
 export const eventLabel = (id) => EVENTS.find((e) => e.id === id)?.label || id;
 
