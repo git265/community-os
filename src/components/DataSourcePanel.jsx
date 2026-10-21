@@ -56,11 +56,17 @@ export function DataSourcePanel({ onClose }) {
         {err && <div className="notice error" role="alert" data-testid="ds-error">{err}</div>}
         {health && (
           <div className="notice" role="status" data-testid="ds-status">
-            Connected · database <b>{health.database}</b> · version {health.version}
+            {health.api === 'v2' ? <>Connected · API <b>v2</b></> : <>Connected · database <b>{health.database}</b> · version {health.version}</>}
             <div className="muted" style={{ marginTop: 4 }}>{Object.entries(health.providers || {}).map(([k, v]) => `${k}: ${v}`).join(' · ')}</div>
           </div>
         )}
-        {health && (
+        {health && mode === 'v2' && (
+          <small className="muted" style={{ display: 'block', marginTop: 10 }} data-testid="ds-v2-data">
+            The v2 server keeps its own data; browser data is not copied into it. In development it loads the demo community itself
+            (the <code>demo</code> step in Docker, or <code>POST /api/v1/demo/load/{getCommunity()}</code>).
+          </small>
+        )}
+        {health && mode === 'api' && (
           <div style={{ marginTop: 10 }}>
             <div className="muted" style={{ marginBottom: 6 }}>Move data for “{getCommunity()}”</div>
             <div className="form-actions">
