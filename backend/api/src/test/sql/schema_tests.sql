@@ -200,9 +200,25 @@ DO $$ BEGIN
 END $$;
 DO $$ BEGIN
   PERFORM set_config('app.community_id', '00000000-0000-0000-0000-00000000000a', true);
-  PERFORM test.expect_error($q$INSERT INTO maintenance.ticket_comment (community_id, ticket_id, body) VALUES ('00000000-0000-0000-0000-00000000000a', gen_random_uuid(), 'orphan')$q$, '23503');
+  PERFORM test.expect_error($q$INSERT INTO maintenance.ticket_comment (community_id, ticket_id, author_id, body) VALUES ('00000000-0000-0000-0000-00000000000a', gen_random_uuid(), gen_random_uuid(), 'orphan')$q$, '23503');
   PERFORM test.expect_error($q$INSERT INTO gate.pass (community_id, unit_id, visitor_name) VALUES ('00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-0000000000c2', 'x')$q$, '23503');
   PERFORM test.pass('module tables keep their references: no comment without its ticket, no pass for another community''s unit');
+END $$;
+DO $$ DECLARE tt uuid; tk uuid; sn text; BEGIN
+  PERFORM set_config('app.community_id', '00000000-0000-0000-0000-00000000000a', true);
+  SELECT id INTO tt FROM maintenance.task_type WHERE name = 'Resident Maintenance';
+  IF tt IS NULL THEN RAISE EXCEPTION 'the default task types were not provisioned'; END IF;
+  INSERT INTO maintenance.ticket (community_id, task_type_id, title, unit_id, category, raised_by_id)
+    VALUES ('00000000-0000-0000-0000-00000000000a', tt, 'Leak in kitchen', '00000000-0000-0000-0000-0000000000c1', 'Plumbing', '00000000-0000-0000-0000-0000000000e1') RETURNING id, short_id INTO tk, sn;
+  IF sn <> 'TKT-1051' THEN RAISE EXCEPTION 'first ticket number is %', sn; END IF;
+  PERFORM test.expect_error($q$INSERT INTO maintenance.ticket (community_id, title, category, raised_by_id, status) VALUES ('00000000-0000-0000-0000-00000000000a', 'x yz', 'Plumbing', '00000000-0000-0000-0000-0000000000e1', 'Done')$q$, '23514');
+  PERFORM test.expect_error($q$INSERT INTO maintenance.ticket (community_id, title, category, raised_by_id, scope) VALUES ('00000000-0000-0000-0000-00000000000a', 'Street light', 'Electrical', '00000000-0000-0000-0000-0000000000e1', 'Community')$q$, '23514');
+  PERFORM test.expect_error(format($q$UPDATE maintenance.ticket SET status = 'Assigned' WHERE id = %L$q$, tk), '23514');
+  PERFORM test.expect_error(format($q$UPDATE maintenance.ticket SET status = 'Cancelled' WHERE id = %L$q$, tk), '23514');
+  PERFORM test.expect_error(format($q$UPDATE maintenance.ticket SET resident_rating = 9 WHERE id = %L$q$, tk), '23514');
+  PERFORM test.expect_error(format($q$UPDATE maintenance.ticket SET assignee_id = '00000000-0000-0000-0000-0000000000e2' WHERE id = %L$q$, tk), '23503');
+  PERFORM test.expect_error(format($q$INSERT INTO maintenance.ticket_comment (community_id, ticket_id, author_id, body, visibility) VALUES ('00000000-0000-0000-0000-00000000000a', %L, '00000000-0000-0000-0000-0000000000e1', 'x', 'Secret')$q$, tk), '23514');
+  PERFORM test.pass('tickets: numbered from TKT-1051, status / scope / rating checked, an assignee from this community, a reason to cancel', sn);
 END $$;
 RESET ROLE;
 

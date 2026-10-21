@@ -36,7 +36,6 @@ public final class PsqlJdbc extends NamedParameterJdbcTemplate implements Tx, Au
     public static final class SqlError extends RuntimeException { public final String state; SqlError(String state, String m) { super(m); this.state = state; } }
     /** the local PostgreSQL port (PGPORT, default 5433) */
     public static final String PORT = System.getenv().getOrDefault("PGPORT", "5433");
-    private static final Pattern PARAM = Pattern.compile("(?<!:):([A-Za-z_][A-Za-z0-9_]*)");
     private static final Pattern UUID_RE = Pattern.compile("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}");
 
     private final Process psql; private final Writer in; private final BufferedReader out; private final StringBuilder err = new StringBuilder();
@@ -152,17 +151,11 @@ public final class PsqlJdbc extends NamedParameterJdbcTemplate implements Tx, Au
     }
 
     static String render(String sql, Map<String, ?> params) {
-        Matcher m = PARAM.matcher(sql);
-        StringBuilder sb = new StringBuilder();
-        while (m.find()) {
-            String name = m.group(1);
+        return com.communityos.api.sql.NamedSql.replace(sql, (name) -> {
             if (!params.containsKey(name)) throw new IllegalArgumentException("no value for :" + name + " in " + sql);
             Object v = params.get(name);
-            String r = v instanceof Collection<?> c ? String.join(", ", c.stream().map(PsqlJdbc::lit).toList()) : lit(v);
-            m.appendReplacement(sb, Matcher.quoteReplacement(r));
-        }
-        m.appendTail(sb);
-        return sb.toString();
+            return v instanceof Collection<?> c ? String.join(", ", c.stream().map(PsqlJdbc::lit).toList()) : lit(v);
+        });
     }
     static String lit(Object v) {
         if (v == null) return "NULL";

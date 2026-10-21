@@ -1,0 +1,137 @@
+package com.communityos.api.maintenance.adapter;
+
+import com.communityos.api.maintenance.application.port.TicketRepository;
+import com.communityos.api.maintenance.domain.TaskType;
+import com.communityos.api.maintenance.domain.Ticket;
+import com.communityos.api.maintenance.domain.TicketStatus;
+import com.communityos.api.shared.access.Spec;
+import com.communityos.api.shared.domain.Ids.BlockId;
+import com.communityos.api.shared.domain.Ids.CommunityId;
+import com.communityos.api.shared.domain.Ids.MembershipId;
+import com.communityos.api.shared.domain.Ids.UnitId;
+import com.communityos.api.shared.domain.Money;
+import com.communityos.api.shared.jdbc.Rows;
+import com.communityos.api.shared.web.Page;
+import com.communityos.api.shared.web.PageQuery;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+
+/** maintenance.ticket on the tenant connection, with its task type, unit, raiser and assignee joined in one query. */
+public final class JdbcTicketRepository implements TicketRepository {
+    static final String COLUMNS = """
+        SELECT t.id, t.community_id, t.short_id, t.title, t.description, t.unit_id, u.unit_no, u.block_id, t.scope, t.location, t.category, t.sub_category, t.priority,
+               t.status, t.assignee_id, a.display_name AS assignee_name, t.sla_due_at::date AS sla_due_at, t.preferred_time, t.affected_unit_ids, t.resident_rating,
+               t.raised_by_id, r.display_name AS raised_by_name, rr.code AS raised_by_role, t.awaiting_parts, t.materials_cost, t.financial, t.work_done,
+               t.assigned_at, t.started_at, t.completed_at, t.closed_at, t.cancelled_at, t.cancel_reason, t.reopen_count, t.custom::text AS custom,
+               t.created_at, t.updated_at, t.version,
+               tt.id AS tt_id, tt.name AS tt_name, tt.icon AS tt_icon, tt.creator_scope, tt.assignment_mode, tt.quotation_stage, tt.ec_approval_stage, tt.treasurer_stage,
+               tt.invoice_stage, tt.payment_stage, tt.resident_visible, tt.resident_default, tt.active AS tt_active""";
+    static final String FROM = """
+        FROM maintenance.ticket t
+        LEFT JOIN maintenance.task_type tt ON tt.community_id = t.community_id AND tt.id = t.task_type_id
+        LEFT JOIN property.unit u ON u.community_id = t.community_id AND u.id = t.unit_id
+        LEFT JOIN identity.membership a ON a.community_id = t.community_id AND a.id = t.assignee_id
+        JOIN identity.membership r ON r.community_id = t.community_id AND r.id = t.raised_by_id
+        LEFT JOIN identity.role rr ON rr.community_id = t.community_id AND rr.id = t.raised_by_role_id""";
+    static final String FILTER = """
+        WHERE (CAST(:status AS text) IS NULL OR t.status = :status)
+          AND (CAST(:active AS boolean) IS FALSE OR t.status IN ('Open', 'Assigned', 'In Progress', 'On Hold'))
+          AND (CAST(:category AS text) IS NULL OR t.category = :category)
+          AND (CAST(:unit AS uuid) IS NULL OR t.unit_id = CAST(:unit AS uuid) OR CAST(:unit AS uuid) = ANY (t.affected_unit_ids))
+          AND (CAST(:raisedBy AS uuid) IS NULL OR t.raised_by_id = CAST(:raisedBy AS uuid))
+          AND (CAST(:assignee AS uuid) IS NULL OR t.assignee_id = CAST(:assignee AS uuid))
+          AND (CAST(:q AS text) IS NULL OR t.title ILIKE :q ESCAPE '\\' OR t.short_id ILIKE :q ESCAPE '\\')""";
+    static final String INSERT = """
+        INSERT INTO maintenance.ticket (community_id, id, task_type_id, title, description, unit_id, scope, location, category, sub_category, priority, status,
+                                        assignee_id, assigned_at, sla_due_at, preferred_time, raised_by_id, raised_by_role_id, custom)
+        VALUES (CAST(:community AS uuid), CAST(:id AS uuid), CAST(:taskType AS uuid), :title, :description, CAST(:unit AS uuid), :scope, :location, :category, :subCategory,
+                :priority, :status, CAST(:assignee AS uuid), CAST(:assignedAt AS timestamptz), CAST(:sla AS date), :preferredTime, CAST(:raisedBy AS uuid),
+                (SELECT ro.id FROM identity.role ro WHERE ro.code = CAST(:raisedByRole AS text)), CAST(:custom AS jsonb))
+        RETURNING short_id, version""";
+    static final String UPDATE = """
+        UPDATE maintenance.ticket SET title = :title, description = :description, location = :location, category = :category, sub_category = :subCategory,
+               priority = :priority, status = :status, assignee_id = CAST(:assignee AS uuid), assigned_at = CAST(:assignedAt AS timestamptz), sla_due_at = CAST(:sla AS date),
+               preferred_time = :preferredTime, affected_unit_ids = CAST(:affected AS uuid[]), resident_rating = :rating, awaiting_parts = :awaitingParts,
+               materials_cost = :materialsCost, financial = :financial, work_done = CAST(:workDone AS date), started_at = CAST(:startedAt AS timestamptz),
+               completed_at = CAST(:completedAt AS timestamptz), closed_at = CAST(:closedAt AS timestamptz), cancelled_at = CAST(:cancelledAt AS timestamptz),
+               cancel_reason = :cancelReason, reopen_count = :reopenCount
+        WHERE id = CAST(:id AS uuid) AND version = :version RETURNING version""";
+
+    public static String listSql(String scopeSql) { return COLUMNS + ", count(*) OVER () AS total\n" + FROM + "\n" + FILTER + "\n  AND " + scopeSql + "\nORDER BY t.created_at DESC, t.id LIMIT :limit OFFSET :offset"; }
+    public static String getSql(String scopeSql) { return COLUMNS + "\n" + FROM + "\nWHERE t.id = CAST(:id AS uuid) AND " + scopeSql; }
+
+    private final NamedParameterJdbcTemplate jdbc; private final ObjectMapper json;
+    public JdbcTicketRepository(NamedParameterJdbcTemplate jdbc, ObjectMapper json) { this.jdbc = jdbc; this.json = json; }
+
+    @Override public Page<Ticket> find(Spec<Ticket> scope, Filter f, PageQuery page) {
+        Map<String, Object> p = new HashMap<>(scope.params());
+        p.put("status", f.status()); p.put("active", f.activeOnly()); p.put("category", f.category()); p.put("unit", f.unit() == null ? null : f.unit().toString());
+        p.put("raisedBy", f.raisedBy() == null ? null : f.raisedBy().toString()); p.put("assignee", f.assignee() == null ? null : f.assignee().toString());
+        p.put("q", f.q() == null || f.q().isBlank() ? null : Rows.like(f.q().strip())); p.put("limit", page.limit()); p.put("offset", page.offset());
+        long[] total = {0};
+        List<Ticket> rows = jdbc.query(listSql(scope.sql()), p, (rs, i) -> { total[0] = rs.getLong("total"); return map(rs); });
+        return new Page<>(rows, total[0], page.limit(), page.offset());
+    }
+    @Override public Optional<Ticket> findById(UUID id, Spec<Ticket> scope) {
+        Map<String, Object> p = new HashMap<>(scope.params()); p.put("id", id.toString());
+        return jdbc.query(getSql(scope.sql()), p, (rs, i) -> map(rs)).stream().findFirst();
+    }
+    @Override public void insert(Ticket t) {
+        Ticket.State s = t.state();
+        Map<String, Object> p = new HashMap<>();
+        p.put("community", s.community.toString()); p.put("id", s.id.toString()); p.put("taskType", s.taskType == null ? null : s.taskType.id().toString());
+        p.put("title", s.title); p.put("description", s.description); p.put("unit", s.unit == null ? null : s.unit.toString()); p.put("scope", s.scope); p.put("location", s.location);
+        p.put("category", s.category); p.put("subCategory", s.subCategory); p.put("priority", s.priority); p.put("status", s.status.label());
+        p.put("assignee", s.assignee == null ? null : s.assignee.toString()); p.put("assignedAt", Rows.ts(s.assignedAt)); p.put("sla", Rows.sqlDate(s.slaDueAt));
+        p.put("preferredTime", s.preferredTime); p.put("raisedBy", s.raisedBy.toString()); p.put("raisedByRole", s.raisedByRole); p.put("custom", write(s.custom));
+        jdbc.query(INSERT, p, (rs, i) -> { t.numbered(rs.getString("short_id")); t.stored(rs.getLong("version")); s.version = t.version(); return null; });
+    }
+    @Override public boolean save(Ticket t) {
+        Ticket.State s = t.state();
+        Map<String, Object> p = new HashMap<>();
+        p.put("id", s.id.toString()); p.put("version", t.version()); p.put("title", s.title); p.put("description", s.description); p.put("location", s.location);
+        p.put("category", s.category); p.put("subCategory", s.subCategory); p.put("priority", s.priority); p.put("status", s.status.label());
+        p.put("assignee", s.assignee == null ? null : s.assignee.toString()); p.put("assignedAt", Rows.ts(s.assignedAt)); p.put("sla", Rows.sqlDate(s.slaDueAt));
+        p.put("preferredTime", s.preferredTime); p.put("affected", "{" + String.join(",", s.affectedUnits.stream().map(Object::toString).toList()) + "}");
+        p.put("rating", s.residentRating); p.put("awaitingParts", s.awaitingParts); p.put("materialsCost", s.materialsCost == null ? null : s.materialsCost.amount());
+        p.put("financial", s.financial); p.put("workDone", Rows.sqlDate(s.workDone)); p.put("startedAt", Rows.ts(s.startedAt)); p.put("completedAt", Rows.ts(s.completedAt));
+        p.put("closedAt", Rows.ts(s.closedAt)); p.put("cancelledAt", Rows.ts(s.cancelledAt)); p.put("cancelReason", s.cancelReason); p.put("reopenCount", s.reopenCount);
+        List<Long> v = jdbc.query(UPDATE, p, (rs, i) -> rs.getLong("version"));
+        if (v.isEmpty()) return false;
+        t.stored(v.get(0)); s.version = v.get(0);
+        return true;
+    }
+
+    private Ticket map(ResultSet rs) throws SQLException {
+        Ticket.State s = new Ticket.State();
+        s.id = Rows.uuid(rs, "id"); s.community = new CommunityId(Rows.uuid(rs, "community_id")); s.shortId = rs.getString("short_id"); s.title = rs.getString("title");
+        s.description = rs.getString("description"); UUID unit = Rows.uuid(rs, "unit_id"); s.unit = unit == null ? null : new UnitId(unit); s.unitNo = rs.getString("unit_no");
+        UUID block = Rows.uuid(rs, "block_id"); s.block = block == null ? null : new BlockId(block); s.scope = rs.getString("scope"); s.location = rs.getString("location");
+        s.category = rs.getString("category"); s.subCategory = rs.getString("sub_category"); s.priority = rs.getString("priority"); s.status = TicketStatus.of(rs.getString("status"));
+        UUID as = Rows.uuid(rs, "assignee_id"); s.assignee = as == null ? null : new MembershipId(as); s.assigneeName = rs.getString("assignee_name");
+        s.slaDueAt = Rows.date(rs, "sla_due_at"); s.preferredTime = rs.getString("preferred_time");
+        s.affectedUnits = new java.util.LinkedHashSet<>(Rows.set(rs, "affected_unit_ids", (o) -> new UnitId((UUID) o)));
+        java.math.BigDecimal rating = rs.getBigDecimal("resident_rating"); s.residentRating = rating == null ? null : rating.intValue();
+        s.raisedBy = new MembershipId(Rows.uuid(rs, "raised_by_id")); s.raisedByName = rs.getString("raised_by_name"); s.raisedByRole = rs.getString("raised_by_role");
+        s.awaitingParts = rs.getBoolean("awaiting_parts"); java.math.BigDecimal mc = rs.getBigDecimal("materials_cost"); s.materialsCost = mc == null ? null : new Money(mc);
+        s.financial = rs.getBoolean("financial"); s.workDone = Rows.date(rs, "work_done");
+        s.assignedAt = Rows.instant(rs, "assigned_at"); s.startedAt = Rows.instant(rs, "started_at"); s.completedAt = Rows.instant(rs, "completed_at");
+        s.closedAt = Rows.instant(rs, "closed_at"); s.cancelledAt = Rows.instant(rs, "cancelled_at"); s.cancelReason = rs.getString("cancel_reason"); s.reopenCount = rs.getInt("reopen_count");
+        try { s.custom = json.readValue(rs.getString("custom"), new TypeReference<Map<String, Object>>() {}); } catch (java.io.IOException e) { throw new SQLException(e); }
+        s.createdAt = Rows.instant(rs, "created_at"); s.updatedAt = Rows.instant(rs, "updated_at"); s.version = rs.getLong("version");
+        UUID tt = Rows.uuid(rs, "tt_id");
+        if (tt != null) s.taskType = new TaskType(tt, rs.getString("tt_name"), rs.getString("tt_icon"), rs.getString("creator_scope"), rs.getString("assignment_mode"),
+            rs.getString("quotation_stage"), rs.getString("ec_approval_stage"), rs.getString("treasurer_stage"), rs.getString("invoice_stage"), rs.getString("payment_stage"),
+            rs.getBoolean("resident_visible"), rs.getBoolean("resident_default"), rs.getBoolean("tt_active"));
+        return new Ticket(s);
+    }
+    private String write(Object o) { try { return json.writeValueAsString(o); } catch (Exception e) { throw new IllegalStateException(e); } }
+}

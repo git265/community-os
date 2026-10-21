@@ -92,3 +92,46 @@ export function orderOf(o) {
     refs: o.items.map((i) => i.dueId), providerOrderRef: o.checkout?.providerOrderRef || null, checkout: o.checkout || {}, expiresAt: o.expiresAt,
   };
 }
+
+// ---- maintenance: tickets, discussion, task types, field staff, categories, phrases ------------------------------------------------------------
+export function ticketOf(t, unitNoById = {}) {
+  return {
+    id: t.id, shortId: t.shortId, ticketNumber: t.shortId, taskTypeId: t.taskTypeId, taskType: t.taskType || '', title: t.title, description: t.description || '',
+    unit: t.unitNo || '', unitId: t.unitId, scope: t.scope, location: t.location || '', category: t.category, subCategory: t.subCategory || '', priority: t.priority,
+    status: t.status, assignedTo: t.assigneeName || '', assigneeId: t.assigneeId, slaDueAt: t.slaDueAt || '', preferredTime: t.preferredTime || '',
+    affectedUnits: (t.affectedUnitIds || []).map((id) => unitNoById[id] || id), affectedUnitIds: t.affectedUnitIds || [], residentRating: t.residentRating || 0,
+    createdBy: t.raisedByName || '', createdByRole: t.raisedByRole || '', raisedById: t.raisedById, awaitingParts: !!t.awaitingParts, materialsCost: num(t.materialsCost) || 0,
+    financial: !!t.financial, workDone: t.workDone || '', cancelReason: t.cancelReason || '', reopenCount: t.reopenCount || 0,
+    createdAt: t.createdAt, recordCreatedAt: t.createdAt, updatedAt: t.updatedAt, attachments: [], hasPhotos: false, paymentStatus: 'Not Paid', version: t.version,
+  };
+}
+/** Fields a ticket edit may send (PATCH); the commands (assign, status, rating, me-too) are separate. */
+export const TICKET_EDIT = ['title', 'description', 'category', 'subCategory', 'priority', 'location', 'preferredTime', 'slaDueAt', 'awaitingParts', 'materialsCost', 'financial', 'workDone'];
+/** The financial workflow - quotations, invoices, approvals - comes with the next maintenance step on v2. */
+export const TICKET_FINANCE = ['quotationStatus', 'selectedQuotationId', 'selectedQuotationIds', 'selectedInvoiceId', 'approvalStage', 'invoiceApprovalMode', 'approvedAmount',
+  'ecApproval', 'ecApprovedBy', 'ecApprovedAt', 'finalRequired', 'treasurerApproval', 'treasurerApprovedBy', 'treasurerApprovedAt', 'invoiceStatus', 'plan', 'advanceCeiling', 'advanceReason'];
+export function ticketPatch(before, after) {
+  const body = {};
+  for (const k of TICKET_EDIT) {
+    if (!(k in after) || JSON.stringify(before[k] ?? '') === JSON.stringify(after[k] ?? '')) continue;
+    const v = after[k];
+    body[k] = k === 'materialsCost' ? money(v || 0) : (k === 'slaDueAt' || k === 'workDone') ? (v || null) : (k === 'awaitingParts' || k === 'financial') ? !!v : (v ?? '');
+  }
+  return Object.keys(body).length ? body : null;
+}
+export function raiseTicketBody(rec, { taskTypeIdByName, unitIdByNo, resident }) {
+  const unitId = rec.unitId || (rec.unit ? unitIdByNo[rec.unit] : null) || null;
+  if (rec.unit && !unitId) throw new Error(`Unit ${rec.unit} is not known to the back end.`);
+  return {
+    taskTypeId: rec.taskTypeId || taskTypeIdByName[rec.taskType] || null, title: rec.title, description: rec.description || null, unitId,
+    scope: rec.scope || 'Unit', location: rec.location || null, category: rec.category, subCategory: rec.subCategory || null, priority: rec.priority || 'Medium',
+    preferredTime: rec.preferredTime || null, slaDueAt: resident ? null : (rec.slaDueAt || null),   // a resident's SLA is the committee's to set
+  };
+}
+export const commentOf = (c) => ({ id: c.id, shortId: c.shortId, ticketId: c.ticketId, author: c.authorName, authorId: c.authorId, visibility: c.visibility, body: c.body, createdAt: c.createdAt, attachments: [] });
+export const taskTypeOf = (t) => ({ id: t.id, name: t.name, icon: t.icon, creatorScope: t.creatorScope, assignmentMode: t.assignmentMode, quotationStage: t.quotationStage || 'No',
+  ecApprovalStage: t.ecApprovalStage || 'No', treasurerStage: t.treasurerStage || 'No', invoiceStage: t.invoiceStage || 'No', paymentStage: t.paymentStage || 'No',
+  residentVisible: t.residentVisible, residentDefault: t.residentDefault, canRaise: t.canRaise });
+export const fieldStaffOf = (f) => ({ id: f.id, shortId: f.shortId, membershipId: f.membershipId, name: f.name, trade: f.trade, shift: f.shift || '', phone: f.phone || '', clockedIn: f.clockedIn, version: f.version });
+export const categoryOf = (c) => ({ id: c.id, category: c.category, subCategories: c.subCategories || [], coordinator: c.coordinatorRoles || [], assetLink: c.assetLink || '', notes: c.notes || '', vendor: '' });
+export const phraseOf = (p) => ({ id: p.id, phrase: p.phrase, category: p.category });

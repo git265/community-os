@@ -14,8 +14,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * Prints every SQL statement the JDBC adapters can send - their constants, plus the list / detail queries composed with the REAL access
@@ -30,7 +28,8 @@ public final class SqlCatalog {
     static {
         for (String c : List.of("shared.jdbc.JdbcOutboxWriter", "shared.jdbc.JdbcAuditWriter", "shared.jdbc.JdbcIdempotencyStore", "shared.jdbc.JdbcFieldDefinitions",
                 "identity.adapter.JdbcMemberRepository", "identity.adapter.JdbcRoleCatalog", "property.adapter.JdbcUnitRepository", "billing.adapter.JdbcDueRepository",
-                "billing.adapter.JdbcBillingLookups", "billing.adapter.JdbcPaymentOrderRepository", "billing.adapter.JdbcPaymentRepository", "billing.adapter.JdbcJournalWriter"))
+                "billing.adapter.JdbcBillingLookups", "billing.adapter.JdbcPaymentOrderRepository", "billing.adapter.JdbcPaymentRepository", "billing.adapter.JdbcJournalWriter",
+                "maintenance.adapter.JdbcTicketRepository", "maintenance.adapter.JdbcMaintenanceDirectory", "maintenance.adapter.JdbcMaintenanceReference"))
             CLASSES.put(c, "cos_app");
         for (String c : List.of("shared.jdbc.JdbcOutboxStore", "identity.adapter.JdbcOtpStore", "identity.adapter.JdbcRefreshTokenStore", "identity.adapter.JdbcPersonDirectory",
                 "identity.adapter.JdbcRateLimiter", "identity.adapter.JdbcCallerLoader", "identity.adapter.JdbcCommunityDirectory", "billing.adapter.JdbcPlatformPayments", "shared.integration.WebhookFanout",
@@ -39,7 +38,8 @@ public final class SqlCatalog {
     }
     /** fragments that are only valid once composed */
     static final Set<String> FRAGMENTS = Set.of("JdbcMemberRepository.SELECT", "JdbcMemberRepository.FILTER", "JdbcUnitRepository.SELECT", "JdbcUnitRepository.FILTER",
-        "JdbcDueRepository.COLUMNS", "JdbcDueRepository.FROM", "JdbcDueRepository.FILTER");
+        "JdbcDueRepository.COLUMNS", "JdbcDueRepository.FROM", "JdbcDueRepository.FILTER",
+        "JdbcTicketRepository.COLUMNS", "JdbcTicketRepository.FROM", "JdbcTicketRepository.FILTER", "JdbcMaintenanceDirectory.STAFF", "JdbcMaintenanceDirectory.RECENT_COMMENTS");
 
     public static void main(String[] a) throws Exception {
         List<Stmt> out = new ArrayList<>();
@@ -66,20 +66,21 @@ public final class SqlCatalog {
             out.add(new Stmt("cos_app", "units.get." + i, com.communityos.api.property.adapter.JdbcUnitRepository.getSql(ws.sql())));
             out.add(new Stmt("cos_app", "dues.list." + i, com.communityos.api.billing.adapter.JdbcDueRepository.listSql(ds.sql())));
             out.add(new Stmt("cos_app", "dues.get." + i, com.communityos.api.billing.adapter.JdbcDueRepository.getSql(ds.sql())));
+            Spec<?> ts = new com.communityos.api.maintenance.application.TicketPolicy().readScope(c);
+            out.add(new Stmt("cos_app", "tickets.list." + i, com.communityos.api.maintenance.adapter.JdbcTicketRepository.listSql(ts.sql())));
+            out.add(new Stmt("cos_app", "comments.recent." + i, com.communityos.api.maintenance.adapter.JdbcMaintenanceDirectory.recentSql(ts.sql())));
+            out.add(new Stmt("cos_app", "tickets.get." + i, com.communityos.api.maintenance.adapter.JdbcTicketRepository.getSql(ts.sql())));
         }
         StringBuilder sb = new StringBuilder("\\set ON_ERROR_STOP 0\n");
         int n = 0;
         for (Stmt s : out) {
             n++;
-            Matcher m = Pattern.compile("(?<!:):([A-Za-z_][A-Za-z0-9_]*)").matcher(s.sql());
             Map<String, Integer> idx = new LinkedHashMap<>();
-            StringBuilder q = new StringBuilder();
-            while (m.find()) { int k = idx.computeIfAbsent(m.group(1), (x) -> idx.size() + 1); m.appendReplacement(q, "\\$" + k); }
-            m.appendTail(q);
+            String q = NamedSql.replace(s.sql(), (name) -> "$" + idx.computeIfAbsent(name, (x) -> idx.size() + 1));
             String nulls = idx.isEmpty() ? "" : "(" + String.join(", ", java.util.Collections.nCopies(idx.size(), "NULL")) + ")";
             sb.append("\\echo == ").append(s.name()).append(" (").append(s.role()).append(")\n")
               .append("BEGIN; SET LOCAL ROLE ").append(s.role()).append("; SELECT set_config('app.community_id', (SELECT id::text FROM platform.community LIMIT 1), true) \\gset\n")
-              .append("PREPARE s").append(n).append(" AS ").append(q.toString().strip()).append(";\n")
+              .append("PREPARE s").append(n).append(" AS ").append(q.strip()).append(";\n")
               .append("EXPLAIN (COSTS OFF) EXECUTE s").append(n).append(nulls).append(" \\g /dev/null\n")
               .append("ROLLBACK;\n");
         }

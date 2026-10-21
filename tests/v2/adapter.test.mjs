@@ -19,8 +19,9 @@ const state = {
     { id: B, shortId: 'UNIT-2', unitNo: 'Villa 202', blockId: null, blockName: 'Block 2', unitType: 'Villa', occupancy: 'Vacant', areaSqft: null, maintenancePlan: null, sanctionedKw: null, status: 'Active', custom: {}, updatedAt: '2026-10-20T06:00:00Z', version: 1 },
   ],
   dues: [], members: [{ id: M1, displayName: 'Asha', phone: '+919800000001', status: 'Active', roles: [{ code: 'owner', name: 'Owner', primary: true }], units: [A], createdAt: null, updatedAt: null, version: 2 }],
-  orders: [],
+  orders: [], tickets: [], comments: [], staff: [{ id: 'fs-1', shortId: 'HMN-0001', membershipId: 'm-plumber', name: 'Ravi Plumber', trade: 'Plumbing', shift: 'Morning', phone: null, clockedIn: false, version: 1 }],
 };
+const TT = [{ id: 'tt-res', name: 'Resident Maintenance', icon: '🔧', creatorScope: 'Resident', assignmentMode: 'Role queue (staff accepts)', residentVisible: true, residentDefault: true, canRaise: true }];
 const page = (items) => ({ items, total: items.length, limit: 200, offset: 0 });
 const ok = (body, status = 200, headers = {}) => new Response(body == null ? null : JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...headers } });
 const problem = (status, code, detail) => ok({ status, code, detail }, status);
@@ -74,6 +75,35 @@ globalThis.fetch = async (url, init = {}) => {
     return ok({ paymentId: 'pay-1', receiptNo: 'RCP-0001', unitId: o.unitId, orderId: o.id, amount: o.amount, method: 'UPI', provider: 'simulated', receivedAt: new Date().toISOString(), allocations: [], keptAsCredit: '0.00' });
   }
   if ((m = /^\/payment-orders\/([^/]+)$/.exec(path))) return ok(state.orders.find((x) => x.id === m[1]));
+  if (path === '/task-types') return ok(TT);
+  if (path === '/maintenance/categories') return ok([{ id: 'cat-1', category: 'Plumbing', subCategories: ['Leakage'], coordinatorRoles: ['facility_manager'], assetLink: null, notes: '' }]);
+  if (path === '/maintenance/quick-phrases') return ok([{ id: 'qp-1', phrase: 'Send a plumber', category: 'Plumbing' }]);
+  if (path === '/field-staff' && method === 'GET') return ok(state.staff);
+  if ((m = /^\/field-staff\/([^/]+)$/.exec(path))) { const f = state.staff.find((x) => x.id === m[1]); if (h['If-Match'] !== `"${f.version}"`) return problem(409, 'conflict', 'changed'); f.clockedIn = body.clockedIn; f.version++; return ok(f); }
+  if (path === '/ticket-comments') return ok(state.comments);
+  if (path === '/tickets' && method === 'GET') return ok(page(state.tickets));
+  if (path === '/tickets' && method === 'POST') {
+    if (body.taskTypeId !== 'tt-res') return problem(422, 'unknown-task-type', 'no such type');
+    const t = { id: `t-${++seq}`, shortId: `TKT-${1050 + seq}`, taskTypeId: body.taskTypeId, taskType: 'Resident Maintenance', title: body.title, description: body.description, unitId: body.unitId,
+      unitNo: state.units.find((x) => x.id === body.unitId)?.unitNo, scope: body.scope, location: body.location, category: body.category, priority: body.priority, status: 'Open',
+      assigneeId: null, assigneeName: null, slaDueAt: body.slaDueAt, affectedUnitIds: [], residentRating: null, raisedById: M1, raisedByName: 'Asha', raisedByRole: 'owner', awaitingParts: false,
+      materialsCost: null, financial: false, createdAt: new Date().toISOString(), version: 1 };
+    state.tickets.push(t); return ok(t, 201);
+  }
+  if ((m = /^\/tickets\/([^/]+)(\/[a-z-]+)?$/.exec(path))) {
+    const t = state.tickets.find((x) => x.id === m[1]); if (!t) return problem(404, 'not-found', 'Not found');
+    const verb = m[2] || '';
+    if (verb === '/assignees') return ok([{ membershipId: 'm-plumber', name: 'Ravi Plumber', kind: 'Field staff', clockedIn: true, trade: 'Plumbing' }]);
+    if (verb === '/comments' && method === 'POST') { const c = { id: `c-${++seq}`, shortId: `CMT-${seq}`, ticketId: t.id, authorId: M1, authorName: 'Asha', visibility: body.visibility, body: body.body, createdAt: new Date().toISOString() }; state.comments.push(c); return ok(c, 201); }
+    if (method === 'GET') return ok(t);
+    if (verb === '/rating') { t.residentRating = body.rating; t.version++; return ok(t); }
+    if (verb === '/me-too') { if (method === 'POST') t.affectedUnitIds.push(body.unitId); else t.affectedUnitIds = t.affectedUnitIds.filter((x) => x !== u.searchParams.get('unit')); t.version++; return ok(t); }
+    if (h['If-Match'] !== `"${t.version}"`) return problem(409, 'conflict', 'changed');
+    if (verb === '') Object.assign(t, body);
+    if (verb === '/assign') { t.assigneeId = body.assigneeId; t.assigneeName = body.assigneeId ? 'Ravi Plumber' : null; t.status = body.assigneeId ? 'Assigned' : 'Open'; }
+    if (verb === '/status') { t.status = body.status; t.cancelReason = body.reason; }
+    t.version++; return ok(t);
+  }
   return problem(404, 'not-found', `no fake for ${method} ${path}`);
 };
 
@@ -130,8 +160,8 @@ test('members: new member is a POST, a role change a PUT with If-Match', async (
 });
 
 test('not yet on v2: reads are empty, writes refused loudly', async () => {
-  assert.deepEqual(await storage.list('tickets'), []);
-  await assert.rejects(storage.put('tickets', { id: 't1' }), /not on the v2 back end yet/);
+  assert.deepEqual(await storage.list('gatePasses'), []);
+  await assert.rejects(storage.put('gatePasses', { id: 'p1' }), /not on the v2 back end yet/);
 });
 
 test('paying: the server prices, the simulator pays, confirm settles', async () => {
@@ -143,4 +173,35 @@ test('paying: the server prices, the simulator pays, confirm settles', async () 
   assert.deepEqual(create.body, { dueIds: [d.id] }, 'no amount from the browser');
   assert.match(create.headers['Idempotency-Key'], /^pay-[0-9a-f-]{36}$/);
   assert.equal(last('POST', /\/confirm$/).body.providerPaymentRef, 'sim_pay_1');
+});
+
+test('tickets: raise (no SLA from a resident), accept, work, close, rate; comments; field staff clock', async () => {
+  const types = await storage.list('taskTypes');
+  assert.equal(types[0].name, 'Resident Maintenance');
+  const t = await storage.put('tickets', { id: 'client-id', taskType: 'Resident Maintenance', title: 'Leak in kitchen', description: 'Under the sink', unit: 'Villa 101', category: 'Plumbing',
+    priority: 'High', status: 'Open', assignedTo: '', slaDueAt: '2026-10-25', scope: 'Unit', location: '', affectedUnits: [], attachments: [], residentRating: 0, createdBy: 'Asha', paymentStatus: 'Not Paid' });
+  const raise = last('POST', /^\/tickets$/);
+  assert.equal(raise.body.unitId, A); assert.equal(raise.body.taskTypeId, 'tt-res'); assert.equal(raise.body.slaDueAt, null, 'the committee sets the SLA');
+  assert.equal(Object.keys(raise.body).includes('createdBy'), false, 'who raised it is the server\'s');
+  assert.equal(t.ticketNumber, 'TKT-' + t.shortId.slice(4)); assert.equal(t.unit, 'Villa 101');
+  const a = await storage.put('tickets', { ...t, status: 'Assigned', assignedTo: 'Ravi Plumber' });
+  assert.deepEqual(last('POST', /\/assign$/).body, { assigneeId: 'm-plumber' }); assert.equal(a.status, 'Assigned');
+  assert.equal(calls.filter((c) => /\/status$/.test(c.path)).length, 0, 'accepting is an assign, not a status change');
+  const w = await storage.put('tickets', { ...a, status: 'In Progress', awaitingParts: true });
+  assert.deepEqual(last('PATCH', /^\/tickets\//).body, { awaitingParts: true });
+  assert.equal(last('POST', /\/status$/).body.status, 'In Progress');
+  const closed = await storage.put('tickets', { ...w, status: 'Closed' });
+  const rated = await storage.put('tickets', { ...closed, residentRating: 4 });
+  assert.equal(last('POST', /\/rating$/).body.rating, 4); assert.equal(rated.residentRating, 4);
+  await assert.rejects(storage.put('tickets', { ...rated, quotationStatus: 'Requested' }), /quotations, invoices and approvals/);
+  await assert.rejects(storage.put('tickets', { id: 'x', title: 'With photo', category: 'Plumbing', attachments: [{ id: 'f1' }] }), /photos and files/);
+  await assert.rejects(storage.remove('tickets', t.id), /cancel or close/);
+  await storage.put('ticketComments', { ticketId: t.id, body: 'Coming at 4', visibility: 'Public', author: 'Asha', createdAt: new Date().toISOString() });
+  assert.equal(last('POST', /\/comments$/).body.body, 'Coming at 4');
+  assert.equal((await storage.list('ticketComments')).length, 1);
+  const staff = await storage.list('handymen');
+  const clocked = await storage.put('handymen', { ...staff[0], clockedIn: true });
+  assert.equal(last('PATCH', /^\/field-staff\//).headers['If-Match'], '"1"'); assert.equal(clocked.clockedIn, true);
+  assert.equal((await storage.list('categoryMap'))[0].coordinator[0], 'facility_manager');
+  assert.equal((await storage.list('quickPhrases'))[0].phrase, 'Send a plumber');
 });

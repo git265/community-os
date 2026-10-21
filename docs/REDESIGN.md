@@ -70,6 +70,7 @@ In total there are 156 tables. 150 of them are tenant tables.
 | V8 | Monthly partitions and retention |
 | V9 | Security for every tenant table (`platform.apply_security()`) |
 | V10 | Permissions and per-community provisioning, generated from `roles.js` |
+| V11 | Maintenance in its typed shape: tickets point at their task type, unit, raiser and assignee by id; status, priority, scope, rating and cancel reason are checked; comments have a visibility; field staff are members. Default task types, quick phrases, category coverage and final approvers for every community. |
 
 ### Tenancy
 
@@ -268,6 +269,15 @@ So no leader election is needed.
 | POST | `/api/v1/payments` | Office receipt (cash, cheque or bank transfer); `Idempotency-Key` |
 | POST | `/api/v1/webhooks/{provider}` | Signature-checked; always 200 once handled |
 | POST | `/api/v1/dev/simulated-checkout/{ref}` | Only when `cos.payments.simulated.enabled=true`; refused in prod |
+| GET / POST | `/api/v1/tickets`, `/tickets/{id}` | Filters: `status`, `active`, `category`, `unit`, `mine`, `assignedToMe`, `q`. POST takes `Idempotency-Key`. |
+| PATCH | `/api/v1/tickets/{id}` | Field changes, checked field by field for the caller's role; `If-Match` |
+| POST | `/api/v1/tickets/{id}/assign` · `/status` | `{assigneeId}` / `{status, reason}`; `If-Match` |
+| POST / DELETE | `/api/v1/tickets/{id}/me-too` | A resident adds or removes their unit on a community request |
+| POST | `/api/v1/tickets/{id}/rating` | 1–5, by the resident, once the work is done |
+| GET | `/api/v1/tickets/{id}/assignees` | Who this ticket may be given to |
+| GET / POST | `/api/v1/tickets/{id}/comments`, GET `/api/v1/ticket-comments` | Internal comments are never sent to residents |
+| GET | `/api/v1/task-types`, `/maintenance/categories`, `/maintenance/quick-phrases` | Reference lists; task types say whether the caller may raise them |
+| GET / POST / PATCH | `/api/v1/field-staff`, `/field-staff/{id}` | Add a member as field staff; clock in / out (`If-Match`) |
 
 OpenAPI is at `/v3/api-docs`, and metrics at `/actuator/prometheus`.
 
@@ -281,6 +291,10 @@ To use it, pick **Back end v2** in the Data source panel, or set `VITE_USE_API=v
 | `users` | members. A new user is POSTed; a role change is a PUT; Inactive means deactivate. |
 | `dues` | bills. A new bill is POSTed: the typed amount is before tax, and the server adds the category's tax. Cancelled or Waived become cancel / waive. Amount edits are not sent; delete is refused. |
 | `roles` | `GET /roles`, read only |
+| `tickets` | A new ticket is POSTed (a resident's SLA is left to the committee). A change becomes the commands it needs: PATCH for fields, assign, status, rating, me-too. Quotations, invoices, approvals and photos are refused for now. Delete is refused. |
+| `ticketComments` | The latest comments on tickets the caller may see; a new comment is POSTed; comments are never edited |
+| `taskTypes`, `categoryMap`, `quickPhrases` | Read only |
+| `handymen` | Field staff: clock in / out; a new one must already be a member |
 | `schema`, `communityConfig`, `financeSettings`, `roleGroups` | Kept in this browser until v2 has endpoints for them |
 | anything else | Read as empty; a write is refused with "not on the v2 back end yet" |
 
@@ -331,11 +345,11 @@ A new community needs a `platform.community` row, then `SELECT platform.provisio
 
 | Check | Result |
 |---|---|
-| Schema tests (`tools/test-schema.sh`): isolation, stamping, money rules, ledger balance, append-only audit, partitions, privileges | 15 / 15 |
-| Java unit tests (javac against hand-written Spring stubs, JUnit shim): kernel, auth, members, access policies, billing | 39 / 39 |
-| **PostgreSQL flow test** (`it/PostgresFlowTest`): the real adapters as `cos_app` / `cos_platform`, through a psql bridge, about 200 statements | 1 / 1 |
-| Adapter SQL check (`tools/check-adapter-sql.sh`): every statement, including the list and detail queries composed with the real access rules of five kinds of caller, run with `PREPARE` + `EXPLAIN EXECUTE` as its role | 103 / 103 |
-| Web adapter tests (`node tests/v2/run.mjs`): sign-in, units, bills, members, refusals and payment against a fake of the API | 6 / 6 |
+| Schema tests (`tools/test-schema.sh`): isolation, stamping, money rules, ledger balance, append-only audit, partitions, privileges, ticket rules | 16 / 16 |
+| Java unit tests (javac against hand-written Spring stubs, JUnit shim): kernel, auth, members, access policies, billing, maintenance | 46 / 46 |
+| **PostgreSQL flow test** (`it/PostgresFlowTest`): the real adapters as `cos_app` / `cos_platform`, through a psql bridge, about 300 statements (now with a ticket's whole life) | 1 / 1 |
+| Adapter SQL check (`tools/check-adapter-sql.sh`): every statement, including the list and detail queries composed with the real access rules of five kinds of caller, run with `PREPARE` + `EXPLAIN EXECUTE` as its role | 133 / 133 |
+| Web adapter tests (`node tests/v2/run.mjs`): sign-in, units, bills, members, tickets, refusals and payment against a fake of the API | 7 / 7 |
 | Production build (`npx vite build`) | Builds |
 
 The adapter SQL check found two real bugs in the composed list and detail SQL (`JdbcDueRepository`, `JdbcMemberRepository`). Text blocks lost the leading space of a fragment, so `...d.version` + `FROM` became `d.versionFROM`. Both are fixed, and the check now composes exactly the strings the repositories run.
@@ -353,8 +367,9 @@ The adapter SQL check found two real bugs in the composed list and detail SQL (`
 ## 13. Next
 
 1. Run `mvn verify` and the Spring context test.
-2. Port the remaining modules onto their V6 tables, one at a time, each with a policy, a service, a controller and a v2 mapping: tickets, amenities, gate, notices, cultural, documents.
-3. Add endpoints for the app's configuration collections (field definitions, settings).
-4. Add refunds, late fees and bill runs: a bulk `POST /dues:batch`, keyset-paged.
-5. Add ShedLock if a job must run on exactly one instance.
-6. Move the rate limits to Redis when traffic needs it. The interface is already a port.
+2. Maintenance, second step: quotations, invoices and the EC → final approval chain, advances, the ledger link, photos and files, and editing task types / categories / phrases.
+3. Port the remaining modules onto their V6 tables, one at a time, each with a policy, a service, a controller and a v2 mapping: amenities, gate, notices, cultural, documents.
+4. Add endpoints for the app's configuration collections (field definitions, settings).
+5. Add refunds, late fees and bill runs: a bulk `POST /dues:batch`, keyset-paged.
+6. Add ShedLock if a job must run on exactly one instance.
+7. Move the rate limits to Redis when traffic needs it. The interface is already a port.

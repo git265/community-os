@@ -15,6 +15,11 @@ import com.communityos.api.billing.application.LedgerPoster;
 import com.communityos.api.billing.application.PaymentService;
 import com.communityos.api.billing.application.gateway.GatewayRegistry;
 import com.communityos.api.billing.application.gateway.PaymentGateway;
+import com.communityos.api.maintenance.adapter.JdbcMaintenanceDirectory;
+import com.communityos.api.maintenance.adapter.JdbcMaintenanceReference;
+import com.communityos.api.maintenance.adapter.JdbcTicketRepository;
+import com.communityos.api.maintenance.application.FieldStaffService;
+import com.communityos.api.maintenance.application.TicketService;
 import com.communityos.api.property.adapter.JdbcUnitRepository;
 import com.communityos.api.property.application.UnitService;
 import com.communityos.api.shared.audit.AuditWriter;
@@ -48,6 +53,15 @@ public class ModulesConfig {
         return new UnitService(new JdbcUnitRepository(jdbc, json), custom, audit, tx);
     }
 
+    // ---- maintenance ----------------------------------------------------------------------------------------------------------------------
+    @Bean JdbcMaintenanceDirectory maintenanceDirectory(NamedParameterJdbcTemplate jdbc) { return new JdbcMaintenanceDirectory(jdbc); }
+    @Bean JdbcMaintenanceReference maintenanceReference(NamedParameterJdbcTemplate jdbc) { return new JdbcMaintenanceReference(jdbc); }
+    @Bean TicketService ticketService(NamedParameterJdbcTemplate jdbc, ObjectMapper json, JdbcMaintenanceDirectory dir, DomainEvents events, AuditWriter audit, Tx tx, Clock clock) {
+        return new TicketService(new JdbcTicketRepository(jdbc, json), dir, dir, events, audit, tx, clock);
+    }
+    @Bean FieldStaffService fieldStaffService(JdbcMaintenanceDirectory dir, AuditWriter audit, Tx tx) { return new FieldStaffService(dir, dir, audit, tx); }
+
+    // ---- billing ------------------------------------------------------------------------------------------------------------------------------
     @Bean JdbcDueRepository dueRepository(NamedParameterJdbcTemplate jdbc) { return new JdbcDueRepository(jdbc); }
     @Bean JdbcBillingLookups billingLookups(NamedParameterJdbcTemplate jdbc) { return new JdbcBillingLookups(jdbc); }
     @Bean JdbcPaymentRepository paymentRepository(NamedParameterJdbcTemplate jdbc) { return new JdbcPaymentRepository(jdbc); }

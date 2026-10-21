@@ -6,14 +6,18 @@
 //   users       GET /v1/members, GET /v1/members/{id}, POST /v1/members (new), PUT /v1/members/{id}/roles, POST /v1/members/{id}/deactivate
 //   dues        GET /v1/dues, GET /v1/dues/{id}, POST /v1/dues (new), POST /v1/dues/{id}/cancel | /waive (status change) - a bill is never edited
 //   roles       GET /v1/roles (read-only here)
+//   tickets     GET /v1/tickets, POST /v1/tickets (new), then the commands a change needs: PATCH (fields), /assign, /status, /rating, /me-too
+//   ticketComments  GET /v1/ticket-comments (the latest on tickets I may see), POST /v1/tickets/{id}/comments (comments are never edited)
+//   taskTypes, categoryMap, quickPhrases  read-only reference lists;  handymen  GET /v1/field-staff, clock in / out, add a member as field staff
 //   app configuration (schema, communityConfig, financeSettings, roleGroups): kept in this browser until the v2 API has endpoints for them
 //   everything else: not on the v2 API yet - reads answer empty, writes are refused with a clear message (nothing is silently dropped)
 import { apiFetch } from '../../net/request.js';
 import { AuthzError, ConflictError } from '../../security/errors.js';
 import { SessionStorageAdapter } from '../SessionStorageAdapter.js';
-import { propertyOf, unitPatch, userOf, dueOf, raiseBody, roleOf } from './v2map.js';
+import { propertyOf, unitPatch, userOf, dueOf, raiseBody, roleOf, ticketOf, ticketPatch, raiseTicketBody, TICKET_FINANCE, commentOf, taskTypeOf, fieldStaffOf, categoryOf, phraseOf } from './v2map.js';
+import { getAuthUser } from '../../auth/session.js';
 
-export const V2_COLLECTIONS = ['properties', 'users', 'dues', 'roles'];
+export const V2_COLLECTIONS = ['properties', 'users', 'dues', 'roles', 'tickets', 'ticketComments', 'taskTypes', 'handymen', 'categoryMap', 'quickPhrases'];
 export const LOCAL_COLLECTIONS = ['schema', 'communityConfig', 'financeSettings', 'roleGroups'];
 
 export class NotOnV2Error extends Error { constructor(collection) { super(`"${collection}" is not on the v2 back end yet - this screen works with the Browser session or the v1 back end.`); this.name = 'NotOnV2Error'; } }
@@ -55,7 +59,81 @@ const readers = {
   },
   dues: { list: async () => (await all('/dues')).map((d) => dueOf(d)), get: async (id) => { const d = await call(`/dues/${encodeURIComponent(id)}`); return d && dueOf(d); } },
   roles: { list: async () => (await call('/roles')).map(roleOf), get: async (id) => (await readers.roles.list()).find((r) => r.id === id) || null },
+  tickets: {
+    list: async () => { const { noById } = await unitIndex(); return (await all('/tickets')).map((t) => ticketOf(t, noById)); },
+    get: async (id) => { const t = await call(`/tickets/${encodeURIComponent(id)}`); if (!t) return null; const { noById } = await unitIndex(); return ticketOf(t, noById); },
+  },
+  ticketComments: { list: async () => (await call('/ticket-comments?limit=1000')).map(commentOf), get: async (id) => (await readers.ticketComments.list()).find((c) => c.id === id) || null },
+  taskTypes: { list: async () => (await call('/task-types')).map(taskTypeOf), get: async (id) => (await readers.taskTypes.list()).find((t) => t.id === id) || null },
+  handymen: { list: async () => (await call('/field-staff')).map(fieldStaffOf), get: async (id) => (await readers.handymen.list()).find((h) => h.id === id) || null },
+  categoryMap: { list: async () => (await call('/maintenance/categories')).map(categoryOf), get: async (id) => (await readers.categoryMap.list()).find((c) => c.id === id) || null },
+  quickPhrases: { list: async () => (await call('/maintenance/quick-phrases')).map(phraseOf), get: async (id) => (await readers.quickPhrases.list()).find((p) => p.id === id) || null },
 };
+
+const sameList = (a = [], b = []) => JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
+
+async function assigneeId(ticketId, name) {
+  if (!name) return null;
+  const options = await call(`/tickets/${encodeURIComponent(ticketId)}/assignees`);
+  const hit = options.find((o) => o.name === name || o.membershipId === name);
+  if (!hit) throw new Error(`${name} cannot take this ticket.`);
+  return hit.membershipId;
+}
+
+async function putTicket(rec) {
+  const before = rec.id ? await readers.tickets.get(rec.id) : null;
+  if ((rec.attachments || []).length) throw new NotOnV2Error('photos and files on tickets');
+  const { idByNo, noById } = await unitIndex();
+  const map = (t) => ticketOf(t, noById);
+  if (!before) {
+    const types = await call('/task-types');
+    const resident = getAuthUser()?.category === 'Resident';
+    let t = await call('/tickets', json('POST', raiseTicketBody(rec, { taskTypeIdByName: Object.fromEntries(types.map((x) => [x.name, x.id])), unitIdByNo: idByNo, resident })));
+    if (rec.assignedTo && rec.assignedTo !== t.assigneeName) {
+      t = await call(`/tickets/${t.id}/assign`, json('POST', { assigneeId: await assigneeId(t.id, rec.assignedTo) }, ifMatch(t.version)));
+    }
+    return map(t);
+  }
+  const fin = TICKET_FINANCE.filter((k) => k in rec && JSON.stringify(rec[k] ?? '') !== JSON.stringify(before[k] ?? '') && rec[k] !== '' && rec[k] != null);
+  if (fin.length) throw new NotOnV2Error('quotations, invoices and approvals');
+  let version = rec.version ?? before.version; let out = null;
+  const step = async (path, body) => { out = await call(`/tickets/${encodeURIComponent(rec.id)}${path}`, json(path ? 'POST' : 'PATCH', body, ifMatch(version))); version = out.version; };
+  const patch = ticketPatch(before, rec);
+  if (patch) await step('', patch);
+  if ((rec.assignedTo || '') !== (before.assignedTo || '')) await step('/assign', { assigneeId: await assigneeId(rec.id, rec.assignedTo) });
+  const to = rec.status === 'Reopened' ? 'Open' : rec.status;
+  if (to && to !== before.status && !(to === 'Assigned' && rec.assignedTo) && !(to === 'Open' && !rec.assignedTo && before.status === 'Assigned')) {
+    await step('/status', { status: to, reason: rec.cancelReason || rec.reason || null });
+  }
+  if (Number(rec.residentRating || 0) > 0 && Number(rec.residentRating) !== Number(before.residentRating || 0)) {
+    out = await call(`/tickets/${encodeURIComponent(rec.id)}/rating`, json('POST', { rating: Number(rec.residentRating) }));
+  }
+  if (!sameList(rec.affectedUnits, before.affectedUnits)) {
+    const added = (rec.affectedUnits || []).filter((u) => !(before.affectedUnits || []).includes(u));
+    const removed = (before.affectedUnits || []).filter((u) => !(rec.affectedUnits || []).includes(u));
+    for (const u of added) out = await call(`/tickets/${encodeURIComponent(rec.id)}/me-too`, json('POST', { unitId: idByNo[u] || null }));
+    for (const u of removed) out = await call(`/tickets/${encodeURIComponent(rec.id)}/me-too${idByNo[u] ? `?unit=${idByNo[u]}` : ''}`, { method: 'DELETE' });
+  }
+  return out ? map(out) : before;
+}
+
+async function putComment(rec) {
+  if (rec.id && (await readers.ticketComments.get(rec.id))) throw new Error('Comments cannot be edited.');
+  if ((rec.attachments || []).length) throw new NotOnV2Error('files on comments');
+  return commentOf(await call(`/tickets/${encodeURIComponent(rec.ticketId)}/comments`, json('POST', { body: rec.body, visibility: rec.visibility || 'Public' })));
+}
+
+async function putFieldStaff(rec) {
+  const before = rec.id ? await readers.handymen.get(rec.id) : null;
+  if (!before) {
+    const members = await all('/members');
+    const m = members.find((x) => x.id === rec.membershipId || x.displayName === rec.name);
+    if (!m) throw new Error(`Add ${rec.name || 'the person'} as a member first, then make them field staff.`);
+    return fieldStaffOf(await call('/field-staff', json('POST', { membershipId: m.id, trade: rec.trade, shift: rec.shift || null, phone: rec.phone || null })));
+  }
+  if (!!rec.clockedIn === before.clockedIn) return before;
+  return fieldStaffOf(await call(`/field-staff/${encodeURIComponent(rec.id)}`, json('PATCH', { clockedIn: !!rec.clockedIn }, ifMatch(rec.version ?? before.version))));
+}
 
 async function putProperty(rec) {
   const before = await readers.properties.get(rec.id);
@@ -102,7 +180,7 @@ async function putDue(rec) {
   return before;   // a bill's amounts are never edited: a correction is a new bill
 }
 
-const WRITERS = { properties: putProperty, users: putUser, dues: putDue };
+const WRITERS = { properties: putProperty, users: putUser, dues: putDue, tickets: putTicket, ticketComments: putComment, handymen: putFieldStaff };
 const warned = new Set();
 const notYet = (c) => { if (!warned.has(c)) { warned.add(c); console.info(`[v2] "${c}" is not on the v2 back end yet; showing it empty.`); } };
 
@@ -131,7 +209,7 @@ export const V2ApiAdapter = {
   async putMany(c, list) { const out = []; for (const r of list) out.push(await this.put(c, r)); return out; },
   async remove(c, id) {
     if (LOCAL_COLLECTIONS.includes(c)) return SessionStorageAdapter.remove(c, id);
-    throw new Error(c === 'dues' ? 'A bill is not deleted: cancel it with a reason.' : c === 'users' ? 'Deactivate the member instead.' : `"${c}" cannot be removed on the v2 back end.`);
+    throw new Error(c === 'dues' ? 'A bill is not deleted: cancel it with a reason.' : c === 'users' ? 'Deactivate the member instead.' : c === 'tickets' ? 'Tickets cannot be deleted - cancel or close them instead.' : `"${c}" cannot be removed on the v2 back end.`);
   },
   async replaceAll(c, records) { if (LOCAL_COLLECTIONS.includes(c)) return SessionStorageAdapter.replaceAll(c, records); throw new NotOnV2Error(c); },
   forCommunity() { return V2ApiAdapter; },          // the community comes from the access token, not from the client
