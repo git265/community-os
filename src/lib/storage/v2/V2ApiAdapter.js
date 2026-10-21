@@ -16,6 +16,9 @@
 //   broadcasts  GET /v1/comms/broadcasts, POST (new: draft or send), then the command a change means: /sign, /reschedule, PUT (draft), /send
 //   pollVotes   per poll: GET /results (a reader) or /voters (the committee), POST /vote
 //   forum, forumPosts  GET /v1/comms/forum/topics (+ /results for polls), /topics/{id}/posts; POST, PATCH, /vote, /react, /hide, DELETE
+//   meetings    GET /v1/governance/meetings (residents: published ones), POST, PUT with If-Match, DELETE; agenda / minutes papers are attached files
+//   ballots, voteRoll, ballotBox  GET /v1/governance/ballots (+ /roll per ballot, /box once closed); a draft is POST / PUT, Open = /open, Closed = /close;
+//               a vote = /code, /code/verify, then /votes (the roll mark and the box row are written together by the server)
 //   app configuration (schema, communityConfig, roleGroups): kept in this browser until the v2 API has endpoints for them
 //   everything else: not on the v2 API yet - reads answer empty, writes are refused with a clear message (nothing is silently dropped)
 import { apiFetch } from '../../net/request.js';
@@ -23,14 +26,15 @@ import { AuthzError, ConflictError } from '../../security/errors.js';
 import { SessionStorageAdapter } from '../SessionStorageAdapter.js';
 import { propertyOf, unitPatch, userOf, dueOf, raiseBody, roleOf, ticketOf, ticketPatch, raiseTicketBody, commentOf, fieldStaffOf, quotationOf, addDocumentBody,
   quotationCommands, RESOURCES, resourceOf, resourceBody, isUuid, bookingOf, busyOf, bookBody, bookingCommand, gatePassOf, gateVisitOf, gateApprovalOf, gateFlagOf, gateScanOf,
-  passBody, ledgerOf, ledgerBody, bookedByServer, releaseOf, releaseCommands, payRequestOf, bankTxnOf, donationOf, donationBody, expenseOf, expenseBody, expenseCommands, fileMeta, fileRowOf, dataUrlBytes, bytesDataUrl, documentOf, documentBody, notificationOf, broadcastOf, broadcastDraft, broadcastCommands, pollVoteRows, topicOf, postOf } from './v2map.js';
+  passBody, ledgerOf, ledgerBody, bookedByServer, releaseOf, releaseCommands, payRequestOf, bankTxnOf, donationOf, donationBody, expenseOf, expenseBody, expenseCommands, fileMeta, fileRowOf, dataUrlBytes, bytesDataUrl, documentOf, documentBody, notificationOf, broadcastOf, broadcastDraft, broadcastCommands, pollVoteRows, topicOf, postOf, meetingOf, meetingBody, ballotOf, ballotBody, voteMarksOf, boxRowOf, voteUnit } from './v2map.js';
 import { getAuthUser } from '../../auth/session.js';
 import { getPrincipal } from '../../security/principal.js';
 
 const GATE_DESK = ['gatePasses', 'gateVisits', 'gateApprovals', 'gateFlags', 'gateScans', 'gatePulse'];
 const DOCS = ['files', 'documents', 'culturalDonations', 'culturalExpenses', 'ledger', 'releases', 'payRequests', 'bankTxns'];
 const COMMS = ['notifications', 'broadcasts', 'pollVotes', 'forum', 'forumPosts'];
-export const V2_COLLECTIONS = ['properties', 'users', 'dues', 'roles', 'tickets', 'ticketComments', 'handymen', 'quotations', 'amenities', ...GATE_DESK, ...COMMS, ...DOCS, ...Object.keys(RESOURCES)];
+const GOVERNANCE = ['meetings', 'ballots', 'voteRoll', 'ballotBox'];
+export const V2_COLLECTIONS = ['properties', 'users', 'dues', 'roles', 'tickets', 'ticketComments', 'handymen', 'quotations', 'amenities', ...GATE_DESK, ...COMMS, ...DOCS, ...GOVERNANCE, ...Object.keys(RESOURCES)];
 export const LOCAL_COLLECTIONS = ['schema', 'communityConfig', 'roleGroups'];
 
 export class NotOnV2Error extends Error { constructor(collection) { super(`"${collection}" is not on the v2 back end yet - this screen works with the Browser session or the v1 back end.`); this.name = 'NotOnV2Error'; } }
@@ -171,6 +175,24 @@ readers.tickets = withFiles(readers.tickets, 'maintenance.ticket', 'attachments'
 readers.ticketComments = withFiles(readers.ticketComments, 'maintenance.comment', 'attachments');
 readers.quotations = withFiles(readers.quotations, 'maintenance.quotation', 'attachments');
 readers.amenities = withFiles(readers.amenities, 'amenity.booking', 'depositPhotos');
+// governance: meetings with their papers; ballots with the frozen roll, the marks (which units voted) and, once closed, the box
+readers.meetings = withFiles(withFiles({ list: async () => (await call('/governance/meetings')).map(meetingOf),
+  get: async (id) => { if (!isUuid(id)) return null; const m = await call(`/governance/meetings/${id}`); return m && meetingOf(m); } }, 'governance.agenda', 'agendaFiles'), 'governance.minutes', 'minutesFiles');
+const rollOf = async (b) => (b.status === 'Draft' ? [] : (await call(`/governance/ballots/${b.id}/roll`)) || []);
+readers.ballots = {
+  list: async () => Promise.all((await call('/governance/ballots')).map(async (b) => ballotOf(b, await rollOf(b)))),
+  get: async (id) => { if (!isUuid(id)) return null; const b = await call(`/governance/ballots/${id}`); return b && ballotOf(b, await rollOf(b)); },
+};
+readers.voteRoll = { list: async () => (await Promise.all((await call('/governance/ballots')).map(async (b) => voteMarksOf(b.id, await rollOf(b))))).flat() };
+readers.voteRoll.get = byId(readers.voteRoll.list);
+readers.ballotBox = { list: async () => (await Promise.all((await call('/governance/ballots')).filter((b) => b.status === 'Closed')
+  .map(async (b) => ((await call(`/governance/ballots/${b.id}/box`))?.rows || []).map((r) => boxRowOf(b.id, r))))).flat() };
+readers.ballotBox.get = byId(readers.ballotBox.list);
+/** E-voting's second factor and the vote, for src/lib/evoting.js: the code goes to the owner's registered mobile (shown here only by a development server). */
+export const evote = {
+  async request(ballot, unitNo) { const r = await call(`/governance/ballots/${ballot.id}/code`, json('POST', { unitId: voteUnit(ballot, unitNo) })); return { code: r.code || '', phoneLast4: r.phoneLast4 || '' }; },
+  async verify(ballot, unitNo, code) { return (await call(`/governance/ballots/${ballot.id}/code/verify`, json('POST', { unitId: voteUnit(ballot, unitNo), code: String(code || '').trim() }))).proof; },
+};
 readers.files = {
   list: async () => (await call('/files?ownerType=upload')).map((f) => fileRowOf(f)),
   get: async (id) => {
@@ -457,6 +479,39 @@ const attaching = (put, ownerType, field) => async (rec) => {
   for (const id of wanted) await call(`/files/${id}/attach`, json('POST', { ownerType, ownerId: out.id }));
   return { ...out, [field]: await filesOf(ownerType, out.id) };
 };
+async function putMeeting(rec) {
+  const before = isUuid(rec.id) ? await readers.meetings.get(rec.id) : null;
+  const body = meetingBody({ ...(before || {}), ...rec });
+  return meetingOf(before ? await call(`/governance/meetings/${rec.id}`, json('PUT', body, ifMatch(before.version))) : await call('/governance/meetings', json('POST', body)));
+}
+const BALLOT_FIELDS = ['title', 'description', 'kind', 'options', 'opensOn', 'closesOn', 'quorumPct', 'passPct', 'meetingId'];
+async function putBallot(rec) {
+  let before = isUuid(rec.id) ? await readers.ballots.get(rec.id) : null;
+  const edited = !before || BALLOT_FIELDS.some((k) => JSON.stringify(ballotBody({ ...before, ...rec })[k]) !== JSON.stringify(ballotBody(before)[k]));
+  if (before && before.status !== 'Draft' && edited) throw new Error(before.status === 'Open' ? 'An open ballot cannot be edited' : 'A closed ballot can never be changed');
+  if (!before) before = ballotOf(await call('/governance/ballots', json('POST', ballotBody(rec))));
+  else if (edited) before = ballotOf(await call(`/governance/ballots/${rec.id}`, json('PUT', ballotBody({ ...before, ...rec }), ifMatch(before.version))), before.roll);
+  // opening freezes the roll on the server (the roll and fingerprint the screen built are not used); closing checks the box there
+  if (rec.status === 'Open' && before.status === 'Draft') return readers.ballots.get((await call(`/governance/ballots/${before.id}/open`, json('POST', {}, ifMatch(before.version)))).id);
+  if (rec.status === 'Closed' && before.status === 'Open') return readers.ballots.get((await call(`/governance/ballots/${before.id}/close`, json('POST', {}, ifMatch(before.version)))).id);
+  if (rec.status && rec.status !== before.status && rec.status !== 'Draft') throw new Error(rec.status === 'Closed' ? 'A ballot must be opened before it is closed' : 'An open ballot can only be closed');
+  return before;
+}
+// a vote: the roll mark carries the proof of the code; the box row carries the choice - the server writes both at once when the choice arrives
+const pendingVotes = new Map();
+async function putVoteMark(rec) {
+  if (!isUuid(rec.ballotId) || !rec.proof) throw new Error('Second-factor check missing or expired - request a new code');
+  pendingVotes.set(rec.ballotId, { unit: rec.unit, proof: rec.proof });
+  return { ...rec, proof: undefined, id: `${rec.ballotId}-pending` };
+}
+async function putBoxRow(rec) {
+  const p = pendingVotes.get(rec.ballotId);
+  if (!p) throw new Error('No verified voter roll mark for this ballot');
+  pendingVotes.delete(rec.ballotId);
+  const ballot = await readers.ballots.get(rec.ballotId);
+  const r = await call(`/governance/ballots/${rec.ballotId}/votes`, json('POST', { unitId: voteUnit(ballot, p.unit), proof: p.proof, choice: rec.choice }));
+  return { id: `${rec.ballotId}-${r.seq}`, ballotId: rec.ballotId, choice: rec.choice, seq: r.seq, receipt: r.receipt, hash: r.hash };
+}
 async function putDonation(rec) {
   const before = isUuid(rec.id) ? await readers.culturalDonations.get(rec.id) : null;
   const { idByNo } = await unitIndex();
@@ -608,11 +663,12 @@ async function putBooking(rec) {
   return bookingOf(await call(`/amenities/bookings/${encodeURIComponent(rec.id)}/${cmd.path}`, json('POST', cmd.body, ifMatch(before.version))));
 }
 
-const WRITERS = { ledger: putLedger, releases: putRelease, payRequests: putPayRequest, bankTxns: putBankTxn, culturalDonations: putDonation, culturalExpenses: putExpense, culturalOfferings: putOffering, culturalEvents: putEvent, culturalPhotos: putPhoto, culturalSevas: signing('culturalSevas', 'seva', 'volunteers'), culturalPrograms: signing('culturalPrograms', 'programme', 'participants'), files: putFile, documents: putDocument, notificationOutbox: async (r) => r /* the server queues channel messages itself, from the event */, notifications: putNotification, broadcasts: putBroadcast, pollVotes: putPollVote, forum: putTopic, forumPosts: putPost, gatePasses: putPass, gateApprovals: putApproval, gateFlags: putFlag, gateVisits: deskOnly, gateScans: deskOnly, gatePulse: async (r) => r, amenities: putBooking, properties: putProperty, users: putUser, dues: putDue, tickets: putTicket, ticketComments: putComment, handymen: putFieldStaff, quotations: putQuotation };
+const WRITERS = { meetings: putMeeting, ballots: putBallot, voteRoll: putVoteMark, ballotBox: putBoxRow, ledger: putLedger, releases: putRelease, payRequests: putPayRequest, bankTxns: putBankTxn, culturalDonations: putDonation, culturalExpenses: putExpense, culturalOfferings: putOffering, culturalEvents: putEvent, culturalPhotos: putPhoto, culturalSevas: signing('culturalSevas', 'seva', 'volunteers'), culturalPrograms: signing('culturalPrograms', 'programme', 'participants'), files: putFile, documents: putDocument, notificationOutbox: async (r) => r /* the server queues channel messages itself, from the event */, notifications: putNotification, broadcasts: putBroadcast, pollVotes: putPollVote, forum: putTopic, forumPosts: putPost, gatePasses: putPass, gateApprovals: putApproval, gateFlags: putFlag, gateVisits: deskOnly, gateScans: deskOnly, gatePulse: async (r) => r, amenities: putBooking, properties: putProperty, users: putUser, dues: putDue, tickets: putTicket, ticketComments: putComment, handymen: putFieldStaff, quotations: putQuotation };
 WRITERS.tickets = attaching(WRITERS.tickets, 'maintenance.ticket', 'attachments');
 WRITERS.ticketComments = attaching(WRITERS.ticketComments, 'maintenance.comment', 'attachments');
 WRITERS.quotations = attaching(WRITERS.quotations, 'maintenance.quotation', 'attachments');
 WRITERS.amenities = attaching(WRITERS.amenities, 'amenity.booking', 'depositPhotos');
+WRITERS.meetings = attaching(attaching(WRITERS.meetings, 'governance.agenda', 'agendaFiles'), 'governance.minutes', 'minutesFiles');
 for (const c of Object.keys(RESOURCES)) if (!WRITERS[c]) WRITERS[c] = (rec) => putResource(c, rec);
 const warned = new Set();
 const notYet = (c) => { if (!warned.has(c)) { warned.add(c); console.info(`[v2] "${c}" is not on the v2 back end yet; showing it empty.`); } };
@@ -652,6 +708,12 @@ export const V2ApiAdapter = {
     if (LOCAL_COLLECTIONS.includes(c)) return SessionStorageAdapter.remove(c, id);
     if (RESOURCES[c]) return removeResource(c, id);
     if (c === 'ledger') throw new Error('A payment is not deleted - reverse it.');
+    if (c === 'voteRoll' || c === 'ballotBox') throw new Error('Voting records can never be changed or deleted');
+    if (c === 'meetings' || c === 'ballots') {
+      const before = isUuid(id) ? await readers[c].get(id) : null;
+      if (before) await call(`/governance/${c}/${id}`, { method: 'DELETE', headers: ifMatch(before.version) });
+      return;
+    }
     if (c === 'releases') { const r = isUuid(id) ? await readers.releases.get(id) : null; if (r) await call(`/finance/releases/${id}/cancel`, json('POST', { reason: 'Removed' }, ifMatch(r.version))); return; }
     if (c === 'culturalDonations' || c === 'culturalExpenses') {
       const before = isUuid(id) ? await readers[c].get(id) : null;

@@ -608,3 +608,24 @@ export const payRequestOf = (p) => ({ id: p.id, shortId: p.shortId, description:
   decidedBy: p.decidedBy || '', decisionNote: p.decisionNote || '', payload: p.payload || '', entryId: p.entryId || '', recordCreatedAt: p.createdAt, version: p.version });
 export const bankTxnOf = (l) => ({ id: l.id, shortId: l.shortId, date: l.date, account: l.account, narration: l.narration || '', head: l.head || '', debit: num(l.debit) || 0, credit: num(l.credit) || 0,
   balance: num(l.balance) ?? '', party: l.party || '', remarks: l.remarks || '', matchedLedgerId: l.matchedEntryId || '', version: l.version });
+
+// ---- governance: meetings and e-voting ----------------------------------------------------------------------------------------------------------
+export const meetingOf = (m) => ({ id: m.id, shortId: m.shortId, title: m.title, committee: m.committee, date: m.date, startTime: hhmm(m.startTime), endTime: hhmm(m.endTime),
+  location: m.location || '', status: m.status, visibility: m.visibility, publishedAt: m.publishedAt || '', agenda: m.agenda || '', minutes: m.minutes || '', minutesAt: m.minutesAt || '',
+  cancelReason: m.cancelReason || '', agendaFiles: [], minutesFiles: [], recordCreatedAt: m.createdAt, version: m.version });
+const blankHtml = (s) => !s || !String(s).replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
+export const meetingBody = (r) => ({ title: r.title, committee: r.committee, date: r.date, startTime: r.startTime || null, endTime: r.endTime || null, location: r.location || null,
+  status: r.status || null, visibility: r.visibility || null, agenda: blankHtml(r.agenda) ? null : r.agenda, minutes: blankHtml(r.minutes) ? null : r.minutes, cancelReason: r.cancelReason || null });
+/** A ballot as the e-voting screen shows it. `roll` is the frozen roll (one entry per unit; owner names only where the server shows them). The server says
+ *  whether the reader may vote (`whyNotMe`, '' = yes) and for which unit (`myUnits`). */
+export const ballotOf = (b, roll = []) => ({ id: b.id, shortId: b.shortId, title: b.title, description: b.description || '', kind: b.kind, options: b.options || [], opensOn: b.opensOn, closesOn: b.closesOn,
+  quorumPct: num(b.quorumPct) ?? 0, passPct: num(b.passPct) ?? 50, status: b.status, rollHash: b.rollHash || '', roll: roll.map((e) => ({ unit: e.unitNo, owners: e.owners || [], phoneLast4: e.phoneLast4 || '' })),
+  openedAt: b.openedAt || '', closedAt: b.closedAt || '', chainHead: b.chainHead || '', votesCounted: b.votesCounted ?? '', votesCast: b.votesCast || 0, meetingId: b.meetingId || '',
+  whyNotMe: b.whyNotMe || '', myUnits: (b.myUnits || []).map((u) => ({ unitId: u.unitId, unit: u.unitNo, voted: !!u.voted, whyNot: u.whyNot || '' })), outcome: b.results?.outcome || '', version: b.version });
+export const ballotBody = (r) => ({ title: r.title, description: blankHtml(r.description) ? null : r.description, kind: r.kind || 'Resolution', options: (r.options || []).map((o) => String(o).trim()).filter(Boolean),
+  opensOn: r.opensOn, closesOn: r.closesOn, quorumPct: num(r.quorumPct) ?? null, passPct: num(r.passPct) ?? null, meetingId: isUuid(r.meetingId) ? r.meetingId : null });
+/** Which units voted (from the roll): the voter's name only where the server gives it. */
+export const voteMarksOf = (ballotId, roll) => roll.filter((e) => e.voted).map((e) => ({ id: `${ballotId}-${e.unitId}`, ballotId, unit: e.unitNo, owner: e.votedBy || '', markedOn: e.markedOn || '' }));
+export const boxRowOf = (ballotId, r) => ({ id: `${ballotId}-${r.seq}`, ballotId, seq: r.seq, receipt: r.receipt, choice: r.choice, prevHash: r.prevHash, hash: r.hash });
+/** The unit a vote is for: the signed-in unit when it is one of mine on this ballot, else my only one. */
+export const voteUnit = (ballot, unitNo) => (ballot?.myUnits || []).find((u) => u.unit === unitNo)?.unitId || ((ballot?.myUnits || []).length === 1 ? ballot.myUnits[0].unitId : null);

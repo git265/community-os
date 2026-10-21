@@ -39,4 +39,13 @@ public final class FileKinds {
         files.register(new OwnerKind("cultural.brochure", (c, id) -> store.brochure(id).filter((o) -> reads.test(c, o)).isPresent(),
             (c, id) -> com.communityos.api.cultural.application.CulturalPolicy.manager(c) && store.brochure(id).isPresent()));
     }
+    /** agenda / minutes  read: whoever sees the meeting (residents only a published one) · attach: the committee */
+    public static void registerGovernance(FileService files, com.communityos.api.governance.application.MeetingService meetings) {
+        java.util.function.BiPredicate<com.communityos.api.shared.security.Caller, java.util.UUID> reads = (c, id) -> {
+            try { return meetings.get(c, id) != null; } catch (com.communityos.api.shared.security.AccessDenied e) { return false; }
+        };
+        java.util.function.BiPredicate<com.communityos.api.shared.security.Caller, java.util.UUID> attaches = (c, id) -> com.communityos.api.governance.application.GovernancePolicy.manager(c) && reads.test(c, id);
+        files.register(new OwnerKind("governance.agenda", reads, attaches));
+        files.register(new OwnerKind("governance.minutes", reads, attaches));
+    }
 }

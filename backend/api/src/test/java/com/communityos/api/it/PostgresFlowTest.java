@@ -781,6 +781,70 @@ class PostgresFlowTest {
             Map<String, Object> bal3 = owner.sql("SELECT sum(debit)::text AS d, sum(credit)::text AS c FROM finance.account_balance WHERE community_id = '" + cid + "'").get(0);
             assertEquals(bal3.get("d"), bal3.get("c"), "double entry still balances");
 
+            // ---- 6k. governance: a meeting published to residents, its minutes; a ballot - frozen roll, code, one vote per unit, sealed box, the count ----
+            var gstore = new com.communityos.api.governance.adapter.JdbcGovernanceStore(app, json);
+            var meetSvc = new com.communityos.api.governance.application.MeetingService(gstore, events, audit, app, clock, ZoneId.of("Asia/Kolkata"));
+            var ballotSvc = new com.communityos.api.governance.application.BallotService(gstore, events, audit, app, clock, ZoneId.of("Asia/Kolkata"));
+            List<String> voteCodes = new ArrayList<>();
+            var voteSvc = new com.communityos.api.governance.application.VoteService(gstore, new CodeHasher("integration-test-pepper-0123456789"), (to, code) -> voteCodes.add(code), false, "+91",
+                audit, app, clock, ZoneId.of("Asia/Kolkata"));
+            java.util.function.BiFunction<String, String, com.communityos.api.governance.application.MeetingService.Fields> agm = (vis, minutes) -> new com.communityos.api.governance.application.MeetingService.Fields(
+                "Annual general meeting", "General body / AGM", today, java.time.LocalTime.of(10, 0), java.time.LocalTime.of(12, 0), "Clubhouse", minutes == null ? "Scheduled" : "Completed", vis,
+                "<p>1. Accounts</p>", minutes, null);
+            assertThrows(AccessDenied.class, () -> as(ownerC, () -> meetSvc.create(ownerC, agm.apply("Internal (committee only)", null))));
+            var mtg = as(admin, () -> meetSvc.create(admin, agm.apply("Internal (committee only)", null)));
+            assertTrue(mtg.shortId.startsWith("MTG"));
+            assertTrue(as(ownerC, () -> meetSvc.list(ownerC, null, null, null)).stream().noneMatch((m) -> m.id.equals(mtg.id)), "internal: residents do not see it");
+            var mtgPub = as(admin, () -> meetSvc.update(admin, mtg.id, mtg.version, agm.apply("Published to residents", null)));
+            assertNotNull(mtgPub.publishedAt);
+            assertEquals(mtg.id, as(ownerC, () -> meetSvc.get(ownerC, mtg.id)).id);
+            assertTrue(as(ownerC, () -> inboxSvc.mine(ownerC, false, 200)).stream().anyMatch((n) -> n.event().equals("meeting") && n.title().contains("Annual general meeting")), "residents are told");
+            var mtgDone = as(admin, () -> meetSvc.update(admin, mtg.id, mtgPub.version, agm.apply("Published to residents", "<p>Accounts adopted.</p>")));
+            assertEquals("Completed", mtgDone.status); assertNotNull(mtgDone.minutesAt);
+            assertEquals("keep-meeting", assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> { meetSvc.delete(admin, mtg.id, mtgDone.version); return null; })).code());
+            assertThrows(RuntimeException.class, () -> owner.sql("UPDATE governance.meeting SET minutes = 'x', status = 'Cancelled' WHERE id = '" + mtg.id + "' RETURNING 1"), "a cancelled meeting has no minutes (the database)");
+            // the ballot
+            var bf = new com.communityos.api.governance.application.BallotService.Fields("Adopt the accounts for 2025-26", "<p>As presented at the AGM.</p>", "Resolution", null, today, today,
+                new java.math.BigDecimal("50"), new java.math.BigDecimal("50"), mtg.id);
+            assertThrows(AccessDenied.class, () -> as(ownerC, () -> ballotSvc.create(ownerC, bf)));
+            var gbal = as(admin, () -> ballotSvc.create(admin, bf));
+            assertEquals(List.of("For", "Against", "Abstain"), gbal.options);
+            assertThrows(AccessDenied.NotVisible.class, () -> as(ownerC, () -> ballotSvc.get(ownerC, gbal.id)), "a draft is the committee's");
+            var balOpen = as(admin, () -> ballotSvc.open(admin, gbal.id, gbal.version)).ballot();
+            assertEquals("Open", balOpen.status); assertEquals(1, balOpen.rollSize, "Villa 101 has a registered owner; Villa 202 only a tenant");
+            assertEquals(64, balOpen.rollHash.length());
+            assertThrows(RuntimeException.class, () -> owner.sql("UPDATE governance.ballot SET title = 'Something else' WHERE id = '" + gbal.id + "' RETURNING 1"), "an open ballot cannot be edited, by anyone");
+            assertThrows(RuntimeException.class, () -> owner.sql("DELETE FROM governance.ballot_elector WHERE ballot_id = '" + gbal.id + "' RETURNING 1"), "the frozen roll stays");
+            assertTrue(as(ownerC, () -> inboxSvc.mine(ownerC, false, 200)).stream().anyMatch((n) -> n.event().equals("ballot")), "owners are told voting is open");
+            var mineView = as(ownerC, () -> ballotSvc.get(ownerC, gbal.id));
+            assertEquals("", mineView.whyNotMe()); assertEquals("Villa 101", mineView.mine().get(0).unitNo());
+            assertTrue(as(treasurer, () -> ballotSvc.get(treasurer, gbal.id)).whyNotMe().startsWith("Only registered owners"));
+            assertThrows(AccessDenied.class, () -> as(treasurer, () -> voteSvc.requestCode(treasurer, gbal.id, unitA)), "not an owner of the unit");
+            var sentCode = as(ownerC, () -> voteSvc.requestCode(ownerC, gbal.id, null));
+            assertEquals(ownerPhone.substring(ownerPhone.length() - 4), sentCode.phoneLast4()); assertNull(sentCode.code()); assertEquals(1, voteCodes.size());
+            assertEquals("wrong-code", assertThrows(DomainException.RuleViolated.class, () -> as(ownerC, () -> voteSvc.verifyCode(ownerC, gbal.id, null, voteCodes.get(0).equals("000000") ? "111111" : "000000"))).code());
+            assertEquals("1", owner.sql("SELECT attempts::text AS n FROM governance.vote_challenge WHERE ballot_id = '" + gbal.id + "'").get(0).get("n"), "the wrong try is recorded although it was refused");
+            String voteProof = as(ownerC, () -> voteSvc.verifyCode(ownerC, gbal.id, null, voteCodes.get(0)));
+            var receipt = as(ownerC, () -> voteSvc.cast(ownerC, gbal.id, null, voteProof, "For"));
+            assertEquals(1, receipt.seq());
+            assertEquals("voted", assertThrows(DomainException.RuleViolated.class, () -> as(ownerC, () -> voteSvc.requestCode(ownerC, gbal.id, null))).code(), "one vote per unit");
+            assertEquals("0", owner.sql("SELECT count(*)::text AS n FROM governance.vote_challenge WHERE ballot_id = '" + gbal.id + "'").get(0).get("n"), "the proof is spent");
+            assertTrue(as(admin, () -> gstore.box(gbal.id)).isEmpty(), "sealed: the API role reads nothing of the box while voting is open");
+            assertEquals("sealed", assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> ballotSvc.box(admin, gbal.id))).code());
+            assertThrows(RuntimeException.class, () -> owner.sql("UPDATE governance.ballot_box SET choice = 'Against' WHERE ballot_id = '" + gbal.id + "' RETURNING 1"), "a vote is never changed");
+            assertThrows(RuntimeException.class, () -> owner.sql("DELETE FROM governance.vote_roll WHERE ballot_id = '" + gbal.id + "' RETURNING 1"), "nor its mark");
+            assertEquals("0", owner.sql("SELECT count(*)::text AS n FROM governance.ballot_box x WHERE x.ballot_id = '" + gbal.id + "' AND x::text LIKE '%" + members[0] + "%'").get(0).get("n"), "nothing in the box points at the voter");
+            var roll = as(ownerC, () -> ballotSvc.roll(ownerC, gbal.id));
+            assertTrue(roll.get(0).voted()); assertEquals(today, roll.get(0).markedOn());
+            var closedView = as(admin, () -> ballotSvc.close(admin, gbal.id, as(admin, () -> ballotSvc.get(admin, gbal.id)).ballot().version));   // everyone on the roll voted: it may close today
+            assertEquals("Closed", closedView.ballot().status); assertEquals("Passed", closedView.tally().outcome()); assertTrue(closedView.chain().ok());
+            var theBox = as(ownerC, () -> ballotSvc.box(ownerC, gbal.id));
+            assertTrue(theBox.matchesClose()); assertEquals(receipt.receipt(), theBox.rows().get(0).receipt()); assertEquals("For", theBox.rows().get(0).choice());
+            assertThrows(RuntimeException.class, () -> owner.sql("UPDATE governance.ballot SET description = 'x' WHERE id = '" + gbal.id + "' RETURNING 1"), "a closed ballot never changes");
+            assertTrue(as(ownerC, () -> inboxSvc.mine(ownerC, false, 200)).stream().anyMatch((n) -> n.event().equals("ballot") && n.title().startsWith("Voting closed")));
+            assertTrue(owner.sql("SELECT summary FROM audit.audit_event WHERE community_id = '" + cid + "' AND entity = 'governance.vote_roll'").stream().noneMatch((ar) -> String.valueOf(ar.get("summary")).contains("For")),
+                "the audit trail says who voted, never what");
+
             // ---- 7. audit, outbox ----------------------------------------------------------------------------------------------------------------
             assertTrue(Integer.parseInt((String) owner.sql("SELECT count(*)::text AS n FROM audit.audit_event WHERE community_id = '" + cid + "'").get(0).get("n")) >= 7);
             OutboxRelay relay = new OutboxRelay(new JdbcOutboxStore(platform), new WebhookFanout(platform), 10, clock);

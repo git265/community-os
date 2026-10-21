@@ -27,6 +27,8 @@ public final class Recipes {
     private Recipes() {}
     /** The team told about new requests and gate flags (by role code). */
     static final String[] HELPDESK = {"facility_manager", "helpdesk"};
+    /** Everyone who lives here (published meetings). */
+    static final String[] RESIDENTS = {"owner", "resident"};
     static final String[] SECURITY = {"committee_security", "facility_manager"};
 
     public static List<Message> of(DomainEvent e, Facts facts) {
@@ -70,6 +72,12 @@ public final class Recipes {
                     + r.status().toLowerCase(Locale.ROOT) + ".", "#/billing", r.aggregateId(), To.member(r.raisedBy())));
             case com.communityos.api.finance.application.ReleaseService.ReleaseEvent r when r.topic().endsWith(".paid") ->
                 out.add(new Message("payment_made", "release", "Release paid · " + rupees(r.amount()), "The release of " + rupees(r.amount()) + " was paid.", "#/billing", r.aggregateId(), To.member(r.raisedBy())));
+            case com.communityos.api.governance.application.MeetingService.MeetingEvent m ->
+                out.add(new Message("meeting", "meeting", m.title(), m.detail(), "#/governance", m.aggregateId(), To.roles(RESIDENTS)));
+            case com.communityos.api.governance.application.BallotService.BallotEvent b when b.topic().endsWith(".opened") ->
+                out.add(new Message("ballot", "ballot", "Voting is open \u00b7 " + b.title(), b.detail(), "#/communications", b.aggregateId(), To.roles("owner")));
+            case com.communityos.api.governance.application.BallotService.BallotEvent b when b.topic().endsWith(".closed") ->
+                out.add(new Message("ballot", "ballot", "Voting closed \u00b7 " + b.title(), b.detail(), "#/communications", b.aggregateId(), To.roles("owner")));
             default -> { }
         }
         return out;

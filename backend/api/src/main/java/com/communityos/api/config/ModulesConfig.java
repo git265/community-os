@@ -108,13 +108,15 @@ public class ModulesConfig {
     /** Files and documents need each other (a document's file is read by the document's rules), so they are made together. */
     public record Docs(com.communityos.api.docs.application.FileService files, com.communityos.api.docs.application.DocumentService documents) {}
     @Bean Docs docs(NamedParameterJdbcTemplate jdbc, AuditWriter audit, Tx tx, Clock clock, CosProperties p, TicketService tickets, QuotationService quotations,
-                    com.communityos.api.amenity.application.BookingService bookings, com.communityos.api.cultural.adapter.JdbcCulturalStore cultural) {
+                    com.communityos.api.amenity.application.BookingService bookings, com.communityos.api.cultural.adapter.JdbcCulturalStore cultural,
+                    com.communityos.api.governance.application.MeetingService meetings) {
         var repo = new com.communityos.api.docs.adapter.JdbcFileRepository(jdbc);
         var files = new com.communityos.api.docs.application.FileService(repo, new com.communityos.api.docs.adapter.LocalDiskStorage(java.nio.file.Path.of(p.files().dir())),
             com.communityos.api.docs.application.port.VirusScanner.NONE, audit, tx, clock);
         var documents = new com.communityos.api.docs.application.DocumentService(new com.communityos.api.docs.adapter.JdbcDocumentRepository(jdbc), files, audit, tx);
         FileKinds.register(files, repo, tickets, quotations, bookings, documents);
         FileKinds.registerCultural(files, cultural);
+        FileKinds.registerGovernance(files, meetings);
         return new Docs(files, documents);
     }
     @Bean com.communityos.api.docs.application.FileService fileService(Docs d) { return d.files(); }
@@ -152,6 +154,25 @@ public class ModulesConfig {
     }
     @Bean com.communityos.api.finance.application.BankService bankService(com.communityos.api.finance.adapter.JdbcFinanceStore store, AuditWriter audit, Tx tx) {
         return new com.communityos.api.finance.application.BankService(store, audit, tx);
+    }
+
+    // ---- governance: meetings and e-voting -----------------------------------------------------------------------------------------------------
+    @Bean com.communityos.api.governance.adapter.JdbcGovernanceStore governanceStore(NamedParameterJdbcTemplate jdbc, ObjectMapper json) {
+        return new com.communityos.api.governance.adapter.JdbcGovernanceStore(jdbc, json);
+    }
+    @Bean com.communityos.api.governance.application.MeetingService meetingService(com.communityos.api.governance.adapter.JdbcGovernanceStore store, DomainEvents events,
+                                                                                 AuditWriter audit, Tx tx, Clock clock, CosProperties p) {
+        return new com.communityos.api.governance.application.MeetingService(store, events, audit, tx, clock, ZoneId.of(p.web().timeZone()));
+    }
+    @Bean com.communityos.api.governance.application.BallotService ballotService(com.communityos.api.governance.adapter.JdbcGovernanceStore store, DomainEvents events,
+                                                                               AuditWriter audit, Tx tx, Clock clock, CosProperties p) {
+        return new com.communityos.api.governance.application.BallotService(store, events, audit, tx, clock, ZoneId.of(p.web().timeZone()));
+    }
+    /** Voting codes go the way sign-in codes go (the same sender and pepper); only where codes are written to the log (never prod) is the code also shown on screen. */
+    @Bean com.communityos.api.governance.application.VoteService voteService(com.communityos.api.governance.adapter.JdbcGovernanceStore store,
+                                                                           com.communityos.api.identity.application.port.OtpSender sender, AuditWriter audit, Tx tx, Clock clock, CosProperties p) {
+        return new com.communityos.api.governance.application.VoteService(store, new com.communityos.api.identity.application.CodeHasher(p.auth().otpPepper()), sender,
+            "log".equals(p.auth().otpSender()), p.auth().defaultCountryCode(), audit, tx, clock, ZoneId.of(p.web().timeZone()));
     }
 
     // ---- billing ------------------------------------------------------------------------------------------------------------------------------

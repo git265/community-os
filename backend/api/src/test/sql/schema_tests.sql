@@ -265,6 +265,32 @@ DO $$ BEGIN
   PERFORM test.expect_error($q$INSERT INTO finance.pay_request (community_id, amount, status, requested_by_id, decided_by_id, decided_at) VALUES ('00000000-0000-0000-0000-00000000000a', 10, 'Approved', '00000000-0000-0000-0000-0000000000e1', '00000000-0000-0000-0000-0000000000e1', now())$q$, '23514');
   PERFORM test.pass('finance: cash book amounts above zero, matched means a bank line, a reversal has a reason, a release is on something, a bank line goes one way, no approving your own payment');
 END $$;
+DO $$ DECLARE b uuid; h text := repeat('a', 64); n int; BEGIN
+  PERFORM set_config('app.community_id', '00000000-0000-0000-0000-00000000000a', true);
+  PERFORM test.expect_error($q$INSERT INTO governance.meeting (community_id, title, committee, date, visibility) VALUES ('00000000-0000-0000-0000-00000000000a', 'AGM', 'EC', current_date, 'Published to residents')$q$, '23514');
+  PERFORM test.expect_error($q$INSERT INTO governance.meeting (community_id, title, committee, date, start_time, end_time) VALUES ('00000000-0000-0000-0000-00000000000a', 'AGM', 'EC', current_date, '10:00', '09:00')$q$, '23514');
+  INSERT INTO governance.ballot (community_id, title, kind, options, opens_on, closes_on) VALUES ('00000000-0000-0000-0000-00000000000a', 'Paint?', 'Resolution', '{For,Against}', current_date, current_date) RETURNING id INTO b;
+  PERFORM test.expect_error(format($q$UPDATE governance.ballot SET status = 'Closed', closed_at = now(), votes_counted = 0 WHERE id = %L$q$, b), '23514');
+  PERFORM test.expect_error(format($q$UPDATE governance.ballot SET status = 'Open' WHERE id = %L$q$, b), '23514');
+  PERFORM test.expect_error(format($q$INSERT INTO governance.vote_roll (community_id, ballot_id, unit_id, marked_on) VALUES ('00000000-0000-0000-0000-00000000000a', %L, '00000000-0000-0000-0000-0000000000c1', current_date)$q$, b), '23514');
+  UPDATE governance.ballot SET status = 'Open', opened_at = now(), roll_hash = h WHERE id = b;
+  INSERT INTO governance.ballot_elector (community_id, ballot_id, unit_id, unit_no, owners) VALUES ('00000000-0000-0000-0000-00000000000a', b, '00000000-0000-0000-0000-0000000000c1', 'Villa 1', '[{"name":"A"}]');
+  PERFORM test.expect_error(format($q$UPDATE governance.ballot SET title = 'Paint it red?' WHERE id = %L$q$, b), '23514');
+  INSERT INTO governance.vote_roll (community_id, ballot_id, unit_id, marked_on) VALUES ('00000000-0000-0000-0000-00000000000a', b, '00000000-0000-0000-0000-0000000000c1', current_date);
+  PERFORM test.expect_error(format($q$INSERT INTO governance.vote_roll (community_id, ballot_id, unit_id, marked_on) VALUES ('00000000-0000-0000-0000-00000000000a', %L, '00000000-0000-0000-0000-0000000000c1', current_date)$q$, b), '23505');
+  INSERT INTO governance.ballot_box (community_id, ballot_id, seq, choice, receipt, prev_hash, hash) VALUES ('00000000-0000-0000-0000-00000000000a', b, 1, 'For', 'abcdefabcdef', repeat('0', 64), h);
+  SELECT count(*) INTO n FROM governance.ballot_box WHERE ballot_id = b;
+  IF n <> 0 THEN RAISE EXCEPTION 'the box was readable while voting was open'; END IF;
+  PERFORM test.expect_error(format($q$UPDATE governance.ballot_box SET choice = 'Against' WHERE ballot_id = %L$q$, b), '42501');
+  PERFORM test.expect_error(format($q$DELETE FROM governance.ballot_elector WHERE ballot_id = %L$q$, b), '42501');
+  UPDATE governance.ballot SET votes_cast = 1, chain_head = h WHERE id = b;
+  UPDATE governance.ballot SET status = 'Closed', closed_at = now(), votes_counted = 1 WHERE id = b;
+  SELECT count(*) INTO n FROM governance.ballot_box WHERE ballot_id = b;
+  IF n <> 1 THEN RAISE EXCEPTION 'the box is not readable after the close'; END IF;
+  PERFORM test.expect_error(format($q$INSERT INTO governance.ballot_box (community_id, ballot_id, seq, choice, receipt, prev_hash, hash) VALUES ('00000000-0000-0000-0000-00000000000a', %L, 2, 'For', 'abcdefabcde0', %L, %L)$q$, b, h, h), '23514');
+  PERFORM test.expect_error(format($q$UPDATE governance.ballot SET description = 'x' WHERE id = %L$q$, b), '23514');
+  PERFORM test.pass('governance: a published meeting has its time, a ballot is opened before it closes, frozen once open, one mark per unit, a sealed box until the close, nothing changed or deleted');
+END $$;
 RESET ROLE;
 
 SELECT format('%s schema tests passed', count(*)) AS result FROM test.result WHERE ok;

@@ -19,6 +19,8 @@
 // chain head anchored by an external timestamp.
 import { storage, isApiMode } from './storage/index.js';
 import { ApiStorageAdapter } from './storage/ApiStorageAdapter.js';
+import { getDataSource } from './storage/dataSource.js';
+import { evote } from './storage/v2/V2ApiAdapter.js';
 import { serverDecides } from './auth/session.js';
 import { COLLECTIONS as C } from './storage/StorageAdapter.js';
 import { ownersOf } from './people.js';
@@ -77,6 +79,7 @@ export const rollEntryFor = (ballot, unit) => (ballot?.roll || []).find((r) => r
 /** May this signed-in person vote for this unit on this ballot? Returns '' when yes, otherwise the reason. */
 export function whyCannotVote(ballot, principal) {
   if (!ballot || !principal) return 'Not signed in';
+  if (typeof ballot.whyNotMe === 'string' && getDataSource().mode === 'v2') return ballot.whyNotMe;   // the v2 server decides from the frozen roll
   if (ballot.status !== 'Open') return ballot.status === 'Draft' ? 'Voting has not opened yet' : 'Voting is closed';
   const t = todayStr();
   if (t < ballot.opensOn) return `Voting opens on ${ballot.opensOn}`;
@@ -101,6 +104,7 @@ const viaServer = () => isApiMode() && serverDecides();
 
 /** Sends a code to the owner's registered mobile. Returns the code ONLY because this demo has no SMS gateway (shown as a simulated SMS); a real server never returns it. */
 export async function requestOtp(ballot, principal) {
+  if (getDataSource().mode === 'v2') return evote.request(ballot, principal?.unit);
   if (viaServer()) {
     const r = await ApiStorageAdapter.rpc('/evoting/otp/request', 'POST', { ballotId: ballot?.id });
     return { code: r.code, phoneLast4: r.phoneLast4 || '' };
@@ -118,6 +122,7 @@ export async function requestOtp(ballot, principal) {
 }
 /** Checks the code; on success returns a single-use proof token. */
 export async function verifyOtp(ballot, principal, code) {
+  if (getDataSource().mode === 'v2') return evote.verify(ballot, principal?.unit, code);
   if (viaServer()) return (await ApiStorageAdapter.rpc('/evoting/otp/verify', 'POST', { ballotId: ballot?.id, code })).proof;
   const key = keyOf(ballot.id, principal.unit, principal.name);
   const ch = challenges.get(key);

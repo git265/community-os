@@ -345,6 +345,42 @@ globalThis.fetch = async (url, init = {}) => {
     if (method === 'DELETE') { state.posts = state.posts.filter((x) => x !== p); return ok(null, 204); }
     Object.assign(p, body); p.version++; return ok(p);
   }
+  // ---- governance
+  state.meetings ||= []; state.ballots ||= []; state.marks ||= []; state.box ||= [];
+  if (path === '/governance/meetings' && method === 'GET') return ok(state.meetings);
+  if (path === '/governance/meetings' && method === 'POST') { const x = { ...body, id: uuid(), shortId: `MTG-${state.meetings.length + 1}`, publishedAt: body.visibility === 'Published to residents' ? '2026-10-20T06:00:00Z' : null, version: 1 }; state.meetings.push(x); return ok(x, 201); }
+  if ((m = /^\/governance\/meetings\/([^/]+)$/.exec(path))) {
+    const x = state.meetings.find((y) => y.id === m[1]); if (!x) return problem(404, 'not-found', 'Not found');
+    if (method === 'GET') return ok(x);
+    if (h['If-Match'] !== `"${x.version}"`) return problem(409, 'conflict', 'changed');
+    if (method === 'DELETE') { state.meetings = state.meetings.filter((y) => y !== x); return ok(null, 204); }
+    Object.assign(x, body); if (body.visibility === 'Published to residents' && !x.publishedAt) x.publishedAt = '2026-10-20T07:00:00Z'; x.version++; return ok(x);
+  }
+  const ballotView = (b) => ({ ...b, myUnits: b.status === 'Draft' ? [] : [{ unitId: A, unitNo: 'Villa 101', voted: state.marks.some((k) => k.ballotId === b.id), whyNot: '' }],
+    whyNotMe: b.status === 'Open' && !state.marks.some((k) => k.ballotId === b.id) ? '' : b.status === 'Draft' ? 'Voting has not opened yet' : 'Voting is closed', rollSize: b.status === 'Draft' ? 0 : 2 });
+  if (path === '/governance/ballots' && method === 'GET') return ok(state.ballots.map(ballotView));
+  if (path === '/governance/ballots' && method === 'POST') { const b = { ...body, options: body.options.length ? body.options : ['For', 'Against', 'Abstain'], id: uuid(), shortId: 'BAL-1', status: 'Draft', votesCast: 0, version: 1 }; state.ballots.push(b); return ok(ballotView(b), 201); }
+  if ((m = /^\/governance\/ballots\/([^/]+)(\/[a-z/]+)?$/.exec(path))) {
+    const b = state.ballots.find((y) => y.id === m[1]); if (!b) return problem(404, 'not-found', 'Not found');
+    const verb = m[2] || '';
+    if (verb === '' && method === 'GET') return ok(ballotView(b));
+    if (verb === '/roll') return ok(b.status === 'Draft' ? [] : [{ unitId: A, unitNo: 'Villa 101', owners: ['Asha'], phoneLast4: '1001', voted: state.marks.some((k) => k.ballotId === b.id), markedOn: '2026-10-20', votedBy: null },
+      { unitId: B, unitNo: 'Villa 202', owners: [], phoneLast4: null, voted: false, markedOn: null, votedBy: null }]);
+    if (verb === '/box') return b.status === 'Closed' ? ok({ rows: state.box.filter((r) => r.ballotId === b.id), chain: { ok: true }, matchesClose: true }) : problem(422, 'sealed', 'Votes stay sealed');
+    if (verb === '/code') { state.lastCode = body; return ok({ unitId: body.unitId, unitNo: 'Villa 101', phoneLast4: '1001', expiresIn: 300, code: null }); }
+    if (verb === '/code/verify') return body.code === '123456' ? ok({ proof: 'proof-1' }) : problem(422, 'wrong-code', 'That code is not right (2 attempts left).');
+    if (verb === '/votes') {
+      if (body.proof !== 'proof-1') return problem(422, 'no-proof', 'Second-factor check missing or expired - request a new code');
+      state.marks.push({ ballotId: b.id, unitId: body.unitId }); const r = { ballotId: b.id, seq: state.box.length + 1, receipt: 'abcdefabcdef', choice: body.choice, prevHash: '0'.repeat(64), hash: 'f'.repeat(64) };
+      state.box.push(r); b.votesCast++; b.version++; return ok({ ballotId: b.id, seq: r.seq, receipt: r.receipt, hash: r.hash }, 201);
+    }
+    if (h['If-Match'] !== `"${b.version}"`) return problem(409, 'conflict', 'changed');
+    if (verb === '/open') { b.status = 'Open'; b.rollHash = 'e'.repeat(64); b.version++; return ok(ballotView(b)); }
+    if (verb === '/close') { b.status = 'Closed'; b.chainHead = 'f'.repeat(64); b.votesCounted = b.votesCast; b.version++; return ok(ballotView(b)); }
+    if (method === 'DELETE') { state.ballots = state.ballots.filter((y) => y !== b); return ok(null, 204); }
+    if (b.status !== 'Draft') return problem(422, 'ballot-open', 'An open ballot cannot be edited');
+    Object.assign(b, body); b.version++; return ok(ballotView(b));
+  }
   return problem(404, 'not-found', `no fake for ${method} ${path}`);
 };
 
@@ -401,8 +437,8 @@ test('members: new member is a POST, a role change a PUT with If-Match', async (
 });
 
 test('not yet on v2: reads are empty, writes refused loudly', async () => {
-  assert.deepEqual(await storage.list('ballots'), []);
-  await assert.rejects(storage.put('ballots', { id: 'p1' }), /not on the v2 back end yet/);
+  assert.deepEqual(await storage.list('vendors'), []);
+  await assert.rejects(storage.put('vendors', { id: 'p1' }), /not on the v2 back end yet/);
 });
 
 test('paying: the server prices, the simulator pays, confirm settles', async () => {
@@ -651,3 +687,46 @@ test('finance: a payment is POSTed (taxes are the server\'s), corrected by rever
   await storage.put('payRequests', { ...pr, status: 'Approved' });
   assert.deepEqual(last('POST', /\/pay-requests\/[^/]+\/decision$/).body, { approve: true, note: null });
 });
+
+test('governance: a meeting with its papers; a ballot drafted, opened on the server (its roll, not the screen\'s), a vote by code and proof, sealed until closed', async () => {
+  const f = await storage.put('files', { name: 'agenda.pdf', mime: 'application/pdf', size: 3, dataUrl: 'data:application/pdf;base64,YWJj', ownerType: 'meeting', ownerId: 'local-1' });
+  const mt = await storage.put('meetings', { title: 'AGM', committee: 'General body / AGM', date: '2026-10-25', startTime: '10:00', status: 'Scheduled', visibility: 'Internal (committee only)', agenda: '<p>Accounts</p>',
+    minutes: '<p></p>', agendaFiles: [{ fileId: f.id, name: 'agenda.pdf' }] });
+  const mpost = last('POST', /^\/governance\/meetings$/).body;
+  assert.equal(mpost.minutes, null, 'empty minutes are no minutes'); assert.equal('agendaFiles' in mpost, false, 'papers are attached files, not fields');
+  assert.deepEqual(last('POST', /\/attach$/).body, { ownerType: 'governance.agenda', ownerId: mt.id });
+  assert.equal(mt.agendaFiles.length, 1);
+  await storage.put('meetings', { ...mt, visibility: 'Published to residents' });
+  assert.equal(last('PUT', /^\/governance\/meetings\//).headers['If-Match'], '"1"');
+  assert.ok((await storage.get('meetings', mt.id)).publishedAt, 'the publishing time is the server\'s');
+
+  const draft = await storage.put('ballots', { title: 'Adopt the accounts', kind: 'Resolution', options: [], opensOn: '2026-10-20', closesOn: '2026-10-20', quorumPct: 50, passPct: 50, status: 'Draft', roll: [{ unit: 'Villa 999' }], rollHash: 'x' });
+  const bpost = last('POST', /^\/governance\/ballots$/).body;
+  assert.equal('roll' in bpost, false); assert.equal('status' in bpost, false, 'status, roll and fingerprint are not sent');
+  const opened = await storage.put('ballots', { ...draft, status: 'Open', roll: [{ unit: 'Villa 999', owners: ['Me'] }], rollHash: 'x' });
+  assert.equal(last('POST', /\/open$/).path, `/governance/ballots/${draft.id}/open`);
+  assert.equal(opened.status, 'Open'); assert.deepEqual(opened.roll.map((r) => r.unit), ['Villa 101', 'Villa 202'], 'the roll frozen by the server');
+  await assert.rejects(storage.put('ballots', { ...opened, title: 'Something else' }), /open ballot cannot be edited/);
+
+  const { requestOtp, verifyOtp, whyCannotVote } = await import('../../src/lib/evoting.js');
+  const me = { roleId: 'owner', unit: 'Villa 101', name: 'Asha' };
+  assert.equal(whyCannotVote(opened, me), '', 'the server\'s verdict');
+  assert.equal(whyCannotVote({ ...opened, whyNotMe: 'Only registered owners can vote' }, me), 'Only registered owners can vote');
+  const sms = await requestOtp(opened, me);
+  assert.equal(sms.phoneLast4, '1001'); assert.equal(sms.code, ''); assert.deepEqual(state.lastCode, { unitId: A });
+  await assert.rejects(verifyOtp(opened, me, '000000'), /not right/);
+  const proof = await verifyOtp(opened, me, '123456');
+  await storage.put('voteRoll', { ballotId: opened.id, unit: 'Villa 101', proof });
+  assert.equal(calls.filter((x) => /\/votes$/.test(x.path)).length, 0, 'the mark alone writes nothing');
+  const rc = await storage.put('ballotBox', { ballotId: opened.id, choice: 'For' });
+  assert.deepEqual(last('POST', /\/votes$/).body, { unitId: A, proof: 'proof-1', choice: 'For' });
+  assert.equal(rc.receipt, 'abcdefabcdef'); assert.equal(rc.seq, 1);
+  await assert.rejects(storage.put('ballotBox', { ballotId: opened.id, choice: 'For' }), /No verified voter roll mark/);
+  assert.equal((await storage.list('voteRoll')).length, 1, 'which units voted');
+  assert.equal((await storage.list('ballotBox')).length, 0, 'sealed while open');
+  await assert.rejects(storage.remove('voteRoll', `${opened.id}-${A}`), /never be changed/);
+  const closed = await storage.put('ballots', { ...(await storage.get('ballots', opened.id)), status: 'Closed' });
+  assert.equal(closed.status, 'Closed'); assert.equal(closed.chainHead, 'f'.repeat(64));
+  assert.deepEqual((await storage.list('ballotBox')).map((r) => r.choice), ['For']);
+});
+
