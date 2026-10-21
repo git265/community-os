@@ -7,6 +7,7 @@ import { secureStorage } from '../../lib/storage/secureStorage.js';
 import { canWriteCollection } from '../../lib/security/authz.js';
 import { getPrincipal } from '../../lib/security/principal.js';
 import { METERS, klOf, withKl, validate, suggestOpening, checks, stockOf, monthTotals, monthOfDate, parseWorkbook } from '../../lib/plantLogs.js';
+import { readWorkbook } from '../../lib/files/xlsxRead.js';
 
 const n0 = (n) => Math.round(Number(n) || 0).toLocaleString('en-IN');
 const inr = (n) => `₹${n0(n)}`;
@@ -135,7 +136,7 @@ function ImportDialog({ rows, onClose, onDone, save }) {
     const f = e.target.files?.[0]; if (!f) return;
     try {
       const XLSX = await import('xlsx');
-      const wb = XLSX.read(await f.arrayBuffer(), { type: 'array', cellDates: true });
+      const wb = await readWorkbook(await f.arrayBuffer(), { type: 'array', cellDates: true });
       const out = parseWorkbook(XLSX, wb);
       if (!out.rows.length) return setErr('No plant log sheets found. Name the sheets bhagiratha, wtp, stp and salt, each with a DATE column.');
       setErr(''); setState(out);

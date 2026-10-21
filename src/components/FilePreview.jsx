@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import Modal from './Modal.jsx';
 import { loadFileData, downloadAttachment } from '../lib/files/attachments.js';
 import { getDataSource } from '../lib/storage/dataSource.js';
+import { readWorkbook } from '../lib/files/xlsxRead.js';
 
 const extOf = (m) => String(m?.name || '').split('.').pop().toLowerCase();
 export function previewKind(m) {
@@ -42,7 +43,7 @@ export default function FilePreview({ meta, onClose }) {
         }
         if (kind === 'sheet') {
           const XLSX = await import('xlsx');
-          const wb = XLSX.read(await blob.arrayBuffer(), { type: 'array' });
+          const wb = await readWorkbook(await blob.arrayBuffer(), { type: 'array' });
           const sheets = wb.SheetNames.slice(0, 6).map((n) => ({ name: n, html: XLSX.utils.sheet_to_html(wb.Sheets[n], { header: '', footer: '' }) }));
           return on && setState({ kind, sheets, sheet: 0 });
         }

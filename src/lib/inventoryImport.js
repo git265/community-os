@@ -3,6 +3,7 @@
 //   2. the category comes from the mapping rules (keywords in the item description, or the file's own category text)
 //   3. units of measure are normalised (pcs / no. / each -> Nos, ltr -> Litres ...)
 import { isSameName, normalize } from './fuzzy.js';
+import { readWorkbook } from './files/xlsxRead.js';
 
 export const FIELDS = [
   ['item', 'Item / description', true],
@@ -172,7 +173,7 @@ export function suggestKeyword(item) {
 
 export async function readInventoryFile(file) {
   const XLSX = await import('xlsx');
-  const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
+  const wb = await readWorkbook(await file.arrayBuffer(), { type: 'array', cellDates: true });
   return { wb, XLSX, sheets: wb.SheetNames };
 }
 export const sheetGrid = (XLSX, wb, name) => XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: true, defval: '' });

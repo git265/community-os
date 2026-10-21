@@ -12,6 +12,7 @@ import { secureStorage } from '../../lib/storage/secureStorage.js';
 import { canWriteCollection } from '../../lib/security/authz.js';
 import { getPrincipal } from '../../lib/security/principal.js';
 import { fyRange, currentFy, actualsByHead } from '../../lib/bank/analysis.js';
+import { readWorkbook } from '../../lib/files/xlsxRead.js';
 
 const inr = (n) => `₹${Math.round(Number(n) || 0).toLocaleString('en-IN')}`;
 const num = (n, d = 1) => Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -244,7 +245,7 @@ function VillaImport({ existing, onClose }) {
     if (!f) return;
     try {
       const XLSX = await import('xlsx');
-      const wb = XLSX.read(await f.arrayBuffer(), { type: 'array', cellDates: true });
+      const wb = await readWorkbook(await f.arrayBuffer(), { type: 'array', cellDates: true });
       const sheetName = r?.sheet && wb.SheetNames.includes(r.sheet) ? r.sheet : wb.SheetNames[0];
       if (r?.sheet && !wb.SheetNames.includes(r.sheet)) throw new Error(`The file has no sheet called “${r.sheet}”. Sheets found: ${wb.SheetNames.join(', ')}.`);
       const grid = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, raw: true, defval: '' });

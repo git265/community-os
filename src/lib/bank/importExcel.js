@@ -1,5 +1,6 @@
 // Reads a bank-statement Excel file using an admin-defined import rule (IMPORT_PROFILES) and returns portal rows.
 import { categorize } from './analysis.js';
+import { readWorkbook } from '../files/xlsxRead.js';
 
 const norm = (s) => String(s ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
 const num = (v) => {
@@ -32,7 +33,7 @@ const SWEEP = /SWEEP|AUTO ?SWEEP|SWEEP ?(IN|OUT)|SWP/i;
 
 export async function readStatement(file, profile, account) {
   const XLSX = await import('xlsx'); // loaded only when someone imports a file
-  const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
+  const wb = await readWorkbook(await file.arrayBuffer(), { type: 'array', cellDates: true });
   const sheetName = profile.sheet && wb.SheetNames.includes(profile.sheet) ? profile.sheet : wb.SheetNames[0];
   if (profile.sheet && !wb.SheetNames.includes(profile.sheet)) throw new Error(`Sheet “${profile.sheet}” is not in this file (found: ${wb.SheetNames.join(', ')}).`);
   const grid = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, raw: true, defval: '' });
