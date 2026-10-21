@@ -13,6 +13,10 @@ cos:
     simulated: { enabled: true, secret: dev-simulated-secret }
   web:
     allowed-origins: http://localhost:5173
+  files:
+    scanner: simulated     # finds the EICAR test file, calls the rest clean (no ClamAV in development)
+  channels:
+    provider: simulated    # WhatsApp / SMS / e-mail copies of notifications are written to the log and marked Sent
   demo:
     enabled: true          # the La Paloma demo loader and sign-in without a code (POST /api/v1/demo/load/{slug}); never in prod
 spring.flyway: { url: "jdbc:postgresql://localhost:5433/cos_v2", user: postgres, password: "" }

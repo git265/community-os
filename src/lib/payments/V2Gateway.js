@@ -9,6 +9,21 @@ import { apiFetch } from '../net/request.js';
 import { ONLINE_MODES } from '../region/paymentModes.js';
 import { orderOf } from '../storage/v2/v2map.js';
 
+/** Razorpay's checkout script, loaded the first time it is needed (only when the server's provider is Razorpay). */
+let razorpayScript = null;
+function loadRazorpay() {
+  if (typeof window === 'undefined') return Promise.reject(new Error('Razorpay checkout needs a browser.'));
+  if (window.Razorpay) return Promise.resolve();
+  razorpayScript ||= new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://checkout.razorpay.com/v1/checkout.js'; s.async = true;
+    s.onload = () => (window.Razorpay ? resolve() : reject(new Error('The Razorpay checkout did not start.')));
+    s.onerror = () => { razorpayScript = null; reject(new Error('The Razorpay checkout could not be loaded - check the connection and try again.')); };
+    document.head.appendChild(s);
+  });
+  return razorpayScript;
+}
+
 export default class V2Gateway extends PaymentGateway {
   constructor() { super({ id: 'v2', name: 'Online payment', methods: ONLINE_MODES }); this.live = true; }
   async #call(path, init = {}) {
@@ -39,7 +54,7 @@ export default class V2Gateway extends PaymentGateway {
       return res;
     }
     if (order.provider === 'razorpay') {
-      if (typeof window === 'undefined' || !window.Razorpay) throw new Error('The Razorpay checkout script is not loaded on this page.');
+      await loadRazorpay();
       const r = await new Promise((resolve) => {
         const rz = new window.Razorpay({ key: order.checkout.key, order_id: order.providerOrderRef, amount: Math.round(order.amount * 100), currency: order.currency,
           handler: (x) => resolve({ ok: true, x }), modal: { ondismiss: () => resolve({ ok: false }) } });

@@ -446,6 +446,18 @@ cd backend/api && mvn spring-boot:run                                # prod-like
 cd backend/api && mvn spring-boot:run -Dspring-boot.run.profiles=dev # log the code, throw-away key, simulated payments
 ```
 
+**Outside services, and what stands in for each in development** (the `dev` profile; each simulation is refused at start-up under `prod`):
+
+| Service | Production | Development |
+|---|---|---|
+| Online payments | Razorpay (`COS_RAZORPAY_*`); the app loads Razorpay's checkout script when the server's provider is Razorpay | the simulated gateway and its checkout page (`/api/v1/dev/simulated-checkout`) |
+| Sign-in and voting codes | an HTTP SMS provider (`COS_SMS_*`) | written to the API log |
+| WhatsApp / SMS / e-mail copies of notifications | a provider behind `ChannelSender` (none is wired yet: with `cos.channels.provider=none` they stay Queued) | `simulated`: written to the log and marked Sent, retried up to 5 times on failure |
+| Virus scanning of uploads | a ClamAV adapter behind `VirusScanner` (none yet: files stay "Pending") | `simulated`: finds the EICAR test file, calls the rest clean |
+| File storage | a folder on the server (`COS_FILES_DIR`); an object-store adapter replaces it later | the same |
+| Outgoing webhooks | real HTTP to the subscribers a community adds | the same |
+| Map tiles | OpenStreetMap (or the community's own tile URL), loaded by the browser | the same |
+
 Requirements: Java 25 (Temurin 25), PostgreSQL 18 (the migrations were also checked on 16). With the `postgres:18` Docker image, mount the volume at `/var/lib/postgresql`, not `/var/lib/postgresql/data`: the 18 image keeps its data in `/var/lib/postgresql/18/docker`.
 
 A new community needs a `platform.community` row, then `SELECT platform.provision_community(id)`. That creates the role groups, the 18 roles, the chart of accounts, the charge categories and the settings row.

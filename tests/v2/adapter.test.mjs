@@ -49,10 +49,14 @@ const KIT_FIELDS = {
   'vendors/service-lines': ['vendorId', 'service', 'signedWorkers', 'shift', 'note'],
   'assets/equipment': ['name', 'area', 'type', 'status', 'quantity', 'faulty', 'specs', 'lastInspected'],
   'assets/inventory': ['item', 'category', 'location', 'uom', 'minStock', 'vendor', 'notes'],
+  'workforce/services': ['name', 'weekdays', 'active'],
+  'amenities/settings': ['gstin', 'adminRecipients', 'reportRecipients', 'notifyOwner'],
+  'finance/approval-policies': ['name', 'steps'],
+  'finance/budget-lines': ['fy', 'kind', 'name', 'forecast'],
   'reports/schedules': ['name', 'reportType', 'period', 'format', 'frequency', 'time', 'audience', 'roleIds', 'unitIds', 'memberIds', 'recipe', 'channels', 'active'],
   'reports/runs': ['scheduleId', 'name', 'title', 'summary', 'columns', 'sentTo'],
 };
-const KIT_COLLECTION = { 'amenities/types': 'amenityTypes', 'amenities/items': 'amenityItems', 'maintenance/task-types': 'taskTypes', 'maintenance/categories': 'categoryMap', 'maintenance/quick-phrases': 'quickPhrases', 'maintenance/wishes': 'wishes', 'finance/settings': 'financeSettings', 'cultural/events': 'culturalEvents', 'cultural/seva': 'culturalSevas', 'cultural/offerings': 'culturalOfferings', 'vendors/vendors': 'vendors', 'vendors/service-lines': 'vendorServices', 'assets/equipment': 'equipment', 'assets/inventory': 'inventory', 'reports/schedules': 'reportSchedules', 'reports/runs': 'reportRuns' };
+const KIT_COLLECTION = { 'workforce/services': 'siteServices', 'amenities/settings': 'amenitySettings', 'finance/approval-policies': 'approvalPolicies', 'finance/budget-lines': 'budgetLines', 'amenities/types': 'amenityTypes', 'amenities/items': 'amenityItems', 'maintenance/task-types': 'taskTypes', 'maintenance/categories': 'categoryMap', 'maintenance/quick-phrases': 'quickPhrases', 'maintenance/wishes': 'wishes', 'finance/settings': 'financeSettings', 'cultural/events': 'culturalEvents', 'cultural/seva': 'culturalSevas', 'cultural/offerings': 'culturalOfferings', 'vendors/vendors': 'vendors', 'vendors/service-lines': 'vendorServices', 'assets/equipment': 'equipment', 'assets/inventory': 'inventory', 'reports/schedules': 'reportSchedules', 'reports/runs': 'reportRuns' };
 const TT = [{ id: 'tt-res', name: 'Resident Maintenance', icon: '🔧', creatorScope: 'Resident', assignmentMode: 'Role queue (staff accepts)', residentVisible: true, residentDefault: true, canRaise: true }];
 const page = (items) => ({ items, total: items.length, limit: 200, offset: 0 });
 const ok = (body, status = 200, headers = {}) => new Response(body == null ? null : JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...headers } });
@@ -171,7 +175,7 @@ globalThis.fetch = async (url, init = {}) => {
     if (m[2] === '/send-back') q.correctionNote = body.note;
     q.version++; return ok(q);
   }
-  if ((m = /^\/(maintenance|finance|amenities|cultural|vendors|assets|reports)\/([a-z-]+)(?:\/([^/]+))?$/.exec(path)) && KIT_FIELDS[`${m[1]}/${m[2]}`] && !/\/run$/.test(path)) {
+  if ((m = /^\/(maintenance|finance|amenities|cultural|vendors|assets|reports|workforce)\/([a-z-]+)(?:\/([^/]+))?$/.exec(path)) && KIT_FIELDS[`${m[1]}/${m[2]}`] && !/\/run$/.test(path)) {
     const key = `${m[1]}/${m[2]}`; const rows = (state.kit[key] ||= []);
     if (!m[3] && method === 'GET') return ok(rows);
     if (!m[3] && method === 'POST') {
@@ -493,6 +497,8 @@ test('units: list mapped; a change sends only the changed, allowed fields with I
   assert.deepEqual(c.body, { occupancy: 'Tenant occupied' }, 'the unit number and audit fields are never sent');
   assert.equal(c.headers['If-Match'], '"4"');
   assert.equal(saved.version, 5);
+  assert.equal(saved.recVersion, 5, 'the server version is the record revision the forms watch (a saved form re-seeds, its save bar goes)');
+  assert.equal((await storage.list('properties'))[0].recVersion, 5);
   await assert.rejects(storage.put('properties', { ...props[1], occupancy: 'Vacant', type: 'Apartment', version: 0 }), /changed/, 'stale version -> conflict');
 });
 
@@ -584,6 +590,22 @@ test('registers through the resource kit: exactly the request type, units by num
   assert.equal(sp.body.finalCanDecideEc, false, 'renamed for the API'); assert.equal(sp.body.invoiceTolerancePct, 10); assert.equal(sp.headers['If-Match'], '"3"', 'the one settings row');
   assert.equal(s.finalCanDecideEC, false, 'and back');
   assert.equal((await storage.list('categoryMap'))[0].coordinator[0], 'facility_manager');
+});
+
+test('registers the app keeps in another shape: weekdays, recipient lists, approval steps, the financial year - the server\'s way out, the app\'s way back', async () => {
+  const svc = await storage.put('siteServices', { name: 'Garbage pickup', weekdays: [0, 1, 2, 3, 4, 5], active: true });
+  assert.deepEqual(last('POST', /^\/workforce\/services$/).body.weekdays, ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], 'Mon=0 .. Sun=6 in the app, names on the server');
+  assert.deepEqual(svc.weekdays, [0, 1, 2, 3, 4, 5]);
+  const rec = [{ channel: 'Email', target: 'desk@x.example', label: 'Desk' }];
+  const st = await storage.put('amenitySettings', { gstin: '36AABCL1234F1Z5', adminRecipients: rec, reportRecipients: [], notifyOwner: true });
+  assert.equal(typeof last('POST', /^\/amenities\/settings$/).body.adminRecipients, 'string', 'the server keeps the list as text');
+  assert.deepEqual(st.adminRecipients, rec, 'and the app gets its list back');
+  const steps = [{ name: 'EC', approvers: [{ kind: 'group', value: 'EC members' }], needed: 1, canFinish: true }];
+  const pol = await storage.put('approvalPolicies', { name: 'Big purchases', steps: JSON.stringify(steps) });
+  assert.deepEqual(last('POST', /^\/finance\/approval-policies$/).body.steps, steps, 'the app writes the steps as JSON text, the server takes them as a list');
+  assert.deepEqual(JSON.parse(pol.steps), steps);
+  const b = await storage.put('budgetLines', { fy: 'FY27', kind: 'Expense', name: 'Security', forecast: 100 });
+  assert.equal(last('POST', /^\/finance\/budget-lines$/).body.fy, '2026-27'); assert.equal(b.fy, 'FY27');
 });
 
 test('quotations: add what is written, select, decide on the plan, send back; amounts are never edited', async () => {

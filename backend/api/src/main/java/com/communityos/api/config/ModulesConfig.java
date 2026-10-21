@@ -107,12 +107,14 @@ public class ModulesConfig {
     // ---- documents and files ----------------------------------------------------------------------------------------------------------------------
     /** Files and documents need each other (a document's file is read by the document's rules), so they are made together. */
     public record Docs(com.communityos.api.docs.application.FileService files, com.communityos.api.docs.application.DocumentService documents) {}
-    @Bean Docs docs(NamedParameterJdbcTemplate jdbc, AuditWriter audit, Tx tx, Clock clock, CosProperties p, TicketService tickets, QuotationService quotations,
+    @Bean Docs docs(NamedParameterJdbcTemplate jdbc, AuditWriter audit, Tx tx, Clock clock, CosProperties p, Environment env, TicketService tickets, QuotationService quotations,
                     com.communityos.api.amenity.application.BookingService bookings, com.communityos.api.cultural.adapter.JdbcCulturalStore cultural,
                     com.communityos.api.governance.application.MeetingService meetings) {
+        if ("simulated".equals(p.files().scanner()) && env.matchesProfiles("prod")) throw new IllegalStateException("the simulated virus scanner cannot be used in prod");
         var repo = new com.communityos.api.docs.adapter.JdbcFileRepository(jdbc);
         var files = new com.communityos.api.docs.application.FileService(repo, new com.communityos.api.docs.adapter.LocalDiskStorage(java.nio.file.Path.of(p.files().dir())),
-            com.communityos.api.docs.application.port.VirusScanner.NONE, audit, tx, clock);
+            "simulated".equals(p.files().scanner()) ? new com.communityos.api.docs.adapter.SimulatedVirusScanner() : com.communityos.api.docs.application.port.VirusScanner.NONE,
+            audit, tx, clock);
         var documents = new com.communityos.api.docs.application.DocumentService(new com.communityos.api.docs.adapter.JdbcDocumentRepository(jdbc), files, audit, tx);
         FileKinds.register(files, repo, tickets, quotations, bookings, documents);
         FileKinds.registerCultural(files, cultural);
@@ -222,6 +224,13 @@ public class ModulesConfig {
 
     @Bean DueService dueService(JdbcDueRepository dues, JdbcBillingLookups lookups, DomainEvents events, AuditWriter audit, Tx tx, Clock clock) {
         return new DueService(dues, lookups, lookups, events, audit, tx, clock);
+    }
+
+    /** The WhatsApp / SMS / e-mail copies of notifications: delivered by the configured provider (cos.channels.provider), or not at all. */
+    @Bean @ConditionalOnProperty(name = "cos.channels.provider", havingValue = "simulated")
+    com.communityos.api.comms.adapter.ChannelDelivery channelDelivery(@org.springframework.beans.factory.annotation.Qualifier("platform") NamedParameterJdbcTemplate platformJdbc, Environment env) {
+        if (env.matchesProfiles("prod")) throw new IllegalStateException("the simulated message provider cannot be used in prod");
+        return new com.communityos.api.comms.adapter.ChannelDelivery(platformJdbc, new com.communityos.api.comms.adapter.SimulatedChannelSender());
     }
 
     /** Development provider; only exists when cos.payments.simulated.enabled=true, and never in prod. */

@@ -27,6 +27,11 @@ globalThis.window = { location: new URL('http://localhost/c/la-paloma'), addEven
 globalThis.location = globalThis.window.location;
 const mem = () => { const m = new Map(); return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: (k) => m.delete(k), clear: () => m.clear() }; };
 globalThis.sessionStorage = mem(); globalThis.localStorage = mem();
+// The sample data places today's gate traffic and this week's attendance around "now": export it as of 10:30 in the morning (La Paloma time) of
+// the export day, so a maid's visit falls inside her hours whatever time of day the export runs.
+const RealDate = Date;
+const AT = RealDate.parse(`${new RealDate().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })}T10:30:00+05:30`);
+globalThis.Date = class extends RealDate { constructor(...a) { if (a.length) super(...a); else super(AT); } static now() { return AT; } };
 const { provisionSource } = await import('../src/lib/seed/seedData.js');
 const { RESOURCES } = await import('../src/lib/storage/v2/v2map.js');
 const { LOCAL_COLLECTIONS } = await import('../src/lib/storage/v2/V2ApiAdapter.js');
@@ -78,31 +83,20 @@ function kitBody(c, r) {
     }
     const f = ren[k] || k;
     if ([...(spec.json || []), ...(spec.jsonText || [])].includes(f) && typeof v === 'string') { try { v = v ? JSON.parse(v) : null; } catch { v = null; } }
+    if (spec.convert?.[f] && v != null && v !== '') v = spec.convert[f].write(v);       // the app's shape -> the API's, exactly as the app writes it
     body[f] = v === '' ? null : v;
   }
   return body;
 }
-// per collection: where the browser keeps a value in another shape than the API takes (the same value, written the server's way)
-const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];                          // the browser counts weekdays Mon=0 .. Sun=6
-const days = (b) => { if (Array.isArray(b.weekdays)) b.weekdays = b.weekdays.map((x) => (typeof x === 'number' ? DAYS[x] : x)); return b; };
-const asText = (b, ...fields) => { for (const f of fields) if (b[f] != null && typeof b[f] !== 'string') b[f] = JSON.stringify(b[f]); return b; };
-const fy = (v) => { const m = /^FY ?(\d{2})$/i.exec(v || ''); return m ? `20${Number(m[1]) - 1}-${m[1]}` : v; };   // FY27 -> 2026-27
+// per collection, beyond RESOURCES' own conversions: who / which units a row names, and values the server stamps itself
 const EXTRA = {
   reportSchedules: (b, r) => {
     b.unitIds = (r.units || []).map((u) => ({ $unit: u })); b.memberIds = (r.people || []).map((p) => ({ $member: p })); delete b.units; delete b.people;
     b.roleIds = (r.roleIds || []).map((code) => ({ $role: code }));
     return b;
   },
-  amenitySettings: (b) => asText(b, 'adminRecipients', 'reportRecipients'),
-  audits: (b) => asText(b, 'parameters'),
-  siteHolidays: (b) => asText(b, 'effects'),
-  siteServices: days, siteCalendar: days,
-  mergeFields: (b) => { b.token = String(b.token || '').replace(/^\{\{(.*)\}\}$/, '{$1}'); return b; },     // {{SOCIETY_NAME}} -> {SOCIETY_NAME}
-  budgetLines: (b) => { b.fy = fy(b.fy); return b; },
-  gateCheckpoints: (b) => { b.code = String(b.code || '').replace(/[^A-Za-z0-9]/g, ''); return b; },             // the code on the QR sticker: letters and digits
-  incidents: (b) => { if (b.reportedAt && Number.isNaN(Date.parse(b.reportedAt))) b.reportedAt = null; return b; },   // "Today, 09:21": the server stamps it
   gatePeople: (b) => { if (b.phone) b.phone = String(b.phone).replace(/[^+0-9]/g, ''); return b; },          // +91 98450 11221 -> +919845011221
-  approvalPolicies: (b) => { if (typeof b.steps === 'string') b.steps = JSON.parse(b.steps); return b; },
+  incidents: (b) => { if (b.reportedAt && Number.isNaN(Date.parse(b.reportedAt))) b.reportedAt = null; return b; },   // "Today, 09:21": the server stamps it
 };
 
 const collections = {}; const kinds = {};
@@ -113,6 +107,6 @@ for (const [c, rows] of Object.entries(seed)) {
 }
 mkdirSync(`${dir}backend/api/src/main/resources/demo`, { recursive: true });
 const file = `${dir}backend/api/src/main/resources/demo/la-paloma.json`;
-writeFileSync(file, JSON.stringify({ source: 'src/lib/seed (the browser sample data)', exportedAt: new Date().toISOString(), kinds, collections }));
+writeFileSync(file, JSON.stringify({ source: 'src/lib/seed (the browser sample data)', exportedAt: new RealDate().toISOString(), asOf: new RealDate(AT).toISOString(), kinds, collections }));
 const n = Object.values(collections).reduce((s, x) => s + x.length, 0);
 console.log(`${file}: ${Object.keys(collections).length} collections, ${n} rows`);

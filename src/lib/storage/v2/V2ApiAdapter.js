@@ -746,10 +746,14 @@ for (const [c, [owner, field]] of Object.entries(ASSET_FILES)) WRITERS[c] = atta
 const warned = new Set();
 const notYet = (c) => { if (!warned.has(c)) { warned.add(c); console.info(`[v2] "${c}" is not on the v2 back end yet; showing it empty.`); } };
 
+/** The server's row version is the app's record revision: forms re-seed when it changes (a saved ticket, a changed setting ...). */
+const rev = (r) => (r && typeof r === 'object' && !Array.isArray(r) && r.recVersion == null && (r.version ?? r.rowVersion) != null ? { ...r, recVersion: Number(r.version ?? r.rowVersion) } : r);
+const revs = (rows) => (Array.isArray(rows) ? rows.map(rev) : rev(rows));
+
 /** @type {import('../StorageAdapter').StorageAdapter} */
 export const V2ApiAdapter = {
   async list(c) {
-    if (readers[c]) return readers[c].list();
+    if (readers[c]) return revs(await readers[c].list());
     if (LOCAL_COLLECTIONS.includes(c)) return SessionStorageAdapter.list(c);
     notYet(c); return [];
   },
@@ -759,12 +763,12 @@ export const V2ApiAdapter = {
     return runQuery(rows, params);
   },
   async get(c, id) {
-    if (readers[c]) return readers[c].get(id);
+    if (readers[c]) return rev(await readers[c].get(id));
     if (LOCAL_COLLECTIONS.includes(c)) return SessionStorageAdapter.get(c, id);
     notYet(c); return null;
   },
   async put(c, rec) {
-    if (WRITERS[c]) return WRITERS[c](rec);
+    if (WRITERS[c]) { const { recVersion, ...clean } = rec || {}; return rev(await WRITERS[c](clean)); }   // the revision is the read side's; writes carry `version`
     if (LOCAL_COLLECTIONS.includes(c)) return SessionStorageAdapter.put(c, rec);
     throw new NotOnV2Error(c);
   },
@@ -773,7 +777,7 @@ export const V2ApiAdapter = {
       const byAccount = {};
       for (const r of list) (byAccount[r.account] ||= []).push(bankLineBody(r));
       for (const [account, lines] of Object.entries(byAccount)) await call('/finance/bank-lines/import', json('POST', { account, lines }));
-      return readers.bankTxns.list();
+      return revs(await readers.bankTxns.list());
     }
     const out = []; for (const r of list) out.push(await this.put(c, r)); return out;
   },

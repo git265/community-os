@@ -488,6 +488,20 @@ class PostgresFlowTest {
             var queued = owner.sql("SELECT channel, status, to_value FROM comms.outbox_message WHERE community_id = '" + cid + "' AND membership_id = '" + members[0] + "' AND event = 'bill' ORDER BY channel");
             assertEquals(2, queued.size(), "WhatsApp and e-mail: " + queued);
             assertEquals("Skipped", queued.get(0).get("status"), "no e-mail address on file"); assertEquals("Queued", queued.get(1).get("status")); assertEquals(ownerPhone, queued.get(1).get("to_value"));
+            // the channel copies leave through the provider (here the development one): Sent, with the provider's reference; a failure is retried, then Failed
+            var failing = new com.communityos.api.comms.adapter.ChannelDelivery(platform, new com.communityos.api.comms.application.port.ChannelSender() {
+                public String name() { return "down"; }
+                public Result send(String ch, String to, String subject, String body) { return Result.failed("provider down"); }
+            });
+            while (failing.runOnce(500) == 500) { }                 // each queued message is claimed once (then leased for two minutes)
+            var tried = owner.sql("SELECT status, attempts::text AS attempts, error FROM comms.outbox_message WHERE community_id = '" + cid + "' AND membership_id = '" + members[0] + "' AND event = 'bill' AND channel = 'WhatsApp'").get(0);
+            assertEquals("Queued", tried.get("status"), "one failure is tried again later"); assertEquals("1", tried.get("attempts")); assertEquals("provider down", tried.get("error"));
+            owner.sql("UPDATE comms.outbox_message SET custom = custom - 'leaseUntil' WHERE community_id = '" + cid + "' RETURNING 1");      // the lease has run out
+            var delivery = new com.communityos.api.comms.adapter.ChannelDelivery(platform, new com.communityos.api.comms.adapter.SimulatedChannelSender());
+            while (delivery.runOnce(500) > 0) { }
+            var chSent = owner.sql("SELECT status, sent_at IS NOT NULL AS at, custom ->> 'provider' AS provider, error FROM comms.outbox_message WHERE community_id = '" + cid + "' AND membership_id = '" + members[0] + "' AND event = 'bill' ORDER BY channel");
+            assertEquals("Skipped", chSent.get(0).get("status"), "nothing to send to"); assertEquals("Sent", chSent.get(1).get("status")); assertEquals("simulated", chSent.get(1).get("provider"));
+            assertEquals(0, delivery.runOnce(500), "sent once");
             var setRepo = new com.communityos.api.shared.resource.JdbcResourceRepository<>(com.communityos.api.comms.CommsResources.SETTINGS.table(), app, json);
             var setting = as(admin, () -> kit.list(admin, com.communityos.api.comms.CommsResources.SETTINGS, setRepo)).get(0);
             assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> kit.replace(admin, com.communityos.api.comms.CommsResources.SETTINGS, setRepo, setting.id(), setting.version(),

@@ -21,10 +21,13 @@ public class Jobs {
     private final OutboxRelay outbox; private final WebhookDeliveryWorker webhooks; private final PaymentService payments; private final NamedParameterJdbcTemplate platformJdbc;
     private final com.communityos.api.gate.application.GateService gate; private final com.communityos.api.comms.application.BroadcastService notices;
     private final com.communityos.api.workforce.application.AttendanceService attendance; private final com.communityos.api.reports.application.ReportService reports;
+    private final java.util.Optional<com.communityos.api.comms.adapter.ChannelDelivery> channels;
 
     public Jobs(OutboxRelay outbox, WebhookDeliveryWorker webhooks, PaymentService payments, @Qualifier("platform") NamedParameterJdbcTemplate platformJdbc,
                 com.communityos.api.gate.application.GateService gate, com.communityos.api.comms.application.BroadcastService notices,
-                com.communityos.api.workforce.application.AttendanceService attendance, com.communityos.api.reports.application.ReportService reports) {
+                com.communityos.api.workforce.application.AttendanceService attendance, com.communityos.api.reports.application.ReportService reports,
+                java.util.Optional<com.communityos.api.comms.adapter.ChannelDelivery> channels) {
+        this.channels = channels;
         this.outbox = outbox; this.webhooks = webhooks; this.payments = payments; this.platformJdbc = platformJdbc; this.gate = gate; this.notices = notices; this.attendance = attendance; this.reports = reports;
     }
 
@@ -87,6 +90,10 @@ public class Jobs {
 
     @Scheduled(fixedDelayString = "${cos.jobs.outbox-delay:2000}")
     public void relayOutbox() { run("outbox", () -> { while (outbox.runOnce(200) == 200) { /* drain a backlog */ } }); }
+
+    /** The WhatsApp / SMS / e-mail copies of notifications, when a provider is configured (otherwise they stay Queued). */
+    @Scheduled(fixedDelayString = "${cos.jobs.channels-delay:10000}", initialDelay = 20000)
+    public void deliverChannelMessages() { channels.ifPresent((d) -> run("channels", () -> { while (d.runOnce(100) == 100) { /* drain a backlog */ } })); }
 
     @Scheduled(fixedDelayString = "${cos.jobs.webhook-delay:5000}")
     public void deliverWebhooks() { run("webhooks", () -> webhooks.runOnce(100)); }

@@ -204,6 +204,21 @@ export function quotationCommands(before, after) {
  * number) is the API's unitId; singleton = one row per community (a put changes it). Which fields a write carries comes from the server
  * (GET /v1/meta/resources) - exactly the fields of that resource's request type.
  */
+// Where the app keeps a value in another shape than the API takes it: written the server's way, read back the app's way (field = the API's name).
+const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];                         // the app counts weekdays Mon=0 .. Sun=6
+const weekdays = { write: (v) => (Array.isArray(v) ? v.map((x) => (typeof x === 'number' ? DAY_NAMES[x] : x)) : v),
+  read: (v) => (Array.isArray(v) ? v.map((x) => (DAY_NAMES.includes(x) ? DAY_NAMES.indexOf(x) : x)) : v) };
+/** the app keeps a list / object, the server keeps it as JSON text */
+const asText = { write: (v) => (v == null || typeof v === 'string' ? v : JSON.stringify(v)), read: (v) => { if (typeof v !== 'string' || !v) return v; try { return JSON.parse(v); } catch { return v; } } };
+/** a financial year: the app says FY27, the server 2026-27 */
+const fy = { write: (v) => { const m = /^FY ?(\d{2})$/i.exec(v || ''); return m ? `20${Number(m[1]) - 1}-${m[1]}` : v; },
+  read: (v) => { const m = /^\d{4}-(\d{2})$/.exec(v || ''); return m ? `FY${m[1]}` : v; } };
+/** a merge field: the app writes {{NAME}}, the server {NAME} */
+const token = { write: (v) => (typeof v === 'string' ? v.replace(/^\{\{(.*)\}\}$/, '{$1}') : v), read: (v) => (typeof v === 'string' && /^\{[^{].*\}$/.test(v) ? `{${v}}` : v) };
+/** a checkpoint's QR code: letters and digits only on the server */
+const code = { write: (v) => (typeof v === 'string' ? v.replace(/[^A-Za-z0-9]/g, '') : v), read: (v) => v };
+export const CONVERT = { weekdays, asText, fy, token, code };
+
 export const RESOURCES = {
   taskTypes: { path: 'maintenance/task-types' },
   categoryMap: { path: 'maintenance/categories' },
@@ -213,17 +228,17 @@ export const RESOURCES = {
   serviceNotices: { path: 'maintenance/service-notices' },
   eventWork: { path: 'maintenance/event-work' },
   tradeAvailability: { path: 'maintenance/trade-availability' },
-  approvalPolicies: { path: 'finance/approval-policies' },
+  approvalPolicies: { path: 'finance/approval-policies', jsonText: ['steps'] },
   amenityTypes: { path: 'amenities/types' },
   amenityItems: { path: 'amenities/items', refs: { amenity: { field: 'amenityTypeId', collection: 'amenityTypes', key: 'name' } } },
-  amenitySettings: { path: 'amenities/settings', singleton: true },
+  amenitySettings: { path: 'amenities/settings', singleton: true, convert: { adminRecipients: asText, reportRecipients: asText } },
   gatePeople: { path: 'gate/people', units: { invitedByUnit: 'invitedByUnitId' } },
   gateLinks: { path: 'gate/household-links', unit: true },
   gateVillaRules: { path: 'gate/unit-rules', unit: true },
   gatePassTemplates: { path: 'gate/pass-templates', unit: true },
   gateVehicles: { path: 'gate/vehicles', unit: true },
   gateWorkOrders: { path: 'gate/work-orders' },
-  gateCheckpoints: { path: 'gate/checkpoints' },
+  gateCheckpoints: { path: 'gate/checkpoints', convert: { code } },
   gateRounds: { path: 'gate/rounds' },
   incidents: { path: 'gate/incidents' },
   gateSettings: { path: 'gate/settings', singleton: true, json: ['durations', 'events'] },
@@ -236,7 +251,7 @@ export const RESOURCES = {
   culturalPhotos: { path: 'cultural/photos' },
   funds: { path: 'finance/funds' },
   bankAccounts: { path: 'finance/bank-accounts' },
-  budgetLines: { path: 'finance/budget-lines' },
+  budgetLines: { path: 'finance/budget-lines', convert: { fy } },
   fixedExpenses: { path: 'finance/fixed-expenses' },
   deposits: { path: 'finance/deposits' },
   cashCounts: { path: 'finance/cash-counts' },
@@ -256,7 +271,7 @@ export const RESOURCES = {
   electricityBills: { path: 'assets/electricity-bills' },
   villaElectricity: { path: 'assets/unit-electricity', unit: true },
   villaImportRules: { path: 'assets/unit-import-rules' },
-  audits: { path: 'assets/audits' },
+  audits: { path: 'assets/audits', convert: { parameters: asText } },
   logTypes: { path: 'assets/log-types' },
   logEntries: { path: 'assets/log-entries' },
   infraPlans: { path: 'assets/site-plans' },
@@ -264,14 +279,14 @@ export const RESOURCES = {
   mapVersions: { path: 'assets/map-history' },
   infraLog: { path: 'assets/condition-log' },
   attendanceSettings: { path: 'workforce/attendance-settings', singleton: true },
-  siteHolidays: { path: 'workforce/holidays' },
-  siteServices: { path: 'workforce/services' },
-  siteCalendar: { path: 'workforce/calendar' },
+  siteHolidays: { path: 'workforce/holidays', convert: { effects: asText } },
+  siteServices: { path: 'workforce/services', convert: { weekdays } },
+  siteCalendar: { path: 'workforce/calendar', convert: { weekdays } },
   shifts: { path: 'workforce/shifts' },
   reportSchedules: { path: 'reports/schedules', rename: { custom: 'recipe' }, jsonText: ['recipe'] },
   reportRuns: { path: 'reports/runs', readOnly: true, jsonText: ['rows'] },
   numberSections: { path: 'comms/number-sections' },
-  mergeFields: { path: 'comms/merge-fields' },
+  mergeFields: { path: 'comms/merge-fields', convert: { token } },
   noticeTemplates: { path: 'comms/notice-templates' },
   notificationTemplates: { path: 'comms/notification-templates' },
   notificationPrefs: { path: 'comms/notification-prefs' },
@@ -287,6 +302,7 @@ export function resourceOf(row, spec = {}) {
   for (const [k, v] of Object.entries(row)) out[back[k] || k] = v === null ? '' : v;
   for (const [appKey, apiField] of Object.entries(unitFields(spec))) { out[apiField] = row[apiField] || ''; out[appKey] = row[appKey] || ''; }
   for (const f of spec.jsonText || []) out[f] = row[f] == null || row[f] === '' ? '' : JSON.stringify(row[f]);   // the app keeps these as JSON text
+  for (const [f, c] of Object.entries(spec.convert || {})) if (row[f] != null && row[f] !== '') out[back[f] || f] = c.read(row[f]);
   if (spec.alias) { out.serverId = row.id; out.id = spec.alias; }   // the app finds this one row by a fixed id ('default')
   return out;
 }
@@ -309,6 +325,7 @@ export function resourceBody(rec, spec, fields, unitIdByNo = {}, refIds = {}) {
       if (no && !v) throw new Error(`Unit ${no} is not known to the back end.`);
     } else v = rec[appKey[f] || f];
     if ([...(spec.json || []), ...(spec.jsonText || [])].includes(f) && typeof v === 'string') { try { v = v ? JSON.parse(v) : null; } catch { throw new Error(`${f} is not valid JSON.`); } }
+    if (spec.convert?.[f] && v !== undefined && v !== '') v = spec.convert[f].write(v);
     if (v === undefined) continue;
     body[f] = v === '' ? null : v;
   }
