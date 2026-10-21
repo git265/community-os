@@ -27,6 +27,12 @@ public class DataConfig {
     @Bean(destroyMethod = "close") HikariDataSource platformPool(CosProperties p) { return pool("cos-platform", p.db().platform()); }
 
     @Bean @Primary DataSource dataSource(@Qualifier("appPool") HikariDataSource appPool) { return new TenantDataSource(appPool); }
+    /** A read request's statements share one connection: one identity set per request instead of one per statement (TenantDataSource). */
+    @Bean org.springframework.boot.web.servlet.FilterRegistrationBean<com.communityos.api.shared.tenancy.RequestConnectionFilter> requestConnectionFilter() {
+        var r = new org.springframework.boot.web.servlet.FilterRegistrationBean<>(new com.communityos.api.shared.tenancy.RequestConnectionFilter());
+        r.setName("requestConnection"); r.addUrlPatterns("/api/*"); r.setOrder(0);          // after Spring Security's chain (-100): the caller is known
+        return r;
+    }
     @Bean @Qualifier("platform") DataSource platformDataSource(@Qualifier("platformPool") HikariDataSource platformPool) { return platformPool; }
 
     @Bean @Primary PlatformTransactionManager transactionManager(DataSource dataSource) { return new DataSourceTransactionManager(dataSource); }

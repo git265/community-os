@@ -11,4 +11,4 @@ docker-compose.yml  postgres + api + seed + demo + web        docker compose up 
 ```
 
 The earlier servers (`contract-server/`, the Node reference; `spring/`, its Spring port; `platform/` and `db/`, their schemas) were retired
-after r76: everything they did is in `api/`. They are in git history (tag `baseline-r76`) if anything needs looking up.
+after r76: everything they did is in `api/`. They are in git history (tag `baseline-r76`, commit 9ef79c0) if anything needs looking up.

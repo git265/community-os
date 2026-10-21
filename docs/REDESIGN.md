@@ -2,7 +2,7 @@
 
 `backend/api` is a new Spring Boot service (Spring Boot 3.5.16, Java 25) with a new PostgreSQL 18 schema. Every object has its own table. The web app talks only to this service, through typed `/api/v1` endpoints.
 
-It replaced the r76 services (`backend/contract-server`, `backend/spring`), which were retired; they remain at tag `baseline-r76`. The app reaches it through the **Back end** data source.
+It replaced the r76 services (`backend/contract-server`, `backend/spring`), which were retired; they remain at tag `baseline-r76` (commit 9ef79c0). The app reaches it through the **Back end** data source.
 
 Status:
 
@@ -280,7 +280,7 @@ Errors are RFC 9457 problem+json with a stable `code`. A 500 carries only an err
 | Retry storms | Exponential backoff with **full jitter**, and only for transient failures (timeouts, IO, 5xx, 429). A 4xx or a business refusal is never retried. |
 | Held connections | Provider calls run **outside** database transactions; `createOrder` commits, calls Razorpay, then commits again. Pools have about 20 connections and a 3 s connection timeout. Statements time out at 15 s, and idle-in-transaction at 30 s. |
 | Threads | Java 25 virtual threads (`spring.threads.virtual.enabled`). |
-| Round trips | The caller loads in one query; lists return their total via `count(*) OVER ()`; pages are capped at 200. |
+| Round trips | The caller loads in one query; lists return their total via `count(*) OVER ()`; pages are capped at 200. A read request (GET) shares one pooled connection for all its statements (`RequestConnectionFilter` + `TenantDataSource`): the community and member are set once per request instead of once per statement, and cleared when it ends - a page of 5 queries is 7 round trips instead of 15. Writes keep their own short transactions, so a provider call never holds a connection. |
 | Payload | gzip for JSON over 2 KB, HTTP/2, ETag. |
 | Missed webhooks | The `reconcile` job asks the provider about orders that are still open, then settles them or expires them. |
 | Client side | `net/request.js` (unchanged) retries reads twice, and repeats a keyed write once after a network drop. It renews the token once on 401. |

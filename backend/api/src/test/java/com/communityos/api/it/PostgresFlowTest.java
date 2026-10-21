@@ -531,12 +531,15 @@ class PostgresFlowTest {
             assertEquals(2, gOut.headcountOut.intValue());
             // the minute sweep: an approval nobody answered applies the unit's fallback (Deny)
             var asked2 = as(admin, () -> gateSvc.ask(admin, new com.communityos.api.gate.application.GateService.Ask("Guest", "Unknown caller", null, null, null, null, new UnitId(unitA), "Main gate", null, null, null, null, null)));
-            assertEquals("Deny", asked2.approval().fallback, "the unit's own fallback");
+            var gateSettings = as(admin, () -> new com.communityos.api.gate.adapter.JdbcGateDirectory(app, json).settings());
+            boolean quietNow = gateSettings.quiet(java.time.ZonedDateTime.now(clock.withZone(ZoneId.of("Asia/Kolkata"))));
+            assertEquals(quietNow ? gateSettings.quietFallback() : "Deny", asked2.approval().fallback, "the unit's own fallback (the community's quiet-hours one at night)");
             owner.sql("UPDATE gate.approval SET expires_at = now() - interval '1 minute' WHERE id = '" + asked2.approval().id + "' RETURNING 1");
             Caller gateJob = com.communityos.api.shared.security.SystemCaller.of(new CommunityId(cid), "gate sweep");
             assertTrue(as(gateJob, () -> gateSvc.sweep(gateJob)) >= 1);
-            assertEquals("Denied", owner.sql("SELECT status FROM gate.approval WHERE id = '" + asked2.approval().id + "'").get(0).get("status"));
-            assertEquals("Denied", owner.sql("SELECT state FROM gate.visit WHERE approval_id = '" + asked2.approval().id + "'").get(0).get("state"));
+            boolean autoDeny = "Deny".equals(asked2.approval().fallback);
+            assertEquals(autoDeny ? "Denied" : "No answer", owner.sql("SELECT status FROM gate.approval WHERE id = '" + asked2.approval().id + "'").get(0).get("status"));
+            assertEquals(autoDeny ? "Denied" : "No answer", owner.sql("SELECT state FROM gate.visit WHERE approval_id = '" + asked2.approval().id + "'").get(0).get("state"));
             // patrols: the right code, not too soon
             var cps = new com.communityos.api.shared.resource.JdbcResourceRepository<>(com.communityos.api.gate.GateResources.CHECKPOINTS.table(), app, json);
             var cp = as(admin, () -> kit.create(admin, com.communityos.api.gate.GateResources.CHECKPOINTS, cps, new com.communityos.api.gate.GateResources.CheckpointFields("Pump room", "North", 1, true, null)));
