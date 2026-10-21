@@ -15,7 +15,8 @@ import { setCommunityConfig } from '../lib/locale.js';
 import { isApiMode } from '../lib/storage/index.js';
 import { loadAuthConfig, publicCommunity, whoAmI } from '../lib/auth/authApi.js';
 import { authProviderFor } from '../lib/auth/providers.js';
-import { getAuthConfig } from '../lib/auth/session.js';
+import { getAuthConfig, getAuthUser } from '../lib/auth/session.js';
+import { getDataSource } from '../lib/storage/dataSource.js';
 
 const AppCtx = createContext(null);
 
@@ -155,7 +156,9 @@ export function AppProvider({ children }) {
   async function login(roleId, name, unit, email, userId, phone) {
     // block-limited staff: the blocks on their user row travel with the session (the principal) before any data is read
     let blocks = [];
-    try { const us = await storage.list(COLLECTIONS.USERS); const u = us.find((x) => (userId && x.id === userId) || (x.name === name && x.roleId === roleId)); blocks = u?.blocks || []; } catch { /* no users yet */ }
+    // on the v2 back end the server's answer to "who am I" already carries them (no need to read every member)
+    if (getDataSource().mode === 'v2') blocks = getAuthUser()?.blocks || [];
+    else { try { const us = await storage.list(COLLECTIONS.USERS); const u = us.find((x) => (userId && x.id === userId) || (x.name === name && x.roleId === roleId)); blocks = u?.blocks || []; } catch { /* no users yet */ } }
     // `unit` ties a Resident-category session to one villa/apartment, which is
     // what lets the Maintenance module scope a resident to their own
     // tickets only - see modules/tickets/ticketEngine.js#visibleTicketsFor.

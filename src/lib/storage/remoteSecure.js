@@ -1,7 +1,7 @@
 // secureStorage when the BACK END is the authority (AUTH_MODE=enforce, or Spring in any mode): this browser only asks. Who may see which rows, which fields are
 // hidden, what a write is allowed to change, the stamps and the audit line are all decided and written by the server in one transaction
 // (backend/contract-server/service.mjs runs the same rule book this folder's secureStorage.js runs in the browser demo).
-import { storage } from './index.js';
+import { storage, getDataSource } from './index.js';
 import { ApiStorageAdapter } from './ApiStorageAdapter.js';
 import { uuid } from '../uuid.js';
 import { ConflictError } from '../security/errors.js';
@@ -51,3 +51,11 @@ export const remoteSecure = {
   importMany: async (c, rows, opts = {}) => { const n = (await ApiStorageAdapter.rpc(`/${c}/_import-many`, 'POST', { rows, opts: cleanOpts(opts) }))?.count ?? 0; changed(c); return n; },
 };
 const cleanOpts = ({ label, summary } = {}) => ({ label, summary });
+
+// The typed v2 API has no generic delete / bulk routes: those go through its adapter (V2ApiAdapter), which knows each collection's own calls.
+const v2 = () => getDataSource().mode === 'v2';
+const generic = { remove: remoteSecure.remove, createMany: remoteSecure.createMany, updateMany: remoteSecure.updateMany, importMany: remoteSecure.importMany };
+remoteSecure.remove = (c, id, opts) => (v2() ? storage.remove(c, id).then(() => { changed(c); return undefined; }) : generic.remove(c, id, opts));
+remoteSecure.createMany = (c, rows, opts) => (v2() ? storage.putMany(c, rows).then(announce(c)) : generic.createMany(c, rows, opts));
+remoteSecure.updateMany = (c, rows, opts) => (v2() ? storage.putMany(c, rows).then(announce(c)) : generic.updateMany(c, rows, opts));
+remoteSecure.importMany = (c, rows, opts) => (v2() ? storage.putMany(c, rows).then((out) => { changed(c); return out.length; }) : generic.importMany(c, rows, opts));

@@ -444,6 +444,8 @@ class PostgresFlowTest {
             var pass = as(ownerC, () -> gateSvc.createPass(ownerC, new com.communityos.api.gate.application.GateService.NewPass("Meera", null, null, "One-time", null, null, null, null, List.of(), null,
                 null, null, null, null, false, null, null)));
             assertTrue(pass.code.matches("\\d{6}")); assertEquals(new UnitId(unitA), pass.unit);
+            assertEquals(pass.code, as(ownerC, () -> gateSvc.pass(ownerC, pass.id)).code, "one pass by its id");
+            assertThrows(AccessDenied.NotVisible.class, () -> as(plumberC, () -> gateSvc.pass(plumberC, pass.id)), "with the list's own scope");
             assertThrows(AccessDenied.class, () -> as(ownerC, () -> gateSvc.createPass(ownerC, new com.communityos.api.gate.application.GateService.NewPass("X", null, new UnitId(unitB), null, null, null,
                 null, null, List.of(), null, null, null, null, null, false, null, null))), "another unit's pass");
             assertThrows(AccessDenied.class, () -> as(ownerC, () -> gateSvc.findPasses(ownerC, pass.code)), "the desk is the guards'");
@@ -609,6 +611,9 @@ class PostgresFlowTest {
             assertEquals(List.of(1, 0), r2.counts()); assertEquals(1, r2.total(), "one answer per unit, changed");
             assertThrows(AccessDenied.class, () -> as(treasurer, () -> notices.vote(treasurer, poll.id, List.of("0"), null)), "not an owner: the poll did not reach them");
             assertEquals("Villa 101", as(treasurer, () -> notices.voters(treasurer, poll.id)).get(0).unitNo());
+            var allPolls = as(treasurer, () -> notices.polls(treasurer));
+            assertEquals(1, allPolls.get(poll.id).results().total()); assertEquals("Villa 101", allPolls.get(poll.id).voters().get(0).unitNo(), "every poll in one call, with its voters for the committee");
+            assertNull(as(ownerC, () -> notices.polls(ownerC)).get(poll.id).voters(), "a reader gets the results only");
             assertThrows(AccessDenied.class, () -> as(ownerC, () -> notices.voters(ownerC, poll.id)));
             var dr = as(treasurer, () -> notices.create(treasurer, draft.apply("Announcement", "All residents"), false, null));
             assertEquals("Draft", dr.status); assertEquals(0, dr.recipients);
@@ -631,6 +636,8 @@ class PostgresFlowTest {
             var topic = as(ownerC, () -> forum.start(ownerC, new com.communityos.api.comms.application.ForumService.NewTopic("Pool timings in winter", "Amenities", "Poll", List.of("6-9", "7-10"))));
             assertEquals("Member owner", topic.author); assertEquals(0, topic.replies);
             var reply = as(treasurer, () -> forum.reply(treasurer, topic.id, null, "<p>7-10 please</p>"));
+            assertTrue(as(ownerC, () -> forum.allPosts(ownerC)).stream().anyMatch((p) -> p.id.equals(reply.id)), "every post in one call");
+            assertTrue(as(ownerC, () -> forum.pollResults(ownerC)).containsKey(topic.id), "every poll topic's results in one call");
             assertEquals("Member treasurer", reply.author); assertEquals("treasurer", reply.authorRole);
             assertTrue(as(ownerC, () -> inboxSvc.mine(ownerC, true, 10)).stream().anyMatch((n) -> n.event().equals("forum_reply")), "the author hears of the reply");
             var t1 = as(ownerC, () -> forum.topic(ownerC, topic.id));
@@ -1108,6 +1115,28 @@ class PostgresFlowTest {
             assertEquals(arjun.get("id"), demoClaims.get("mid"));
             assertThrows(com.communityos.api.shared.security.Unauthenticated.class, () -> auth.demoSignIn(new PersonId(UUID.fromString((String) arjun.get("person_id"))), new CommunityId(cid),
                 new MembershipId(UUID.fromString((String) arjun.get("id"))), new AuthService.Client("it", "10.1.2.3")), "only a membership the person has");
+
+            // ---- 10. the counts above a page: worked out from the same rows with the same rules, so they always match the list under them ----------
+            var summaries = new com.communityos.api.summary.SummaryService(app, clock, ZoneId.of("Asia/Kolkata"));
+            for (Caller who : List.of(admin, ownerC, treasurer)) {
+                var ts = as(who, () -> summaries.tickets(who));
+                var list = as(who, () -> ticketSvc.list(who, new com.communityos.api.maintenance.application.port.TicketRepository.Filter(null, false, null, null, null, null, null), PageQuery.of(200, 0)));
+                assertEquals(list.total(), ts.total(), who.displayName() + ": the ticket count is the list's");
+                assertEquals(list.items().stream().filter((t) -> List.of("Open", "Assigned", "In Progress", "On Hold").contains(t.status().label())).count(), ts.active());
+                var ds = as(who, () -> summaries.dues(who));
+                if (ds != null) {
+                    var bills = as(who, () -> dueService.list(who, new DueRepository.Filter(null, null, null, null, null, true), PageQuery.of(200, 0)));
+                    assertEquals(bills.total(), ds.open(), who.displayName() + ": open bills");
+                    assertEquals(bills.items().stream().map((d) -> d.outstanding().amount()).reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add).setScale(2), ds.outstanding(), "outstanding is the bills' own");
+                }
+                var gNow = as(who, () -> summaries.gate(who));
+                assertEquals(as(who, () -> gateSvc.visits(who, new com.communityos.api.gate.application.port.GateStore.VisitFilter("Inside", null, null, null, false))).size(), gNow.inside(), "inside now");
+            }
+            var dash = as(demoAdmin, () -> summaries.dashboard(demoAdmin));
+            assertEquals(8, dash.tickets().total(), "the demo's tickets"); assertNotNull(dash.dues()); assertNotNull(dash.staff());
+            assertEquals(214, dash.homes().total(), "the demo's units");
+            assertEquals(owner.sql("SELECT count(*)::text AS n FROM gate.visit WHERE community_id = '" + demoC + "' AND state = 'Inside' AND kind = 'Crew'").get(0).get("n"), String.valueOf(dash.gate().insideCrew()));
+            assertNull(as(ownerC, () -> summaries.staff(ownerC)), "a resident does not see who is on duty");
 
             System.out.println("flow: " + (app.statements + platform.statements) + " statements through cos_app / cos_platform");
         }

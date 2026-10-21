@@ -150,6 +150,15 @@ public final class BroadcastService {
         });
     }
     public Comms.PollResult results(Caller c, UUID id) { return results(c, find(c, id)); }
+    /** Every sent poll the caller can see, with its results (and, for the committee, who voted what) - one call for the polls page. */
+    public record PollView(Comms.PollResult results, List<Voter> voters) {}
+    public java.util.Map<UUID, PollView> polls(Caller c) {
+        boolean publisher = CommsPolicy.publisher(c);
+        java.util.Map<UUID, PollView> out = new java.util.LinkedHashMap<>();
+        for (Comms.Broadcast b : list(c, "Sent")) if ("Poll".equals(b.type))
+            out.put(b.id, new PollView(results(c, b.id), publisher ? store.votes(b.id, null).stream().map((v) -> new Voter(v.voterName(), v.unitNo(), v.choices())).toList() : null));
+        return out;
+    }
     /** Who voted what - for the committee only. */
     public List<Voter> voters(Caller c, UUID id) {
         requirePublisher(c);

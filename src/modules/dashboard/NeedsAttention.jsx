@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useApp, useCollection } from '../../context/AppContext.jsx';
-import { COLLECTIONS as C } from '../../lib/storage/index.js';
+import { COLLECTIONS as C, getDataSource } from '../../lib/storage/index.js';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -18,10 +18,24 @@ function reasonFor(t) {
  *  (Things waiting for your decision live in Approvals; things to pay live in Payments.) */
 export default function NeedsAttention({ role }) {
   const { currentUser } = useApp();
-  const { records: tickets } = useCollection(C.TICKETS, 'Maintenance');
-  if (!role || role.category === 'Resident') return null;
+  // on v2: only the open tasks I raised, from the server (one filtered page); otherwise every ticket, filtered here
+  const v2 = getDataSource().mode === 'v2';
+  const staffView = !!role && role.category !== 'Resident';
+  const { records: all } = useCollection(C.TICKETS, 'Maintenance', { enabled: !v2 && staffView });
+  const [raised, setRaised] = useState([]);
+  useEffect(() => {
+    if (!v2 || !staffView) return undefined;
+    let on = true;
+    const load = () => import('../../lib/storage/v2/V2ApiAdapter.js').then((m) => m.myOpenTickets()).then((x) => { if (on) setRaised(x); }).catch(() => {});
+    load();
+    const h = (e) => { if (!e?.detail?.collection || e.detail.collection === C.TICKETS) load(); };
+    window.addEventListener('communityos:changed', h);
+    return () => { on = false; window.removeEventListener('communityos:changed', h); };
+  }, [v2, staffView]);
+  if (!staffView) return null;
+  const tickets = v2 ? raised : all;
   const mine = tickets
-    .filter((t) => t.createdBy === currentUser?.name && !['Closed', 'Cancelled'].includes(t.status))
+    .filter((t) => (v2 || t.createdBy === currentUser?.name) && !['Closed', 'Cancelled'].includes(t.status))
     .map((t) => ({ t, r: reasonFor(t) })).filter((x) => x.r);
   if (!mine.length) return null;
   const open = (t) => window.dispatchEvent(new CustomEvent('communityos:openlink', { detail: { link: `#/ticket/${t.ticketNumber}` } }));

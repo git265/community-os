@@ -270,6 +270,9 @@ public class ModulesConfig {
                                         JdbcPlatformPayments platform, DomainEvents events, Tx tx, Clock clock, CosProperties p) {
         return new PaymentService(dues, payments, orders, gateways, settlement, platform, platform, events, tx, clock, p.payments().orderTtl(), p.payments().currency());
     }
+    @Bean com.communityos.api.summary.SummaryService summaryService(NamedParameterJdbcTemplate jdbc, Clock clock, CosProperties p) {
+        return new com.communityos.api.summary.SummaryService(jdbc, clock, ZoneId.of(p.web().timeZone()));
+    }
     /** Refunds through the payment provider: the payment webhook passes refund news on; a booking's fee and deposit refunds use it. */
     @Bean com.communityos.api.billing.application.RefundService refundService(NamedParameterJdbcTemplate jdbc, @Qualifier("platform") NamedParameterJdbcTemplate platformJdbc,
                                                                              GatewayRegistry gateways, AuditWriter audit, Tx tx, Clock clock, PaymentService payments,

@@ -64,6 +64,10 @@ public final class GateService {
     public List<Gate.Pass> passes(Caller c, String status) { return store.passes(GatePolicy.byUnit(c, "p.unit_id", (Gate.Pass p) -> p.unit), status); }
     public List<Gate.Visit> visits(Caller c, GateStore.VisitFilter f) { return store.visits(GatePolicy.byUnit(c, "v.unit_id", (Gate.Visit v) -> v.unit), f); }
     public List<Gate.Approval> approvals(Caller c, String status) { return store.approvals(GatePolicy.byUnit(c, "a.unit_id", (Gate.Approval a) -> a.unit), status); }
+    /** One record, with the same scope as its list (a unit's own, or all for the security team). */
+    public Gate.Pass pass(Caller c, UUID id) { return store.pass(id, GatePolicy.byUnit(c, "p.unit_id", (Gate.Pass p) -> p.unit)).orElseThrow(AccessDenied.NotVisible::new); }
+    public Gate.Visit visit(Caller c, UUID id) { return store.visit(id, GatePolicy.byUnit(c, "v.unit_id", (Gate.Visit v) -> v.unit)).orElseThrow(AccessDenied.NotVisible::new); }
+    public Gate.Approval approval(Caller c, UUID id) { return store.approval(id, GatePolicy.byUnit(c, "a.unit_id", (Gate.Approval a) -> a.unit)).orElseThrow(AccessDenied.NotVisible::new); }
     public List<Gate.Flag> flags(Caller c, boolean openOnly) { if (!GatePolicy.oversees(c)) throw new AccessDenied("Only the security team and the committee see gate flags"); return store.flags(openOnly); }
     public List<GateStore.Scan> scans(Caller c, LocalDate since) {
         if (!GatePolicy.oversees(c)) throw new AccessDenied("Only the security team and the committee see patrols");

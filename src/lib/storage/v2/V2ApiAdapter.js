@@ -66,15 +66,35 @@ async function all(path) {
     if (out.length >= p.total || !p.items.length) return out;
   }
 }
+/** The counts above a page (GET /summary/{kind}): worked out by the server from the rows this person may see. */
+export async function v2Summary(kind) { return call(`/summary/${kind}`); }
+/** The tasks I raised that are still open (the "Needs attention" card): one filtered page, not every ticket. */
+export async function myOpenTickets() {
+  const { noById } = await unitIndex();
+  const p = await call('/tickets?mine=true&active=true&limit=200');
+  return (p?.items || []).map((t) => rev(ticketOf(t, noById)));
+}
 /** unit number -> unit id (for the payment gateway, which knows units by number). */
 export async function unitIdByNo(no) { return (await unitIndex()).idByNo[no] || null; }
+// The units (number <-> id, blocks) are the community's set-up: they change only when the platform adds units or a unit manager edits one.
+// Every task, member, notice and gate read needs them, so they are read once and shared for UNIT_TTL (and dropped at once after a unit write).
+const UNIT_TTL = 60e3;
+let unitsAt = 0; let unitsP = null;
+function allUnits() {
+  if (unitsP && Date.now() - unitsAt < UNIT_TTL) return unitsP;
+  unitsAt = Date.now();
+  unitsP = all('/units').catch((e) => { unitsP = null; throw e; });
+  return unitsP;
+}
+function dropUnits() { unitsP = null; }
+if (typeof window !== 'undefined') window.addEventListener?.('communityos:changed', (e) => { if (e?.detail?.collection === 'properties') dropUnits(); });
 async function unitIndex() {
-  const units = await all('/units');
+  const units = await allUnits();
   return { noById: Object.fromEntries(units.map((u) => [u.id, u.unitNo])), idByNo: Object.fromEntries(units.map((u) => [u.unitNo, u.id])) };
 }
 
 const readers = {
-  properties: { list: async () => (await all('/units')).map(propertyOf), get: async (id) => { const u = await call(`/units/${encodeURIComponent(id)}`); return u && propertyOf(u); } },
+  properties: { list: async () => { dropUnits(); return (await allUnits()).map(propertyOf); }, get: async (id) => { const u = await call(`/units/${encodeURIComponent(id)}`); return u && propertyOf(u); } },
   users: {
     list: async () => { const { noById } = await unitIndex(); return (await all('/members')).map((m) => userOf(m, noById)); },
     get: async (id) => { const m = await call(`/members/${encodeURIComponent(id)}`); if (!m) return null; const { noById } = await unitIndex(); return userOf(m, noById); },
@@ -108,9 +128,10 @@ readers.amenities = {
 // the gate: passes (a unit's own), visits, approvals; flags and patrols for the security team and the committee
 const oversees = () => { const u = getAuthUser(); return u && u.category !== 'Resident'; };
 const byId = (list) => async (id) => (await list()).find((x) => x.id === id) || null;
-readers.gatePasses = { list: async () => (await call('/gate/passes')).map(gatePassOf) }; readers.gatePasses.get = byId(readers.gatePasses.list);
-readers.gateVisits = { list: async () => (await call('/gate/visits')).map(gateVisitOf) }; readers.gateVisits.get = byId(readers.gateVisits.list);
-readers.gateApprovals = { list: async () => (await call('/gate/approvals')).map(gateApprovalOf) }; readers.gateApprovals.get = byId(readers.gateApprovals.list);
+const oneOf = (path, map) => async (id) => { if (!isUuid(id)) return null; try { const x = await call(`${path}/${id}`); return x && map(x); } catch (e) { if (e instanceof AuthzError || /not found|404/i.test(e.message)) return null; throw e; } };
+readers.gatePasses = { list: async () => (await call('/gate/passes')).map(gatePassOf), get: oneOf('/gate/passes', gatePassOf) };
+readers.gateVisits = { list: async () => (await call('/gate/visits')).map(gateVisitOf), get: oneOf('/gate/visits', gateVisitOf) };
+readers.gateApprovals = { list: async () => (await call('/gate/approvals')).map(gateApprovalOf), get: oneOf('/gate/approvals', gateApprovalOf) };
 readers.gateFlags = { list: async () => { if (!oversees()) return []; const { noById } = await unitIndex(); return (await call('/gate/flags')).map((f) => gateFlagOf(f, noById)); } };
 readers.gateFlags.get = byId(readers.gateFlags.list);
 readers.gateScans = { list: async () => (oversees() ? (await call('/gate/scans')).map(gateScanOf) : []) }; readers.gateScans.get = byId(readers.gateScans.list);
@@ -119,7 +140,7 @@ readers.gatePulse = { list: async () => [], get: async () => null };   // the se
 const myName = () => getPrincipal()?.name || getAuthUser()?.name || '';
 const publisher = () => { const u = getAuthUser(); return !!u && (u.category === 'EC' || (u.roleIds || []).includes('super_admin') || (u.permissions || []).some((x) => x === 'MANAGE_NOTICE_TEMPLATES' || x === 'MANAGE_GOVERNANCE')); };
 async function placeIndex() {
-  const units = await all('/units');
+  const units = await allUnits();
   return {
     unitNoById: Object.fromEntries(units.map((u) => [u.id, u.unitNo])), unitIdByNo: Object.fromEntries(units.map((u) => [u.unitNo, u.id])),
     blockNameById: Object.fromEntries(units.filter((u) => u.blockId).map((u) => [u.blockId, u.blockName])), blockIdByName: Object.fromEntries(units.filter((u) => u.blockId).map((u) => [u.blockName, u.blockId])),
@@ -132,26 +153,27 @@ readers.broadcasts = {
   get: async (id) => { if (!isUuid(id)) return null; const [b, ix] = await Promise.all([call(`/comms/broadcasts/${id}`), placeIndex()]); return b && broadcastOf(b, { ...ix, myName: myName() }); },
 };
 readers.pollVotes = {
+  // every sent poll with its results (and, for the committee, who voted what) in one call
   list: async () => {
-    const polls = (await call('/comms/broadcasts?status=Sent')).filter((b) => b.type === 'Poll');
+    const polls = await call('/comms/broadcasts/polls');
     const me = getPrincipal(); const out = [];
-    for (const p of polls) {
-      const voters = publisher() ? await call(`/comms/broadcasts/${p.id}/voters`).catch(() => null) : null;
-      out.push(...pollVoteRows(p.id, voters ? { counts: [], total: 0, mine: [] } : await call(`/comms/broadcasts/${p.id}/results`), { voters, myName: myName(), myUnit: me?.unit || getAuthUser()?.unit || '' }));
+    for (const [id, v] of Object.entries(polls || {})) {
+      out.push(...pollVoteRows(id, v.voters ? { counts: [], total: 0, mine: [] } : v.results, { voters: v.voters || null, myName: myName(), myUnit: me?.unit || getAuthUser()?.unit || '' }));
     }
     return out;
   },
 };
 readers.pollVotes.get = byId(readers.pollVotes.list);
 readers.forum = {
+  // the topics, and every poll topic's results in one more call (not one per poll)
   list: async () => {
-    const topics = await call('/comms/forum/topics');
-    return Promise.all(topics.map(async (t) => topicOf(t, t.kind === 'Poll' ? await call(`/comms/forum/topics/${t.id}/results`) : null, myName())));
+    const [topics, results] = await Promise.all([call('/comms/forum/topics'), call('/comms/forum/poll-results')]);
+    return topics.map((t) => topicOf(t, t.kind === 'Poll' ? (results || {})[t.id] || null : null, myName()));
   },
   get: async (id) => { if (!isUuid(id)) return null; const t = await call(`/comms/forum/topics/${id}`); return t && topicOf(t, t.kind === 'Poll' ? await call(`/comms/forum/topics/${id}/results`) : null, myName()); },
 };
 readers.forumPosts = {
-  list: async () => { const topics = await call('/comms/forum/topics'); return (await Promise.all(topics.map((t) => call(`/comms/forum/topics/${t.id}/posts`)))).flat().map(postOf); },
+  list: async () => (await call('/comms/forum/posts')).map(postOf),   // every post of every topic in one call
 };
 readers.forumPosts.get = byId(readers.forumPosts.list);
 // every register of the resource kit reads the same way
@@ -171,7 +193,9 @@ function withFiles(reader, ownerType, field, extra = () => ({})) {
     for (const f of await call(`/files?ownerType=${ownerType}`)) (by[f.ownerId] ||= []).push(fileMeta(f));
     return rows.map((r) => (by[r.id] ? { ...r, [field]: by[r.id], ...extra(by[r.id]) } : r));
   };
-  return { list: async () => group(await reader.list()), get: async (id) => { const r = await reader.get(id); return r ? (await group([r]))[0] : r; } };
+  // one record: only its own files (not every file of its kind)
+  const one = async (r) => { const mine = await filesOf(ownerType, r.id); return mine.length ? { ...r, [field]: mine, ...extra(mine) } : r; };
+  return { list: async () => group(await reader.list()), get: async (id) => { const r = await reader.get(id); return r ? one(r) : r; } };
 }
 const photos = (metas) => ({ hasPhotos: metas.some((m) => /^image\//.test(m.mime)) });
 readers.tickets = withFiles(readers.tickets, 'maintenance.ticket', 'attachments', photos);
@@ -746,6 +770,47 @@ for (const [c, [owner, field]] of Object.entries(ASSET_FILES)) WRITERS[c] = atta
 const warned = new Set();
 const notYet = (c) => { if (!warned.has(c)) { warned.add(c); console.info(`[v2] "${c}" is not on the v2 back end yet; showing it empty.`); } };
 
+// ---- lists the server pages itself (limit / offset, its own order, its own filters) ---------------------------------------------------------------
+// A page that sorts, filters or searches in a way the server does not is answered the old way (the whole list, then paged here), so the screen
+// never shows something different from before - only faster.
+const unitParam = async (no) => { const id = (await unitIndex()).idByNo[no]; return id || '__unknown__'; };
+const PAGED = {
+  properties: { path: '/units', order: ['unit:asc'], search: 'q', filters: {}, rows: async (items) => items.map(propertyOf) },
+  users: { path: '/members', order: ['name:asc'], search: 'q', filters: { status: (v) => ['status', v] },
+    rows: async (items) => { const { noById } = await unitIndex(); return items.map((m) => userOf(m, noById)); } },
+  dues: { path: '/dues', order: ['dueDate:desc'], search: null, filters: { unit: async (v) => ['unit', await unitParam(v)] }, rows: async (items) => items.map((d) => dueOf(d)) },
+  tickets: { path: '/tickets', order: ['recordCreatedAt:desc'], search: null, files: 'maintenance.ticket',
+    filters: { unit: async (v) => ['unit', await unitParam(v)], status: (v) => ['status', v], category: (v) => ['category', v] },
+    rows: async (items) => { const { noById } = await unitIndex(); return items.map((t) => ticketOf(t, noById)); } },
+};
+async function serverPage(c, params) {
+  const spec = PAGED[c];
+  if (!spec) return null;
+  const { page = 1, pageSize = 50, sort, filters = {}, search = '', dateRange, period } = params;
+  if (pageSize > 200 || dateRange?.from || dateRange?.to || period?.year || period?.month) return null;
+  if (sort?.key && !spec.order.includes(`${sort.key}:${sort.dir || 'asc'}`)) return null;
+  if (search && !spec.search) return null;
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(filters)) {
+    if (v === '' || v == null || (Array.isArray(v) && v.length === 0)) continue;
+    if (Array.isArray(v) || v === '__none__' || !spec.filters[k]) return null;   // lists of values, "not set", or a filter the server lacks
+    const [name, value] = await spec.filters[k](v);
+    if (value === '__unknown__') return { rows: [], total: 0, page: 1, pageSize, pages: 1 };
+    q.set(name, value);
+  }
+  if (search) q.set(spec.search, search);
+  const size = Math.max(1, pageSize); const p = Math.max(1, page);
+  q.set('limit', String(size)); q.set('offset', String((p - 1) * size));
+  const res = await call(`${spec.path}?${q.toString()}`);
+  let rows = await spec.rows(res.items || []);
+  if (spec.files && rows.length) {
+    const by = {};
+    for (const f of await call(`/files?ownerType=${spec.files}`)) (by[f.ownerId] ||= []).push(fileMeta(f));
+    rows = rows.map((r) => (by[r.id] ? { ...r, attachments: by[r.id], hasPhotos: by[r.id].some((m) => /^image\//.test(m.mime)) } : r));
+  }
+  return { rows: revs(rows), total: res.total, page: p, pageSize: size, pages: Math.max(1, Math.ceil(res.total / size)) };
+}
+
 /** The server's row version is the app's record revision: forms re-seed when it changes (a saved ticket, a changed setting ...). */
 const rev = (r) => (r && typeof r === 'object' && !Array.isArray(r) && r.recVersion == null && (r.version ?? r.rowVersion) != null ? { ...r, recVersion: Number(r.version ?? r.rowVersion) } : r);
 const revs = (rows) => (Array.isArray(rows) ? rows.map(rev) : rev(rows));
@@ -758,6 +823,8 @@ export const V2ApiAdapter = {
     notYet(c); return [];
   },
   async query(c, params = {}) {
+    const paged = await serverPage(c, params);   // one page from the server when it can sort, filter and search the way the page asks
+    if (paged) return paged;
     const rows = await this.list(c);
     const { runQuery } = await import('../queryEngine.js');   // same paging / sort / search as the session store
     return runQuery(rows, params);
@@ -768,7 +835,7 @@ export const V2ApiAdapter = {
     notYet(c); return null;
   },
   async put(c, rec) {
-    if (WRITERS[c]) { const { recVersion, ...clean } = rec || {}; return rev(await WRITERS[c](clean)); }   // the revision is the read side's; writes carry `version`
+    if (WRITERS[c]) { const { recVersion, __opts, ...clean } = rec || {}; const out = rev(await WRITERS[c](clean)); if (c === 'properties') dropUnits(); return out; }   // the revision is the read side's; writes carry `version`
     if (LOCAL_COLLECTIONS.includes(c)) return SessionStorageAdapter.put(c, rec);
     throw new NotOnV2Error(c);
   },

@@ -134,6 +134,8 @@ public class CommsController {
     public ResponseEntity<BroadcastResponse> sign(@PathVariable UUID id) { return tagged(notices.sign(CallerHolder.require(), id)); }
     @PostMapping("/api/v1/comms/broadcasts/{id}/vote")
     public Comms.PollResult vote(@PathVariable UUID id, @Valid @RequestBody VoteRequest b) { return notices.vote(CallerHolder.require(), id, b.choices(), b.unitId()); }
+    @GetMapping("/api/v1/comms/broadcasts/polls")
+    public java.util.Map<UUID, BroadcastService.PollView> polls() { return notices.polls(CallerHolder.require()); }
     @GetMapping("/api/v1/comms/broadcasts/{id}/results")
     public Comms.PollResult results(@PathVariable UUID id) { return notices.results(CallerHolder.require(), id); }
     @GetMapping("/api/v1/comms/broadcasts/{id}/voters")
@@ -158,6 +160,10 @@ public class CommsController {
         forum.remove(CallerHolder.require(), id, ETags.require(ifMatch));
         return ResponseEntity.noContent().build();
     }
+    @GetMapping("/api/v1/comms/forum/posts")
+    public List<PostResponse> allPosts() { return forum.allPosts(CallerHolder.require()).stream().map(PostResponse::of).toList(); }
+    @GetMapping("/api/v1/comms/forum/poll-results")
+    public java.util.Map<UUID, Comms.PollResult> forumPolls() { return forum.pollResults(CallerHolder.require()); }
     @GetMapping("/api/v1/comms/forum/topics/{id}/posts")
     public List<PostResponse> posts(@PathVariable UUID id) { return forum.posts(CallerHolder.require(), id).stream().map(PostResponse::of).toList(); }
     @PostMapping("/api/v1/comms/forum/topics/{id}/posts")

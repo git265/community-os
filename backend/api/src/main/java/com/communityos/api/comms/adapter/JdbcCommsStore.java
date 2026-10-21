@@ -118,6 +118,7 @@ public final class JdbcCommsStore implements CommsStore {
         LEFT JOIN identity.role r ON r.community_id = p.community_id AND r.id = p.author_role_id""";
     static final String POSTS = POST_COLUMNS + "\nWHERE p.topic_id = CAST(:topic AS uuid) ORDER BY p.created_at LIMIT 2000";
     static final String POST = POST_COLUMNS + "\nWHERE p.id = CAST(:id AS uuid)";
+    static final String ALL_POSTS = POST_COLUMNS + "\nORDER BY p.topic_id, p.created_at LIMIT 5000";
     static final String POST_INSERT = """
         INSERT INTO comms.forum_post (community_id, id, topic_id, parent_id, author_id, author_role_id, body, reactions)
         VALUES (platform.current_community(), CAST(:id AS uuid), CAST(:topic AS uuid), CAST(:parent AS uuid), platform.current_actor(),
@@ -191,6 +192,7 @@ public final class JdbcCommsStore implements CommsStore {
     }
     @Override public boolean deleteTopic(UUID id, long version) { return jdbc.update(TOPIC_DELETE, Map.of("id", id.toString(), "version", version)) == 1; }
     @Override public List<Comms.Post> posts(UUID topicId) { return jdbc.query(POSTS, Map.of("topic", topicId.toString()), (rs, i) -> post(rs)); }
+    @Override public List<Comms.Post> allPosts() { return jdbc.query(ALL_POSTS, Map.of(), (rs, i) -> post(rs)); }
     @Override public Optional<Comms.Post> post(UUID id) { return jdbc.query(POST, Map.of("id", id.toString()), (rs, i) -> post(rs)).stream().findFirst(); }
     @Override public void insert(Comms.Post x) {
         if (x.id == null) x.id = UUID.randomUUID();

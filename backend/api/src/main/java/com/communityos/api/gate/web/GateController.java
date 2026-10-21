@@ -61,6 +61,12 @@ public class GateController {
     // ---- passes ----------------------------------------------------------------------------------------------------------------------------------
     @GetMapping("/api/v1/gate/passes")
     public List<Gate.Pass> passes(@RequestParam(required = false) String status) { return gate.passes(CallerHolder.require(), status); }
+    @GetMapping("/api/v1/gate/passes/{id:[0-9a-fA-F-]{36}}")
+    public Gate.Pass pass(@PathVariable UUID id) { return gate.pass(CallerHolder.require(), id); }
+    @GetMapping("/api/v1/gate/visits/{id:[0-9a-fA-F-]{36}}")
+    public Gate.Visit visit(@PathVariable UUID id) { return gate.visit(CallerHolder.require(), id); }
+    @GetMapping("/api/v1/gate/approvals/{id:[0-9a-fA-F-]{36}}")
+    public Gate.Approval approval(@PathVariable UUID id) { return gate.approval(CallerHolder.require(), id); }
     @GetMapping("/api/v1/gate/passes/search")
     public List<GateService.PassCheck> search(@RequestParam String q) { return gate.findPasses(CallerHolder.require(), q); }
     @PostMapping("/api/v1/gate/passes")

@@ -105,6 +105,13 @@ public final class SqlCatalog {
             out.add(new Stmt("cos_app", "donations.list." + i, com.communityos.api.cultural.adapter.JdbcCulturalStore.donationsSql(cd.sql())));
             out.add(new Stmt("cos_app", "donations.get." + i, com.communityos.api.cultural.adapter.JdbcCulturalStore.donationSql(cd.sql())));
             out.add(new Stmt("cos_app", "quotations.all." + i, com.communityos.api.maintenance.adapter.JdbcQuotationRepository.allSql(ts.sql())));
+            // the counts above the pages, with the same scopes as their lists
+            out.add(new Stmt("cos_app", "summary.tickets." + i, com.communityos.api.summary.SummaryService.TICKETS.formatted(ts.sql())));
+            out.add(new Stmt("cos_app", "summary.dues." + i, com.communityos.api.summary.SummaryService.DUES.formatted(ds.sql())));
+            out.add(new Stmt("cos_app", "summary.gate." + i, com.communityos.api.summary.SummaryService.GATE.formatted(gv.sql())));
+            out.add(new Stmt("cos_app", "summary.bookings." + i, com.communityos.api.summary.SummaryService.BOOKINGS.formatted(bs.sql())));
+            out.add(new Stmt("cos_app", "summary.late." + i, com.communityos.api.summary.SummaryService.MOST_OVERDUE.formatted(ts.sql())));
+            out.add(new Stmt("cos_app", "summary.homes." + i, com.communityos.api.summary.SummaryService.HOMES.formatted(us.sql())));
             // every resource of the kit: its list / detail with this caller's scope, a filtered list
             for (com.communityos.api.shared.resource.Resource<?> r : com.communityos.api.config.ResourcesConfig.all()) {
                 Spec<?> rs = r.rules().readScope(c);

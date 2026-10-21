@@ -38,6 +38,8 @@ public interface CommsStore {
     boolean update(Comms.Topic t);
     boolean deleteTopic(UUID id, long version);
     List<Comms.Post> posts(UUID topicId);
+    /** Every post of every topic (the forum page reads them in one call). */
+    List<Comms.Post> allPosts();
     Optional<Comms.Post> post(UUID id);
     void insert(Comms.Post p);
     boolean update(Comms.Post p);

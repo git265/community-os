@@ -134,6 +134,10 @@ globalThis.fetch = async (url, init = {}) => {
     return ok({ ok: true, outcome: 'admitted', visit: { id: uuid(), shortId: 'GVS-1', name: p.visitorName, kind: 'Guest', unit: p.unit, unitNo: 'Villa 101', state: 'Inside', inAt: '2026-10-20T10:00:00Z', version: 1 } });
   }
   if (path === '/gate/approvals' && method === 'GET') return ok(state.approvals);
+  if ((m = /^\/gate\/(passes|visits|approvals)\/([0-9a-f-]{36})$/.exec(path)) && method === 'GET') {
+    const x = (state[m[1] === 'passes' ? 'passes' : m[1] === 'visits' ? 'visits' : 'approvals'] || []).find((y) => y.id === m[2]);
+    return x ? ok(x) : problem(404, 'not-found', 'Not found');
+  }
   if ((m = /^\/gate\/approvals\/([^/]+)\/answer$/.exec(path))) { const a = state.approvals.find((x) => x.id === m[1]); a.status = body.decision; a.alwaysAllow = body.always; return ok(a); }
   if (path === '/amenities/availability') return ok([{ amenityTypeId: HALL, date: '2026-11-01', slot: 'Full day', bookings: 2, items: { [CHAIRS]: 30 } }]);
   if (path === '/amenities/bookings' && method === 'GET') return ok(state.bookings);
@@ -331,6 +335,11 @@ globalThis.fetch = async (url, init = {}) => {
       recipients: body.send ? 2 : 0, viewed: 0, signed: 0, pushDelivered: body.send ? 2 : 0, signedBy: [], viewedAt: null, signedAt: null, createdAt: '2026-10-20T06:00:00Z', version: 1 };
     state.broadcasts.push(b); return ok(b, 201);
   }
+  if (path === '/comms/broadcasts/polls') {
+    const out = {};
+    for (const b of state.broadcasts.filter((x) => x.status === 'Sent' && x.type === 'Poll')) { const v = state.votes[b.id] || []; out[b.id] = { results: { counts: b.pollOptions.map((_, i) => v.filter((x) => x.includes(String(i))).length), total: v.length, mine: v[0] || [], mineBy: null }, voters: null }; }
+    return ok(out);
+  }
   if ((m = /^\/comms\/broadcasts\/([^/]+)(\/[a-z]+)?$/.exec(path))) {
     const b = state.broadcasts.find((x) => x.id === m[1]); if (!b) return problem(404, 'not-found', 'Not found');
     const verb = m[2] || '';
@@ -345,6 +354,8 @@ globalThis.fetch = async (url, init = {}) => {
     b.version++; return ok(b);
   }
   if (path === '/comms/forum/topics' && method === 'GET') return ok(state.topics);
+  if (path === '/comms/forum/posts' && method === 'GET') return ok(state.posts);
+  if (path === '/comms/forum/poll-results') return ok(Object.fromEntries(state.topics.filter((t) => t.kind === 'Poll').map((t) => [t.id, { counts: t.pollOptions.map((_, i) => t.votes.filter((x) => x === i).length), total: t.votes.length, mine: t.votes.length ? [String(t.votes[0])] : [] }])));
   if (path === '/comms/forum/topics' && method === 'POST') { const t = { ...body, id: uuid(), shortId: 'FT-1', replies: 0, pinned: false, status: 'Open', author: 'Asha', votes: [], version: 1 }; state.topics.push(t); return ok(t, 201); }
   if ((m = /^\/comms\/forum\/topics\/([^/]+)(\/[a-z]+)?$/.exec(path))) {
     const t = state.topics.find((x) => x.id === m[1]); if (!t) return problem(404, 'not-found', 'Not found');
@@ -618,6 +629,34 @@ test('registers the app keeps in another shape: weekdays, recipient lists, appro
   assert.deepEqual(JSON.parse(pol.steps), steps);
   const b = await storage.put('budgetLines', { fy: 'FY27', kind: 'Expense', name: 'Security', forecast: 100 });
   assert.equal(last('POST', /^\/finance\/budget-lines$/).body.fy, '2026-27'); assert.equal(b.fy, 'FY27');
+});
+
+test('fewer calls: the unit list is read once and shared, one gate record is read by its id, the forum and the polls in one call each', async () => {
+  const before = calls.length;
+  await storage.list('users'); await storage.list('tickets'); await storage.list('properties'); await storage.list('users');
+  const units = calls.slice(before).filter((c) => c.method === 'GET' && /^\/units(\?|$)/.test(c.path)).length;
+  assert.ok(units <= 1, `the units were read ${units} times`);
+  const pass = await storage.put('gatePasses', { visitorName: 'Cousin', unit: 'Villa 101', type: 'One-time', validFrom: '2026-10-21', validTo: '2026-10-21' });
+  const n = calls.length;
+  assert.equal((await storage.get('gatePasses', pass.id)).visitorName, 'Cousin');
+  assert.deepEqual(calls.slice(n).map((c) => c.path), [`/gate/passes/${pass.id}`], 'by its id, not the whole list');
+  const f = calls.length;
+  await storage.list('forum'); await storage.list('forumPosts'); await storage.list('pollVotes');
+  assert.deepEqual(calls.slice(f).map((c) => c.path).sort(), ['/comms/broadcasts/polls', '/comms/forum/poll-results', '/comms/forum/posts', '/comms/forum/topics'].sort());
+});
+
+test('paging: a page the server can serve is one call with limit / offset and its filters; anything else is paged here as before', async () => {
+  const n = calls.length;
+  const r = await storage.query('dues', { page: 2, pageSize: 10, sort: { key: 'dueDate', dir: 'desc' }, filters: { unit: 'Villa 101' } });
+  const q = calls.slice(n).find((c) => /^\/dues\?/.test(c.path));
+  assert.ok(q, 'asked the server'); assert.match(q.path, /limit=10/); assert.match(q.path, /offset=10/); assert.match(q.path, new RegExp(`unit=${A}`));
+  assert.equal(typeof r.total, 'number');
+  const m = calls.length;
+  await storage.query('dues', { page: 1, pageSize: 10, sort: { key: 'amount', dir: 'asc' } });
+  assert.ok(calls.slice(m).some((c) => c.path === '/dues?limit=200&offset=0'), 'a sort the server does not do: the whole list, as before');
+  const k = calls.length;
+  const none = await storage.query('tickets', { page: 1, pageSize: 10, filters: { unit: 'Villa 999' } });
+  assert.equal(none.total, 0); assert.equal(calls.slice(k).filter((c) => /^\/tickets/.test(c.path)).length, 0, 'an unknown unit has nothing to ask for');
 });
 
 test('quotations: add what is written, select, decide on the plan, send back; amounts are never edited', async () => {

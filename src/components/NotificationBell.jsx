@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { listMine, markRead, markAllRead, NOTIFICATIONS } from '../lib/notifications.js';
+import { getDataSource } from '../lib/storage/dataSource.js';
+import { apiFetch } from '../lib/net/request.js';
 import { ApprovalButtons } from './GateApproval.jsx';
 
 export const ICON = { gate: '🚪', gate_approval: '🚪', amenity: '🏊', assigned: '📌', status: '🔁', decision: '✅', bill: '🧾', announcement: '📣', ballot: '🗳', meeting: '📅', shift: '🕒', forum_topic: '💬', forum_reply: '💬', poll: '📊', ballot_result: '🗳', ballot_reminder: '🗳', ticket_chat: '💬', ticket_new: '🆕', payment_made: '💳' };
@@ -25,6 +27,24 @@ export default function NotificationBell({ onOpen, onViewAll }) {
 
   const load = useCallback(async () => { setItems(await listMine()); }, []);
   useEffect(() => { load(); }, [load]);
+  // On the v2 back end other people's actions reach this inbox on the server: ask for the unread COUNT now and then (one number),
+  // and fetch the list again only when it changed.
+  useEffect(() => {
+    if (getDataSource().mode !== 'v2') return undefined;
+    let on = true;
+    const tick = async () => {
+      try {
+        const res = await apiFetch('/v1/notifications/unread-count');
+        if (!res.ok) return;
+        const { count } = await res.json();
+        if (on && count !== itemsRef.current.filter((n) => !n.read).length) load();
+      } catch { /* offline: try again next time */ }
+    };
+    const t = setInterval(tick, 30000);
+    const vis = () => { if (document.visibilityState === 'visible') tick(); };
+    document.addEventListener('visibilitychange', vis);
+    return () => { on = false; clearInterval(t); document.removeEventListener('visibilitychange', vis); };
+  }, [load]);
   useEffect(() => {
     const changed = (e) => { if (!e.detail?.collection || e.detail.collection === NOTIFICATIONS) load(); };
     const pushed = async (e) => {

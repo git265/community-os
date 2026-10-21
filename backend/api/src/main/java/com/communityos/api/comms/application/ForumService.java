@@ -29,6 +29,15 @@ public final class ForumService {
 
     public List<Comms.Topic> topics(Caller c, String category) { requireMember(c); return store.topics(category); }
     public Comms.Topic topic(Caller c, UUID id) { requireMember(c); return store.topic(id).orElseThrow(AccessDenied.NotVisible::new); }
+    /** Every post the member can see, all topics at once. */
+    public List<Comms.Post> allPosts(Caller c) { requireMember(c); return store.allPosts().stream().map((p) -> shown(c, p)).toList(); }
+    /** The results of every poll topic, by topic id (one call for the forum page). */
+    public java.util.Map<UUID, Comms.PollResult> pollResults(Caller c) {
+        requireMember(c);
+        java.util.Map<UUID, Comms.PollResult> out = new java.util.LinkedHashMap<>();
+        for (Comms.Topic t : store.topics(null)) if ("Poll".equals(t.kind)) out.put(t.id, results(c, t));
+        return out;
+    }
     public List<Comms.Post> posts(Caller c, UUID topicId) {
         topic(c, topicId);
         return store.posts(topicId).stream().map((p) -> shown(c, p)).toList();
