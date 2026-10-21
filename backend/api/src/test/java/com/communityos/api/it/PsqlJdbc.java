@@ -171,6 +171,7 @@ public final class PsqlJdbc extends NamedParameterJdbcTemplate implements Tx, Au
         if (v == null) return null;
         String t = v.toString();
         if (type == UUID.class) return (T) UUID.fromString(t);
+        if (type == BigDecimal.class) return (T) new BigDecimal(t);
         if (type == Long.class) return (T) Long.valueOf(t);
         if (type == Integer.class) return (T) Integer.valueOf(t);
         if (type == Boolean.class) return (T) Boolean.valueOf(t.equals("t"));

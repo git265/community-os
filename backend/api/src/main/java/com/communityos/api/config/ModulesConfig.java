@@ -75,6 +75,14 @@ public class ModulesConfig {
     @Bean WishVotes wishVotes(NamedParameterJdbcTemplate jdbc, ResourceService resources, ResourceRegistry registry, ObjectMapper json) { return new WishVotes(jdbc, resources, registry, json); }
     @Bean FieldStaffService fieldStaffService(JdbcMaintenanceDirectory dir, AuditWriter audit, Tx tx) { return new FieldStaffService(dir, dir, audit, tx); }
 
+    // ---- amenities ----------------------------------------------------------------------------------------------------------------------------
+    @Bean com.communityos.api.amenity.application.BookingService bookingService(NamedParameterJdbcTemplate jdbc, ObjectMapper json, com.communityos.api.billing.application.BillingDesk desk,
+                                                                               DomainEvents events, AuditWriter audit, Tx tx, Clock clock, CosProperties p) {
+        ZoneId zone = ZoneId.of(p.web().timeZone());
+        return new com.communityos.api.amenity.application.BookingService(new com.communityos.api.amenity.adapter.JdbcBookingRepository(jdbc, json),
+            new com.communityos.api.amenity.adapter.JdbcAmenityCatalog(jdbc, json), desk, new com.communityos.api.amenity.application.AmenityLedger(desk, zone), events, audit, tx, clock, zone);
+    }
+
     // ---- billing ------------------------------------------------------------------------------------------------------------------------------
     @Bean JdbcDueRepository dueRepository(NamedParameterJdbcTemplate jdbc) { return new JdbcDueRepository(jdbc); }
     @Bean JdbcBillingLookups billingLookups(NamedParameterJdbcTemplate jdbc) { return new JdbcBillingLookups(jdbc); }
@@ -87,6 +95,14 @@ public class ModulesConfig {
     @Bean DomainEventHandler<?> ledgerOnDueCancelled(LedgerPoster l) { return l.handlers().get(1); }
     @Bean DomainEventHandler<?> ledgerOnDueWaived(LedgerPoster l) { return l.handlers().get(2); }
     @Bean DomainEventHandler<?> ledgerOnPayment(LedgerPoster l) { return l.handlers().get(3); }
+    @Bean DomainEventHandler<?> ledgerOnCreditApplied(LedgerPoster l) { return l.handlers().get(4); }
+    @Bean com.communityos.api.billing.application.TargetSettlement targetSettlement(JdbcDueRepository dues, JdbcPaymentRepository payments, DomainEvents events, AuditWriter audit, Tx tx, Clock clock) {
+        return new com.communityos.api.billing.application.TargetSettlement(dues, payments, events, audit, tx, clock);
+    }
+    @Bean com.communityos.api.billing.application.BillingDesk billingDesk(JdbcPaymentRepository payments, com.communityos.api.billing.application.TargetSettlement counter,
+                                                                          NamedParameterJdbcTemplate jdbc, DomainEvents events, Clock clock) {
+        return new com.communityos.api.billing.application.BillingDesk(payments, counter, new JdbcJournalWriter(jdbc), events, clock);
+    }
 
     @Bean DueService dueService(JdbcDueRepository dues, JdbcBillingLookups lookups, DomainEvents events, AuditWriter audit, Tx tx, Clock clock) {
         return new DueService(dues, lookups, lookups, events, audit, tx, clock);
@@ -119,8 +135,8 @@ public class ModulesConfig {
                                               JdbcBillingLookups lookups, Clock clock) {
         return new CounterSettlement(dues, payments, events, audit, tx, lookups, clock);
     }
-    @Bean PaymentService paymentService(JdbcDueRepository dues, JdbcPaymentOrderRepository orders, GatewayRegistry gateways, GatewaySettlement settlement,
+    @Bean PaymentService paymentService(JdbcDueRepository dues, JdbcPaymentRepository payments, JdbcPaymentOrderRepository orders, GatewayRegistry gateways, GatewaySettlement settlement,
                                         JdbcPlatformPayments platform, DomainEvents events, Tx tx, Clock clock, CosProperties p) {
-        return new PaymentService(dues, orders, gateways, settlement, platform, platform, events, tx, clock, p.payments().orderTtl(), p.payments().currency());
+        return new PaymentService(dues, payments, orders, gateways, settlement, platform, platform, events, tx, clock, p.payments().orderTtl(), p.payments().currency());
     }
 }

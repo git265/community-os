@@ -18,10 +18,10 @@ import { apiFetch } from '../../net/request.js';
 import { AuthzError, ConflictError } from '../../security/errors.js';
 import { SessionStorageAdapter } from '../SessionStorageAdapter.js';
 import { propertyOf, unitPatch, userOf, dueOf, raiseBody, roleOf, ticketOf, ticketPatch, raiseTicketBody, commentOf, fieldStaffOf, quotationOf, addDocumentBody,
-  quotationCommands, RESOURCES, resourceOf, resourceBody, isUuid } from './v2map.js';
+  quotationCommands, RESOURCES, resourceOf, resourceBody, isUuid, bookingOf, busyOf, bookBody, bookingCommand } from './v2map.js';
 import { getAuthUser } from '../../auth/session.js';
 
-export const V2_COLLECTIONS = ['properties', 'users', 'dues', 'roles', 'tickets', 'ticketComments', 'handymen', 'quotations', ...Object.keys(RESOURCES)];
+export const V2_COLLECTIONS = ['properties', 'users', 'dues', 'roles', 'tickets', 'ticketComments', 'handymen', 'quotations', 'amenities', ...Object.keys(RESOURCES)];
 export const LOCAL_COLLECTIONS = ['schema', 'communityConfig', 'roleGroups'];
 
 export class NotOnV2Error extends Error { constructor(collection) { super(`"${collection}" is not on the v2 back end yet - this screen works with the Browser session or the v1 back end.`); this.name = 'NotOnV2Error'; } }
@@ -50,6 +50,8 @@ async function all(path) {
     if (out.length >= p.total || !p.items.length) return out;
   }
 }
+/** unit number -> unit id (for the payment gateway, which knows units by number). */
+export async function unitIdByNo(no) { return (await unitIndex()).idByNo[no] || null; }
 async function unitIndex() {
   const units = await all('/units');
   return { noById: Object.fromEntries(units.map((u) => [u.id, u.unitNo])), idByNo: Object.fromEntries(units.map((u) => [u.unitNo, u.id])) };
@@ -70,6 +72,22 @@ const readers = {
   ticketComments: { list: async () => (await call('/ticket-comments?limit=1000')).map(commentOf), get: async (id) => (await readers.ticketComments.list()).find((c) => c.id === id) || null },
   handymen: { list: async () => (await call('/field-staff')).map(fieldStaffOf), get: async (id) => (await readers.handymen.list()).find((h) => h.id === id) || null },
   quotations: { list: async () => (await call('/quotations')).map(quotationOf), get: async (id) => { if (!isUuid(id)) return null; const q = await call(`/quotations/${id}`); return q && quotationOf(q); } },
+};
+// bookings: a resident gets their own, plus the other bookings as "taken" only (so the calendar can show what is full)
+readers.amenities = {
+  list: async () => {
+    const own = (await call('/amenities/bookings')).map(bookingOf);
+    if (getAuthUser()?.category !== 'Resident') return own;
+    const from = new Date(Date.now() - 86400e3).toISOString().slice(0, 10); const to = new Date(Date.now() + 120 * 86400e3).toISOString().slice(0, 10);
+    const [taken, types] = await Promise.all([call(`/amenities/availability?from=${from}&to=${to}`), call('/amenities/types')]);
+    const name = Object.fromEntries(types.map((t) => [t.id, t.name]));
+    const mine = new Map();
+    for (const b of own) if (b.status !== 'Cancelled') { const k = `${b.amenityTypeId}|${b.date}|${b.slot}`; mine.set(k, (mine.get(k) || 0) + 1); }
+    const busy = [];
+    for (const t of taken) { const others = t.bookings - (mine.get(`${t.amenityTypeId}|${t.date}|${t.slot}`) || 0); for (let i = 0; i < others; i += 1) busy.push(busyOf(t, name[t.amenityTypeId], i)); }
+    return [...own, ...busy];
+  },
+  get: async (id) => { if (!isUuid(id)) return null; const b = await call(`/amenities/bookings/${id}`); return b && bookingOf(b); },
 };
 // every register of the resource kit reads the same way
 for (const [c, spec] of Object.entries(RESOURCES)) {
@@ -227,8 +245,10 @@ async function putResource(c, rec) {
   let before = isUuid(rec.id) ? await call(`/${spec.path}/${rec.id}`) : null;
   if (!before && spec.singleton) before = (await call(`/${spec.path}`))[0] || null;
   const { idByNo } = spec.unit ? await unitIndex() : { idByNo: {} };
+  const refIds = {};
+  for (const [appKey, r] of Object.entries(spec.refs || {})) refIds[appKey] = Object.fromEntries((await call(`/${RESOURCES[r.collection].path}`)).map((x) => [x[r.key], x.id]));
   const merged = before ? { ...resourceOf(before, spec), ...rec } : rec;          // a write is the whole record: keep what the app did not send
-  const body = resourceBody(merged, spec, fields, idByNo);
+  const body = resourceBody(merged, spec, fields, idByNo, refIds);
   const out = before
     ? await call(`/${spec.path}/${before.id}`, json('PUT', body, ifMatch(rec.version && rec.id === before.id ? rec.version : before.version)))
     : await call(`/${spec.path}`, json('POST', body));
@@ -241,7 +261,21 @@ async function removeResource(c, id) {
   await call(`/${spec.path}/${id}`, { method: 'DELETE', headers: ifMatch(before.version) });
 }
 
-const WRITERS = { properties: putProperty, users: putUser, dues: putDue, tickets: putTicket, ticketComments: putComment, handymen: putFieldStaff, quotations: putQuotation };
+async function putBooking(rec) {
+  const before = isUuid(rec.id) ? await readers.amenities.get(rec.id) : null;
+  if (!before) {
+    const [types, { idByNo }] = await Promise.all([call('/amenities/types'), unitIndex()]);
+    return bookingOf(await call('/amenities/bookings', json('POST', bookBody(rec, { amenityIdByName: Object.fromEntries(types.map((t) => [t.name, t.id])), unitIdByNo: idByNo }))));
+  }
+  const cmd = bookingCommand(rec);
+  if (!cmd) {
+    if (rec.status && rec.status !== before.status) throw new Error('Use the booking actions (cancel, receive payment, refund, deposit) - a booking is not edited directly.');
+    return before;
+  }
+  return bookingOf(await call(`/amenities/bookings/${encodeURIComponent(rec.id)}/${cmd.path}`, json('POST', cmd.body, ifMatch(before.version))));
+}
+
+const WRITERS = { amenities: putBooking, properties: putProperty, users: putUser, dues: putDue, tickets: putTicket, ticketComments: putComment, handymen: putFieldStaff, quotations: putQuotation };
 for (const c of Object.keys(RESOURCES)) WRITERS[c] = (rec) => putResource(c, rec);
 const warned = new Set();
 const notYet = (c) => { if (!warned.has(c)) { warned.add(c); console.info(`[v2] "${c}" is not on the v2 back end yet; showing it empty.`); } };
@@ -273,7 +307,7 @@ export const V2ApiAdapter = {
     if (LOCAL_COLLECTIONS.includes(c)) return SessionStorageAdapter.remove(c, id);
     if (RESOURCES[c]) return removeResource(c, id);
     if (c === 'quotations') { const q = isUuid(id) ? await call(`/quotations/${id}`) : null; if (q) await call(`/quotations/${id}`, { method: 'DELETE', headers: ifMatch(q.version) }); return; }
-    throw new Error(c === 'dues' ? 'A bill is not deleted: cancel it with a reason.' : c === 'users' ? 'Deactivate the member instead.' : c === 'tickets' ? 'Tickets cannot be deleted - cancel or close them instead.' : `"${c}" cannot be removed on the v2 back end.`);
+    throw new Error(c === 'amenities' ? 'Bookings cannot be deleted - cancel them instead.' : c === 'dues' ? 'A bill is not deleted: cancel it with a reason.' : c === 'users' ? 'Deactivate the member instead.' : c === 'tickets' ? 'Tickets cannot be deleted - cancel or close them instead.' : `"${c}" cannot be removed on the v2 back end.`);
   },
   async replaceAll(c, records) { if (LOCAL_COLLECTIONS.includes(c)) return SessionStorageAdapter.replaceAll(c, records); throw new NotOnV2Error(c); },
   forCommunity() { return V2ApiAdapter; },          // the community comes from the access token, not from the client

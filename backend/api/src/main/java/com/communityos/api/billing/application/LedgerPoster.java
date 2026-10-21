@@ -1,6 +1,7 @@
 package com.communityos.api.billing.application;
 
 import com.communityos.api.billing.application.port.JournalWriter;
+import com.communityos.api.billing.domain.BillingEvents.CreditApplied;
 import com.communityos.api.billing.domain.BillingEvents.DueCancelled;
 import com.communityos.api.billing.domain.BillingEvents.DueRaised;
 import com.communityos.api.billing.domain.BillingEvents.DueWaived;
@@ -26,7 +27,7 @@ public final class LedgerPoster {
 
     public List<DomainEventHandler<?>> handlers() {
         return List.of(handler(DueRaised.class, this::onRaised), handler(DueCancelled.class, this::onCancelled),
-                       handler(DueWaived.class, this::onWaived), handler(PaymentRecorded.class, this::onPayment));
+                       handler(DueWaived.class, this::onWaived), handler(PaymentRecorded.class, this::onPayment), handler(CreditApplied.class, this::onCreditApplied));
     }
 
     void onRaised(DueRaised e) {
@@ -58,6 +59,13 @@ public final class LedgerPoster {
         lines.add(Line.credit("1100", unit, allocated, "Bills settled"));
         lines.add(Line.credit("2000", unit, e.toCredit(), "Advance kept as unit credit"));
         journal.post(new Journal.Entry(e.occurredAt().atZone(zone).toLocalDate(), "Payment " + e.receiptNo(), "payment", e.paymentId().value(), lines));
+    }
+
+    void onCreditApplied(CreditApplied e) {
+        UUID unit = e.unitId() == null ? null : e.unitId().value();
+        journal.post(new Journal.Entry(e.occurredAt().atZone(zone).toLocalDate(), "Unit credit used for a " + e.targetType(), "credit", e.targetId(), List.of(
+            Line.debit("2000", unit, e.amount(), "Unit credit used"),
+            Line.credit("1100", unit, e.amount(), "Paid from credit"))));
     }
 
     private static <E extends DomainEvent> DomainEventHandler<E> handler(Class<E> type, java.util.function.Consumer<E> f) {

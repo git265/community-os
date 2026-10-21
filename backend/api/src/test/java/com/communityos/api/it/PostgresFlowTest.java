@@ -136,7 +136,7 @@ class PostgresFlowTest {
             GatewaySettlement gs = new GatewaySettlement(dues, payments, events, audit, app, orders, clock);
             CounterSettlement counter = new CounterSettlement(dues, payments, events, audit, app, lookups, clock);
             JdbcPlatformPayments pp = new JdbcPlatformPayments(platform);
-            PaymentService pay = new PaymentService(dues, orders, new GatewayRegistry(List.of(sim), "simulated"), gs, pp, pp, events, app, clock, Duration.ofMinutes(30), "INR");
+            PaymentService pay = new PaymentService(dues, payments, orders, new GatewayRegistry(List.of(sim), "simulated"), gs, pp, pp, events, app, clock, Duration.ofMinutes(30), "INR");
             DueService dueService = new DueService(dues, lookups, lookups, events, audit, app, clock);
             UnitService units = new UnitService(new JdbcUnitRepository(app, json), new CustomFields(new JdbcFieldDefinitions(app)), audit, app);
             MemberService memberService = new MemberService(new JdbcMemberRepository(app, json), new JdbcRoleCatalog(app), new JdbcPersonDirectory(platform), refreshStore,
@@ -324,6 +324,55 @@ class PostgresFlowTest {
                 new com.communityos.api.maintenance.MaintenanceResources.WishFields("Shade", null, null, null, null, "Planned", null, null))), "being reviewed now");
             assertThrows(AccessDenied.class, () -> as(plumberC, () -> kit.replace(plumberC, com.communityos.api.maintenance.MaintenanceResources.WISHES, wishRepo, wish.id(), reviewed.version(),
                 new com.communityos.api.maintenance.MaintenanceResources.WishFields("Shade", null, null, null, null, "Withdrawn", null, null))), "not theirs");
+
+            // ---- 6e. amenities: an amenity through the kit, a prepaid booking, a cash booking, cancel with refund, deposit, the books balance ---------
+            var amTypes = new com.communityos.api.shared.resource.JdbcResourceRepository<>(com.communityos.api.amenity.AmenityResources.TYPES.table(), app, json);
+            var hallItem = as(admin, () -> kit.create(admin, com.communityos.api.amenity.AmenityResources.TYPES, amTypes, new com.communityos.api.amenity.AmenityResources.TypeFields(
+                "Party Hall", "🎉", null, true, null, new java.math.BigDecimal("5000"), "Per day / event", null, true, new java.math.BigDecimal("18"), "Exclusive", new java.math.BigDecimal("2000"),
+                List.of(new com.communityos.api.amenity.domain.AmenityType.Tier(new java.math.BigDecimal("48"), new java.math.BigDecimal("100")), new com.communityos.api.amenity.domain.AmenityType.Tier(java.math.BigDecimal.ZERO, new java.math.BigDecimal("25"))),
+                0, 120, 1, "09:00–23:00", "Full day", "No loud music after 22:00", "Reservation required", List.of(), null, null, null, List.of(), List.of(), List.of())));
+            assertThrows(AccessDenied.class, () -> as(ownerC, () -> kit.create(ownerC, com.communityos.api.amenity.AmenityResources.TYPES, amTypes, hallItem.data())));
+            var bookingSvc = new com.communityos.api.amenity.application.BookingService(new com.communityos.api.amenity.adapter.JdbcBookingRepository(app, json),
+                new com.communityos.api.amenity.adapter.JdbcAmenityCatalog(app, json), new com.communityos.api.billing.application.BillingDesk(payments,
+                    new com.communityos.api.billing.application.TargetSettlement(dues, payments, events, audit, app, clock), new JdbcJournalWriter(app), events, clock),
+                new com.communityos.api.amenity.application.AmenityLedger(new com.communityos.api.billing.application.BillingDesk(payments,
+                    new com.communityos.api.billing.application.TargetSettlement(dues, payments, events, audit, app, clock), new JdbcJournalWriter(app), events, clock), ZoneId.of("Asia/Kolkata")),
+                events, audit, app, clock, ZoneId.of("Asia/Kolkata"));
+            LocalDate party = today.plusDays(10);
+            // the resident pays online first (a prepayment), then books with it
+            PaymentService.OrderView pre = as(ownerC, () -> pay.createOrder(ownerC, new PaymentService.CreateOrder(List.of(), "booking", new UnitId(unitA), Money.of("7900")), "it-book-" + tag));
+            assertEquals("booking", pre.order().purpose());
+            assertThrows(AccessDenied.class, () -> as(ownerC, () -> pay.createOrder(ownerC, new PaymentService.CreateOrder(List.of(), "booking", new UnitId(unitB), Money.of("10")), "it-book-x-" + tag)), "another unit");
+            Map<String, String> prePaid = sim.simulatePay(pre.order().providerOrderRef(), true);
+            PaymentRepository.Receipt preR = as(ownerC, () -> pay.confirm(ownerC, pre.order().id(), prePaid.get("providerPaymentRef"), prePaid.get("signature")));
+            assertEquals(Money.of("7900"), preR.toCredit(), "a prepayment waits as the unit's credit");
+            assertEquals(preR.id().value(), as(ownerC, () -> pay.getOrder(ownerC, pre.order().id())).paymentId());
+            var booked = as(ownerC, () -> bookingSvc.book(ownerC, new com.communityos.api.amenity.application.BookingService.Book(hallItem.id(), new UnitId(unitA), party, null, "UPI",
+                preR.id().value(), false, "Unit", null, false, null, Map.of())));
+            assertEquals("Confirmed", booked.status()); assertEquals("BKG", booked.shortId().substring(0, 3)); assertEquals("7900.00", booked.total().toPlainString());
+            assertEquals("Held", booked.state().depositStatus); assertEquals(2, booked.state().policy.size(), "the tiers it was booked under");
+            assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> bookingSvc.book(admin, new com.communityos.api.amenity.application.BookingService.Book(hallItem.id(), new UnitId(unitB),
+                party, null, "Cash", null, false, "Unit", null, false, null, Map.of()))), "one hall, one booking a day");
+            assertThrows(DomainException.RuleViolated.class, () -> as(ownerC, () -> bookingSvc.book(ownerC, new com.communityos.api.amenity.application.BookingService.Book(hallItem.id(), new UnitId(unitA),
+                party.plusDays(1), null, "UPI", preR.id().value(), false, "Unit", null, false, null, Map.of()))), "the prepayment is used");
+            assertEquals(1, as(ownerC, () -> bookingSvc.availability(ownerC, hallItem.id(), today, today.plusDays(30))).size());
+            // a second booking paid at the office by the team, then cancelled late: a quarter back, the deposit in full, to the unit's credit
+            var later = as(admin, () -> bookingSvc.book(admin, new com.communityos.api.amenity.application.BookingService.Book(hallItem.id(), new UnitId(unitB), today.plusDays(1), null, "Cash", null,
+                false, "Unit", null, false, null, Map.of())));
+            assertEquals("Confirmed", later.status()); assertNotNull(later.state().paymentId);
+            var cancelled = as(admin, () -> bookingSvc.cancel(admin, later.id(), later.version(), new com.communityos.api.amenity.application.BookingService.Cancel("Hall closed for repairs", true, false, null)));
+            assertEquals("Credited to unit account", cancelled.state().refundStatus); assertEquals("25", cancelled.state().refundPct.stripTrailingZeros().toPlainString());
+            assertEquals("3475.00", cancelled.state().refundAmount.toPlainString(), "25% of 5900 + 2000");
+            // the deposit of the first booking: 500 kept, the rest to credit
+            var settled = as(admin, () -> bookingSvc.settleDeposit(admin, booked.id(), booked.version(), new java.math.BigDecimal("500"), "Broken chair", "Unit credit"));
+            assertEquals("Partly forfeited", settled.state().depositStatus); assertEquals("Credited to unit account", settled.state().depositRefundStatus);
+            assertEquals(1, as(ownerC, () -> bookingSvc.list(ownerC, new com.communityos.api.amenity.application.port.BookingRepository.Filter(null, null, null, null, null, false))).size(), "own bookings only");
+            Map<String, Object> bal2 = owner.sql("SELECT sum(debit)::text AS d, sum(credit)::text AS c FROM finance.account_balance WHERE community_id = '" + cid + "'").get(0);
+            assertEquals(bal2.get("d"), bal2.get("c"), "double entry still balances");
+            java.util.function.Function<String, String> acct = (code) -> (String) owner.sql("SELECT coalesce(balance, 0)::text AS b FROM finance.account a LEFT JOIN finance.account_balance ab ON ab.account_id = a.id AND ab.community_id = a.community_id WHERE a.community_id = '" + cid + "' AND a.code = '" + code + "'").get(0).get("b");
+            assertEquals("0.00", acct.apply("2200"), "no deposit is still held");
+            assertEquals("0.00", acct.apply("1100"), "nothing is owed");
+            assertEquals("1500.00", owner.sql("SELECT sum(amount)::text AS s FROM billing.unit_credit WHERE community_id = '" + cid + "' AND unit_id = '" + unitA + "'").get(0).get("s"), "the deposit back as credit");
 
             // ---- 7. audit, outbox ----------------------------------------------------------------------------------------------------------------
             assertTrue(Integer.parseInt((String) owner.sql("SELECT count(*)::text AS n FROM audit.audit_event WHERE community_id = '" + cid + "'").get(0).get("n")) >= 7);

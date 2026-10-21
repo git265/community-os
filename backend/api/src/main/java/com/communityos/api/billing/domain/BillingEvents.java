@@ -33,7 +33,16 @@ public final class BillingEvents {
         @Override public String topic() { return "billing.due.waived"; }
         @Override public UUID aggregateId() { return dueId.value(); }
     }
-    public record Allocation(DueId dueId, Money amount) {}
+    /** Money applied to one thing: a bill (due), a booking or a donation. All of them were owed to the community (receivable). */
+    public record Allocation(String targetType, UUID targetId, Money amount) {
+        public static Allocation due(DueId id, Money amount) { return new Allocation("due", id.value(), amount); }
+        public DueId dueId() { return "due".equals(targetType) ? new DueId(targetId) : null; }
+    }
+    /** A unit's credit (advance) was used to pay for something it owes: the ledger moves it from advances to the receivable. */
+    public record CreditApplied(UUID sourceId, CommunityId communityId, UnitId unitId, Money amount, String targetType, UUID targetId, Instant occurredAt) implements DomainEvent {
+        @Override public String topic() { return "billing.credit.applied"; }
+        @Override public UUID aggregateId() { return targetId; }
+    }
     public record PaymentRecorded(PaymentId paymentId, String receiptNo, CommunityId communityId, UnitId unitId, OrderId orderId, Money amount, List<Allocation> allocations,
                                   Money toCredit, String method, String provider, Instant occurredAt) implements DomainEvent {
         public PaymentRecorded { allocations = List.copyOf(allocations); }

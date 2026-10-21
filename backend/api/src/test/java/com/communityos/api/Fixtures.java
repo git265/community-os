@@ -131,6 +131,25 @@ public final class Fixtures {
         @Override public void allocate(PaymentId id, List<Allocation> a) { Receipt r = rows.get(id); rows.put(id, new Receipt(r.id(), r.receiptNo(), r.unit(), r.order(), r.amount(), r.method(), r.provider(), r.receivedAt(), a, r.toCredit())); }
         @Override public void creditUnit(UnitId unit, Money amount, PaymentId source, String reason) { credits.add(new Object[]{unit, amount, source}); }
         @Override public Optional<Receipt> findById(PaymentId id) { return Optional.ofNullable(rows.get(id)); }
+        /** signed credit rows: unit, amount, sourceType, sourceId */
+        public final List<Object[]> creditRows = new ArrayList<>();
+        public final Map<PaymentId, String> claimed = new LinkedHashMap<>();
+        @Override public void creditRow(UnitId unit, Money amount, String sourceType, java.util.UUID sourceId, String reason) { creditRows.add(new Object[]{unit, amount, sourceType, sourceId}); }
+        @Override public Money lockCreditBalance(UnitId unit) {
+            Money m = Money.ZERO;
+            for (Object[] r : credits) if (r[0].equals(unit)) m = m.plus((Money) r[1]);
+            for (Object[] r : creditRows) if (r[0].equals(unit)) m = m.plus((Money) r[1]);
+            return m;
+        }
+        @Override public Optional<Money> claim(PaymentId payment, UnitId unit, String purpose, String targetType, java.util.UUID targetId) {
+            NewPayment p = raw.get(payment);
+            if (p == null || !p.unit().equals(unit) || claimed.containsKey(payment)) return Optional.empty();
+            claimed.put(payment, targetType + ":" + targetId);
+            return Optional.of(p.amount());
+        }
+        @Override public Optional<PaymentId> ofOrder(com.communityos.api.shared.domain.Ids.OrderId order) {
+            return raw.values().stream().filter((p) -> order.equals(p.order())).map(NewPayment::id).findFirst();
+        }
     }
 
     public static final class Journals implements JournalWriter { public final List<Journal.Entry> entries = new ArrayList<>(); @Override public void post(Journal.Entry e) { entries.add(e); } }

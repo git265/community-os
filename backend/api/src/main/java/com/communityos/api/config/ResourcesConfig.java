@@ -24,6 +24,7 @@ public class ResourcesConfig {
         List<Resource<?>> out = new ArrayList<>();
         out.addAll(MaintenanceResources.all());
         out.addAll(FinanceResources.all());
+        out.addAll(com.communityos.api.amenity.AmenityResources.all());
         return out;
     }
 

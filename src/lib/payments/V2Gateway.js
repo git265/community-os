@@ -1,5 +1,6 @@
 // Online payment through the typed v2 API (backend/api). The browser never prices anything and never holds a provider secret:
 //   POST /v1/payment-orders            { dueIds }  + Idempotency-Key   -> the order, priced by the server from what is owed now
+//                                      { purpose: 'booking', unitId, amount } -> a prepayment: the booking claims it (paymentId) when it is made
 //   (provider checkout in the browser: Razorpay Checkout, or the development simulator)
 //   POST /v1/payment-orders/{id}/confirm  { providerPaymentRef, signature } -> the server checks the signature, asks the provider, settles
 //   GET  /v1/payment-orders/{id}          -> status (the provider's webhook settles it too, whichever comes first)
@@ -17,9 +18,16 @@ export default class V2Gateway extends PaymentGateway {
     return body;
   }
   async createOrder(req) {
-    if (req.purpose !== 'due') throw new Error('Only bills can be paid online on the v2 back end for now.');
     // one key per press of Pay: a network retry of THIS request gets the same order; a new attempt after a failure gets a new one
     const key = `pay-${crypto.randomUUID()}`;
+    if (req.purpose === 'booking' || req.purpose === 'donation') {
+      // paid before the booking exists: the server keeps the money as the unit's credit until the booking claims this payment
+      const { unitIdByNo } = await import('../storage/v2/V2ApiAdapter.js');
+      const unitId = await unitIdByNo(req.unit);
+      if (!unitId) throw new Error(`Unit ${req.unit || '?'} is not known to the back end.`);
+      return orderOf(await this.#call('/payment-orders', { method: 'POST', body: JSON.stringify({ purpose: req.purpose, unitId, amount: Number(req.amount).toFixed(2) }), headers: { 'Idempotency-Key': key } }));
+    }
+    if (req.purpose !== 'due') throw new Error(`"${req.purpose}" payments are not on the v2 back end yet.`);
     return orderOf(await this.#call('/payment-orders', { method: 'POST', body: JSON.stringify({ dueIds: req.refs }), headers: { 'Idempotency-Key': key } }));
   }
   async checkout(order, ui) {

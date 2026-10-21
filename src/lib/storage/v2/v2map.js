@@ -88,8 +88,9 @@ export function meUser(me, unitNoById = {}) {
 // ---- payment orders as the payment service's order shape --------------------------------------------------------------------------------------
 export function orderOf(o) {
   return {
-    orderId: o.id, shortId: o.shortId, amount: num(o.amount), currency: o.currency, status: o.status, provider: o.provider, unitId: o.unitId,
-    refs: o.items.map((i) => i.dueId), providerOrderRef: o.checkout?.providerOrderRef || null, checkout: o.checkout || {}, expiresAt: o.expiresAt,
+    orderId: o.id, shortId: o.shortId, purpose: o.purpose || 'due', amount: num(o.amount), currency: o.currency, status: o.status, provider: o.provider, unitId: o.unitId,
+    refs: (o.items || []).map((i) => i.dueId || i.targetId), providerOrderRef: o.checkout?.providerOrderRef || null, checkout: o.checkout || {}, expiresAt: o.expiresAt,
+    paymentId: o.paymentId || null,
   };
 }
 
@@ -205,6 +206,9 @@ export const RESOURCES = {
   eventWork: { path: 'maintenance/event-work' },
   tradeAvailability: { path: 'maintenance/trade-availability' },
   approvalPolicies: { path: 'finance/approval-policies' },
+  amenityTypes: { path: 'amenities/types' },
+  amenityItems: { path: 'amenities/items', refs: { amenity: { field: 'amenityTypeId', collection: 'amenityTypes', key: 'name' } } },
+  amenitySettings: { path: 'amenities/settings', singleton: true },
   financeSettings: { path: 'finance/settings', rename: { finalCanDecideEC: 'finalCanDecideEc' }, singleton: true },
 };
 const invert = (o = {}) => Object.fromEntries(Object.entries(o).map(([k, v]) => [v, k]));
@@ -217,13 +221,18 @@ export function resourceOf(row, spec = {}) {
   return out;
 }
 /** The body of a write: exactly `fields` (the resource's request type), from the app's record; '' becomes null, absent stays absent. */
-export function resourceBody(rec, spec, fields, unitIdByNo = {}) {
+export function resourceBody(rec, spec, fields, unitIdByNo = {}, refIds = {}) {
   const ren = spec.rename || {};
   const appKey = invert(ren);
+  const refByField = Object.fromEntries(Object.entries(spec.refs || {}).map(([k, r]) => [r.field, { ...r, appKey: k }]));
   const body = {};
   for (const f of fields) {
     let v;
-    if (spec.unit && f === 'unitId') {
+    if (refByField[f]) {
+      const r = refByField[f]; const shown = rec[r.appKey];
+      v = rec[f] || (shown ? (refIds[r.appKey] || {})[shown] : null) || null;
+      if (shown && !v) throw new Error(`"${shown}" is not known to the back end.`);
+    } else if (spec.unit && f === 'unitId') {
       v = rec.unitId || (rec.unit ? unitIdByNo[rec.unit] : null) || null;
       if (rec.unit && !v) throw new Error(`Unit ${rec.unit} is not known to the back end.`);
     } else v = rec[appKey[f] || f];
@@ -233,3 +242,66 @@ export function resourceBody(rec, spec, fields, unitIdByNo = {}) {
   return body;
 }
 export const isUuid = (s) => typeof s === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+
+
+// ---- amenity bookings -----------------------------------------------------------------------------------------------------------------------
+const pad = (n) => String(n).padStart(2, '0');
+/** An instant as the app's local "YYYY-MM-DDTHH:MM:SS" (how the booking screens compare start times). */
+export function localStamp(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:00`;
+}
+const day = (iso) => (iso ? String(iso).slice(0, 10) : '');
+export function bookingOf(b) {
+  return {
+    id: b.id, shortId: b.shortId, amenity: b.amenity, amenityTypeId: b.amenityTypeId, unit: b.bookedFor === 'Association' ? `Association · ${b.association}` : (b.unitNo || ''),
+    unitId: b.unitId, date: b.date, slot: b.slot, startAt: localStamp(b.startAt), status: b.status, paymentMode: b.paymentMode || '', paymentStatus: b.paymentStatus,
+    bookedFor: b.bookedFor, association: b.association || '', rate: num(b.rate) || 0, rateUnit: b.rateUnit || '', qty: 1, baseAmount: num(b.baseAmount) || 0, gstRate: num(b.gstRate) || 0,
+    gstAmount: num(b.gstAmount) || 0, gstMode: b.gstMode || '', feeTotal: num(b.feeTotal) || 0, depositAmount: num(b.depositAmount) || 0, totalPayable: num(b.totalPayable) || 0,
+    extras: (b.extras || []).length ? JSON.stringify(b.extras) : '', extrasTotal: num(b.extrasTotal) || 0, policySnapshot: (b.policySnapshot || []).map((t) => ({ hoursBefore: num(t.hoursBefore), refundPct: num(t.refundPct) })),
+    chargeWaived: !!b.chargeWaived, waivedAmount: num(b.waivedAmount) || 0, waiveReason: b.waiveReason || '', creditApplied: num(b.creditApplied) || 0, paidAmount: num(b.paidAmount) || 0,
+    paidAt: day(b.paidAt), paymentRef: b.paymentRef || '', depositStatus: b.depositStatus, refundStatus: b.refundStatus, refundAmount: num(b.refundAmount) || 0,
+    cancelReason: b.cancelReason || '', cancelledAt: b.cancelledAt || '', cancelledBy: b.cancelledBy || '', refundPct: num(b.refundPct), refundFeeAmount: num(b.refundFeeAmount),
+    depositReturned: num(b.depositReturned), retainedAmount: num(b.retainedAmount), refundTo: b.refundTo || '', refundPaidAt: day(b.refundPaidAt), refundPayoutMode: b.refundPayoutMode || '',
+    refundRef: b.refundRef || '', depositDeduction: num(b.depositDeduction), depositDeductionReason: b.depositDeductionReason || '', depositSettledAt: day(b.depositSettledAt),
+    depositRefundMode: b.depositRefundMode || '', depositRefundStatus: b.depositRefundStatus || '', depositRefundPaidAt: day(b.depositRefundPaidAt), depositRefundRef: b.depositRefundRef || '',
+    feeCorrectedFrom: num(b.feeCorrectedFrom), feeCorrectionReason: b.feeCorrectionReason || '', bookedBy: b.bookedBy || '', owed: num(b.owed) || 0,
+    recordCreatedAt: b.createdAt, version: b.version,
+  };
+}
+/** Someone else's booking, as only "this time is taken" (a resident never sees whose it is). */
+export function busyOf(t, amenityName, i) {
+  const lines = Object.entries(t.items || {}).map(([itemId, qty]) => ({ itemId, qty }));
+  return { id: `busy-${t.amenityTypeId}-${t.date}-${t.slot}-${i}`, amenity: amenityName, date: t.date, slot: t.slot, status: 'Confirmed', unit: '', busy: true, extras: i === 0 && lines.length ? JSON.stringify(lines) : '' };
+}
+/** A new booking: what to book and how it is paid; the server prices it. extras on the app's record is {itemId: qty} (JSON). */
+export function bookBody(rec, { amenityIdByName, unitIdByNo }) {
+  const amenityTypeId = rec.amenityTypeId || amenityIdByName[rec.amenity];
+  if (!amenityTypeId) throw new Error(`"${rec.amenity}" is not known to the back end.`);
+  const assoc = rec.bookedFor === 'Association';
+  const unitId = assoc ? null : (rec.unitId || unitIdByNo[rec.unit] || null);
+  if (!assoc && rec.unit && !unitId) throw new Error(`Unit ${rec.unit} is not known to the back end.`);
+  let picks = {};
+  try { const p = typeof rec.extras === 'string' && rec.extras ? JSON.parse(rec.extras) : (rec.extras || {}); picks = Array.isArray(p) ? Object.fromEntries(p.map((l) => [l.itemId, l.qty])) : p; } catch { picks = {}; }
+  return {
+    amenityTypeId, unitId, date: rec.date, slot: rec.slot || null, paymentMode: rec.paymentMode || null, prepaymentId: isUuid(rec.paymentRef) ? rec.paymentRef : null,
+    useCredit: !!rec.useCredit, bookedFor: assoc ? 'Association' : 'Unit', association: assoc ? (rec.association || '').trim() : null, freeOfCharge: !!rec.freeOfCharge,
+    waiveReason: rec.waiveReason || null, extras: Object.fromEntries(Object.entries(picks).filter(([, q]) => Number(q) > 0).map(([k, q]) => [k, Math.floor(Number(q))])),
+  };
+}
+/** The app's booking actions (_action on the record) -> the command and its body. */
+export function bookingCommand(rec) {
+  const a = rec._action; const n = (x) => (x === '' || x == null ? null : Number(x));
+  switch (a) {
+    case 'cancel': return { path: 'cancel', body: { reason: rec.cancelReason || null, refundToCredit: rec.refundTo === 'credit' ? true : rec.refundTo === 'original' ? false : null, waive: !!rec.waive, refundOverride: n(rec.refundOverride) } };
+    case 'receive_payment': return { path: 'payment', body: { mode: rec.paymentMode, reference: rec.paymentRef || null } };
+    case 'mark_refund_paid': return { path: 'refund-paid', body: { mode: rec.payoutMode || null, reference: rec.paymentRef || null, initiate: !!rec.initiate } };
+    case 'refund_to_credit': return { path: 'refund-to-credit', body: {} };
+    case 'complete': return { path: 'complete', body: {} };
+    case 'settle_deposit': return { path: 'deposit', body: { deduction: n(rec.depositDeduction) || 0, reason: rec.deductionReason || null, payoutMode: rec.payoutMode || null } };
+    case 'mark_deposit_paid': return { path: 'deposit-paid', body: { mode: rec.payoutMode || null, reference: rec.paymentRef || null, initiate: !!rec.initiate } };
+    case 'adjust_fee': return { path: 'fee', body: { fee: n(rec.newFee), reason: rec.adjustReason || '' } };
+    default: return null;
+  }
+}

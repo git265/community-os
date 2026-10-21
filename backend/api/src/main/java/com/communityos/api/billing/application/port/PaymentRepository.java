@@ -21,5 +21,13 @@ public interface PaymentRepository {
     String insert(NewPayment p);
     void allocate(PaymentId payment, List<Allocation> allocations);
     void creditUnit(UnitId unit, Money amount, PaymentId source, String reason);
+    /** A signed credit row of any kind (prepayment, applied-to-booking, booking-refund ...). */
+    void creditRow(UnitId unit, Money signedAmount, String sourceType, java.util.UUID sourceId, String reason);
+    /** The unit's credit now (sum of its rows), read with a row lock on the unit so two uses cannot both spend it. */
+    Money lockCreditBalance(UnitId unit);
+    /** Claim a prepayment for one record: its amount, or empty when it is not this unit's, not a prepayment of this purpose, or already claimed. */
+    Optional<Money> claim(PaymentId payment, UnitId unit, String purpose, String targetType, java.util.UUID targetId);
     Optional<Receipt> findById(PaymentId id);
+    /** The payment that settled an order, once there is one. */
+    Optional<PaymentId> ofOrder(OrderId order);
 }

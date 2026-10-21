@@ -40,17 +40,23 @@ import org.slf4j.LoggerFactory;
  */
 public final class PaymentService {
     private static final Logger log = LoggerFactory.getLogger(PaymentService.class);
-    public record CreateOrder(List<DueId> dueIds) {}
-    public record OrderView(PaymentOrder order, Map<String, Object> checkout) {}
+    /** Bills: dueIds. A prepayment for a booking / donation: purpose, the unit and the amount (checked again when it is claimed). */
+    public record CreateOrder(List<DueId> dueIds, String purpose, com.communityos.api.shared.domain.Ids.UnitId unitId, com.communityos.api.shared.domain.Money amount) {
+        public CreateOrder(List<DueId> dueIds) { this(dueIds, "due", null, null); }
+        boolean forBills() { return purpose == null || "due".equals(purpose); }
+    }
+    public record OrderView(PaymentOrder order, Map<String, Object> checkout, java.util.UUID paymentId) {
+        public OrderView(PaymentOrder order, Map<String, Object> checkout) { this(order, checkout, null); }
+    }
 
-    private final DueRepository dues; private final PaymentOrderRepository orders; private final GatewayRegistry gateways; private final GatewaySettlement settlement;
+    private final DueRepository dues; private final com.communityos.api.billing.application.port.PaymentRepository payments; private final PaymentOrderRepository orders; private final GatewayRegistry gateways; private final GatewaySettlement settlement;
     private final InboundEvents inbound; private final OrderLocator locator; private final DomainEvents events; private final Tx tx;
     private final Clock clock; private final Duration orderTtl; private final String currency;
     private final DuePolicy policy = new DuePolicy();
 
-    public PaymentService(DueRepository dues, PaymentOrderRepository orders, GatewayRegistry gateways, GatewaySettlement settlement, InboundEvents inbound,
-                          OrderLocator locator, DomainEvents events, Tx tx, Clock clock, Duration orderTtl, String currency) {
-        this.dues = dues; this.orders = orders; this.gateways = gateways; this.settlement = settlement; this.inbound = inbound; this.locator = locator;
+    public PaymentService(DueRepository dues, com.communityos.api.billing.application.port.PaymentRepository payments, PaymentOrderRepository orders, GatewayRegistry gateways,
+                          GatewaySettlement settlement, InboundEvents inbound, OrderLocator locator, DomainEvents events, Tx tx, Clock clock, Duration orderTtl, String currency) {
+        this.dues = dues; this.payments = payments; this.orders = orders; this.gateways = gateways; this.settlement = settlement; this.inbound = inbound; this.locator = locator;
         this.events = events; this.tx = tx; this.clock = clock; this.orderTtl = orderTtl; this.currency = currency;
     }
 
@@ -58,16 +64,25 @@ public final class PaymentService {
         if (c.membership() == null) throw new AccessDenied("Sign in to pay");
         if (idempotencyKey == null || idempotencyKey.length() < 8 || idempotencyKey.length() > 128)
             throw new DomainException.RuleViolated("idempotency-key-required", "Send an Idempotency-Key header (8-128 characters) with a payment");
-        if (cmd.dueIds() == null || cmd.dueIds().isEmpty() || cmd.dueIds().size() > 24) throw new DomainException.RuleViolated("bad-dues", "Choose 1 to 24 bills");
+        if (cmd.forBills() && (cmd.dueIds() == null || cmd.dueIds().isEmpty() || cmd.dueIds().size() > 24)) throw new DomainException.RuleViolated("bad-dues", "Choose 1 to 24 bills");
+        if (!cmd.forBills()) {
+            if (cmd.unitId() == null) throw new DomainException.RuleViolated("unit-required", "Say which unit pays");
+            boolean staff = c.isSuperAdmin() || c.hasAny(Permission.MANAGE_AMENITIES, Permission.MANAGE_CULTURAL, Permission.MANAGE_DUES);
+            if (!staff && !c.units().contains(cmd.unitId())) throw new AccessDenied("You can only pay for your own unit");
+        }
         Optional<PaymentOrder> again = orders.findByIdempotencyKey(c.membership(), idempotencyKey);
         if (again.isPresent()) {
             PaymentOrder o = again.get();
-            if (!new LinkedHashSet<>(o.items().stream().map(PaymentOrder.Item::due).toList()).equals(new LinkedHashSet<>(cmd.dueIds())))
-                throw new DomainException.RuleViolated("idempotency-key-reused", "This Idempotency-Key was already used for other bills");
-            return new OrderView(o, checkoutOf(o));
+            boolean same = cmd.forBills()
+                ? new LinkedHashSet<>(o.items().stream().map(PaymentOrder.Item::due).toList()).equals(new LinkedHashSet<>(cmd.dueIds()))
+                : o.purpose().equals(cmd.purpose()) && o.unit().equals(cmd.unitId()) && o.amount().compareTo(cmd.amount()) == 0;
+            if (!same) throw new DomainException.RuleViolated("idempotency-key-reused", "This Idempotency-Key was already used for another payment");
+            return view(o);
         }
         PaymentGateway gateway = gateways.defaultGateway();
-        PaymentOrder order = tx.inTx(() -> {
+        PaymentOrder order = !cmd.forBills()
+            ? tx.inTx(() -> { PaymentOrder o = PaymentOrder.prepay(cmd.purpose(), c.community(), cmd.unitId(), c.membership(), cmd.amount(), currency, gateway.name(), idempotencyKey, clock.instant().plus(orderTtl)); orders.insert(o); return o; })
+            : tx.inTx(() -> {
             List<Due> bills = new java.util.ArrayList<>();
             for (DueId id : new LinkedHashSet<>(cmd.dueIds())) {
                 Due d = dues.findById(id, policy.readScope(c)).orElseThrow(AccessDenied.NotVisible::new);
@@ -92,7 +107,7 @@ public final class PaymentService {
     public OrderView getOrder(Caller c, OrderId id) {
         PaymentOrder o = orders.findById(id).orElseThrow(AccessDenied.NotVisible::new);
         if (!o.payer().equals(c.membership()) && !c.isSuperAdmin() && !c.hasAny(Permission.MANAGE_DUES, Permission.MANAGE_LEDGER)) throw new AccessDenied.NotVisible();
-        return new OrderView(o, checkoutOf(o));
+        return view(o);
     }
 
     public Receipt confirm(Caller c, OrderId id, String providerPaymentRef, String signature) {
@@ -156,6 +171,9 @@ public final class PaymentService {
         });
     }
 
+    private OrderView view(PaymentOrder o) {
+        return new OrderView(o, checkoutOf(o), o.status() == OrderStatus.PAID ? payments.ofOrder(o.id()).map((p) -> p.value()).orElse(null) : null);
+    }
     private Map<String, Object> checkoutOf(PaymentOrder o) {
         return o.providerOrderRef() == null ? Map.of() : Map.of("provider", o.provider(), "providerOrderRef", o.providerOrderRef(), "amount", o.amount().toString(), "currency", o.currency());
     }

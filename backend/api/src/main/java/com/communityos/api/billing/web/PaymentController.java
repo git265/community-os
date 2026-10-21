@@ -17,6 +17,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.springframework.http.ResponseEntity;
@@ -35,7 +36,8 @@ public class PaymentController {
 
     @PostMapping("/api/v1/payment-orders") @Operation(summary = "Start paying bills online (the server prices them)")
     public ResponseEntity<OrderResponse> create(@Valid @RequestBody CreateOrderRequest b, @RequestHeader(name = "Idempotency-Key", required = false) String key) {
-        PaymentService.OrderView v = payments.createOrder(CallerHolder.require(), new PaymentService.CreateOrder(b.dueIds().stream().map(DueId::new).toList()), key);
+        PaymentService.OrderView v = payments.createOrder(CallerHolder.require(), new PaymentService.CreateOrder(b.dueIds() == null ? List.of() : b.dueIds().stream().map(DueId::new).toList(),
+            b.purpose() == null ? "due" : b.purpose(), b.unitId() == null ? null : new UnitId(b.unitId()), b.amount()), key);
         return ResponseEntity.status(201).body(OrderResponse.of(v));
     }
     @GetMapping("/api/v1/payment-orders/{id}")

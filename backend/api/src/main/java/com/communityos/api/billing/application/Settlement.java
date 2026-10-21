@@ -33,8 +33,17 @@ import java.util.List;
  * Subclasses: GatewaySettlement (online), CounterSettlement (cash / cheque / bank transfer at the office).
  */
 public abstract class Settlement<R> {
-    /** What verify() established. `dues` empty = pay the unit's oldest open bills. */
-    protected record Verified(UnitId unit, OrderId order, Money amount, String method, String provider, String providerRef, Instant receivedAt, List<DueId> dues, String note) {}
+    /**
+     * What verify() established. purpose "due": `dues` empty = pay the unit's oldest open bills. Another purpose with a `target`: the money is
+     * applied to that booking / donation (up to what it owes). Another purpose without a target: a prepayment - it all becomes the unit's credit
+     * until a record claims it.
+     */
+    protected record Verified(UnitId unit, OrderId order, Money amount, String method, String provider, String providerRef, Instant receivedAt, List<DueId> dues, String note,
+                              String purpose, Allocation target) {
+        protected Verified(UnitId unit, OrderId order, Money amount, String method, String provider, String providerRef, Instant receivedAt, List<DueId> dues, String note) {
+            this(unit, order, amount, method, provider, providerRef, receivedAt, dues, note, "due", null);
+        }
+    }
 
     protected final DueRepository dues; protected final PaymentRepository payments; protected final DomainEvents events; protected final AuditWriter audit; protected final Tx tx;
 
@@ -61,7 +70,8 @@ public abstract class Settlement<R> {
                 var existing = payments.findByProviderRef(v.provider(), v.providerRef());
                 if (existing.isPresent()) return existing.get();
             }
-            List<Due> bills = v.dues().isEmpty() ? dues.lockOpenOfUnit(v.unit()) : dues.lockForSettlement(v.dues());
+            boolean forBills = "due".equals(v.purpose());
+            List<Due> bills = !forBills ? List.of() : v.dues().isEmpty() ? dues.lockOpenOfUnit(v.unit()) : dues.lockForSettlement(v.dues());
             for (Due d : bills) if (!v.unit().equals(d.unit())) throw new DomainException.RuleViolated("mixed-units", "A payment settles the bills of one unit");
             PaymentId id = PaymentId.random();
             String receiptNo = payments.insert(new NewPayment(id, v.order(), v.unit(), v.amount(), v.method(), v.provider(), v.providerRef(), v.receivedAt(), v.note()));
@@ -73,12 +83,16 @@ public abstract class Settlement<R> {
                 Money applied = d.settle(left, v.receivedAt());
                 if (!applied.isPositive()) continue;
                 left = left.minus(applied);
-                allocations.add(new Allocation(d.id(), applied));
+                allocations.add(Allocation.due(d.id(), applied));
                 if (!dues.save(d)) throw new DomainException.Conflict("Bill " + d.shortId());
                 out.addAll(d.pullEvents());
             }
+            if (!forBills && v.target() != null) {
+                Money applied = left.min(v.target().amount());
+                if (applied.isPositive()) { allocations.add(new Allocation(v.target().targetType(), v.target().targetId(), applied)); left = left.minus(applied); }
+            }
             payments.allocate(id, allocations);
-            if (left.isPositive()) payments.creditUnit(v.unit(), left, id, "overpayment");
+            if (left.isPositive()) payments.creditUnit(v.unit(), left, id, forBills || v.target() != null ? "overpayment" : "prepayment");
             Receipt receipt = new Receipt(id, receiptNo, v.unit(), v.order(), v.amount(), v.method(), v.provider(), v.receivedAt(), allocations, left);
             out.add(new PaymentRecorded(id, receiptNo, caller.community(), v.unit(), v.order(), v.amount(), allocations, left, v.method(), v.provider(), v.receivedAt()));
             afterRecorded(caller, request, v, receipt, out);

@@ -13,13 +13,16 @@ globalThis.window.location = new URL('http://localhost/?c=palm-meadows');
 // ---- a fake of /api/v1 -----------------------------------------------------------------------------------------------------------------------
 const calls = [];
 const A = '11111111-1111-4111-8111-111111111111', B = '22222222-2222-4222-8222-222222222222', M1 = '33333333-3333-4333-8333-333333333333';
+const HALL = '00000000-0000-4000-8000-00000000a001', CHAIRS = '00000000-0000-4000-8000-00000000c001';
 const state = {
   units: [
     { id: A, shortId: 'UNIT-1', unitNo: 'Villa 101', blockId: null, blockName: 'Block 1', unitType: 'Villa', occupancy: 'Owner occupied', areaSqft: '2400.00', maintenancePlan: 'Monthly', sanctionedKw: null, status: 'Active', custom: {}, updatedAt: '2026-10-20T06:00:00Z', version: 4 },
     { id: B, shortId: 'UNIT-2', unitNo: 'Villa 202', blockId: null, blockName: 'Block 2', unitType: 'Villa', occupancy: 'Vacant', areaSqft: null, maintenancePlan: null, sanctionedKw: null, status: 'Active', custom: {}, updatedAt: '2026-10-20T06:00:00Z', version: 1 },
   ],
   dues: [], members: [{ id: M1, displayName: 'Asha', phone: '+919800000001', status: 'Active', roles: [{ code: 'owner', name: 'Owner', primary: true }], units: [A], createdAt: null, updatedAt: null, version: 2 }],
-  orders: [], tickets: [], comments: [], quotes: [], kit: {
+  orders: [], tickets: [], comments: [], quotes: [], bookings: [], kit: {
+    'amenities/types': [{ id: HALL, shortId: 'AMN-1', name: 'Party Hall', rate: '5000.00', capacity: 1, bookingMode: 'Full day', version: 1 }],
+    'amenities/items': [],
     'maintenance/task-types': [{ id: 'tt-res', shortId: 'TT-1', name: 'Resident Maintenance', icon: '🔧', creatorScope: 'Resident', assignmentMode: 'Role queue (staff accepts)', residentVisible: true, residentDefault: true, active: true, version: 1 },
       { id: 'tt-pur', shortId: 'TT-2', name: 'Purchase', icon: '🧾', creatorScope: 'EC / Staff', assignmentMode: 'Direct assign', residentVisible: false, residentDefault: false, active: true, version: 1 }],
     'maintenance/categories': [{ id: 'cat-1', category: 'Plumbing', subCategories: ['Leakage'], coordinator: ['facility_manager'], assetLink: null, vendor: null, notes: null, version: 1 }],
@@ -35,8 +38,10 @@ const KIT_FIELDS = {
   'maintenance/quick-phrases': ['phrase', 'category'],
   'maintenance/wishes': ['title', 'description', 'category', 'location', 'unitId', 'status', 'estimate', 'decisionNote'],
   'finance/settings': ['approvalSeparate', 'finalCanDecideEc', 'invoiceTolerancePct', 'invoiceSkipWithinQuote'],
+  'amenities/types': ['name', 'rate', 'capacity', 'bookingMode'],
+  'amenities/items': ['name', 'amenityTypeId', 'stock', 'price', 'perLabel', 'maxPerBooking', 'active'],
 };
-const KIT_COLLECTION = { 'maintenance/task-types': 'taskTypes', 'maintenance/categories': 'categoryMap', 'maintenance/quick-phrases': 'quickPhrases', 'maintenance/wishes': 'wishes', 'finance/settings': 'financeSettings' };
+const KIT_COLLECTION = { 'amenities/types': 'amenityTypes', 'amenities/items': 'amenityItems', 'maintenance/task-types': 'taskTypes', 'maintenance/categories': 'categoryMap', 'maintenance/quick-phrases': 'quickPhrases', 'maintenance/wishes': 'wishes', 'finance/settings': 'financeSettings' };
 const TT = [{ id: 'tt-res', name: 'Resident Maintenance', icon: '🔧', creatorScope: 'Resident', assignmentMode: 'Role queue (staff accepts)', residentVisible: true, residentDefault: true, canRaise: true }];
 const page = (items) => ({ items, total: items.length, limit: 200, offset: 0 });
 const ok = (body, status = 200, headers = {}) => new Response(body == null ? null : JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...headers } });
@@ -78,7 +83,7 @@ globalThis.fetch = async (url, init = {}) => {
     if (m[2]) { if (h['If-Match'] !== `"${d.version}"`) return problem(409, 'conflict', 'changed'); d.status = m[2] === '/cancel' ? 'Cancelled' : 'Waived'; d.reason = body.reason; d.version++; }
     return ok(d);
   }
-  if (path === '/payment-orders' && method === 'POST') {
+  if (path === '/payment-orders' && method === 'POST' && !body.purpose) {
     const dues = body.dueIds.map((id) => state.dues.find((x) => x.id === id));
     const amount = dues.reduce((s, d) => s + Number(d.outstanding), 0).toFixed(2);
     const o = { id: `o-${++seq}`, shortId: `ORD-${seq}`, unitId: dues[0].unitId, amount, currency: 'INR', status: 'Pending', provider: 'simulated', expiresAt: null, items: dues.map((d) => ({ dueId: d.id, amount: d.outstanding })), checkout: { provider: 'simulated', providerOrderRef: `sim_order_${seq}`, amount, currency: 'INR' } };
@@ -86,12 +91,37 @@ globalThis.fetch = async (url, init = {}) => {
   }
   if ((m = /^\/dev\/simulated-checkout\/(.+)$/.exec(path))) return ok({ providerPaymentRef: 'sim_pay_1', signature: 'sig' });
   if ((m = /^\/payment-orders\/([^/]+)\/confirm$/.exec(path))) {
-    const o = state.orders.find((x) => x.id === m[1]); o.status = 'Paid';
+    const o = state.orders.find((x) => x.id === m[1]); o.status = 'Paid'; o.paymentId = 'aaaaaaaa-0000-4000-8000-00000000pay1'.replace('pay1', '0001');
     for (const it of o.items) { const d = state.dues.find((x) => x.id === it.dueId); d.status = 'Paid'; d.outstanding = '0.00'; d.paid = d.total; }
     return ok({ paymentId: 'pay-1', receiptNo: 'RCP-0001', unitId: o.unitId, orderId: o.id, amount: o.amount, method: 'UPI', provider: 'simulated', receivedAt: new Date().toISOString(), allocations: [], keptAsCredit: '0.00' });
   }
   if ((m = /^\/payment-orders\/([^/]+)$/.exec(path))) return ok(state.orders.find((x) => x.id === m[1]));
   if (path === '/task-types') return ok(TT);
+  if (path === '/amenities/availability') return ok([{ amenityTypeId: HALL, date: '2026-11-01', slot: 'Full day', bookings: 2, items: { [CHAIRS]: 30 } }]);
+  if (path === '/amenities/bookings' && method === 'GET') return ok(state.bookings);
+  if (path === '/amenities/bookings' && method === 'POST') {
+    const extra = Object.keys(body).filter((k) => !['amenityTypeId', 'unitId', 'date', 'slot', 'paymentMode', 'prepaymentId', 'useCredit', 'bookedFor', 'association', 'freeOfCharge', 'waiveReason', 'extras'].includes(k));
+    if (extra.length) return problem(400, 'bad-request', `unknown properties ${extra}`);
+    const b = { id: uuid(), shortId: `BKG-${++seq}`, amenityTypeId: body.amenityTypeId, amenity: 'Party Hall', unitId: body.unitId, unitNo: 'Villa 101', date: body.date, slot: 'Full day',
+      startAt: `${body.date}T03:30:00Z`, status: body.prepaymentId ? 'Confirmed' : 'Pending payment', paymentMode: body.paymentMode, paymentStatus: body.prepaymentId ? 'Paid' : 'Pending',
+      bookedFor: 'Unit', feeTotal: '5900.00', depositAmount: '2000.00', totalPayable: '7900.00', extras: [], policySnapshot: [{ hoursBefore: '72', refundPct: '100' }], depositStatus: 'Held',
+      refundStatus: 'None', version: 1 };
+    state.bookings.push(b); return ok(b, 201);
+  }
+  if ((m = /^\/amenities\/bookings\/([^/]+)(?:\/([a-z-]+))?$/.exec(path))) {
+    const b = state.bookings.find((x) => x.id === m[1]); if (!b) return problem(404, 'not-found', 'Not found');
+    if (method === 'GET') return ok(b);
+    if (h['If-Match'] !== `"${b.version}"`) return problem(409, 'conflict', 'changed');
+    if (m[2] === 'cancel') { b.status = 'Cancelled'; b.refundStatus = body.refundToCredit ? 'Credited to unit account' : 'Refund due'; b.cancelReason = body.reason; }
+    if (m[2] === 'payment') { b.paymentStatus = 'Paid'; b.status = 'Confirmed'; b.paymentMode = body.mode; }
+    if (m[2] === 'deposit') { b.depositStatus = body.deduction > 0 ? 'Partly forfeited' : 'Released'; }
+    b.version++; return ok(b);
+  }
+  if (path === '/payment-orders' && method === 'POST' && body.purpose === 'booking') {
+    const o = { id: `o-${++seq}`, shortId: `ORD-${seq}`, purpose: 'booking', unitId: body.unitId, amount: body.amount, currency: 'INR', status: 'Pending', provider: 'simulated', items: [],
+      checkout: { provider: 'simulated', providerOrderRef: `sim_order_${seq}`, amount: body.amount, currency: 'INR' }, paymentId: null };
+    state.orders.push(o); return ok(o, 201);
+  }
   if (path === '/meta/resources') return ok(Object.entries(KIT_FIELDS).map(([p, fields]) => ({ collection: KIT_COLLECTION[p], path: p, fields, readOnly: [], filters: [] })));
   if (path === '/quotations' && method === 'GET') return ok(state.quotes);
   if ((m = /^\/tickets\/([^/]+)\/quotations$/.exec(path)) && method === 'POST') {
@@ -111,7 +141,7 @@ globalThis.fetch = async (url, init = {}) => {
     if (m[2] === '/send-back') q.correctionNote = body.note;
     q.version++; return ok(q);
   }
-  if ((m = /^\/(maintenance|finance)\/([a-z-]+)(?:\/([^/]+))?$/.exec(path)) && KIT_FIELDS[`${m[1]}/${m[2]}`]) {
+  if ((m = /^\/(maintenance|finance|amenities)\/([a-z-]+)(?:\/([^/]+))?$/.exec(path)) && KIT_FIELDS[`${m[1]}/${m[2]}`]) {
     const key = `${m[1]}/${m[2]}`; const rows = (state.kit[key] ||= []);
     if (!m[3] && method === 'GET') return ok(rows);
     if (!m[3] && method === 'POST') {
@@ -292,4 +322,28 @@ test('quotations: add what is written, select, decide on the plan, send back; am
   assert.deepEqual(last('POST', /\/send-back$/).body, { note: 'wrong GSTIN' });
   await storage.remove('quotations', q.id);
   assert.equal(last('DELETE', /^\/quotations\//).method, 'DELETE');
+});
+
+test('bookings: a resident pays first (a prepayment), books with it; others\' bookings only as "taken"; actions are commands', async () => {
+  const { pay } = await import('../../src/lib/payments/index.js');
+  const res = await pay({ purpose: 'booking', refs: [], amount: 7900, unit: 'Villa 101' }, async () => ({ outcome: 'success', method: 'UPI' }));
+  assert.equal(res.status, 'Paid', res.message);
+  assert.deepEqual(last('POST', /^\/payment-orders$/).body, { purpose: 'booking', unitId: A, amount: '7900.00' }, 'a prepayment for my unit');
+  const b = await storage.put('amenities', { amenity: 'Party Hall', unit: 'Villa 101', date: '2026-11-01', slot: 'Full day', paymentMode: 'UPI', paymentRef: res.paymentId, useCredit: false,
+    extras: JSON.stringify({ [CHAIRS]: 20 }), totalPayable: 1, feeTotal: 1, status: 'Confirmed' });
+  const post = last('POST', /^\/amenities\/bookings$/).body;
+  assert.equal(post.amenityTypeId, HALL); assert.equal(post.unitId, A); assert.equal(post.prepaymentId, res.paymentId); assert.deepEqual(post.extras, { [CHAIRS]: 20 });
+  assert.equal(Object.keys(post).includes('totalPayable'), false, 'the price is the server\'s');
+  assert.equal(b.status, 'Confirmed'); assert.equal(b.totalPayable, 7900); assert.equal(b.unit, 'Villa 101');
+  const all = await storage.list('amenities');
+  const busy = all.filter((x) => x.busy);
+  assert.equal(busy.length, 1, '2 taken on that day, 1 of them mine'); assert.equal(busy[0].unit, ''); assert.equal(busy[0].amenity, 'Party Hall');
+  const c = await storage.put('amenities', { ...b, _action: 'cancel', cancelReason: 'plans changed', refundTo: 'credit' });
+  assert.deepEqual(last('POST', /\/cancel$/).body, { reason: 'plans changed', refundToCredit: true, waive: false, refundOverride: null });
+  assert.equal(last('POST', /\/cancel$/).headers['If-Match'], '"1"'); assert.equal(c.refundStatus, 'Credited to unit account');
+  await assert.rejects(storage.put('amenities', { ...c, status: 'Confirmed' }), /booking actions/);
+  await assert.rejects(storage.remove('amenities', b.id), /cancel them/);
+  const item = await storage.put('amenityItems', { name: 'Chairs', amenity: 'Party Hall', stock: 100, price: 15, active: true });
+  assert.equal(last('POST', /^\/amenities\/items$/).body.amenityTypeId, HALL, 'the amenity by name becomes its id');
+  assert.equal(item.name, 'Chairs');
 });

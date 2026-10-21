@@ -48,7 +48,7 @@ class BillingTest {
     final GatewaySettlement gatewaySettlement = new GatewaySettlement(dues, payments, events, audit, Tx.direct(), orders, CLOCK);
     final CounterSettlement counter = new CounterSettlement(dues, payments, events, audit, Tx.direct(), dues, CLOCK);
     final Fixtures.Platform platform = new Fixtures.Platform(orders);
-    final PaymentService pay = new PaymentService(dues, orders, new GatewayRegistry(List.of(sim), "simulated"), gatewaySettlement, platform, platform, events, Tx.direct(), CLOCK,
+    final PaymentService pay = new PaymentService(dues, payments, orders, new GatewayRegistry(List.of(sim), "simulated"), gatewaySettlement, platform, platform, events, Tx.direct(), CLOCK,
         Duration.ofMinutes(30), "INR");
     final DueService dueService = new DueService(dues, dues, dues, events, audit, Tx.direct(), CLOCK);
 
@@ -162,7 +162,7 @@ class BillingTest {
         assertEquals(DueStatus.UNPAID, d1.status());
         assertTrue(outbox.events.stream().anyMatch((e) -> e.topic().equals("billing.payment-order.failed")));
         Due d2 = dues.add(due(UNIT_A, BLOCK_1, MAINTENANCE, "100", LocalDate.of(2026, 9, 10)));
-        PaymentService stale = new PaymentService(dues, orders, new GatewayRegistry(List.of(sim), "simulated"), gatewaySettlement, platform, platform, events, Tx.direct(),
+        PaymentService stale = new PaymentService(dues, payments, orders, new GatewayRegistry(List.of(sim), "simulated"), gatewaySettlement, platform, platform, events, Tx.direct(),
             java.time.Clock.offset(CLOCK, Duration.ofHours(2)), Duration.ofMinutes(30), "INR");
         PaymentService.OrderView v2 = pay.createOrder(owner(UNIT_A), new PaymentService.CreateOrder(List.of(d2.id())), "pay-0007-abcd");
         stale.reconcile(10);

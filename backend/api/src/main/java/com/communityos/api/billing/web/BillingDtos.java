@@ -33,13 +33,15 @@ public final class BillingDtos {
         }
     }
 
-    public record CreateOrderRequest(@NotEmpty @Size(max = 24) List<@NotNull UUID> dueIds) {}
-    public record OrderResponse(UUID id, String shortId, UUID unitId, Money amount, String currency, String status, String provider, Instant expiresAt, List<Item> items, Map<String, Object> checkout) {
-        public record Item(UUID dueId, Money amount) {}
+    /** Bills: dueIds (the server prices them). A booking / donation paid before it is made: purpose + unitId + amount (checked when it is claimed). */
+    public record CreateOrderRequest(@Size(max = 24) List<@NotNull UUID> dueIds, @jakarta.validation.constraints.Pattern(regexp = "due|booking|donation") String purpose, UUID unitId, Money amount) {}
+    public record OrderResponse(UUID id, String shortId, String purpose, UUID unitId, Money amount, String currency, String status, String provider, Instant expiresAt, List<Item> items,
+                                Map<String, Object> checkout, UUID paymentId) {
+        public record Item(String targetType, UUID targetId, UUID dueId, Money amount) {}
         static OrderResponse of(PaymentService.OrderView v) {
             PaymentOrder o = v.order();
-            return new OrderResponse(o.id().value(), o.shortId(), o.unit().value(), o.amount(), o.currency(), o.status().label(), o.provider(), o.expiresAt(),
-                o.items().stream().map((i) -> new Item(i.due().value(), i.amount())).toList(), v.checkout());
+            return new OrderResponse(o.id().value(), o.shortId(), o.purpose(), o.unit().value(), o.amount(), o.currency(), o.status().label(), o.provider(), o.expiresAt(),
+                o.items().stream().map((i) -> new Item(i.targetType(), i.target(), i.due() == null ? null : i.due().value(), i.amount())).toList(), v.checkout(), v.paymentId());
         }
     }
     public record ConfirmRequest(@NotBlank @Size(max = 60) String providerPaymentRef, @NotBlank @Size(max = 200) String signature) {}
@@ -47,10 +49,10 @@ public final class BillingDtos {
                                         @Size(max = 100) String reference) {}
     public record ReceiptResponse(UUID paymentId, String receiptNo, UUID unitId, UUID orderId, Money amount, String method, String provider, Instant receivedAt,
                                   List<Allocation> allocations, Money keptAsCredit) {
-        public record Allocation(UUID dueId, Money amount) {}
+        public record Allocation(String targetType, UUID targetId, UUID dueId, Money amount) {}
         static ReceiptResponse of(PaymentRepository.Receipt r) {
             return new ReceiptResponse(r.id().value(), r.receiptNo(), r.unit().value(), r.order() == null ? null : r.order().value(), r.amount(), r.method(), r.provider(), r.receivedAt(),
-                r.allocations().stream().map((a) -> new Allocation(a.dueId().value(), a.amount())).toList(), r.toCredit());
+                r.allocations().stream().map((a) -> new Allocation(a.targetType(), a.targetId(), a.dueId() == null ? null : a.dueId().value(), a.amount())).toList(), r.toCredit());
         }
     }
 }
