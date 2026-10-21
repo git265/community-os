@@ -33,7 +33,7 @@ public final class SqlCatalog {
                 "maintenance.application.WishVotes", "approval.adapter.JdbcApprovalSettings", "amenity.adapter.JdbcBookingRepository", "amenity.adapter.JdbcAmenityCatalog",
                 "gate.adapter.JdbcGateStore", "gate.adapter.JdbcGateDirectory", "comms.adapter.JdbcInbox", "comms.adapter.JdbcCommsStore", "docs.adapter.JdbcFileRepository",
                 "docs.adapter.JdbcDocumentRepository", "cultural.adapter.JdbcCulturalStore", "finance.adapter.JdbcFinanceStore",
-                "governance.adapter.JdbcGovernanceStore"))
+                "governance.adapter.JdbcGovernanceStore", "vendor.adapter.JdbcDirectoryStore"))
             CLASSES.put(c, "cos_app");
         for (String c : List.of("shared.jdbc.JdbcOutboxStore", "identity.adapter.JdbcOtpStore", "identity.adapter.JdbcRefreshTokenStore", "identity.adapter.JdbcPersonDirectory",
                 "identity.adapter.JdbcRateLimiter", "identity.adapter.JdbcCallerLoader", "identity.adapter.JdbcCommunityDirectory", "billing.adapter.JdbcPlatformPayments", "shared.integration.WebhookFanout",
@@ -50,7 +50,8 @@ public final class SqlCatalog {
         "JdbcCommsStore.POST_COLUMNS", "JdbcFileRepository.COLUMNS", "JdbcDocumentRepository.COLUMNS", "JdbcDocumentRepository.FILTER", "JdbcCulturalStore.SPENT", "JdbcCulturalStore.COLLECTED",
         "JdbcCulturalStore.PLEDGED", "JdbcCulturalStore.FAMILIES", "JdbcCulturalStore.DONORS", "JdbcCulturalStore.DONATION_COLUMNS", "JdbcCulturalStore.EXPENSE_COLUMNS", "JdbcFinanceStore.ENTRY_COLUMNS",
         "JdbcFinanceStore.RELEASE_COLUMNS", "JdbcFinanceStore.PAY_COLUMNS", "JdbcFinanceStore.LINE_COLUMNS",
-        "JdbcGovernanceStore.MEETING_COLUMNS", "JdbcGovernanceStore.BALLOT_COLUMNS");
+        "JdbcGovernanceStore.MEETING_COLUMNS", "JdbcGovernanceStore.BALLOT_COLUMNS",
+        "JdbcDirectoryStore.CONTACT_COLUMNS", "JdbcDirectoryStore.REVIEW_COLUMNS");
 
     public static void main(String[] a) throws Exception {
         List<Stmt> out = new ArrayList<>();

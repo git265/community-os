@@ -48,4 +48,10 @@ public final class FileKinds {
         files.register(new OwnerKind("governance.agenda", reads, attaches));
         files.register(new OwnerKind("governance.minutes", reads, attaches));
     }
+    /** vendor papers  read: whoever reads the vendor register (not residents) · attach: the vendor managers */
+    public static void registerVendors(FileService files, org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate jdbc) {
+        java.util.function.Predicate<java.util.UUID> exists = (id) -> !jdbc.query("SELECT 1 AS x FROM vendor.vendor WHERE id = CAST(:id AS uuid)", java.util.Map.of("id", id.toString()), (rs, i) -> 1).isEmpty();
+        files.register(new OwnerKind("vendor.vendor", (c, id) -> com.communityos.api.vendor.application.VendorPolicy.reader(c) && exists.test(id),
+            (c, id) -> com.communityos.api.vendor.application.VendorPolicy.manager(c) && exists.test(id)));
+    }
 }

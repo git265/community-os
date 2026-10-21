@@ -281,15 +281,28 @@ DO $$ DECLARE b uuid; h text := repeat('a', 64); n int; BEGIN
   INSERT INTO governance.ballot_box (community_id, ballot_id, seq, choice, receipt, prev_hash, hash) VALUES ('00000000-0000-0000-0000-00000000000a', b, 1, 'For', 'abcdefabcdef', repeat('0', 64), h);
   SELECT count(*) INTO n FROM governance.ballot_box WHERE ballot_id = b;
   IF n <> 0 THEN RAISE EXCEPTION 'the box was readable while voting was open'; END IF;
-  PERFORM test.expect_error(format($q$UPDATE governance.ballot_box SET choice = 'Against' WHERE ballot_id = %L$q$, b), '42501');
   PERFORM test.expect_error(format($q$DELETE FROM governance.ballot_elector WHERE ballot_id = %L$q$, b), '42501');
   UPDATE governance.ballot SET votes_cast = 1, chain_head = h WHERE id = b;
   UPDATE governance.ballot SET status = 'Closed', closed_at = now(), votes_counted = 1 WHERE id = b;
   SELECT count(*) INTO n FROM governance.ballot_box WHERE ballot_id = b;
   IF n <> 1 THEN RAISE EXCEPTION 'the box is not readable after the close'; END IF;
+  PERFORM test.expect_error(format($q$UPDATE governance.ballot_box SET choice = 'Against' WHERE ballot_id = %L$q$, b), '42501');
   PERFORM test.expect_error(format($q$INSERT INTO governance.ballot_box (community_id, ballot_id, seq, choice, receipt, prev_hash, hash) VALUES ('00000000-0000-0000-0000-00000000000a', %L, 2, 'For', 'abcdefabcde0', %L, %L)$q$, b, h, h), '23514');
   PERFORM test.expect_error(format($q$UPDATE governance.ballot SET description = 'x' WHERE id = %L$q$, b), '23514');
   PERFORM test.pass('governance: a published meeting has its time, a ballot is opened before it closes, frozen once open, one mark per unit, a sealed box until the close, nothing changed or deleted');
+END $$;
+DO $$ DECLARE v uuid; k uuid; BEGIN
+  PERFORM set_config('app.community_id', '00000000-0000-0000-0000-00000000000a', true);
+  INSERT INTO vendor.vendor (community_id, name) VALUES ('00000000-0000-0000-0000-00000000000a', 'Aqua Pumps') RETURNING id INTO v;
+  PERFORM test.expect_error($q$INSERT INTO vendor.vendor (community_id, name) VALUES ('00000000-0000-0000-0000-00000000000a', 'AQUA PUMPS')$q$, '23505');
+  PERFORM test.expect_error($q$INSERT INTO vendor.vendor (community_id, name, gstin) VALUES ('00000000-0000-0000-0000-00000000000a', 'X', '1234')$q$, '23514');
+  PERFORM test.expect_error(format($q$INSERT INTO vendor.service_line (community_id, vendor_id, service, signed_workers) VALUES ('00000000-0000-0000-0000-00000000000a', %L, 'Plumbing', -1)$q$, v), '23514');
+  INSERT INTO vendor.service_contact (community_id, name) VALUES ('00000000-0000-0000-0000-00000000000a', 'Raju') RETURNING id INTO k;
+  PERFORM test.expect_error(format($q$UPDATE vendor.service_contact SET status = 'Hidden' WHERE id = %L$q$, k), '23514');
+  INSERT INTO vendor.contact_review (community_id, contact_id, rating, author_id, unit_id) VALUES ('00000000-0000-0000-0000-00000000000a', k, 5, '00000000-0000-0000-0000-0000000000e1', '00000000-0000-0000-0000-0000000000c1');
+  PERFORM test.expect_error(format($q$INSERT INTO vendor.contact_review (community_id, contact_id, rating, author_id, unit_id) VALUES ('00000000-0000-0000-0000-00000000000a', %L, 4, '00000000-0000-0000-0000-0000000000e2', '00000000-0000-0000-0000-0000000000c1')$q$, k), '23505');
+  PERFORM test.expect_error(format($q$INSERT INTO vendor.contact_review (community_id, contact_id, rating, author_id) VALUES ('00000000-0000-0000-0000-00000000000a', %L, 6, '00000000-0000-0000-0000-0000000000e2')$q$, k), '23514');
+  PERFORM test.pass('vendors: one vendor per name, a GSTIN that looks like one, no negative workers, a hidden contact has who hid it, 1-5 stars, one review per household');
 END $$;
 RESET ROLE;
 

@@ -117,6 +117,7 @@ public class ModulesConfig {
         FileKinds.register(files, repo, tickets, quotations, bookings, documents);
         FileKinds.registerCultural(files, cultural);
         FileKinds.registerGovernance(files, meetings);
+        FileKinds.registerVendors(files, jdbc);
         return new Docs(files, documents);
     }
     @Bean com.communityos.api.docs.application.FileService fileService(Docs d) { return d.files(); }
@@ -173,6 +174,11 @@ public class ModulesConfig {
                                                                            com.communityos.api.identity.application.port.OtpSender sender, AuditWriter audit, Tx tx, Clock clock, CosProperties p) {
         return new com.communityos.api.governance.application.VoteService(store, new com.communityos.api.identity.application.CodeHasher(p.auth().otpPepper()), sender,
             "log".equals(p.auth().otpSender()), p.auth().defaultCountryCode(), audit, tx, clock, ZoneId.of(p.web().timeZone()));
+    }
+
+    // ---- vendors: the service directory -----------------------------------------------------------------------------------------------------------
+    @Bean com.communityos.api.vendor.application.DirectoryService directoryService(NamedParameterJdbcTemplate jdbc, AuditWriter audit, Tx tx) {
+        return new com.communityos.api.vendor.application.DirectoryService(new com.communityos.api.vendor.adapter.JdbcDirectoryStore(jdbc), audit, tx);
     }
 
     // ---- billing ------------------------------------------------------------------------------------------------------------------------------

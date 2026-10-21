@@ -19,6 +19,7 @@
 //   meetings    GET /v1/governance/meetings (residents: published ones), POST, PUT with If-Match, DELETE; agenda / minutes papers are attached files
 //   ballots, voteRoll, ballotBox  GET /v1/governance/ballots (+ /roll per ballot, /box once closed); a draft is POST / PUT, Open = /open, Closed = /close;
 //               a vote = /code, /code/verify, then /votes (the roll mark and the box row are written together by the server)
+//   serviceContacts, contactReviews  GET /v1/vendors/directory (+ /{id}/reviews), POST / PUT / DELETE; my review = PUT /{id}/review, DELETE /vendors/reviews/{id}
 //   app configuration (schema, communityConfig, roleGroups): kept in this browser until the v2 API has endpoints for them
 //   everything else: not on the v2 API yet - reads answer empty, writes are refused with a clear message (nothing is silently dropped)
 import { apiFetch } from '../../net/request.js';
@@ -26,14 +27,14 @@ import { AuthzError, ConflictError } from '../../security/errors.js';
 import { SessionStorageAdapter } from '../SessionStorageAdapter.js';
 import { propertyOf, unitPatch, userOf, dueOf, raiseBody, roleOf, ticketOf, ticketPatch, raiseTicketBody, commentOf, fieldStaffOf, quotationOf, addDocumentBody,
   quotationCommands, RESOURCES, resourceOf, resourceBody, isUuid, bookingOf, busyOf, bookBody, bookingCommand, gatePassOf, gateVisitOf, gateApprovalOf, gateFlagOf, gateScanOf,
-  passBody, ledgerOf, ledgerBody, bookedByServer, releaseOf, releaseCommands, payRequestOf, bankTxnOf, donationOf, donationBody, expenseOf, expenseBody, expenseCommands, fileMeta, fileRowOf, dataUrlBytes, bytesDataUrl, documentOf, documentBody, notificationOf, broadcastOf, broadcastDraft, broadcastCommands, pollVoteRows, topicOf, postOf, meetingOf, meetingBody, ballotOf, ballotBody, voteMarksOf, boxRowOf, voteUnit } from './v2map.js';
+  passBody, ledgerOf, ledgerBody, bookedByServer, releaseOf, releaseCommands, payRequestOf, bankTxnOf, donationOf, donationBody, expenseOf, expenseBody, expenseCommands, fileMeta, fileRowOf, dataUrlBytes, bytesDataUrl, documentOf, documentBody, notificationOf, broadcastOf, broadcastDraft, broadcastCommands, pollVoteRows, topicOf, postOf, meetingOf, meetingBody, ballotOf, ballotBody, voteMarksOf, boxRowOf, voteUnit, contactOf, contactBody, reviewOf } from './v2map.js';
 import { getAuthUser } from '../../auth/session.js';
 import { getPrincipal } from '../../security/principal.js';
 
 const GATE_DESK = ['gatePasses', 'gateVisits', 'gateApprovals', 'gateFlags', 'gateScans', 'gatePulse'];
 const DOCS = ['files', 'documents', 'culturalDonations', 'culturalExpenses', 'ledger', 'releases', 'payRequests', 'bankTxns'];
 const COMMS = ['notifications', 'broadcasts', 'pollVotes', 'forum', 'forumPosts'];
-const GOVERNANCE = ['meetings', 'ballots', 'voteRoll', 'ballotBox'];
+const GOVERNANCE = ['meetings', 'ballots', 'voteRoll', 'ballotBox', 'serviceContacts', 'contactReviews'];
 export const V2_COLLECTIONS = ['properties', 'users', 'dues', 'roles', 'tickets', 'ticketComments', 'handymen', 'quotations', 'amenities', ...GATE_DESK, ...COMMS, ...DOCS, ...GOVERNANCE, ...Object.keys(RESOURCES)];
 export const LOCAL_COLLECTIONS = ['schema', 'communityConfig', 'roleGroups'];
 
@@ -175,6 +176,11 @@ readers.tickets = withFiles(readers.tickets, 'maintenance.ticket', 'attachments'
 readers.ticketComments = withFiles(readers.ticketComments, 'maintenance.comment', 'attachments');
 readers.quotations = withFiles(readers.quotations, 'maintenance.quotation', 'attachments');
 readers.amenities = withFiles(readers.amenities, 'amenity.booking', 'depositPhotos');
+readers.vendors = withFiles(readers.vendors, 'vendor.vendor', 'attachments');
+// the service directory: ratings and counts are worked out by the server
+readers.serviceContacts = { list: async () => (await call('/vendors/directory')).map(contactOf), get: async (id) => { if (!isUuid(id)) return null; const c = await call(`/vendors/directory/${id}`); return c && contactOf(c); } };
+readers.contactReviews = { list: async () => (await Promise.all((await call('/vendors/directory')).map((c) => call(`/vendors/directory/${c.id}/reviews`)))).flat().map(reviewOf) };
+readers.contactReviews.get = byId(readers.contactReviews.list);
 // governance: meetings with their papers; ballots with the frozen roll, the marks (which units voted) and, once closed, the box
 readers.meetings = withFiles(withFiles({ list: async () => (await call('/governance/meetings')).map(meetingOf),
   get: async (id) => { if (!isUuid(id)) return null; const m = await call(`/governance/meetings/${id}`); return m && meetingOf(m); } }, 'governance.agenda', 'agendaFiles'), 'governance.minutes', 'minutesFiles');
@@ -479,6 +485,16 @@ const attaching = (put, ownerType, field) => async (rec) => {
   for (const id of wanted) await call(`/files/${id}/attach`, json('POST', { ownerType, ownerId: out.id }));
   return { ...out, [field]: await filesOf(ownerType, out.id) };
 };
+async function putContact(rec) {
+  const before = isUuid(rec.id) ? await readers.serviceContacts.get(rec.id) : null;
+  const body = contactBody({ ...(before || {}), ...rec });
+  return contactOf(before ? await call(`/vendors/directory/${rec.id}`, json('PUT', body, ifMatch(before.version))) : await call('/vendors/directory', json('POST', body)));
+}
+/** A review is mine: the server keeps one per household and rewrites it when I review again. */
+async function putReview(rec) {
+  if (!isUuid(rec.contactId)) throw new Error('Which contact?');
+  return reviewOf(await call(`/vendors/directory/${rec.contactId}/review`, json('PUT', { rating: Number(rec.rating), comment: rec.comment || null, recommend: rec.recommend || null })));
+}
 async function putMeeting(rec) {
   const before = isUuid(rec.id) ? await readers.meetings.get(rec.id) : null;
   const body = meetingBody({ ...(before || {}), ...rec });
@@ -663,13 +679,14 @@ async function putBooking(rec) {
   return bookingOf(await call(`/amenities/bookings/${encodeURIComponent(rec.id)}/${cmd.path}`, json('POST', cmd.body, ifMatch(before.version))));
 }
 
-const WRITERS = { meetings: putMeeting, ballots: putBallot, voteRoll: putVoteMark, ballotBox: putBoxRow, ledger: putLedger, releases: putRelease, payRequests: putPayRequest, bankTxns: putBankTxn, culturalDonations: putDonation, culturalExpenses: putExpense, culturalOfferings: putOffering, culturalEvents: putEvent, culturalPhotos: putPhoto, culturalSevas: signing('culturalSevas', 'seva', 'volunteers'), culturalPrograms: signing('culturalPrograms', 'programme', 'participants'), files: putFile, documents: putDocument, notificationOutbox: async (r) => r /* the server queues channel messages itself, from the event */, notifications: putNotification, broadcasts: putBroadcast, pollVotes: putPollVote, forum: putTopic, forumPosts: putPost, gatePasses: putPass, gateApprovals: putApproval, gateFlags: putFlag, gateVisits: deskOnly, gateScans: deskOnly, gatePulse: async (r) => r, amenities: putBooking, properties: putProperty, users: putUser, dues: putDue, tickets: putTicket, ticketComments: putComment, handymen: putFieldStaff, quotations: putQuotation };
+const WRITERS = { serviceContacts: putContact, contactReviews: putReview, meetings: putMeeting, ballots: putBallot, voteRoll: putVoteMark, ballotBox: putBoxRow, ledger: putLedger, releases: putRelease, payRequests: putPayRequest, bankTxns: putBankTxn, culturalDonations: putDonation, culturalExpenses: putExpense, culturalOfferings: putOffering, culturalEvents: putEvent, culturalPhotos: putPhoto, culturalSevas: signing('culturalSevas', 'seva', 'volunteers'), culturalPrograms: signing('culturalPrograms', 'programme', 'participants'), files: putFile, documents: putDocument, notificationOutbox: async (r) => r /* the server queues channel messages itself, from the event */, notifications: putNotification, broadcasts: putBroadcast, pollVotes: putPollVote, forum: putTopic, forumPosts: putPost, gatePasses: putPass, gateApprovals: putApproval, gateFlags: putFlag, gateVisits: deskOnly, gateScans: deskOnly, gatePulse: async (r) => r, amenities: putBooking, properties: putProperty, users: putUser, dues: putDue, tickets: putTicket, ticketComments: putComment, handymen: putFieldStaff, quotations: putQuotation };
 WRITERS.tickets = attaching(WRITERS.tickets, 'maintenance.ticket', 'attachments');
 WRITERS.ticketComments = attaching(WRITERS.ticketComments, 'maintenance.comment', 'attachments');
 WRITERS.quotations = attaching(WRITERS.quotations, 'maintenance.quotation', 'attachments');
 WRITERS.amenities = attaching(WRITERS.amenities, 'amenity.booking', 'depositPhotos');
 WRITERS.meetings = attaching(attaching(WRITERS.meetings, 'governance.agenda', 'agendaFiles'), 'governance.minutes', 'minutesFiles');
 for (const c of Object.keys(RESOURCES)) if (!WRITERS[c]) WRITERS[c] = (rec) => putResource(c, rec);
+WRITERS.vendors = attaching(WRITERS.vendors, 'vendor.vendor', 'attachments');
 const warned = new Set();
 const notYet = (c) => { if (!warned.has(c)) { warned.add(c); console.info(`[v2] "${c}" is not on the v2 back end yet; showing it empty.`); } };
 
@@ -709,6 +726,8 @@ export const V2ApiAdapter = {
     if (RESOURCES[c]) return removeResource(c, id);
     if (c === 'ledger') throw new Error('A payment is not deleted - reverse it.');
     if (c === 'voteRoll' || c === 'ballotBox') throw new Error('Voting records can never be changed or deleted');
+    if (c === 'contactReviews') { if (isUuid(id)) await call(`/vendors/reviews/${id}`, { method: 'DELETE' }); return; }
+    if (c === 'serviceContacts') { const x = isUuid(id) ? await readers.serviceContacts.get(id) : null; if (x) await call(`/vendors/directory/${id}`, { method: 'DELETE', headers: ifMatch(x.version) }); return; }
     if (c === 'meetings' || c === 'ballots') {
       const before = isUuid(id) ? await readers[c].get(id) : null;
       if (before) await call(`/governance/${c}/${id}`, { method: 'DELETE', headers: ifMatch(before.version) });

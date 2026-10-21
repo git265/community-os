@@ -845,6 +845,39 @@ class PostgresFlowTest {
             assertTrue(owner.sql("SELECT summary FROM audit.audit_event WHERE community_id = '" + cid + "' AND entity = 'governance.vote_roll'").stream().noneMatch((ar) -> String.valueOf(ar.get("summary")).contains("For")),
                 "the audit trail says who voted, never what");
 
+            // ---- 6l. vendors: the register through the kit (a discussion that stays), the directory with one review per household ------------------------
+            var vRepo = new com.communityos.api.shared.resource.JdbcResourceRepository<>(com.communityos.api.vendor.VendorResources.VENDORS.table(), app, json);
+            var vlRepo = new com.communityos.api.shared.resource.JdbcResourceRepository<>(com.communityos.api.vendor.VendorResources.SERVICE_LINES.table(), app, json);
+            var vcRepo = new com.communityos.api.shared.resource.JdbcResourceRepository<>(com.communityos.api.vendor.VendorResources.COMMENTS.table(), app, json);
+            var aqua = as(admin, () -> kit.create(admin, com.communityos.api.vendor.VendorResources.VENDORS, vRepo,
+                new com.communityos.api.vendor.VendorResources.VendorFields("Aqua Pumps", "Maintenance", "29abcde1234f1z5", "AMC", "Pumps", "+919845000000", null, null, today.plusYears(1), null)));
+            assertEquals("29ABCDE1234F1Z5", aqua.data().gstin());
+            assertThrows(RuntimeException.class, () -> as(admin, () -> kit.create(admin, com.communityos.api.vendor.VendorResources.VENDORS, vRepo,
+                new com.communityos.api.vendor.VendorResources.VendorFields("aqua pumps", null, null, null, null, null, null, null, null, null))), "one vendor per name");
+            assertTrue(as(ownerC, () -> kit.list(ownerC, com.communityos.api.vendor.VendorResources.VENDORS, vRepo)).isEmpty(), "residents do not see the register");
+            as(admin, () -> kit.create(admin, com.communityos.api.vendor.VendorResources.SERVICE_LINES, vlRepo, new com.communityos.api.vendor.VendorResources.ServiceLineFields(aqua.id(), "Plumbing", 3, "Day", null)));
+            var aquaNow = as(admin, () -> kit.get(admin, com.communityos.api.vendor.VendorResources.VENDORS, vRepo, aqua.id()));
+            assertEquals(3, ((Number) aquaNow.server("signedWorkers")).intValue());
+            var vc = as(admin, () -> kit.create(admin, com.communityos.api.vendor.VendorResources.COMMENTS, vcRepo, new com.communityos.api.vendor.VendorResources.CommentFields(aqua.id(), "Slow to respond in October")));
+            assertEquals(members[2].toString(), String.valueOf(vc.server("authorId")));
+            assertThrows(RuntimeException.class, () -> as(admin, () -> kit.replace(admin, com.communityos.api.vendor.VendorResources.COMMENTS, vcRepo, vc.id(), vc.version(),
+                new com.communityos.api.vendor.VendorResources.CommentFields(aqua.id(), "edited"))), "a comment stays as written");
+            var dir = new com.communityos.api.vendor.application.DirectoryService(new com.communityos.api.vendor.adapter.JdbcDirectoryStore(app), audit, app);
+            var raju = as(ownerC, () -> dir.add(ownerC, new com.communityos.api.vendor.application.DirectoryService.ContactFields("Raju electrician", "Electrician", "+91 98450 12345", "Whitefield", "500 a visit", null, null, null, null)));
+            assertEquals("Villa 101", raju.addedByUnit); assertEquals(members[0], raju.addedById);
+            as(ownerC, () -> dir.review(ownerC, raju.id, new com.communityos.api.vendor.application.DirectoryService.ReviewFields(5, "Quick", "Yes")));
+            as(treasurer, () -> dir.review(treasurer, raju.id, new com.communityos.api.vendor.application.DirectoryService.ReviewFields(4, null, "No")));
+            as(ownerC, () -> dir.review(ownerC, raju.id, new com.communityos.api.vendor.application.DirectoryService.ReviewFields(3, "Late this time", "Yes")));
+            var rajuNow = as(treasurer, () -> dir.get(treasurer, raju.id));
+            assertEquals(0, new java.math.BigDecimal("3.5").compareTo(rajuNow.rating)); assertEquals(2, rajuNow.reviews); assertEquals(1, rajuNow.recommends); assertNotNull(rajuNow.myReviewId);
+            assertThrows(RuntimeException.class, () -> owner.sql("INSERT INTO vendor.contact_review (community_id, contact_id, rating, author_id, unit_id) VALUES ('" + cid + "', '" + raju.id + "', 2, '" + members[1] + "', '" + unitA + "') RETURNING 1"),
+                "the database keeps one review per household too");
+            assertThrows(RuntimeException.class, () -> owner.sql("UPDATE vendor.contact_review SET rating = 9 WHERE contact_id = '" + raju.id + "' RETURNING 1"));
+            var rajuHidden = as(admin, () -> dir.change(admin, raju.id, rajuNow.version, new com.communityos.api.vendor.application.DirectoryService.ContactFields("Raju electrician", "Electrician",
+                "+91 98450 12345", "Whitefield", "500 a visit", null, null, "Hidden", "Complaints about safety")));
+            assertEquals("Hidden", rajuHidden.status);
+            assertTrue(as(plumberC, () -> dir.list(plumberC)).stream().noneMatch((x) -> x.id.equals(raju.id)), "hidden from others");
+
             // ---- 7. audit, outbox ----------------------------------------------------------------------------------------------------------------
             assertTrue(Integer.parseInt((String) owner.sql("SELECT count(*)::text AS n FROM audit.audit_event WHERE community_id = '" + cid + "'").get(0).get("n")) >= 7);
             OutboxRelay relay = new OutboxRelay(new JdbcOutboxStore(platform), new WebhookFanout(platform), 10, clock);

@@ -45,8 +45,10 @@ const KIT_FIELDS = {
   'cultural/events': ['name', 'status', 'visibility', 'budget', 'finalOver'],
   'cultural/seva': ['eventId', 'title', 'needed'],
   'cultural/offerings': ['eventId', 'title', 'kind', 'pledgeValue'],
+  'vendors/vendors': ['name', 'category', 'gstin', 'contractType', 'service', 'contactPhone', 'contactEmail', 'address', 'contractEnds', 'description'],
+  'vendors/service-lines': ['vendorId', 'service', 'signedWorkers', 'shift', 'note'],
 };
-const KIT_COLLECTION = { 'amenities/types': 'amenityTypes', 'amenities/items': 'amenityItems', 'maintenance/task-types': 'taskTypes', 'maintenance/categories': 'categoryMap', 'maintenance/quick-phrases': 'quickPhrases', 'maintenance/wishes': 'wishes', 'finance/settings': 'financeSettings', 'cultural/events': 'culturalEvents', 'cultural/seva': 'culturalSevas', 'cultural/offerings': 'culturalOfferings' };
+const KIT_COLLECTION = { 'amenities/types': 'amenityTypes', 'amenities/items': 'amenityItems', 'maintenance/task-types': 'taskTypes', 'maintenance/categories': 'categoryMap', 'maintenance/quick-phrases': 'quickPhrases', 'maintenance/wishes': 'wishes', 'finance/settings': 'financeSettings', 'cultural/events': 'culturalEvents', 'cultural/seva': 'culturalSevas', 'cultural/offerings': 'culturalOfferings', 'vendors/vendors': 'vendors', 'vendors/service-lines': 'vendorServices' };
 const TT = [{ id: 'tt-res', name: 'Resident Maintenance', icon: '🔧', creatorScope: 'Resident', assignmentMode: 'Role queue (staff accepts)', residentVisible: true, residentDefault: true, canRaise: true }];
 const page = (items) => ({ items, total: items.length, limit: 200, offset: 0 });
 const ok = (body, status = 200, headers = {}) => new Response(body == null ? null : JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...headers } });
@@ -160,7 +162,7 @@ globalThis.fetch = async (url, init = {}) => {
     if (m[2] === '/send-back') q.correctionNote = body.note;
     q.version++; return ok(q);
   }
-  if ((m = /^\/(maintenance|finance|amenities|cultural)\/([a-z-]+)(?:\/([^/]+))?$/.exec(path)) && KIT_FIELDS[`${m[1]}/${m[2]}`]) {
+  if ((m = /^\/(maintenance|finance|amenities|cultural|vendors)\/([a-z-]+)(?:\/([^/]+))?$/.exec(path)) && KIT_FIELDS[`${m[1]}/${m[2]}`]) {
     const key = `${m[1]}/${m[2]}`; const rows = (state.kit[key] ||= []);
     if (!m[3] && method === 'GET') return ok(rows);
     if (!m[3] && method === 'POST') {
@@ -381,6 +383,24 @@ globalThis.fetch = async (url, init = {}) => {
     if (b.status !== 'Draft') return problem(422, 'ballot-open', 'An open ballot cannot be edited');
     Object.assign(b, body); b.version++; return ok(ballotView(b));
   }
+  // ---- the service directory
+  state.contacts ||= []; state.reviews ||= [];
+  if (path === '/vendors/directory' && method === 'GET') return ok(state.contacts);
+  if (path === '/vendors/directory' && method === 'POST') { const c = { ...body, id: uuid(), shortId: 'SVC-1', status: 'Active', addedBy: 'Asha', addedByUnit: 'Villa 101', rating: null, reviews: 0, recommends: 0, version: 1 }; state.contacts.push(c); return ok(c, 201); }
+  if ((m = /^\/vendors\/directory\/([^/]+)(\/[a-z]+)?$/.exec(path))) {
+    const c = state.contacts.find((x) => x.id === m[1]); if (!c) return problem(404, 'not-found', 'Not found');
+    if (m[2] === '/reviews') return ok(state.reviews.filter((r) => r.contactId === c.id));
+    if (m[2] === '/review') {
+      let r = state.reviews.find((x) => x.contactId === c.id);
+      if (!r) { r = { id: uuid(), shortId: 'CRV-1', contactId: c.id, author: 'Asha', unitNo: 'Villa 101', version: 1 }; state.reviews.push(r); } else r.version++;
+      Object.assign(r, body); c.reviews = state.reviews.filter((x) => x.contactId === c.id).length; c.rating = String(r.rating); return ok(r);
+    }
+    if (method === 'GET') return ok(c);
+    if (h['If-Match'] !== `"${c.version}"`) return problem(409, 'conflict', 'changed');
+    if (method === 'DELETE') { state.contacts = state.contacts.filter((x) => x !== c); return ok(null, 204); }
+    Object.assign(c, body); c.version++; return ok(c);
+  }
+  if ((m = /^\/vendors\/reviews\/([^/]+)$/.exec(path)) && method === 'DELETE') { state.reviews = state.reviews.filter((r) => r.id !== m[1]); return ok(null, 204); }
   return problem(404, 'not-found', `no fake for ${method} ${path}`);
 };
 
@@ -437,8 +457,8 @@ test('members: new member is a POST, a role change a PUT with If-Match', async (
 });
 
 test('not yet on v2: reads are empty, writes refused loudly', async () => {
-  assert.deepEqual(await storage.list('vendors'), []);
-  await assert.rejects(storage.put('vendors', { id: 'p1' }), /not on the v2 back end yet/);
+  assert.deepEqual(await storage.list('ecRoles'), []);
+  await assert.rejects(storage.put('ecRoles', { id: 'p1' }), /not on the v2 back end yet/);
 });
 
 test('paying: the server prices, the simulator pays, confirm settles', async () => {
@@ -728,5 +748,25 @@ test('governance: a meeting with its papers; a ballot drafted, opened on the ser
   const closed = await storage.put('ballots', { ...(await storage.get('ballots', opened.id)), status: 'Closed' });
   assert.equal(closed.status, 'Closed'); assert.equal(closed.chainHead, 'f'.repeat(64));
   assert.deepEqual((await storage.list('ballotBox')).map((r) => r.choice), ['For']);
+});
+
+test('vendors: the register through the kit (a service line names its vendor by id); the directory: added and reviewed, the rating is the server\'s', async () => {
+  const v = await storage.put('vendors', { name: 'Aqua Pumps', category: 'Maintenance', gstin: '29ABCDE1234F1Z5', contractType: 'AMC', attachments: [] });
+  assert.equal(last('POST', /^\/vendors\/vendors$/).body.name, 'Aqua Pumps'); assert.equal('attachments' in last('POST', /^\/vendors\/vendors$/).body, false);
+  await storage.put('vendorServices', { vendorName: 'Aqua Pumps', service: 'Plumbing', signedWorkers: 3 });
+  assert.equal(last('POST', /^\/vendors\/service-lines$/).body.vendorId, v.id, 'the vendor by id');
+  await assert.rejects(storage.put('vendorServices', { vendorName: 'Nobody', service: 'Plumbing' }), /not known to the back end/);
+  const c = await storage.put('serviceContacts', { name: 'Raju electrician', category: 'Electrician', phone: '+91 98450 12345', addedBy: 'Someone else', addedByUnit: 'Villa 9', rating: 5 });
+  const cpost = last('POST', /^\/vendors\/directory$/).body;
+  assert.equal('addedBy' in cpost, false); assert.equal('rating' in cpost, false, 'who added it and the rating are the server\'s');
+  assert.equal(c.addedByUnit, 'Villa 101');
+  await storage.put('contactReviews', { contactId: c.id, rating: 4, comment: 'Quick', recommend: 'Yes', author: 'Asha', unit: 'Villa 101' });
+  assert.deepEqual(last('PUT', /\/review$/).body, { rating: 4, comment: 'Quick', recommend: 'Yes' });
+  assert.equal((await storage.get('serviceContacts', c.id)).rating, 4);
+  const [rv] = await storage.list('contactReviews');
+  await storage.remove('contactReviews', rv.id);
+  assert.equal(last('DELETE', /^\/vendors\/reviews\//).path, `/vendors/reviews/${rv.id}`);
+  await storage.put('serviceContacts', { ...(await storage.get('serviceContacts', c.id)), status: 'Hidden', hiddenReason: 'Complaints' });
+  assert.equal(last('PUT', /^\/vendors\/directory\//).body.hiddenReason, 'Complaints');
 });
 

@@ -237,6 +237,9 @@ export const RESOURCES = {
   assocBills: { path: 'finance/association-bills', json: ['billFile'] },
   financeSettings: { path: 'finance/settings', rename: { finalCanDecideEC: 'finalCanDecideEc' }, singleton: true },
   importantNumbers: { path: 'comms/important-numbers' },
+  vendors: { path: 'vendors/vendors' },
+  vendorServices: { path: 'vendors/service-lines', refs: { vendorName: { field: 'vendorId', collection: 'vendors', key: 'name' } } },
+  vendorComments: { path: 'vendors/comments' },
   numberSections: { path: 'comms/number-sections' },
   mergeFields: { path: 'comms/merge-fields' },
   noticeTemplates: { path: 'comms/notice-templates' },
@@ -629,3 +632,12 @@ export const voteMarksOf = (ballotId, roll) => roll.filter((e) => e.voted).map((
 export const boxRowOf = (ballotId, r) => ({ id: `${ballotId}-${r.seq}`, ballotId, seq: r.seq, receipt: r.receipt, choice: r.choice, prevHash: r.prevHash, hash: r.hash });
 /** The unit a vote is for: the signed-in unit when it is one of mine on this ballot, else my only one. */
 export const voteUnit = (ballot, unitNo) => (ballot?.myUnits || []).find((u) => u.unit === unitNo)?.unitId || ((ballot?.myUnits || []).length === 1 ? ballot.myUnits[0].unitId : null);
+
+// ---- the service directory ----------------------------------------------------------------------------------------------------------------------
+export const contactOf = (c) => ({ id: c.id, shortId: c.shortId, name: c.name, category: c.category || '', phone: c.phone || '', area: c.area || '', rate: c.rate || '', notes: c.notes || '',
+  addedBy: c.addedBy || '', addedById: c.addedById || '', addedByUnit: c.addedByUnit || '', status: c.status, hiddenReason: c.hiddenReason || '', registryId: c.registryId || '',
+  rating: num(c.rating) ?? '', reviews: c.reviews || 0, recommends: c.recommends || 0, myReviewId: c.myReviewId || '', createdAt: c.createdAt, version: c.version });
+export const contactBody = (r) => ({ name: r.name, category: r.category || null, phone: r.phone || null, area: r.area || null, rate: r.rate || null, notes: r.notes || null,
+  registryId: isUuid(r.registryId) ? r.registryId : null, status: r.status || null, hiddenReason: r.hiddenReason || null });
+export const reviewOf = (r) => ({ id: r.id, shortId: r.shortId, contactId: r.contactId, rating: r.rating, comment: r.comment || '', recommend: r.recommend || '', author: r.author || '',
+  authorId: r.authorId || '', unit: r.unitNo || '', createdAt: r.createdAt, version: r.version });
