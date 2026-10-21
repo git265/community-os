@@ -135,7 +135,7 @@ class PostgresFlowTest {
             JdbcAuditWriter audit = new JdbcAuditWriter(app, json);
             JdbcDueRepository dues = new JdbcDueRepository(app); JdbcBillingLookups lookups = new JdbcBillingLookups(app);
             JdbcPaymentOrderRepository orders = new JdbcPaymentOrderRepository(app); JdbcPaymentRepository payments = new JdbcPaymentRepository(app);
-            SimulatedGateway sim = new SimulatedGateway("sim-secret");
+            SimulatedGateway sim = new SimulatedGateway("sim-secret", clock, Duration.ofSeconds(30), Duration.ofSeconds(20));
             GatewaySettlement gs = new GatewaySettlement(dues, payments, events, audit, app, orders, clock);
             CounterSettlement counter = new CounterSettlement(dues, payments, events, audit, app, lookups, clock);
             JdbcPlatformPayments pp = new JdbcPlatformPayments(platform);
@@ -201,6 +201,26 @@ class PostgresFlowTest {
             assertEquals(bal.get("d"), bal.get("c"), "double entry balances");
             assertEquals("0.00", owner.sql("SELECT balance::text AS b FROM finance.account_balance ab JOIN finance.account a ON a.id = ab.account_id WHERE ab.community_id = '" + cid + "' AND a.code = '1100'").get(0).get("b"));
             assertEquals("5", owner.sql("SELECT count(*)::text AS n FROM finance.journal_entry WHERE community_id = '" + cid + "' AND status = 'Posted'").get(0).get("n"), "3 bills + 2 payments");
+            // the simulated bank, as a real one behaves: declined (only the webhook says so), slow (charged later), confirmation lost (the webhook settles it)
+            List<com.communityos.api.billing.domain.Due> simBills = new java.util.ArrayList<>();
+            java.util.function.Function<String, PaymentService.OrderView> billAndOrder = (k) -> {
+                var bill = as(treasurer, () -> dueService.raise(treasurer, new DueService.RaiseDue(new UnitId(unitA), "Water", today.withDayOfMonth(1), "Sim " + k, Money.of("120"), today.plusDays(9))));
+                simBills.add(bill);
+                return as(ownerC, () -> pay.createOrder(ownerC, new PaymentService.CreateOrder(List.of(bill.id())), "it-sim-" + k + "-" + tag));
+            };
+            Runnable bank = () -> { for (var hk : sim.dueWebhooks()) pay.webhook("simulated", hk.getKey(), hk.getValue()); };
+            java.util.function.Function<PaymentService.OrderView, String> statusOf = (o) -> (String) owner.sql("SELECT status FROM billing.payment_order WHERE id = '" + o.order().id() + "'").get(0).get("status");
+            var declined = billAndOrder.apply("fail"); sim.simulate(declined.order().providerOrderRef(), SimulatedGateway.Outcome.FAILURE); bank.run();
+            assertEquals("Failed", statusOf.apply(declined), "a declined card fails the order");
+            var slow = billAndOrder.apply("slow"); sim.simulate(slow.order().providerOrderRef(), SimulatedGateway.Outcome.PENDING); bank.run();
+            assertTrue(!"Paid".equals(statusOf.apply(slow)), "the bank has not charged yet");
+            var lost = billAndOrder.apply("lost"); sim.simulate(lost.order().providerOrderRef(), SimulatedGateway.Outcome.LOST); bank.run();
+            assertTrue(!"Paid".equals(statusOf.apply(lost)), "the app never confirmed; the webhook is still on its way");
+            com.communityos.api.demo.ReplayClock.at(java.time.Instant.now().plusSeconds(31), () -> { bank.run(); return null; });
+            assertEquals("Paid", statusOf.apply(slow), "the slow bank charged, its webhook settled the order");
+            assertEquals("Paid", statusOf.apply(lost), "the lost confirmation was made good by the webhook");
+            as(treasurer, () -> counter.settle(treasurer, new CounterSettlement.Request(new UnitId(unitA), simBills.get(0).amount().plus(simBills.get(0).tax()), "Cash", today,
+                List.of(simBills.get(0).id()), "paid in cash after the card was declined")));
 
             // ---- 6. units, members -----------------------------------------------------------------------------------------------------------------
             Unit u = as(admin, () -> units.get(admin, new UnitId(unitA)));
@@ -470,7 +490,8 @@ class PostgresFlowTest {
             List<String> titles = mineNotes.stream().map(com.communityos.api.comms.domain.Comms.Note::title).toList();
             assertTrue(titles.stream().anyMatch((t) -> t.startsWith("New bill")), "bills reach the unit: " + titles);
             assertTrue(titles.stream().anyMatch((t) -> t.equals("At the gate: Ravi Uncle")), "the gate asked the unit: " + titles);
-            assertTrue(titles.stream().noneMatch((t) -> t.startsWith("Payment received") || t.startsWith("Booked")), "nobody is told about what they did themselves: " + titles);
+            assertTrue(titles.stream().noneMatch((t) -> t.equals("Payment received · RCP-0001") || t.startsWith("Booked")), "nobody is told about what they did themselves: " + titles);
+            assertTrue(titles.contains("Payment received · RCP-0003"), "but a payment the bank's webhook settled is news to them: " + titles);
             assertTrue(as(plumberC, () -> inboxSvc.mine(plumberC, false, 50)).stream().anyMatch((n) -> n.event().equals("ticket_assigned")), "the assignee hears of the task");
             assertTrue(as(treasurer, () -> inboxSvc.mine(treasurer, false, 200)).stream().noneMatch((n) -> n.title().startsWith("New bill")), "not the treasurer's unit (and they raised it)");
             int unread = as(ownerC, () -> inboxSvc.unread(ownerC));

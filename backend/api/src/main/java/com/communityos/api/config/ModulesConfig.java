@@ -235,10 +235,12 @@ public class ModulesConfig {
 
     /** Development provider; only exists when cos.payments.simulated.enabled=true, and never in prod. */
     @Bean @ConditionalOnProperty(name = "cos.payments.simulated.enabled", havingValue = "true")
-    SimulatedGateway simulatedGateway(CosProperties p, Environment env) {
+    SimulatedGateway simulatedGateway(CosProperties p, Environment env, Clock clock) {
         if (env.matchesProfiles("prod")) throw new IllegalStateException("the simulated payment provider cannot be enabled in prod");
-        String secret = p.payments().simulated() == null ? null : p.payments().simulated().secret();
-        return new SimulatedGateway(secret == null || secret.isBlank() ? "dev-simulated-secret" : secret);
+        CosProperties.Simulated sim = p.payments().simulated();
+        String secret = sim == null ? null : sim.secret();
+        return new SimulatedGateway(secret == null || secret.isBlank() ? "dev-simulated-secret" : secret, clock,
+            sim == null ? Duration.ofSeconds(30) : sim.pendingDelay(), sim == null ? Duration.ofSeconds(20) : sim.lostDelay());
     }
 
     @Bean GatewayRegistry gatewayRegistry(CosProperties p, Optional<SimulatedGateway> simulated, HttpTransport http, ObjectMapper json, Clock clock) {

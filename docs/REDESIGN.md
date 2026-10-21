@@ -450,7 +450,7 @@ cd backend/api && mvn spring-boot:run -Dspring-boot.run.profiles=dev # log the c
 
 | Service | Production | Development |
 |---|---|---|
-| Online payments | Razorpay (`COS_RAZORPAY_*`); the app loads Razorpay's checkout script when the server's provider is Razorpay | the simulated gateway and its checkout page (`/api/v1/dev/simulated-checkout`) |
+| Online payments | Razorpay (`COS_RAZORPAY_*`); the app loads Razorpay's checkout script when the server's provider is Razorpay | the simulated gateway; its checkout page offers what a bank does: paid, declined (the server learns it from the webhook), slow (charged after `cos.payments.simulated.pending-delay`, 30 s), charged with the app's confirmation lost (the webhook settles it after `lost-delay`, 20 s), or closed (the order expires). Its webhooks go through the real webhook endpoint code every 3 s |
 | Sign-in and voting codes | an HTTP SMS provider (`COS_SMS_*`) | written to the API log |
 | WhatsApp / SMS / e-mail copies of notifications | a provider behind `ChannelSender` (none is wired yet: with `cos.channels.provider=none` they stay Queued) | `simulated`: written to the log and marked Sent, retried up to 5 times on failure |
 | Virus scanning of uploads | a ClamAV adapter behind `VirusScanner` (none yet: files stay "Pending") | `simulated`: finds the EICAR test file, calls the rest clean |

@@ -29,7 +29,8 @@ public record CosProperties(Db db, Auth auth, Payments payments, Web web, @Defau
 
     public record Payments(@DefaultValue("simulated") String defaultProvider, @DefaultValue("30m") Duration orderTtl, @DefaultValue("INR") String currency,
                            Simulated simulated, Razorpay razorpay) {}
-    public record Simulated(@DefaultValue("false") boolean enabled, String secret) {}
+    /** Development provider: how long a "slow bank" takes to charge, and when a payment whose confirmation was lost is reported by webhook. */
+    public record Simulated(@DefaultValue("false") boolean enabled, String secret, @DefaultValue("30s") Duration pendingDelay, @DefaultValue("20s") Duration lostDelay) {}
     public record Razorpay(@DefaultValue("false") boolean enabled, @DefaultValue("https://api.razorpay.com") String baseUrl, String keyId, String keySecret, String webhookSecret) {}
 
     public record Web(List<String> allowedOrigins, @DefaultValue("Asia/Kolkata") String timeZone) {}

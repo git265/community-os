@@ -22,12 +22,14 @@ public class Jobs {
     private final com.communityos.api.gate.application.GateService gate; private final com.communityos.api.comms.application.BroadcastService notices;
     private final com.communityos.api.workforce.application.AttendanceService attendance; private final com.communityos.api.reports.application.ReportService reports;
     private final java.util.Optional<com.communityos.api.comms.adapter.ChannelDelivery> channels;
+    private final java.util.Optional<com.communityos.api.billing.adapter.gateway.SimulatedGateway> simulatedBank;
 
     public Jobs(OutboxRelay outbox, WebhookDeliveryWorker webhooks, PaymentService payments, @Qualifier("platform") NamedParameterJdbcTemplate platformJdbc,
                 com.communityos.api.gate.application.GateService gate, com.communityos.api.comms.application.BroadcastService notices,
                 com.communityos.api.workforce.application.AttendanceService attendance, com.communityos.api.reports.application.ReportService reports,
-                java.util.Optional<com.communityos.api.comms.adapter.ChannelDelivery> channels) {
-        this.channels = channels;
+                java.util.Optional<com.communityos.api.comms.adapter.ChannelDelivery> channels,
+                java.util.Optional<com.communityos.api.billing.adapter.gateway.SimulatedGateway> simulatedBank) {
+        this.channels = channels; this.simulatedBank = simulatedBank;
         this.outbox = outbox; this.webhooks = webhooks; this.payments = payments; this.platformJdbc = platformJdbc; this.gate = gate; this.notices = notices; this.attendance = attendance; this.reports = reports;
     }
 
@@ -97,6 +99,17 @@ public class Jobs {
 
     @Scheduled(fixedDelayString = "${cos.jobs.webhook-delay:5000}")
     public void deliverWebhooks() { run("webhooks", () -> webhooks.runOnce(100)); }
+
+    /** Development only: the simulated provider's webhooks (a declined card, a slow bank that charges later, a confirmation the app never sent). */
+    @Scheduled(fixedDelayString = "${cos.jobs.simulated-bank-delay:3000}", initialDelay = 10000)
+    public void simulatedBankWebhooks() {
+        simulatedBank.ifPresent((g) -> run("simulated bank", () -> {
+            for (var h : g.dueWebhooks()) {
+                try { payments.webhook("simulated", h.getKey(), h.getValue()); }
+                catch (RuntimeException e) { log.warn("simulated webhook failed: {}", e.toString()); }
+            }
+        }));
+    }
 
     @Scheduled(fixedDelayString = "${cos.jobs.reconcile-delay:120000}", initialDelay = 60000)
     public void reconcilePayments() { run("reconcile", () -> payments.reconcile(100)); }

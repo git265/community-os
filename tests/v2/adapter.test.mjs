@@ -109,7 +109,11 @@ globalThis.fetch = async (url, init = {}) => {
     const o = { id: `o-${++seq}`, shortId: `ORD-${seq}`, unitId: dues[0].unitId, amount, currency: 'INR', status: 'Pending', provider: 'simulated', expiresAt: null, items: dues.map((d) => ({ dueId: d.id, amount: d.outstanding })), checkout: { provider: 'simulated', providerOrderRef: `sim_order_${seq}`, amount, currency: 'INR' } };
     state.orders.push(o); return ok(o, 201);
   }
-  if ((m = /^\/dev\/simulated-checkout\/(.+)$/.exec(path))) return ok({ providerPaymentRef: 'sim_pay_1', signature: 'sig' });
+  if ((m = /^\/dev\/simulated-checkout\/(.+)$/.exec(path))) {
+    const outcome = u.searchParams.get('outcome');
+    if (outcome === 'failure') { const o = state.orders.find((x) => x.checkout.providerOrderRef === m[1]); if (o) o.status = 'Failed'; }   // the bank's webhook, at once
+    return ok({ providerPaymentRef: 'sim_pay_1', signature: 'sig', outcome });
+  }
   if ((m = /^\/payment-orders\/([^/]+)\/confirm$/.exec(path))) {
     const o = state.orders.find((x) => x.id === m[1]); o.status = 'Paid'; o.paymentId = 'aaaaaaaa-0000-4000-8000-00000000pay1'.replace('pay1', '0001');
     for (const it of o.items) { const d = state.dues.find((x) => x.id === it.dueId); d.status = 'Paid'; d.outstanding = '0.00'; d.paid = d.total; }
@@ -538,6 +542,14 @@ test('paying: the server prices, the simulator pays, confirm settles', async () 
   assert.deepEqual(create.body, { dueIds: [d.id] }, 'no amount from the browser');
   assert.match(create.headers['Idempotency-Key'], /^pay-[0-9a-f-]{36}$/);
   assert.equal(last('POST', /\/confirm$/).body.providerPaymentRef, 'sim_pay_1');
+  assert.match(last('POST', /^\/dev\/simulated-checkout\//).path, /outcome=success$/);
+  // the bank declines: the server hears it from the bank (its webhook), the app does not confirm anything
+  const d2 = await storage.put('dues', { unit: 'Villa 101', category: 'Water', amount: 200, billedMonth: 'Oct 2026', dueDate: '2026-10-10', status: 'Unpaid' });
+  const confirms = calls.filter((c) => /\/confirm$/.test(c.path)).length;
+  const declined = await pay({ purpose: 'due', refs: [d2.id], amount: 1, unit: 'Villa 101' }, async () => ({ outcome: 'failure', method: 'UPI' }));
+  assert.match(last('POST', /^\/dev\/simulated-checkout\//).path, /outcome=failure$/);
+  assert.equal(calls.filter((c) => /\/confirm$/.test(c.path)).length, confirms, 'no confirmation for a declined payment');
+  assert.equal(declined.status, 'Failed');
 });
 
 test('tickets: raise (no SLA from a resident), accept, work, close, rate; comments; field staff clock', async () => {
