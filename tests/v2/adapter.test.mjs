@@ -46,17 +46,18 @@ const KIT_FIELDS = {
   'cultural/seva': ['eventId', 'title', 'needed'],
   'cultural/offerings': ['eventId', 'title', 'kind', 'pledgeValue'],
   'vendors/vendors': ['name', 'category', 'gstin', 'contractType', 'service', 'contactPhone', 'contactEmail', 'address', 'contractEnds', 'description'],
-  'vendors/service-lines': ['vendorId', 'service', 'signedWorkers', 'shift', 'note'],
+  'vendors/service-lines': ['vendorId', 'service', 'signedWorkers', 'shift', 'note', 'contractors'],
+  'property/facilities': ['name', 'kind', 'blockId', 'active', 'notes'],
   'assets/equipment': ['name', 'area', 'type', 'status', 'quantity', 'faulty', 'specs', 'lastInspected'],
   'assets/inventory': ['item', 'category', 'location', 'uom', 'minStock', 'vendor', 'notes'],
   'workforce/services': ['name', 'weekdays', 'active'],
   'amenities/settings': ['gstin', 'adminRecipients', 'reportRecipients', 'notifyOwner'],
   'finance/approval-policies': ['name', 'steps'],
-  'finance/budget-lines': ['fy', 'kind', 'name', 'forecast'],
+  'finance/budget-lines': ['fy', 'kind', 'name', 'forecast', 'vendor', 'vendorService'],
   'reports/schedules': ['name', 'reportType', 'period', 'format', 'frequency', 'time', 'audience', 'roleIds', 'unitIds', 'memberIds', 'recipe', 'channels', 'active'],
   'reports/runs': ['scheduleId', 'name', 'title', 'summary', 'columns', 'sentTo'],
 };
-const KIT_COLLECTION = { 'workforce/services': 'siteServices', 'amenities/settings': 'amenitySettings', 'finance/approval-policies': 'approvalPolicies', 'finance/budget-lines': 'budgetLines', 'amenities/types': 'amenityTypes', 'amenities/items': 'amenityItems', 'maintenance/task-types': 'taskTypes', 'maintenance/categories': 'categoryMap', 'maintenance/quick-phrases': 'quickPhrases', 'maintenance/wishes': 'wishes', 'finance/settings': 'financeSettings', 'cultural/events': 'culturalEvents', 'cultural/seva': 'culturalSevas', 'cultural/offerings': 'culturalOfferings', 'vendors/vendors': 'vendors', 'vendors/service-lines': 'vendorServices', 'assets/equipment': 'equipment', 'assets/inventory': 'inventory', 'reports/schedules': 'reportSchedules', 'reports/runs': 'reportRuns' };
+const KIT_COLLECTION = { 'property/facilities': 'facilities', 'workforce/services': 'siteServices', 'amenities/settings': 'amenitySettings', 'finance/approval-policies': 'approvalPolicies', 'finance/budget-lines': 'budgetLines', 'amenities/types': 'amenityTypes', 'amenities/items': 'amenityItems', 'maintenance/task-types': 'taskTypes', 'maintenance/categories': 'categoryMap', 'maintenance/quick-phrases': 'quickPhrases', 'maintenance/wishes': 'wishes', 'finance/settings': 'financeSettings', 'cultural/events': 'culturalEvents', 'cultural/seva': 'culturalSevas', 'cultural/offerings': 'culturalOfferings', 'vendors/vendors': 'vendors', 'vendors/service-lines': 'vendorServices', 'assets/equipment': 'equipment', 'assets/inventory': 'inventory', 'reports/schedules': 'reportSchedules', 'reports/runs': 'reportRuns' };
 const TT = [{ id: 'tt-res', name: 'Resident Maintenance', icon: '🔧', creatorScope: 'Resident', assignmentMode: 'Role queue (staff accepts)', residentVisible: true, residentDefault: true, canRaise: true }];
 const page = (items) => ({ items, total: items.length, limit: 200, offset: 0 });
 const ok = (body, status = 200, headers = {}) => new Response(body == null ? null : JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...headers } });
@@ -192,7 +193,7 @@ globalThis.fetch = async (url, init = {}) => {
     if (m[2] === '/send-back') q.correctionNote = body.note;
     q.version++; return ok(q);
   }
-  if ((m = /^\/(maintenance|finance|amenities|cultural|vendors|assets|reports|workforce)\/([a-z-]+)(?:\/([^/]+))?$/.exec(path)) && KIT_FIELDS[`${m[1]}/${m[2]}`] && !/\/run$/.test(path)) {
+  if ((m = /^\/(maintenance|finance|amenities|cultural|vendors|assets|reports|workforce|property)\/([a-z-]+)(?:\/([^/]+))?$/.exec(path)) && KIT_FIELDS[`${m[1]}/${m[2]}`] && !/\/run$/.test(path)) {
     const key = `${m[1]}/${m[2]}`; const rows = (state.kit[key] ||= []);
     if (!m[3] && method === 'GET') return ok(rows);
     if (!m[3] && method === 'POST') {
@@ -795,6 +796,19 @@ test('files and documents: bytes go up as the body; a ticket\'s photo is attache
   assert.equal(t.attachments[0].fileId, f.id);
   const listed = (await storage.list('tickets')).find((x) => x.id === t.id);
   assert.equal(listed.attachments.length, 1); assert.equal(listed.hasPhotos, true);
+  // saved again with one more photo: only the new one is attached (the first is already on it, whoever uploaded it)
+  const f2 = await storage.put('files', { name: 'tap.png', mime: 'image/png', size: 7, dataUrl: png });
+  const n0 = calls.filter((c) => /\/attach$/.test(c.path)).length;
+  const t2 = await storage.put('tickets', { ...listed, attachments: [...listed.attachments, { fileId: f2.id, name: 'tap.png', mime: 'image/png' }] });
+  assert.equal(calls.filter((c) => /\/attach$/.test(c.path)).length - n0, 1, 'one attach: the new photo');
+  assert.equal(t2.attachments.length, 2);
+  // a photo taken off the list goes off the ticket
+  const n1 = calls.filter((c) => c.method === 'DELETE').length;
+  await storage.put('tickets', { ...t2, attachments: [t2.attachments[1]] });
+  assert.equal(calls.filter((c) => c.method === 'DELETE').length, n1, 'a shorter list alone removes nothing (someone may have added a photo meanwhile)');
+  const t3 = await storage.put('tickets', { ...t2, attachments: t2.attachments.filter((m) => m.fileId !== f.id), _detach: [f.id] });
+  assert.equal(last('DELETE', /^\/files\//).path, `/files/${f.id}`);
+  assert.deepEqual(t3.attachments.map((m) => m.fileId), [f2.id]);
   const pdf = await storage.put('files', { name: 'bye-laws.pdf', mime: 'application/pdf', size: 4, dataUrl: 'data:application/pdf;base64,' + Buffer.from('%PDF').toString('base64') });
   const d = await storage.put('documents', { title: 'Bye-laws', category: 'Association', version: 'v3', access: 'All owners', fileId: pdf.id, fileName: 'x', scanStatus: 'Clean (server scan)' });
   assert.deepEqual(last('POST', /^\/documents$/).body, { fileId: pdf.id, title: 'Bye-laws', category: 'Association', edition: 'v3', access: 'All owners', unitId: null, expiry: null, folderId: null });
@@ -914,8 +928,19 @@ test('governance: a meeting with its papers; a ballot drafted, opened on the ser
   assert.deepEqual((await storage.list('ballotBox')).map((r) => r.choice), ['For']);
 });
 
+test('facilities: kept on the back end, the block named by name and sent by id (a cleared block is sent as none)', async () => {
+  const blk = await storage.put('blocks', { name: 'Tower Q', code: 'Q', kind: 'Tower' });
+  const f = await storage.put('facilities', { name: 'Rooftop Garden', kind: 'Park / garden', block: 'Tower Q', active: true, notes: '' });
+  const post = last('POST', /^\/property\/facilities$/).body;
+  assert.equal(post.blockId, blk.id); assert.equal('block' in post, false);
+  state.kit['property/facilities'].at(-1).blockName = 'Tower Q';
+  await storage.put('facilities', { ...(await storage.get('facilities', f.id)), block: '' });
+  assert.equal(last('PUT', /^\/property\/facilities\//).body.blockId, null, 'the block cleared');
+  await assert.rejects(storage.put('facilities', { name: 'Shed', kind: 'Other', block: 'Nowhere' }), /not known to the back end/);
+});
+
 test('vendors: the register through the kit (a service line names its vendor by id); the directory: added and reviewed, the rating is the server\'s', async () => {
-  const v = await storage.put('vendors', { name: 'Aqua Pumps', category: 'Maintenance', gstin: '29ABCDE1234F1Z5', contractType: 'AMC', attachments: [] });
+  const v = await storage.put('vendors', { name: 'Aqua Pumps', category: 'Maintenance', gstin: '29ABCDE1234F1ZW', contractType: 'AMC', attachments: [] });
   assert.equal(last('POST', /^\/vendors\/vendors$/).body.name, 'Aqua Pumps'); assert.equal('attachments' in last('POST', /^\/vendors\/vendors$/).body, false);
   await storage.put('vendorServices', { vendorName: 'Aqua Pumps', service: 'Plumbing', signedWorkers: 3 });
   assert.equal(last('POST', /^\/vendors\/service-lines$/).body.vendorId, v.id, 'the vendor by id');

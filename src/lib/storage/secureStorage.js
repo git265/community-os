@@ -242,6 +242,16 @@ const localSecure = {
         if (record.code && nameKey(b.code) === nameKey(record.code)) await denied(collection, isNew ? 'Create' : 'Update', record, `Block “${b.name}” already has the code ${b.code}`);
       }
     }
+    // Amenities: a name is unique whatever its case; a rename is carried to its bookings and add-on items (they name it), as the server's ids do
+    let amenityRename = null;
+    if (collection === COLLECTIONS.AMENITY_TYPES) {
+      const name = String(record.name ?? old?.name ?? '').trim().replace(/\s+/g, ' ');
+      if (name.length < 2 || name.length > 60) await denied(collection, isNew ? 'Create' : 'Update', record, 'A name has 2 to 60 characters');
+      const clash = (await storage.list(COLLECTIONS.AMENITY_TYPES)).find((t) => t.id !== record.id && String(t.name).trim().toLowerCase() === name.toLowerCase());
+      if (clash) await denied(collection, isNew ? 'Create' : 'Update', record, `There is already an amenity “${clash.name}”`);
+      record = { ...record, name };
+      if (old && old.name !== name) amenityRename = { from: old.name, to: name };
+    }
     let meetingChange = null;
     if (collection === COLLECTIONS.MEETINGS) {
       record = (await meetingPreWrite({ record, old })).record;
@@ -330,6 +340,11 @@ const localSecure = {
     }
     if (propertyChange) {
       try { await propertyPostWrite({ old: propertyChange.old, next: stamped, actor: actorLabel(p) }); } catch (e) { console.warn('property access sync failed', e); }
+    }
+    if (amenityRename) {
+      for (const b of await storage.list(COLLECTIONS.AMENITIES)) if (b.amenity === amenityRename.from) await storage.put(COLLECTIONS.AMENITIES, { ...b, amenity: amenityRename.to });
+      for (const it of await storage.list(COLLECTIONS.AMENITY_ITEMS)) if (it.amenity === amenityRename.from) await storage.put(COLLECTIONS.AMENITY_ITEMS, { ...it, amenity: amenityRename.to });
+      notify(COLLECTIONS.AMENITIES); notify(COLLECTIONS.AMENITY_ITEMS);
     }
     if (collection === COLLECTIONS.AMENITIES && amenityAction) {
       try { await amenityPostWrite({ old, next: stamped, action: amenityAction }); } catch (e) { console.warn('amenity post-processing failed', e); }
@@ -437,6 +452,7 @@ const localSecure = {
     if (EV_IMMUTABLE.has(collection) || (collection === COLLECTIONS.BALLOTS && old && old.status !== 'Draft')) await denied(collection, 'Delete', old ?? { id }, 'Voting records can never be changed or deleted');
     if (!old && !isAdmin(p)) await denied(collection, 'Delete', { id }, 'Not found');
     await checkWrite(collection, old ?? { id }, old, 'delete', p, schema);
+    if (collection === COLLECTIONS.AMENITY_TYPES && old) { const why = await amenityInUse(old); if (why) await denied(collection, 'Delete', old, why); }
     await storage.remove(collection, id);
     if (collection === COLLECTIONS.EQUIPMENT && old) await recordMapVersion({ collection, old, who: actorLabel(p), action: 'delete' });
     if (collection !== COLLECTIONS.AUDIT && !NO_AUDIT.has(collection)) {
@@ -448,6 +464,15 @@ const localSecure = {
     notify(collection);
   },
 };
+
+/** Why an amenity cannot be deleted (the same words as the server), or ''. One with bookings, past ones too, is closed instead. */
+export async function amenityInUse(a) {
+  const booked = (await storage.list(COLLECTIONS.AMENITIES)).filter((b) => b.amenity === a.name).length;
+  if (booked) return `${a.name} has ${booked} booking${booked === 1 ? '' : 's'} (past ones count too), so it is kept for their history. Switch off "Open for booking" to stop new bookings.`;
+  const items = (await storage.list(COLLECTIONS.AMENITY_ITEMS)).filter((i) => i.amenity === a.name).length;
+  if (items) return `${items} add-on item${items === 1 ? ' is' : 's are'} offered only with ${a.name}. Offer them with every amenity, or delete them, first.`;
+  return '';
+}
 
 // In the browser demo the rules run here. When the back end enforces sign-in, the same calls go to the server, which runs the same rules.
 const METHODS = ['list', 'query', 'get', 'put', 'importMany', 'createMany', 'updateMany', 'remove'];

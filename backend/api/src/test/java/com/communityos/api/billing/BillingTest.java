@@ -85,6 +85,18 @@ class BillingTest {
         assertEquals(1, dues.rows.size(), "refused requests saved nothing");
     }
 
+    @Test void aUpiPaymentCarriesThePayersUpiIdAndTheBanksUtr() {
+        var o = sim.createOrder(new com.communityos.api.billing.application.gateway.PaymentGateway.OrderRequest("o-1", "r-1", new Money(new java.math.BigDecimal("500.00")), "INR", java.util.Map.of()));
+        var r = sim.simulate(o.providerOrderRef(), SimulatedGateway.Outcome.SUCCESS, "asha.m@oksbi");
+        assertTrue(r.get("utr").matches("\\d{12}"), "a 12-digit UTR");
+        var paid = sim.fetchPayment(r.get("providerPaymentRef"));
+        assertEquals("asha.m@oksbi", paid.payerRef()); assertEquals(r.get("utr"), paid.bankRef());
+        assertEquals("UPI · asha.m@oksbi · UTR " + r.get("utr"), paid.paidVia(), "kept on the payment for matching the bank statement");
+        assertEquals("bad-upi-id", assertThrows(DomainException.RuleViolated.class, () -> sim.simulate(o.providerOrderRef(), SimulatedGateway.Outcome.SUCCESS, "not a upi id")).code());
+        var declined = sim.simulate(o.providerOrderRef(), SimulatedGateway.Outcome.FAILURE, "asha.m@oksbi");
+        assertNull(declined.get("utr"), "a declined payment has no UTR");
+    }
+
     @Test void staleVersionIsAConflict() {
         Due d = dues.add(due(UNIT_A, BLOCK_1, MAINTENANCE, "100", LocalDate.of(2026, 10, 10)));
         assertThrows(DomainException.Conflict.class, () -> dueService.cancel(treasurer(), d.id(), "duplicate", d.version() + 7));

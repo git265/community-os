@@ -279,6 +279,8 @@ export const RESOURCES = {
   assocBills: { path: 'finance/association-bills', json: ['billFile'] },
   financeSettings: { path: 'finance/settings', rename: { finalCanDecideEC: 'finalCanDecideEc' }, singleton: true },
   importantNumbers: { path: 'comms/important-numbers' },
+  // the block is shown by name; the server keeps its id (blocks are read from /blocks, not the resource kit)
+  facilities: { path: 'property/facilities', rename: { block: 'blockName' }, refs: { block: { field: 'blockId', path: 'blocks', key: 'name' } } },
   vendors: { path: 'vendors/vendors' },
   vendorServices: { path: 'vendors/service-lines', refs: { vendorName: { field: 'vendorId', collection: 'vendors', key: 'name' } } },
   vendorComments: { path: 'vendors/comments' },
@@ -336,7 +338,8 @@ export function resourceBody(rec, spec, fields, unitIdByNo = {}, refIds = {}) {
     let v;
     if (refByField[f]) {
       const r = refByField[f]; const shown = rec[r.appKey];
-      v = rec[f] || (shown ? (refIds[r.appKey] || {})[shown] : null) || null;
+      // the name shown wins (it is what the person changed); the id the record already had is kept only when no name is given
+      v = r.appKey in rec ? (shown ? (refIds[r.appKey] || {})[shown] || null : null) : rec[f] || null;
       if (shown && !v) throw new Error(`"${shown}" is not known to the back end.`);
     } else if (unitByField[f]) {
       const no = rec[unitByField[f]];

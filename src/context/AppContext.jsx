@@ -285,10 +285,11 @@ export function useCollection(collection, sectionLabel = collection, { enabled =
     async (id) => {
       try {
         await secureStorage.remove(collection, id, { summaryOf: describeRecord, label: sectionLabel });
+        return true;
       } catch (err) {
         if (err instanceof AuthzError) {
           window.dispatchEvent(new CustomEvent('communityos:denied', { detail: { message: err.message } }));
-          return;
+          return false;
         }
         throw err;
       }

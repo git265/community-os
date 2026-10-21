@@ -480,6 +480,9 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
       patch.attachments = [...draft.attachments, ...metas];
     }
     if (patch.attachments) patch.hasPhotos = patch.attachments.some(isImageMeta) || (selected.photos || []).length > 0;
+    // files taken off the list are removed on the back end (named, so a photo someone else added meanwhile stays)
+    const removed = (baseline.attachments || []).map((m) => m.fileId).filter((id) => id && !(patch.attachments || draft.attachments).some((m) => m.fileId === id));
+    if (removed.length && getDataSource().mode === 'v2') patch._detach = removed;
     let out = null;
     try { out = await saveTicket({ ...selected, ...patch }); } catch (err) { window.dispatchEvent(new CustomEvent('communityos:denied', { detail: { message: `Could not save: ${err?.message || 'storage error'}` } })); } finally { setSavingTicket(false); }
     if (out) { setPendingFiles([]); setDraft(pickDraft({ ...selected, ...patch, ...out }, customKeys)); }   // the form is what was saved

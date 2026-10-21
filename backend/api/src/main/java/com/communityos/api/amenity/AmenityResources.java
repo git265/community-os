@@ -43,7 +43,11 @@ public final class AmenityResources {
                              BigDecimal maxPerMonth, BigDecimal maxUpcoming, List<String> blackoutDates, List<String> allowedUnitTypes, List<String> slots) {}
     static final List<String> MONEY = List.of("price", "rate", "rateUnit", "weekendRate", "gstApplicable", "gstRate", "gstMode", "depositAmount", "cancellationRules", "minNoticeHours", "maxAdvanceDays");
     public static final Resource<TypeFields> TYPES = new Resource<>(
-        new ResourceTable<>("amenityTypes", "amenities/types", "amenity.amenity_type", TypeFields.class, "r.name"),
+        new ResourceTable<>("amenityTypes", "amenities/types", "amenity.amenity_type", TypeFields.class, "r.name")
+            // how much points at it: a type with bookings (past ones too) is closed, not deleted; the counts are shown before anyone tries
+            .computed("bookings", com.communityos.api.shared.resource.ResourceTable.Kind.INT, "(SELECT count(*) FROM amenity.booking b WHERE b.community_id = r.community_id AND b.amenity_type_id = r.id)")
+            .computed("upcomingBookings", com.communityos.api.shared.resource.ResourceTable.Kind.INT, "(SELECT count(*) FROM amenity.booking b WHERE b.community_id = r.community_id AND b.amenity_type_id = r.id AND b.status <> 'Cancelled' AND b.date >= CURRENT_DATE)")
+            .computed("ownItems", com.communityos.api.shared.resource.ResourceTable.Kind.INT, "(SELECT count(*) FROM amenity.item i WHERE i.community_id = r.community_id AND i.amenity_type_id = r.id)"),
         new ResourceRules<>() {
             @Override public boolean mayWrite(Caller c) { return any(c, Permission.MANAGE_AMENITIES, Permission.MANAGE_AMENITY_RATES, Permission.MANAGE_AMENITY_RULES); }
             @Override public TypeFields validate(Caller c, TypeFields f, TypeFields old) {
@@ -72,7 +76,13 @@ public final class AmenityResources {
                     f.minNoticeHours(), f.maxAdvanceDays(), cap, Checks.text(f.hours(), "Hours", 60), f.bookingMode(), Checks.text(f.rules(), "Rules", 20000), f.reservation(),
                     Checks.list(f.overrideRoles()), f.maxPerDay(), f.maxPerMonth(), f.maxUpcoming(), Checks.list(f.blackoutDates()), Checks.list(f.allowedUnitTypes()), Checks.list(f.slots()));
             }
-            @Override public boolean deletable(TypeFields f) { return false; }    // bookings point at it: close it (active = false) instead
+            // one never booked can go (a mistake, a duplicate); one with bookings is closed (Open for booking off) so its history stays
+            @Override public String whyNotDeletable(com.communityos.api.shared.resource.Item<TypeFields> it) {
+                int booked = count(it.server("bookings")), items = count(it.server("ownItems"));
+                if (booked > 0) return it.data().name() + " has " + booked + " booking" + (booked == 1 ? "" : "s") + " (past ones count too), so it is kept for their history. Switch off \"Open for booking\" to stop new bookings.";
+                if (items > 0) return items + " add-on item" + (items == 1 ? " is" : "s are") + " offered only with " + it.data().name() + ". Offer them with every amenity, or delete them, first.";
+                return null;
+            }
             @Override public String label(TypeFields f) { return f.name(); }
         });
 
@@ -113,5 +123,6 @@ public final class AmenityResources {
             @Override public boolean deletable(SettingsFields f) { return false; }
         });
 
+    static int count(Object v) { return v instanceof Number n ? n.intValue() : 0; }
     public static List<Resource<?>> all() { return List.of(TYPES, ITEMS, SETTINGS); }
 }

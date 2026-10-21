@@ -25,10 +25,26 @@ export default function InputCredit() {
   const count = (k) => rows.filter((l) => st(l) === k).length;
   const total = rows.reduce((n, l) => n + (Number(l.gstAmount) || 0), 0);
 
-  async function run(list) {
-    setMsg(''); setBusy('all'); let ok = 0; let bad = 0; applyGstSettings(s);
-    for (const l of list) { const r = await checkLine(l, vendors, { registered }); const out = await saveLine({ ...l, ...r, itcCheckedAt: new Date().toISOString() }); if (out && !out.error) { if (r.itcStatus === ITC.ok || NO_CREDIT.includes(r.itcStatus)) ok += 1; else bad += 1; } }
-    setBusy(''); setMsg(list.length ? `Checked ${list.length}: ${ok} fine, ${bad} need attention.` : 'Nothing to check.');
+  // what the last check of each payment said (the GST service's answer, or why it could not be checked), shown under its "Check this" button
+  const [said, setSaid] = useState({});
+  async function checkOne(l) {
+    let r;
+    try { r = await checkLine(l, vendors, { registered }); } catch (e) { return { bad: true, failed: true, text: `The GST service did not answer: ${e?.message || e}` }; }
+    let out = null; let why = '';
+    try { out = await saveLine({ ...l, ...r, itcCheckedAt: new Date().toISOString() }); } catch (e) { why = e?.message || String(e); }
+    if (!out || out.error) return { bad: true, failed: true, text: `Checked (${r.itcStatus}) but the result was not saved: ${out?.error || why || 'the server refused it'}` };
+    const fine = r.itcStatus === ITC.ok || NO_CREDIT.includes(r.itcStatus);
+    return { bad: !fine, status: r.itcStatus, text: `${r.itcStatus}${r.itcNote ? `: ${r.itcNote}` : ''}` };
+  }
+  async function run(list, one = false) {
+    setMsg(''); setBusy(one ? list[0].id : 'all'); let ok = 0; let bad = 0; let failed = 0; applyGstSettings(s);
+    for (const l of list) {
+      const res = await checkOne(l);
+      setSaid((m) => ({ ...m, [l.id]: { ...res, at: new Date().toLocaleTimeString() } }));
+      if (res.failed) failed += 1; else if (res.bad) bad += 1; else ok += 1;
+    }
+    setBusy('');
+    if (!one) setMsg(list.length ? `Checked ${list.length}: ${ok} fine, ${bad} need attention${failed ? `, ${failed} could not be checked` : ''}.` : 'Nothing to check.');
   }
   const [conn, setConn] = useState(null); const [draft, setDraft] = useState(null); const [gin, setGin] = useState({});
   const cfg = draft || { gstApiMode: s.gstApiMode || 'Simulated', gstApiUrl: s.gstApiUrl || '', gstApiSource: s.gstApiSource || 'GSTR-2B' };
@@ -100,7 +116,12 @@ export default function InputCredit() {
                 <span className={`tag ${TONE[st(l)] || 'blue'}`} data-testid="itc-status">{st(l)}</span>
               </div>
               {(l.itcNote || (!validateGstin(gstinOf(l.vendor)).ok && st(l) === ITC.none)) && <small className="muted">{l.itcNote || validateGstin(gstinOf(l.vendor)).reason}</small>}
-              {canEdit && <div style={{ marginTop: 4 }}><button type="button" className="btn secondary sm" data-testid="itc-one" disabled={!!busy} onClick={() => run([l])}>Check this</button></div>}
+              {canEdit && (
+                <div style={{ marginTop: 4, display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                  <button type="button" className="btn secondary sm" data-testid="itc-one" disabled={!!busy} onClick={() => run([l], true)}>{busy === l.id ? 'Checking…' : 'Check this'}</button>
+                  {said[l.id] && <small className={said[l.id].bad ? 'field-error' : 'ok-text'} role="status" data-testid="itc-said" style={{ flex: '1 1 240px' }}>{said[l.id].text} <span className="muted">· {said[l.id].at}</span></small>}
+                </div>
+              )}
             </li>
           ))}
         </ul>

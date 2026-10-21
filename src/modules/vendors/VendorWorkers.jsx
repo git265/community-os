@@ -45,32 +45,33 @@ export default function VendorWorkers({ vendor }) {
   const gap = signed - reg.length;
   const loose = stats.get('');
   return (
-    <div className="ro-block" data-testid="vendor-workers">
+    <div className="ro-block" data-testid="vendor-workers" style={{ minWidth: 0 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
         <h3 style={{ margin: 0 }}>👷 Categories and workers</h3>
         {canEdit && <button type="button" className="link-btn" data-testid="vs-add" onClick={() => setEdit({ vendorName: vendor.name, signedWorkers: 1, contractors: 0 })}>+ Add a category</button>}
       </div>
       {mine.length === 0 ? <p className="muted" style={{ margin: '6px 0 0' }}>No categories yet. Add each category this vendor handles, with how many employees and contractors it is signed for.</p> : (
         <>
-          <div className="table-wrap" style={{ marginTop: 6 }}>
-            <table className="table resp-table" data-testid="vs-table">
-              <thead><tr><th>Category</th><th>Employees</th><th>Contractors</th><th>At the gate</th><th>On site now</th><th>Man-days this month</th><th>Fixed / month</th><th /></tr></thead>
-              <tbody>
-                {mine.map((l) => {
-                  const r = stats.get(l.service);
-                  return (
-                    <tr key={l.id} data-testid="vs-row">
-                      <td data-label="Category"><b>{l.service}</b>{l.shift ? <><br /><small className="muted">{l.shift}</small></> : null}</td>
-                      <td data-label="Employees">{n0(l.signedWorkers)}</td><td data-label="Contractors">{n0(l.contractors)}</td>
-                      <td data-label="At the gate" className={r.reg < heads(l) ? 'warn' : ''}>{r.reg} / {heads(l)}</td>
-                      <td data-label="On site now">{r.inside}</td><td data-label="Man-days this month">{r.days.size}</td>
-                      <td data-label="Fixed / month">{r.fixed ? <>{inr(r.fixed)}{heads(l) ? <><br /><small className="muted">{inr(r.fixed / heads(l))} a head</small></> : null}</> : <small className="muted">none</small>}</td>
-                      <td data-label="">{canEdit && <button type="button" className="link-btn" aria-label={`Edit ${l.service}`} onClick={() => setEdit(l)}>Edit</button>}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          <div className="vs-lines" data-testid="vs-table">
+            {mine.map((l) => {
+              const r = stats.get(l.service);
+              return (
+                <div key={l.id} className="vs-line" data-testid="vs-row">
+                  <div className="vs-head">
+                    <span><b>{l.service}</b>{l.shift ? <small className="muted"> · {l.shift}</small> : null}</span>
+                    {canEdit && <button type="button" className="link-btn" aria-label={`Edit ${l.service}`} onClick={() => setEdit(l)}>Edit</button>}
+                  </div>
+                  <dl className="vs-stats">
+                    <div><dt>Employees</dt><dd>{n0(l.signedWorkers)}</dd></div>
+                    <div><dt>Contractors</dt><dd>{n0(l.contractors)}</dd></div>
+                    <div className={r.reg < heads(l) ? 'warn' : ''}><dt>At the gate</dt><dd>{r.reg} / {heads(l)}</dd></div>
+                    <div><dt>On site now</dt><dd>{r.inside}</dd></div>
+                    <div><dt>Man-days this month</dt><dd>{r.days.size}</dd></div>
+                    <div><dt>Fixed / month</dt><dd>{r.fixed ? <>{inr(r.fixed)}{heads(l) ? <small className="muted"> · {inr(r.fixed / heads(l))} a head</small> : null}</> : <small className="muted">none</small>}</dd></div>
+                  </dl>
+                </div>
+              );
+            })}
           </div>
           <div className="gg-kpis" style={{ margin: '8px 0 0' }}>
             <div className="gg-kpi"><span className="muted">Signed for</span><b data-testid="vs-signed">{signed}</b></div>

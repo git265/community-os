@@ -385,6 +385,8 @@ const RAW_SCHEMAS = [
       { key: 'forecast', label: 'Budget (forecast)', type: 'number', viewableBy: STAFF, editableBy: FIN, showInTable: true },
       { key: 'revised', label: 'Revised budget (leave empty if not revised)', type: 'number', viewableBy: STAFF, editableBy: FIN },
       { key: 'other', label: 'Received / spent outside the bank statements', type: 'number', viewableBy: STAFF, editableBy: FIN, showInTable: true },
+      { key: 'vendor', label: 'Vendor (expense lines: what is paid to them counts here)', type: 'lookup', lookup: { source: COLLECTIONS.VENDORS, valueKey: 'name', labelKeys: ['name'], hintKey: 'category', allowCustom: false }, viewableBy: STAFF, editableBy: FIN },
+      { key: 'vendorService', label: 'Vendor category (blank = all their categories)', type: 'lookup', lookup: { source: COLLECTIONS.VENDOR_SERVICES, valueKey: 'service', labelKeys: ['service'], distinct: true, allowCustom: false }, viewableBy: STAFF, editableBy: FIN },
       { key: 'heads', label: 'Statement heads counted (comma separated)', type: 'text', viewableBy: STAFF, editableBy: FIN },
       { key: 'notes', label: 'Notes', type: 'richtext', viewableBy: STAFF, editableBy: FIN },
     ],
@@ -1202,7 +1204,7 @@ const RAW_SCHEMAS = [
     label: 'Facilities & Locations',
     fields: [
       { key: 'name', label: 'Name (e.g. Clubhouse A, Pool 2, STP-1)', type: 'text', required: true, viewableBy: ALL, editableBy: STAFF, showInTable: true },
-      { key: 'kind', label: 'Kind', type: 'select', options: ['Clubhouse', 'Swimming pool', 'Gym', 'Sports court', 'Park / garden', 'Parking', 'STP', 'WTP', 'Borewell / pumps', 'DG room', 'Gate / security', 'Common area', 'Street lights', 'Other'], required: true, viewableBy: ALL, editableBy: STAFF, showInTable: true },
+      { key: 'kind', label: 'Kind (pick one, or type your own)', type: 'lookup', lookup: { source: COLLECTIONS.FACILITIES, valueKey: 'kind', labelKeys: ['kind'], distinct: true, allowCustom: true, defaults: ['Clubhouse', 'Swimming pool', 'Gym', 'Sports court', 'Park / garden', 'Parking', 'STP', 'WTP', 'Borewell / pumps', 'DG room', 'Gate / security', 'Common area', 'Street lights', 'Other'] }, required: true, viewableBy: ALL, editableBy: STAFF, showInTable: true },
       { key: 'block', label: 'Block / tower it belongs to (blank = whole community)', type: 'lookup', lookup: { source: COLLECTIONS.BLOCKS, valueKey: 'name', labelKeys: ['name'], allowCustom: false }, viewableBy: ALL, editableBy: STAFF, showInTable: true },
       { key: 'active', label: 'In use', type: 'boolean', viewableBy: ALL, editableBy: STAFF },
       { key: 'notes', label: 'Notes', type: 'textarea', viewableBy: ALL, editableBy: STAFF },

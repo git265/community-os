@@ -98,7 +98,8 @@ public final class RazorpayGateway implements PaymentGateway {
     private ProviderPayment toPayment(JsonNode n) {
         String status = n.path("status").asText();
         return new ProviderPayment(n.path("id").asText(), n.path("order_id").asText(null), new Money(BigDecimal.valueOf(n.path("amount").asLong(), 2)),
-            n.path("currency").asText("INR"), "captured".equals(status), "failed".equals(status), n.path("method").asText(null), n.path("error_description").asText(null));
+            n.path("currency").asText("INR"), "captured".equals(status), "failed".equals(status), n.path("method").asText(null), n.path("error_description").asText(null),
+            n.path("vpa").asText(null), n.path("acquirer_data").path("rrn").asText(n.path("acquirer_data").path("upi_transaction_id").asText(null)));
     }
     private JsonNode call(HttpTransport.Request req) {
         return resilient.call(() -> {

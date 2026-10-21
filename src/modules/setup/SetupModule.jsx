@@ -25,7 +25,7 @@ function BlocksTab() {
   const { records: blocks, save, remove } = useCollection(COLLECTIONS.BLOCKS, 'Blocks & Towers');
   const { records: props, refresh: refreshProps } = useCollection(COLLECTIONS.PROPERTIES, 'Properties & Residents');
   const canEdit = canWriteCollection(COLLECTIONS.BLOCKS, getPrincipal());
-  const [editing, setEditing] = useState(null);
+  const [editing, setEditing] = useState(null); const [blockErr, setBlockErr] = useState('');
   const [bulk, setBulk] = useState(null);
   const [imp, setImp] = useState(false);
   const [msg, setMsg] = useState('');
@@ -71,7 +71,7 @@ function BlocksTab() {
                 <tr key={b.id} data-testid="block-row">
                   <td data-label="Block"><b>{b.name}</b>{b.active === false ? <span className="tag orange" style={{ marginLeft: 6 }}>Inactive</span> : null}</td><td data-label="Code">{b.code || '—'}{b.unitPattern ? <div className="muted" style={{ fontSize: 12 }}>Units: {b.unitPattern}</div> : null}</td><td data-label="Kind">{b.kind || '—'}</td>
                   <td data-label="Units"><b>{s.units}</b></td><td data-label="Planned">{b.plannedUnits || '—'}</td><td data-label="Occupied">{s.occupied}</td><td data-label="Vacant">{s.vacant}</td>
-                  {canEdit && <td><button className="btn secondary sm" onClick={() => setEditing(b)}>Edit</button> <button className="btn secondary sm" onClick={() => delBlock(b)}>Delete</button></td>}
+                  {canEdit && <td><button className="btn secondary sm" onClick={() => { setBlockErr(''); setEditing(b); }}>Edit</button> <button className="btn secondary sm" onClick={() => delBlock(b)}>Delete</button></td>}
                 </tr>
               ); })}
               {blocks.length === 0 && <tr><td colSpan={8} className="empty">No blocks yet. Add your blocks / towers, or leave this empty for a single-block community.</td></tr>}
@@ -83,7 +83,14 @@ function BlocksTab() {
 
       {editing && schema && (
         <Modal title={editing.id ? `Edit ${editing.name}` : 'Add a block'} subtitle="A block, tower, phase or villa lane." onClose={() => setEditing(null)}>
-          <DynamicForm schema={schema} roleId={roleId} record={editing} onSave={async (d) => { if (await save(d)) setEditing(null); }} onCancel={() => setEditing(null)} />
+          {blockErr && <div className="field-error" data-testid="block-error" style={{ marginBottom: 8 }}>{blockErr}</div>}
+          <DynamicForm schema={schema} roleId={roleId} record={editing} onSave={async (d) => {
+            // the same checks as the server: a code of 1-6 letters or digits, a pattern made of the known parts
+            const code = String(d.code || '').trim(); const pat = String(d.unitPattern || '').trim();
+            const why = (code && !/^[A-Za-z0-9]{1,6}$/.test(code) ? 'A block code is 1 to 6 letters or digits (e.g. A, T2, P1)' : '') || patternProblem(pat);
+            setBlockErr(why); if (why) return;
+            if (await save({ ...d, code, unitPattern: pat })) setEditing(null);
+          }} onCancel={() => setEditing(null)} />
         </Modal>
       )}
 

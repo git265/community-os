@@ -47,7 +47,7 @@ public final class SimulatedGateway implements PaymentGateway {
     private final com.communityos.api.shared.resilience.Resilient resilient;
     private record Sim(String orderRef, Money amount, String currency) {}
     /** A payment as the bank sees it: charged from `capturedAt` (null: never), or declined. */
-    private record Pay(String ref, String orderRef, Money amount, String currency, Instant capturedAt, boolean failed, String reason) {}
+    private record Pay(String ref, String orderRef, Money amount, String currency, Instant capturedAt, boolean failed, String reason, String payer, String utr) {}
     private record Hook(Instant at, String body) {}
     private final Map<String, Sim> orders = new ConcurrentHashMap<>();
     private final Map<String, Pay> payments = new ConcurrentHashMap<>();
@@ -89,16 +89,22 @@ public final class SimulatedGateway implements PaymentGateway {
     /** As before: paid (true) or declined (false), answered at once. */
     public Map<String, String> simulatePay(String orderRef, boolean succeed) { return simulate(orderRef, succeed ? Outcome.SUCCESS : Outcome.FAILURE); }
     /** What the simulated checkout page does when the member presses one of its buttons: returns (paymentRef, signature) for confirm(). */
-    public Map<String, String> simulate(String orderRef, Outcome outcome) {
+    public Map<String, String> simulate(String orderRef, Outcome outcome) { return simulate(orderRef, outcome, null); }
+    /** `payer`: the UPI ID the member paid from in the simulated UPI app (their bank account of choice); the bank answers with a 12-digit UTR. */
+    public Map<String, String> simulate(String orderRef, Outcome outcome, String payer) {
+        if (payer != null && !payer.matches("[a-z0-9._-]{2,64}@[a-z0-9]{2,32}")) throw new com.communityos.api.shared.domain.DomainException.RuleViolated("bad-upi-id", "A UPI ID looks like name@bank");
         Sim o = orders.get(orderRef);
         if (o == null) throw new IllegalArgumentException("unknown order");
         Instant now = clock.instant();
         String ref = "sim_pay_" + UUID.randomUUID().toString().replace("-", "").substring(0, 14);
         Instant captured = switch (outcome) { case SUCCESS, LOST -> now; case PENDING -> now.plus(delays.pending()); case FAILURE -> null; };
-        payments.put(ref, new Pay(ref, orderRef, o.amount(), o.currency(), captured, outcome == Outcome.FAILURE, outcome == Outcome.FAILURE ? "declined by bank" : null));
+        String utr = outcome == Outcome.FAILURE ? null : String.valueOf(600_000_000_000L + Math.floorMod(UUID.randomUUID().getLeastSignificantBits(), 100_000_000_000L));
+        payments.put(ref, new Pay(ref, orderRef, o.amount(), o.currency(), captured, outcome == Outcome.FAILURE, outcome == Outcome.FAILURE ? "declined by bank" : null, payer, utr));
         Instant hookAt = switch (outcome) { case SUCCESS, FAILURE -> now; case PENDING -> captured; case LOST -> now.plus(delays.lost()); };
         hooks.add(new Hook(hookAt, "sim_evt_" + UUID.randomUUID().toString().substring(0, 12) + "," + (outcome == Outcome.FAILURE ? "payment.failed" : "payment.captured") + "," + orderRef + "," + ref));
-        return Map.of("providerPaymentRef", ref, "signature", Crypto.hmacHex(secret, orderRef + "|" + ref), "outcome", outcome.name().toLowerCase());
+        Map<String, String> out = new java.util.HashMap<>(Map.of("providerPaymentRef", ref, "signature", Crypto.hmacHex(secret, orderRef + "|" + ref), "outcome", outcome.name().toLowerCase()));
+        if (utr != null) out.put("utr", utr);
+        return out;
     }
     /** The webhooks the provider would have sent by now: (signature header, body), each once. */
     public List<Map.Entry<Map<String, String>, byte[]>> dueWebhooks() {
@@ -117,7 +123,7 @@ public final class SimulatedGateway implements PaymentGateway {
     }
     private ProviderPayment asSeenNow(Pay p) {
         boolean captured = p.capturedAt() != null && !p.capturedAt().isAfter(clock.instant());
-        return new ProviderPayment(p.ref(), p.orderRef(), p.amount(), p.currency(), captured, p.failed(), "upi", p.reason());
+        return new ProviderPayment(p.ref(), p.orderRef(), p.amount(), p.currency(), captured, p.failed(), "upi", p.reason(), p.payer(), captured ? p.utr() : null);
     }
     @Override public List<ProviderPayment> paymentsOf(String orderRef) { return bank(() -> payments.values().stream().filter((p) -> p.orderRef().equals(orderRef)).map(this::asSeenNow).toList()); }
 

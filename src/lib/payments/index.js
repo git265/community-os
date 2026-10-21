@@ -30,6 +30,10 @@ export function activeGateway() {
 }
 
 const EVT_KEY = 'communityos:gw:events';
+/** A UPI payment's own references: the payer's UPI ID and the bank's UTR (what the office matches against the bank statement). */
+const upiOf = (ev) => (ev.payerVpa || ev.utr ? { payerVpa: ev.payerVpa || '', utr: ev.utr || '', upiApp: ev.upiApp || '' } : {});
+/** "UPI · asha@okhdfcbank · UTR 612345678901" (or ''), for receipts and the payment's reference. */
+export const paidVia = (o) => (o?.utr || o?.payerVpa ? ['UPI', o.payerVpa, o.utr ? `UTR ${o.utr}` : ''].filter(Boolean).join(' · ') : '');
 const seen = () => { try { return new Set(JSON.parse(sessionStorage.getItem(EVT_KEY) || '[]')); } catch { return new Set(); } };
 const remember = (s) => { try { sessionStorage.setItem(EVT_KEY, JSON.stringify([...s].slice(-500))); } catch { /* ignore */ } };
 
@@ -45,9 +49,9 @@ export async function receiveWebhook(gw, raw, signature) {
     if (order.status === ORDER_STATUS.PAID) { done.add(ev.id); remember(done); return { ok: true, duplicate: true }; } // second capture of the same order
     const settle = settlers[order.purpose];
     if (settle) await settle(order, ev);
-    await gw.markOrder?.(order.orderId, { status: ORDER_STATUS.PAID, paymentId: ev.paymentId, method: ev.method, paidAt: ev.at });
-  } else if (ev.type === 'payment.failed') await gw.markOrder?.(order.orderId, { status: ORDER_STATUS.FAILED, method: ev.method });
-  else await gw.markOrder?.(order.orderId, { status: ORDER_STATUS.PENDING, method: ev.method });
+    await gw.markOrder?.(order.orderId, { status: ORDER_STATUS.PAID, paymentId: ev.paymentId, method: ev.method, paidAt: ev.at, ...upiOf(ev) });
+  } else if (ev.type === 'payment.failed') await gw.markOrder?.(order.orderId, { status: ORDER_STATUS.FAILED, method: ev.method, ...upiOf(ev), utr: '' });
+  else await gw.markOrder?.(order.orderId, { status: ORDER_STATUS.PENDING, method: ev.method, ...upiOf(ev) });   // the UTR is kept: the same payment is confirmed later
   done.add(ev.id); remember(done);
   return { ok: true };
 }
@@ -75,13 +79,13 @@ async function payOnce(req, ui) {
   if (!res || !res.outcome) return { status: 'Cancelled', order, message: 'Payment cancelled - nothing was charged.' };
   if (gw.live) return waitForServer(gw, order);
   if (gw.buildWebhook) { // simulator: play the provider's server call. Real providers deliver the webhook to Spring Boot on their own.
-    const ev = await gw.buildWebhook(order, res.outcome, res.method);
+    const ev = await gw.buildWebhook(order, res.outcome, res.method, res.upi);
     const r = await receiveWebhook(gw, ev.raw, ev.signature);
     if (!r.ok) return { status: 'Failed', order, message: r.reason };
   }
   const final = await gw.getOrder(order.orderId);
   const status = final?.status === ORDER_STATUS.PAID ? 'Paid' : final?.status === ORDER_STATUS.FAILED ? 'Failed' : 'Pending';
-  return { status, order: final || order, paymentId: final?.paymentId, message: status === 'Paid' ? 'Payment received.' : status === 'Failed' ? 'The payment did not go through. You were not charged - please try again.' : 'The bank has not confirmed yet. We will mark it paid as soon as it does.' };
+  return { status, order: final || order, paymentId: final?.paymentId, utr: final?.utr || '', payerVpa: final?.payerVpa || '', message: status === 'Paid' ? `Payment received.${paidVia(final) ? ` ${paidVia(final)}.` : ''}` : status === 'Failed' ? 'The payment did not go through. You were not charged - please try again.' : 'The bank has not confirmed yet. We will mark it paid as soon as it does.' };
 }
 
 /** The server settles the payment (webhook, or its reconcile job). Watch the order for a short while; if it is still open, hand over to the "checking" screen. */
@@ -110,7 +114,7 @@ export async function checkOrder(orderId) { const r = resultOf(await activeGatew
 export async function confirmPending(orderId) {
   const gw = activeGateway(); const order = await gw.getOrder(orderId);
   if (!order || !gw.buildWebhook) return { ok: false };
-  const ev = await gw.buildWebhook(order, OUTCOME.SUCCESS, order.method);
+  const ev = await gw.buildWebhook(order, OUTCOME.SUCCESS, order.method, order.payerVpa ? { payerVpa: order.payerVpa, app: order.upiApp } : null);
   const r = await receiveWebhook(gw, ev.raw, ev.signature);
   announce(order.purpose);
   return r;
@@ -118,8 +122,9 @@ export async function confirmPending(orderId) {
 
 // ---- settlers: what each kind of payment does once the webhook is verified ----
 registerSettler('due', async (order, ev) => {
-  const paid = await settleDues({ dueIds: order.refs, unit: order.unit, useCredit: !!order.meta?.useCredit, mode: ev.method || 'Online', reference: ev.paymentId, paidBy: order.payer });
-  if (paid.length) notify({ event: 'payment_made', title: `Payment received · ${order.unit}`, body: `${paid.length} bill(s) paid online on ${dmy(ev.at.slice(0, 10))}. Reference ${ev.paymentId}.`, link: '#/billing', toRoleIds: ['treasurer'], by: order.payer }).catch(() => {});
+  // a UPI payment is recorded by its UTR (what the bank statement shows), with the payer's UPI ID
+  const paid = await settleDues({ dueIds: order.refs, unit: order.unit, useCredit: !!order.meta?.useCredit, mode: ev.method || 'Online', reference: ev.utr ? `UTR ${ev.utr}${ev.payerVpa ? ` · ${ev.payerVpa}` : ''}` : ev.paymentId, paidBy: order.payer });
+  if (paid.length) notify({ event: 'payment_made', title: `Payment received · ${order.unit}`, body: `${paid.length} bill(s) paid online on ${dmy(ev.at.slice(0, 10))}. Reference ${ev.utr ? `UTR ${ev.utr} (${ev.payerVpa || 'UPI'})` : ev.paymentId}.`, link: '#/billing', toRoleIds: ['treasurer'], by: order.payer }).catch(() => {});
 });
 registerSettler('booking', async () => { /* the booking is created right after a Paid result and carries the payment id; nothing to settle here */ });
 // 'donation' is registered by lib/payments.js (it owns the pledge / receipt rules)

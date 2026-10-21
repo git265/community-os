@@ -15,13 +15,15 @@ public class SimulatedCheckoutController {
     private final SimulatedGateway gateway;
     public SimulatedCheckoutController(SimulatedGateway gateway) { this.gateway = gateway; }
 
-    /** outcome: success, failure (the bank declines), pending (the bank is slow) or lost (charged, but the app's confirmation is lost); `succeed` is the older form. */
+    /** outcome: success, failure (the bank declines), pending (the bank is slow) or lost (charged, but the app's confirmation is lost); `succeed` is the older form.
+     *  payer: the UPI ID chosen in the simulated UPI app (kept on the payment with the bank's UTR). */
     @PostMapping("/api/v1/dev/simulated-checkout/{providerOrderRef}")
-    public Map<String, String> pay(@PathVariable String providerOrderRef, @RequestParam(required = false) String outcome, @RequestParam(defaultValue = "true") boolean succeed) {
+    public Map<String, String> pay(@PathVariable String providerOrderRef, @RequestParam(required = false) String outcome, @RequestParam(defaultValue = "true") boolean succeed,
+                                   @RequestParam(required = false) String payer) {
         SimulatedGateway.Outcome o;
         try { o = outcome == null ? (succeed ? SimulatedGateway.Outcome.SUCCESS : SimulatedGateway.Outcome.FAILURE) : SimulatedGateway.Outcome.valueOf(outcome.toUpperCase(java.util.Locale.ROOT)); }
         catch (IllegalArgumentException e) { throw new com.communityos.api.shared.domain.DomainException.RuleViolated("bad-outcome", "outcome is success, failure, pending or lost"); }
-        return gateway.simulate(providerOrderRef, o);
+        return gateway.simulate(providerOrderRef, o, payer == null || payer.isBlank() ? null : payer.strip().toLowerCase(java.util.Locale.ROOT));
     }
 
     public record BankMode(String service, Boolean refundsFail) {}

@@ -59,7 +59,7 @@ import java.util.UUID;
 final class DemoFlows {
     /** Collections the v2 server does not keep, or works out itself - with the reason the load result gives. */
     static final Map<String, String> NOT_ON_V2 = Map.ofEntries(
-        Map.entry("blocks", "blocks are set up with the units"), Map.entry("facilities", "not on the v2 back end yet"), Map.entry("billingTemplates", "not on the v2 back end yet"),
+        Map.entry("blocks", "blocks are set up with the units"), Map.entry("billingTemplates", "not on the v2 back end yet"),
         Map.entry("taxSettings", "not on the v2 back end yet"), Map.entry("taxComponents", "not on the v2 back end yet"), Map.entry("paymentRouting", "not on the v2 back end yet"),
         Map.entry("readings", "meter readings are not on the v2 back end yet (the bills are)"), Map.entry("utilityTypes", "not on the v2 back end yet"),
         Map.entry("unitCredits", "a unit's credit is made by the server (an overpayment or a refund)"), Map.entry("ecRoles", "the committee is the members' roles on v2"),

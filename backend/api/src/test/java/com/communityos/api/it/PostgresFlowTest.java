@@ -780,7 +780,11 @@ class PostgresFlowTest {
             assertTrue(as(ownerC, () -> docSvc.list(ownerC, new com.communityos.api.docs.application.port.DocumentRepository.Filter(null, null, null))).isEmpty());
             var scrap = as(ownerC, () -> fileSvc.upload(ownerC, new com.communityos.api.docs.application.FileService.Upload("scrap.pdf", pdfBytes, null)));
             as(ownerC, () -> { fileSvc.delete(ownerC, scrap.id()); return null; });
-            assertThrows(AccessDenied.class, () -> as(ownerC, () -> { fileSvc.delete(ownerC, photo.id()); return null; }), "attached: a manager removes it");
+            Caller neighbour = new Caller(new PersonId(UUID.randomUUID()), new MembershipId(UUID.randomUUID()), ownerC.community(), "Neighbour", Caller.Category.Resident,
+                java.util.Set.of("owner"), java.util.Set.of(), java.util.Set.of(new UnitId(UUID.randomUUID())), java.util.Set.of(), null, java.util.Set.of());
+            assertThrows(AccessDenied.class, () -> as(neighbour, () -> { fileSvc.delete(neighbour, photo.id()); return null; }), "attached: not by someone who cannot change the ticket");
+            as(ownerC, () -> { fileSvc.delete(ownerC, photo.id()); return null; });   // the ticket's owner takes the photo off their own ticket
+            assertTrue(as(ownerC, () -> fileSvc.list(ownerC, "maintenance.ticket", leak.id())).isEmpty());
 
             // ---- 6i. cultural: an event through the kit, pledges and receipts in the books, an online donation, a fixed offering, seva sign-ups, expenses -------
             var cstore = new com.communityos.api.cultural.adapter.JdbcCulturalStore(app, new com.communityos.api.approval.application.PlanCodec(json), json);

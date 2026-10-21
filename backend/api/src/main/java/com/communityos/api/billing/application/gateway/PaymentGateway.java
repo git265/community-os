@@ -1,5 +1,6 @@
 package com.communityos.api.billing.application.gateway;
 
+import java.util.List;
 import com.communityos.api.shared.domain.Money;
 import java.util.Map;
 import java.util.Optional;
@@ -12,7 +13,21 @@ public interface PaymentGateway {
     record OrderRequest(String orderId, String receipt, Money amount, String currency, Map<String, String> notes) {}
     /** What the app needs to open the provider's checkout. Never contains a secret. */
     record ProviderOrder(String providerOrderRef, Map<String, Object> checkout) {}
-    record ProviderPayment(String providerPaymentRef, String providerOrderRef, Money amount, String currency, boolean captured, boolean failed, String method, String failureReason) {}
+    /** payerRef: who paid as the provider saw it (a UPI payment: the payer's UPI ID); bankRef: the bank's reference (UPI: the 12-digit UTR / RRN). */
+    record ProviderPayment(String providerPaymentRef, String providerOrderRef, Money amount, String currency, boolean captured, boolean failed, String method, String failureReason,
+                           String payerRef, String bankRef) {
+        public ProviderPayment(String providerPaymentRef, String providerOrderRef, Money amount, String currency, boolean captured, boolean failed, String method, String failureReason) {
+            this(providerPaymentRef, providerOrderRef, amount, currency, captured, failed, method, failureReason, null, null);
+        }
+        /** "UPI · asha@okhdfcbank · UTR 612345678901": kept on the payment so the office can match it against the bank statement. */
+        public String paidVia() {
+            List<String> parts = new java.util.ArrayList<>();
+            if (method != null && !method.isBlank()) parts.add("upi".equalsIgnoreCase(method) ? "UPI" : method);
+            if (payerRef != null && !payerRef.isBlank()) parts.add(payerRef);
+            if (bankRef != null && !bankRef.isBlank()) parts.add(("upi".equalsIgnoreCase(method) ? "UTR " : "Bank ref ") + bankRef);
+            return parts.size() > 1 ? String.join(" · ", parts) : null;
+        }
+    }
     /** A webhook as read: for a refund event (refund.processed, refund.failed) `providerRefundRef` names the refund. */
     record WebhookEvent(String eventId, String type, String providerOrderRef, String providerPaymentRef, String providerRefundRef) {
         public WebhookEvent(String eventId, String type, String providerOrderRef, String providerPaymentRef) { this(eventId, type, providerOrderRef, providerPaymentRef, null); }

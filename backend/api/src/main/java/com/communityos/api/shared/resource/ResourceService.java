@@ -59,7 +59,8 @@ public final class ResourceService {
         tx.run(() -> {
             Item<F> before = repo.get(id, r.rules().readScope(c)).orElseThrow(AccessDenied.NotVisible::new);
             if (!r.rules().mayChange(c, before)) throw new AccessDenied("You cannot remove this " + human(r).replaceAll("s$", ""));
-            if (!r.rules().deletable(before.data())) throw new DomainException.RuleViolated("not-deletable", "This record is in use and cannot be deleted - archive it instead");
+            String why = r.rules().whyNotDeletable(before);
+            if (why != null) throw new DomainException.RuleViolated("not-deletable", why);
             if (!repo.delete(id, version)) throw new DomainException.Conflict("This record");
             done(c, r, before, AuditWriter.Action.Delete, "deleted");
         });

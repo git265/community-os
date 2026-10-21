@@ -97,13 +97,17 @@ public final class FinanceResources {
         Checks.rule(f.history() == null || f.history().length() <= 200_000, "too-long", "The balance history is too long");
         return new BankAccountFields(Checks.required(f.name(), "Name"), f.last4() == null || f.last4().isBlank() ? null : f.last4(), f.balance(), f.asOf(), f.history());
     }));
-    public record BudgetLineFields(String fy, String kind, String name, BigDecimal forecast, BigDecimal revised, BigDecimal other, String heads, String notes) {}
+    /** vendor / vendorService: an expense line for one vendor (and one of its categories): what was paid to them counts against it. */
+    public record BudgetLineFields(String fy, String kind, String name, BigDecimal forecast, BigDecimal revised, BigDecimal other, String heads, String notes, String vendor, String vendorService) {}
     public static final Resource<BudgetLineFields> BUDGET_LINES = new Resource<>(new ResourceTable<>("budgetLines", "finance/budget-lines", "finance.budget_line", BudgetLineFields.class, "r.fy DESC, r.kind, r.name")
         .filterBy("fy"), books((c, f) -> {
         Checks.rule(f.fy() == null || f.fy().matches("\\d{4}(-\\d{2,4})?"), "bad-fy", "A financial year looks like 2026-27");
         Checks.requiredOneOf(f.kind(), "Kind", List.of("Income", "Expense"));
         Checks.nonNegative(f.forecast(), "Forecast"); Checks.nonNegative(f.revised(), "Revised");
-        return new BudgetLineFields(f.fy(), f.kind(), Checks.required(f.name(), "Name"), f.forecast(), f.revised(), f.other(), f.heads(), Checks.text(f.notes(), "Notes", 2000));
+        Checks.rule(f.vendorService() == null || f.vendor() != null, "vendor-required", "Name the vendor of that category");
+        Checks.rule(f.vendor() == null || "Expense".equals(f.kind()), "vendor-on-income", "Only an expense line names a vendor");
+        return new BudgetLineFields(f.fy(), f.kind(), Checks.required(f.name(), "Name"), f.forecast(), f.revised(), f.other(), f.heads(), Checks.text(f.notes(), "Notes", 2000),
+            Checks.text(f.vendor(), "Vendor", 200), Checks.text(f.vendorService(), "Vendor category", 80));
     }));
     public record FixedExpenseFields(String name, BigDecimal avg, BigDecimal months, String vendor, String heads, String notes, String vendorService) {}
     public static final Resource<FixedExpenseFields> FIXED_EXPENSES = new Resource<>(new ResourceTable<>("fixedExpenses", "finance/fixed-expenses", "finance.fixed_expense", FixedExpenseFields.class, "r.name"), books((c, f) -> {

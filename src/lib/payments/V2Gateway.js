@@ -51,7 +51,9 @@ export default class V2Gateway extends PaymentGateway {
       const res = ui ? await ui(order, this) : { outcome: OUTCOME.SUCCESS, method: ONLINE_MODES[0] };
       if (!res?.outcome) return res;                                     // closed the checkout: nothing was paid, the order expires
       const what = res.lostWebhook ? 'lost' : res.outcome === OUTCOME.SUCCESS ? 'success' : res.outcome === OUTCOME.FAILURE ? 'failure' : 'pending';
-      const pay = await this.#call(`/dev/simulated-checkout/${encodeURIComponent(order.providerOrderRef)}?outcome=${what}`, { method: 'POST' });
+      const payer = res.upi?.payerVpa ? `&payer=${encodeURIComponent(res.upi.payerVpa)}` : '';   // the UPI ID chosen in the simulated UPI app
+      const pay = await this.#call(`/dev/simulated-checkout/${encodeURIComponent(order.providerOrderRef)}?outcome=${what}${payer}`, { method: 'POST' });
+      if (pay?.utr) res.utr = pay.utr;
       if (what === 'success') await this.confirm(order, pay.providerPaymentRef, pay.signature);
       return res;
     }

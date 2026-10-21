@@ -49,7 +49,8 @@ export async function propertyPreWrite({ record, old, isNew }) {
   const r = { ...record };
   // the unit number: the character rules, the block's (or the community's) naming pattern, one unit per number whatever its case
   r.unit = tidyUnit(r.unit);
-  if (isNew || !old || old.unit !== r.unit || (old.zone || '') !== (r.zone || '')) {
+  // checked when a unit is added or renamed (as on the server): moving a unit to another block keeps its number
+  if (isNew || !old || old.unit !== r.unit) {
     const [cfg] = await storage.list(C.COMMUNITY_CONFIG);
     const rule = ruleFor(r.zone, await storage.list(C.BLOCKS), cfg?.unitPattern);
     const why = unitProblem(r.unit, rule.pattern, rule.block);

@@ -14,7 +14,10 @@ const Need = ({ perm, children }) => <div className="notice" style={{ marginBott
 export default function AmenityRates() {
   const { roleId, hasPermission, roles } = useApp();
   const overrideChoices = (roles || []).filter((r) => r.id !== 'super_admin' && ['EC', 'Staff', 'Facility', 'Admin'].some((c) => String(r.category || '').includes(c)) || /facility|amenit|president|secretary/.test(r.id)).map((r) => ({ id: r.id, name: r.name }));
-  const { records: catalog, save } = useCollection(COLLECTIONS.AMENITY_TYPES, 'Amenity Catalog');
+  const { records: catalog, save, remove } = useCollection(COLLECTIONS.AMENITY_TYPES, 'Amenity Catalog');
+  // how many bookings point at each amenity: the back end counts them on the amenity; in the browser demo they are counted here
+  const serverCounts = catalog.some((a) => a.bookings !== undefined && a.bookings !== '');
+  const { records: allBookings } = useCollection(COLLECTIONS.AMENITIES, 'Amenity Bookings', { enabled: !serverCounts });
   const { records: settingsRows, save: saveSettings } = useCollection(COLLECTIONS.AMENITY_SETTINGS, 'Amenity Settings');
   const { records: banks } = useCollection(COLLECTIONS.BANK_ACCOUNTS, 'Bank Accounts');
   const { records: facilities } = useCollection(COLLECTIONS.FACILITIES, 'Facilities & Locations');
@@ -36,6 +39,14 @@ export default function AmenityRates() {
   useEffect(() => { if (settingsRows[0]) setSd({ ...settingsRows[0] }); }, [settingsRows[0]?.id, settingsRows[0]?.recVersion]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!amenity || !draft || !sd) return <div className="empty">Loading…</div>;
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const use = serverCounts
+    ? { all: Number(amenity.bookings) || 0, upcoming: Number(amenity.upcomingBookings) || 0 }
+    : (() => { const mine = allBookings.filter((b) => b.amenity === amenity.name); return { all: mine.length, upcoming: mine.filter((b) => b.status !== 'Cancelled' && String(b.date) >= todayIso).length }; })();
+  async function deleteAmenity() {
+    if (!window.confirm(`Delete ${amenity.name}? It has never been booked, so nothing else changes.`)) return;
+    try { if (await remove(amenity.id)) { setName(''); setSaved(`${amenity.name} deleted`); } } catch (e) { setSaved(''); window.dispatchEvent(new CustomEvent('communityos:denied', { detail: { message: e?.message || String(e) } })); }
+  }
   const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }));
   const num = (v) => (v === '' ? '' : Number(v));
   const q = quote(draft, '2026-10-12', sd); // a weekday
@@ -57,6 +68,7 @@ export default function AmenityRates() {
     if (keys.includes('rate')) next.price = priceLabel(next);
     if (keys.includes('cancellationRules')) next.cancellationRules = [...tiers].sort((a, b) => b.hoursBefore - a.hoursBefore);
     const out = await save(next);
+    if (out?.name) setName(out.name);   // a rename: keep this amenity open under its new name
     setSaved(out ? okMsg : '');
   }
   const saveRates = () => saveAmenity(['rateUnit', 'rate', 'weekendRate', 'gstApplicable', 'gstRate', 'gstMode', 'depositAmount', 'minNoticeHours', 'maxAdvanceDays', 'cancellationRules'].filter((k) => k !== 'cancellationRules' || !tierErr), 'Rates saved');
@@ -169,13 +181,22 @@ export default function AmenityRates() {
         <h3 style={{ marginTop: 0 }}>Booking setup</h3>
         {!canOps && <Need perm="MANAGE_AMENITIES">Read-only for you</Need>}
         <div className="form-grid">
-          <div className="field"><label className="check"><input type="checkbox" checked={draft.active !== false} disabled={!canOps} onChange={(e) => set('active', e.target.checked)} /> Open for booking</label></div>
+          <div className="field"><label>Name</label><input aria-label="Amenity name" data-testid="amenity-name" value={draft.name || ''} disabled={!canOps} onChange={(e) => set('name', e.target.value)} />
+            {draft.name !== amenity.name && <small className="muted">Its {use.all} booking{use.all === 1 ? '' : 's'} and add-on items move to the new name.</small>}</div>
+          <div className="field"><label>Icon</label><input aria-label="Amenity icon" data-testid="amenity-icon" value={draft.icon || ''} maxLength={8} disabled={!canOps} onChange={(e) => set('icon', e.target.value)} /></div>
+          <div className="field"><label className="check"><input type="checkbox" data-testid="amenity-open" checked={draft.active !== false} disabled={!canOps} onChange={(e) => set('active', e.target.checked)} /> Open for booking</label>
+            {draft.active === false && <small className="muted" data-testid="amenity-closed-note">Closed: nobody can make a new booking. {use.upcoming ? `The ${use.upcoming} upcoming booking${use.upcoming === 1 ? ' stays' : 's stay'} as booked; cancel any that cannot go ahead from the bookings list (each is refunded by its cancellation rules, or waive the fee).` : 'There are no upcoming bookings.'}</small>}</div>
           <div className="field"><label>Booking mode</label><select value={draft.bookingMode || 'Time slot'} disabled={!canOps} onChange={(e) => set('bookingMode', e.target.value)}><option>Time slot</option><option>Full day</option></select></div>
           <div className="field"><label>Capacity per slot</label><input type="number" min="1" value={draft.capacity ?? 1} disabled={!canOps} onChange={(e) => set('capacity', num(e.target.value))} /></div>
           <div className="field"><label>Located at</label><select aria-label="Located at" data-testid="amenity-facility" value={draft.facility || ''} disabled={!canOps} onChange={(e) => set('facility', e.target.value)}><option value="">— whole community —</option>{facilities.filter((f) => f.active !== false).map((f) => <option key={f.id}>{f.name}</option>)}</select></div>
           <div className="field"><label>Opening hours</label><input value={draft.hours || ''} disabled={!canOps} onChange={(e) => set('hours', e.target.value)} /></div>
         </div>
-        <button className="btn secondary" disabled={!canOps} onClick={() => saveAmenity(['active', 'bookingMode', 'capacity', 'hours', 'facility'], 'Booking setup saved')}>Save booking setup</button>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <button className="btn secondary" data-testid="amenity-setup-save" disabled={!canOps || !String(draft.name || '').trim()} onClick={() => saveAmenity(['name', 'icon', 'active', 'bookingMode', 'capacity', 'hours', 'facility'], 'Booking setup saved')}>Save booking setup</button>
+          {canOps && (use.all === 0
+            ? <button className="btn secondary danger" data-testid="amenity-delete" onClick={deleteAmenity}>Delete amenity</button>
+            : <small className="muted" data-testid="amenity-keep">{use.all} booking{use.all === 1 ? '' : 's'} so far{use.upcoming ? `, ${use.upcoming} upcoming` : ''}: it cannot be deleted (its history is kept). Untick “Open for booking” to close it.</small>)}
+        </div>
       </div>
 
       <div className="card" style={{ marginTop: 12 }}>

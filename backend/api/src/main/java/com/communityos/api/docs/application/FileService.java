@@ -82,11 +82,10 @@ public final class FileService {
         OwnerKind k = kind(ownerType);
         return tx.inTx(() -> {
             StoredFile f = files.get(id).orElseThrow(AccessDenied.NotVisible::new);
+            // already on this record: nothing to do (saving a record again sends its files again, whoever uploaded them)
+            if (f.attached() && f.ownerType().equals(ownerType) && ownerId.equals(f.ownerId())) return f;
             if (!mine(c, f)) throw new AccessDenied("Attach only files you uploaded");
-            if (f.attached()) {
-                if (f.ownerType().equals(ownerType) && ownerId.equals(f.ownerId())) return f;
-                throw new DomainException.RuleViolated("already-attached", f.fileName() + " is already attached elsewhere");
-            }
+            if (f.attached()) throw new DomainException.RuleViolated("already-attached", f.fileName() + " is already attached elsewhere");
             if (!safe(k.mayAttach(), c, ownerId)) throw new AccessDenied("You cannot add files there");
             if (!files.attach(id, f.version(), ownerType, ownerId)) throw new DomainException.Conflict("File " + f.shortId());
             audit.write(c, AuditWriter.Action.Update, "docs.file_object", f.id(), f.shortId(), null, "Attached to " + ownerType, List.of());
@@ -96,7 +95,10 @@ public final class FileService {
     public void delete(Caller c, UUID id) {
         StoredFile gone = tx.inTx(() -> {
             StoredFile f = files.get(id).orElseThrow(AccessDenied.NotVisible::new);
-            if (!(mine(c, f) && !f.attached()) && !DocsPolicy.manager(c)) throw new AccessDenied("Only the uploader removes a file before it is used; after that, a document manager");
+            // the uploader, before it is used; someone who may change the record it is on (a photo taken off a ticket); a document manager
+            boolean onMine = f.attached() && kinds.containsKey(f.ownerType()) && safe(kinds.get(f.ownerType()).mayAttach(), c, f.ownerId());
+            if (!(mine(c, f) && !f.attached()) && !onMine && !DocsPolicy.manager(c))
+                throw new AccessDenied("Only the uploader removes a file before it is used; after that, someone who may change the record it is on, or a document manager");
             if (!files.delete(id, f.version())) throw new DomainException.Conflict("File " + f.shortId());
             audit.write(c, AuditWriter.Action.Delete, "docs.file_object", f.id(), f.shortId(), null, f.fileName(), List.of());
             return f;

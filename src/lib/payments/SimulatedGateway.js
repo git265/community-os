@@ -33,11 +33,14 @@ export default class SimulatedGateway extends PaymentGateway {
   async checkout(order, ui) { return ui ? ui(order, this) : { outcome: OUTCOME.SUCCESS, method: ONLINE_MODES[0] || 'Card' }; }
 
   /** The provider's server-to-server call. Builds a signed event for the outcome the payer chose. */
-  async buildWebhook(order, outcome, method = ONLINE_MODES[0] || 'Card') {
+  /** `upi`: what the payer's UPI app said ({ payerVpa, app }); a UPI payment the bank accepted carries its 12-digit UTR, as real ones do. */
+  async buildWebhook(order, outcome, method = ONLINE_MODES[0] || 'Card', upi = null) {
     const orders = read(); const o = orders[order.orderId] || order;
     o.attempts = (o.attempts || 0) + 1; orders[o.orderId] = o; write(orders);
     const type = outcome === OUTCOME.SUCCESS ? 'payment.captured' : outcome === OUTCOME.FAILURE ? 'payment.failed' : 'payment.pending';
-    const event = { id: rid('EVT'), type, orderId: o.orderId, paymentId: rid('PAY'), amount: o.amount, currency: o.currency, method, at: new Date().toISOString() };
+    const viaUpi = method === 'UPI' || !!upi;
+    const event = { id: rid('EVT'), type, orderId: o.orderId, paymentId: rid('PAY'), amount: o.amount, currency: o.currency, method, at: new Date().toISOString(),
+      ...(viaUpi ? { payerVpa: upi?.payerVpa || o.payerVpa || '', upiApp: upi?.app || o.upiApp || '', utr: outcome === OUTCOME.FAILURE ? '' : o.utr || String(600000000000 + Math.floor(Math.random() * 99999999999)) } : {}) };
     const raw = JSON.stringify(event);
     return { raw, signature: await hmac(SECRET, raw) };
   }

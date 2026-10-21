@@ -49,7 +49,7 @@ export default function SettleDues({ unit, dues, credit, resident, onClose }) {
       setAttempt(null);
       const res = await gw.start({ purpose: 'due', refs: ids, amount: toPay, unit, payer: currentUser?.name || '', description: `${sel.length} bill(s) · ${unit}`, meta: { useCredit: adv > 0 } });
       setBusy(false);
-      if (res.status === 'Paid') setDone({ ids, count: sel.length, adv, paid: toPay, mode: res.order?.method || 'Online', reference: res.paymentId });
+      if (res.status === 'Paid') setDone({ ids, count: sel.length, adv, paid: toPay, mode: res.order?.method || 'Online', reference: res.utr ? `UTR ${res.utr}${res.payerVpa ? ` · ${res.payerVpa}` : ''}` : res.paymentId });
       else setAttempt(res);
       return;
     }

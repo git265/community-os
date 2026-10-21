@@ -40,7 +40,7 @@ public final class GatewaySettlement extends Settlement<GatewaySettlement.Reques
         if (p.amount().compareTo(o.amount()) != 0)                                         // still recorded: the money is real; the difference becomes credit or stays owed
             log.warn("order {} priced {} but provider captured {}", o.id(), o.amount(), p.amount());
         return new Verified(o.unit(), o.id(), p.amount(), methodLabel(p.method()), r.gateway().name(), p.providerPaymentRef(), clock.instant(),
-            o.items().stream().map(PaymentOrder.Item::due).filter(java.util.Objects::nonNull).toList(), null, o.purpose(), null);
+            o.items().stream().map(PaymentOrder.Item::due).filter(java.util.Objects::nonNull).toList(), p.paidVia(), o.purpose(), null);
     }
 
     @Override protected void afterRecorded(Caller c, Request r, Verified v, PaymentRepository.Receipt receipt, List<DomainEvent> out) {

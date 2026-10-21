@@ -455,7 +455,7 @@ async function putResource(c, rec) {
   if (!before && spec.singleton) before = (await call(`/${spec.path}`))[0] || null;
   const { idByNo } = spec.unit || spec.units ? await unitIndex() : { idByNo: {} };
   const refIds = {};
-  for (const [appKey, r] of Object.entries(spec.refs || {})) refIds[appKey] = Object.fromEntries((await call(`/${RESOURCES[r.collection].path}`)).map((x) => [x[r.key], x.id]));
+  for (const [appKey, r] of Object.entries(spec.refs || {})) refIds[appKey] = Object.fromEntries((await call(`/${r.path || RESOURCES[r.collection].path}`)).map((x) => [x[r.key], x.id]));
   const merged = before ? { ...resourceOf(before, spec), ...rec } : rec;          // a write is the whole record: keep what the app did not send
   const body = resourceBody(merged, spec, fields, idByNo, refIds);
   const out = before
@@ -564,11 +564,18 @@ async function putDocument(rec) {
   return documentOf(await call(`/documents/${rec.id}`, json('PUT', body, ifMatch(before.rowVersion))));
 }
 /** After a record is written: attach the files it lists that are not attached yet (they were uploaded first, unattached). */
+/**
+ * After a record is written: attach the files it lists that are not on it yet, and take off the ones the person removed (`_detach`: their ids).
+ * Only files named in `_detach` go - a file someone else added meanwhile is never dropped because this copy of the list did not have it.
+ */
 const attaching = (put, ownerType, field) => async (rec) => {
   const wanted = (rec[field] || []).map((m) => m.fileId).filter(isUuid);
+  const gone = (rec._detach || []).filter(isUuid);
   const out = await put(rec);
-  if (!wanted.length || !out?.id) return out;
-  for (const id of wanted) await call(`/files/${id}/attach`, json('POST', { ownerType, ownerId: out.id }));
+  if (!out?.id || (!wanted.length && !gone.length)) return out;
+  const had = (await filesOf(ownerType, out.id)).map((m) => m.fileId);   // what is on the record now (a new one has none)
+  for (const id of wanted) if (!had.includes(id)) await call(`/files/${id}/attach`, json('POST', { ownerType, ownerId: out.id }));
+  for (const id of gone) if (had.includes(id) && !wanted.includes(id)) await call(`/files/${id}`, { method: 'DELETE' });
   return { ...out, [field]: await filesOf(ownerType, out.id) };
 };
 async function putContact(rec) {

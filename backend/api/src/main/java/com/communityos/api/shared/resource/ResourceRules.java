@@ -16,6 +16,8 @@ public interface ResourceRules<F extends Record> {
     /** Check and normalise a create (existing == null) or an update. Throw DomainException.RuleViolated to refuse. */
     default F validate(Caller c, F incoming, F existing) { return incoming; }
     default boolean deletable(F existing) { return true; }
+    /** Why this row cannot be deleted (null: it can). Rows that know their use from a server count (bookings on an amenity ...) say so here. */
+    default String whyNotDeletable(Item<F> existing) { return deletable(existing.data()) ? null : "This record is in use and cannot be deleted - archive it instead"; }
     /** May this caller change (or delete) this particular row? (Its server columns - who created it ... - are in the item.) */
     default boolean mayChange(Caller c, Item<F> existing) { return true; }
     /** The caller's own rows: true when the server column holding a membership id is the caller. */

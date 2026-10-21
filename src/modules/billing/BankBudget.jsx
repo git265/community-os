@@ -55,7 +55,7 @@ export default function BankBudget() {
         ))}
       </div>
       {view === 'summary' && <Summary accounts={accounts} txns={txns} deposits={deposits} />}
-      {view === 'budget' && <Budget fy={fy} fySelect={FySelect} budget={budget} txns={txns} />}
+      {view === 'budget' && <Budget fy={fy} fySelect={FySelect} budget={budget} txns={txns} fixed={fixed} />}
       {view === 'fixed' && <Fixed fy={fy} fySelect={FySelect} fixed={fixed} txns={txns} accounts={accounts} settings={settings[0]} deposits={deposits} />}
       {view === 'statements' && <Statements accounts={accounts} txns={txns} />}
     </div>
@@ -190,8 +190,20 @@ function Summary({ accounts, txns, deposits }) {
 }
 
 // ---------------------------------------------------------------- Budget
-function Budget({ fy, fySelect, budget, txns }) {
+/** What was paid to a vendor in a financial year (Payments cross-check), in one category of theirs or all: the actuals of a vendor budget line. */
+export function paidToVendor(ledger, { vendor, vendorService }, range) {
+  const v = String(vendor || '').trim().toLowerCase(); const c = String(vendorService || '').trim().toLowerCase();
+  if (!v) return 0;
+  return (ledger || []).filter((l) => l.type === 'Debit' && !l.reversalOf && String(l.vendor || '').trim().toLowerCase() === v
+    && (!c || String(l.category || '').trim().toLowerCase() === c) && l.date >= range.from && l.date <= range.to)
+    .reduce((n, l) => n + (Number(l.amount) || 0), 0);
+}
+
+function Budget({ fy, fySelect, budget, txns, fixed = [] }) {
   const { save } = useCollection(COLLECTIONS.BUDGET_LINES, 'Budget');
+  const { records: ledger } = useCollection(COLLECTIONS.LEDGER, 'Payments Cross-check');
+  const { records: serviceLines } = useCollection(COLLECTIONS.VENDOR_SERVICES, 'Vendor service lines');
+  const [added, setAdded] = useState('');
   const [editing, setEditing] = useState(null);
   const canWrite = canWriteCollection(COLLECTIONS.BUDGET_LINES, getPrincipal());
   const lines = budget.filter((b) => b.fy === fy);
@@ -203,7 +215,20 @@ function Budget({ fy, fySelect, budget, txns }) {
   const prevLines = budget.filter((b) => b.fy === pfy);
   const sourceFy = [...new Set(budget.map((b) => b.fy))].filter((x) => x !== fy).sort().pop();
 
-  const stmt = (b) => (b.heads ? sumHeads(actuals, b.heads) : 0);
+  const range = fyRange(fy);
+  // a line counts the statement heads it names; a vendor line without heads counts what was paid to that vendor (in that category)
+  const stmt = (b) => (b.heads ? sumHeads(actuals, b.heads) : b.vendor ? paidToVendor(ledger, b, range) : 0);
+  // one expense line for each category a vendor is signed for (Vendors → Categories), forecast from its fixed monthly expenses
+  const missingVendorLines = serviceLines.filter((l) => !lines.some((b) => b.kind === 'Expense' && String(b.vendor || '').toLowerCase() === String(l.vendorName).toLowerCase()
+    && String(b.vendorService || '').toLowerCase() === String(l.service).toLowerCase()));
+  async function addVendorLines() {
+    let n = 0;
+    for (const l of missingVendorLines) {
+      const monthly = fixed.filter((f) => f.vendor === l.vendorName && f.vendorService === l.service).reduce((m, f) => m + (Number(f.avg) || 0), 0);
+      if (await save({ fy, kind: 'Expense', name: `${l.vendorName} · ${l.service}`, vendor: l.vendorName, vendorService: l.service, forecast: Math.round(monthly * 12), other: 0, heads: '' })) n += 1;
+    }
+    setAdded(n ? `Added ${n} vendor line${n === 1 ? '' : 's'} for ${fy}. Set each forecast (fixed monthly expenses linked to the category are counted for 12 months).` : '');
+  }
   const plan = (b) => (Number(b.revised) > 0 ? Number(b.revised) : Number(b.forecast) || 0); // a revised budget replaces the original
   const total = (b) => stmt(b) + Number(b.other || 0);
   const prior = (b) => {
@@ -233,6 +258,7 @@ function Budget({ fy, fySelect, budget, txns }) {
         <div className="screen-head">
           <h2 style={{ margin: 0 }}>{inc ? 'Income' : 'Expenses'}</h2>
           <div className="screen-tools"><TableExportIcon scope={tref} name={`${inc ? 'Income' : 'Expenses'} ${fy}`} />
+            {canWrite && !inc && missingVendorLines.length > 0 && <button type="button" className="btn secondary" data-testid="budget-vendor-lines" onClick={addVendorLines}>+ A line per vendor category ({missingVendorLines.length})</button>}
             {canWrite && <button type="button" className="btn" onClick={() => setEditing({ fy, kind, other: 0 })}>{inc ? '+ Add income' : '+ Add expense'}</button>}</div>
         </div>
         <div className="table-wrap" ref={tref}><table className="resp-table">
@@ -242,9 +268,9 @@ function Budget({ fy, fySelect, budget, txns }) {
               const p = prior(b);
               return (
                 <tr key={b.id}>
-                  <td data-label="Line"><b>{b.name}</b>{b.notes && <><br /><small className="muted">{snippet(b.notes)}</small></>}{!b.heads && <><br /><small className="muted">not linked to statements</small></>}</td>
+                  <td data-label="Line"><b>{b.name}</b>{b.vendor && <><br /><span className="tag blue" data-testid="budget-vendor">{b.vendor}{b.vendorService ? ` · ${b.vendorService}` : ''}</span></>}{b.notes && <><br /><small className="muted">{snippet(b.notes)}</small></>}{!b.heads && !b.vendor && <><br /><small className="muted">not linked to statements</small></>}</td>
                   <td data-label="Budget">{amt(plan(b))}{Number(b.revised) > 0 && <><br /><small className="muted">revised from {amt(b.forecast)}</small></>}</td>
-                  <td data-label="Statements">{b.heads ? amt(stmt(b)) : <span className="muted">—</span>}</td>
+                  <td data-label="Statements">{b.heads || b.vendor ? <>{amt(stmt(b))}{!b.heads && b.vendor && <><br /><small className="muted">paid to the vendor</small></>}</> : <span className="muted">—</span>}</td>
                   <td data-label="Others">{amt(b.other)}</td>
                   <td data-label="Left">{amt(Math.max(0, plan(b) - total(b)))}{total(b) > plan(b) && plan(b) > 0 && <> <span className="tag orange">over by {amt(total(b) - plan(b))}</span></>}</td>
                   {hasPrev && <td data-label={`${pfy} actual`}>{p === null ? <span className="muted">—</span> : amt(p)}</td>}
@@ -264,6 +290,7 @@ function Budget({ fy, fySelect, budget, txns }) {
   const expenseSoFar = sumKind('Expense', total);
   return (
     <>
+      {added && <div className="notice" data-testid="budget-added">{added}</div>}
       <div className="screen-head" style={{ marginBottom: 8 }}>{fySelect}
         {canWrite && !lines.length && sourceFy && <button type="button" className="btn secondary" onClick={copyLines}>Copy the {sourceFy} lines into {fy}</button>}
       </div>
@@ -296,10 +323,10 @@ function Budget({ fy, fySelect, budget, txns }) {
           collection={COLLECTIONS.BUDGET_LINES}
           label={editing.kind === 'Income' ? 'Income line' : 'Expense line'}
           title={editing.id ? `Edit ${editing.name}` : editing.kind === 'Income' ? `New income line · ${fy}` : `New expense line · ${fy}`}
-          subtitle={editing.id ? 'Line, forecast, the “others” amount and notes can be changed.' : 'Choose the statement heads whose payments should count against this line (comma separated, e.g. “Security”), or leave blank and use the “others” amount.'}
+          subtitle={editing.id ? 'Line, forecast, vendor, the “others” amount and notes can be changed.' : editing.kind === 'Expense' ? 'Name a vendor (and one of its categories) to count what is paid to them, or choose statement heads (comma separated, e.g. “Security”), or leave both blank and use the “others” amount.' : 'Choose the statement heads whose payments should count against this line (comma separated, e.g. “Security”), or leave blank and use the “others” amount.'}
           record={editing}
-          editable={['name', 'forecast', 'revised', 'other', 'notes']}
-          hide={['fy', 'kind']}
+          editable={['name', 'forecast', 'revised', 'other', 'notes', ...(editing.kind === 'Expense' ? ['vendor', 'vendorService'] : [])]}
+          hide={['fy', 'kind', ...(editing.kind === 'Expense' ? [] : ['vendor', 'vendorService'])]}
           allowDelete
           onClose={() => setEditing(null)}
         />

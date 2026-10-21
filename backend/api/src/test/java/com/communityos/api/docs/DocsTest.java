@@ -111,8 +111,9 @@ class DocsTest {
         assertThrows(AccessDenied.NotVisible.class, () -> svc.content(other, f.id()));
         assertEquals(1, svc.list(ec, "maintenance.ticket", null).size()); assertEquals(0, svc.list(other, "maintenance.ticket", null).size());
         assertEquals("already-attached", assertThrows(DomainException.RuleViolated.class, () -> svc.attach(owner, f.id(), "maintenance.ticket", theirs)).code());
-        assertThrows(AccessDenied.class, () -> svc.delete(owner, f.id()), "attached: a manager removes it");
-        svc.delete(Fixtures.superAdmin(), f.id());
+        assertThrows(AccessDenied.class, () -> svc.delete(other, f.id()), "attached: not by someone who cannot change the ticket");
+        assertEquals(1, svc.list(ec, "maintenance.ticket", null).size(), "still there");
+        svc.delete(owner, f.id());   // the ticket's owner takes a photo off their own ticket
         assertTrue(mem.bytes.isEmpty(), "and its bytes go");
         mem.failInsert = true;
         assertThrows(IllegalStateException.class, () -> svc.upload(owner, new FileService.Upload("a.pdf", PDF, null)));
