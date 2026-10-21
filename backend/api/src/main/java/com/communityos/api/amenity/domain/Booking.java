@@ -103,6 +103,37 @@ public final class Booking {
         s.refundRef = initiate ? "GW" + Long.toString(now.toEpochMilli(), 36).toUpperCase() : ref.strip();
         return nz(s.refundAmount);
     }
+    // ---- a refund through the payment provider: asked for, then processed (or refused) when the provider says so --------------------------------
+    /** What the provider is asked to send back for this part ("fee" or "deposit"), checking that it is due and was paid online. */
+    public BigDecimal providerRefundDue(String part) {
+        boolean fee = "fee".equals(part);
+        if (fee ? !"Refund due".equals(s.refundStatus) : !"Due".equals(s.depositRefundStatus)) throw rule(fee ? "no-refund" : "no-deposit-refund", fee ? "No refund is due on this booking" : "No deposit refund is due");
+        if (!ONLINE.contains(s.paymentMode) || s.paymentId == null) throw rule("not-online", "A " + (blank(s.paymentMode) ? "cash" : s.paymentMode) + " payment cannot be sent back automatically - pay it out and record it instead");
+        BigDecimal amount = nz(fee ? s.refundAmount : s.depositReturned);
+        if (amount.signum() <= 0) throw rule("nothing-to-refund", "There is nothing to send back");
+        return amount;
+    }
+    public void providerRefundAsked(String part, String refundShortId) {
+        if ("fee".equals(part)) { if ("Refund due".equals(s.refundStatus)) { s.refundStatus = "Refund initiated"; s.refundPayoutMode = s.paymentMode; s.refundRef = refundShortId; } }
+        else if ("Due".equals(s.depositRefundStatus)) { s.depositRefundStatus = "Initiated"; s.depositRefundMode = s.paymentMode; s.depositRefundRef = refundShortId; }
+    }
+    /** The provider sent it back: the money is out. Returns the amount (for the ledger), or null when this part was settled some other way meanwhile. */
+    public BigDecimal providerRefundProcessed(String part, String providerRef, Instant now) {
+        if ("fee".equals(part)) {
+            if (!"Refund initiated".equals(s.refundStatus) && !"Refund due".equals(s.refundStatus)) return null;
+            boolean partial = nz(s.refundAmount).compareTo(nz(s.totalPayable)) < 0;
+            s.refundStatus = "Refunded"; s.paymentStatus = partial ? "Partially refunded" : "Refunded"; s.refundPaidAt = now; s.refundPayoutMode = s.paymentMode; s.refundRef = providerRef;
+            return nz(s.refundAmount);
+        }
+        if (!"Initiated".equals(s.depositRefundStatus) && !"Due".equals(s.depositRefundStatus)) return null;
+        s.depositRefundStatus = "Paid"; s.depositRefundPaidAt = now; s.depositRefundMode = s.paymentMode; s.depositRefundRef = providerRef;
+        return nz(s.depositReturned);
+    }
+    /** The provider could not send it back: it is due again (to retry, pay out by hand, or credit to the unit). */
+    public void providerRefundFailed(String part) {
+        if ("fee".equals(part)) { if ("Refund initiated".equals(s.refundStatus)) { s.refundStatus = "Refund due"; s.refundRef = null; } }
+        else if ("Initiated".equals(s.depositRefundStatus)) { s.depositRefundStatus = "Due"; s.depositRefundRef = null; }
+    }
     public BigDecimal refundToCredit(UUID me, Instant now) {
         if (!"Refund due".equals(s.refundStatus)) throw rule("no-refund", "No refund is due on this booking");
         if (s.unit == null) throw rule("no-unit", "An association booking has no unit account");

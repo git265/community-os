@@ -34,15 +34,15 @@ public final class SqlCatalog {
                 "gate.adapter.JdbcGateStore", "gate.adapter.JdbcGateDirectory", "comms.adapter.JdbcInbox", "comms.adapter.JdbcCommsStore", "docs.adapter.JdbcFileRepository",
                 "docs.adapter.JdbcDocumentRepository", "cultural.adapter.JdbcCulturalStore", "finance.adapter.JdbcFinanceStore",
                 "governance.adapter.JdbcGovernanceStore", "vendor.adapter.JdbcDirectoryStore", "assets.adapter.JdbcAssetStore",
-                "workforce.adapter.JdbcAttendanceStore", "reports.adapter.JdbcReportData"))
+                "workforce.adapter.JdbcAttendanceStore", "reports.adapter.JdbcReportData", "billing.adapter.JdbcRefunds"))
             CLASSES.put(c, "cos_app");
         for (String c : List.of("shared.jdbc.JdbcOutboxStore", "identity.adapter.JdbcOtpStore", "identity.adapter.JdbcRefreshTokenStore", "identity.adapter.JdbcPersonDirectory",
                 "identity.adapter.JdbcRateLimiter", "identity.adapter.JdbcCallerLoader", "identity.adapter.JdbcCommunityDirectory", "billing.adapter.JdbcPlatformPayments", "shared.integration.WebhookFanout",
-                "shared.integration.WebhookDeliveryWorker", "config.Jobs", "demo.DemoController", "demo.PlatformSetup"))
+                "shared.integration.WebhookDeliveryWorker", "config.Jobs", "demo.DemoController", "demo.PlatformSetup", "comms.adapter.ChannelDelivery"))
             CLASSES.put(c, "cos_platform");
     }
     /** fragments that are only valid once composed */
-    static final Set<String> FRAGMENTS = Set.of("JdbcMemberRepository.SELECT", "JdbcMemberRepository.FILTER", "JdbcUnitRepository.SELECT", "JdbcUnitRepository.FILTER",
+    static final Set<String> FRAGMENTS = Set.of("JdbcRefunds.COLS", "JdbcMemberRepository.SELECT", "JdbcMemberRepository.FILTER", "JdbcUnitRepository.SELECT", "JdbcUnitRepository.FILTER",
         "JdbcDueRepository.COLUMNS", "JdbcDueRepository.FROM", "JdbcDueRepository.FILTER",
         "JdbcTicketRepository.COLUMNS", "JdbcTicketRepository.FROM", "JdbcTicketRepository.FILTER", "JdbcMaintenanceDirectory.STAFF", "JdbcMaintenanceDirectory.RECENT_COMMENTS",
         "JdbcQuotationRepository.COLUMNS", "JdbcQuotationRepository.LIVE", "JdbcBookingRepository.COLUMNS", "JdbcBookingRepository.FROM", "JdbcBookingRepository.FILTER",

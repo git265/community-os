@@ -23,13 +23,15 @@ public class Jobs {
     private final com.communityos.api.workforce.application.AttendanceService attendance; private final com.communityos.api.reports.application.ReportService reports;
     private final java.util.Optional<com.communityos.api.comms.adapter.ChannelDelivery> channels;
     private final java.util.Optional<com.communityos.api.billing.adapter.gateway.SimulatedGateway> simulatedBank;
+    private final java.util.Optional<com.communityos.api.billing.application.RefundService> refunds;
 
     public Jobs(OutboxRelay outbox, WebhookDeliveryWorker webhooks, PaymentService payments, @Qualifier("platform") NamedParameterJdbcTemplate platformJdbc,
                 com.communityos.api.gate.application.GateService gate, com.communityos.api.comms.application.BroadcastService notices,
                 com.communityos.api.workforce.application.AttendanceService attendance, com.communityos.api.reports.application.ReportService reports,
                 java.util.Optional<com.communityos.api.comms.adapter.ChannelDelivery> channels,
-                java.util.Optional<com.communityos.api.billing.adapter.gateway.SimulatedGateway> simulatedBank) {
-        this.channels = channels; this.simulatedBank = simulatedBank;
+                java.util.Optional<com.communityos.api.billing.adapter.gateway.SimulatedGateway> simulatedBank,
+                java.util.Optional<com.communityos.api.billing.application.RefundService> refunds) {
+        this.channels = channels; this.simulatedBank = simulatedBank; this.refunds = refunds;
         this.outbox = outbox; this.webhooks = webhooks; this.payments = payments; this.platformJdbc = platformJdbc; this.gate = gate; this.notices = notices; this.attendance = attendance; this.reports = reports;
     }
 
@@ -112,7 +114,7 @@ public class Jobs {
     }
 
     @Scheduled(fixedDelayString = "${cos.jobs.reconcile-delay:120000}", initialDelay = 60000)
-    public void reconcilePayments() { run("reconcile", () -> payments.reconcile(100)); }
+    public void reconcilePayments() { run("reconcile", () -> payments.reconcile(100)); refunds.ifPresent((r) -> run("refunds", () -> r.reconcile(100))); }
 
     @Scheduled(cron = "${cos.jobs.purge-cron:0 17 * * * *}")
     public void purge() {

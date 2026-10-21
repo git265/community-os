@@ -30,7 +30,12 @@ public record CosProperties(Db db, Auth auth, Payments payments, Web web, @Defau
     public record Payments(@DefaultValue("simulated") String defaultProvider, @DefaultValue("30m") Duration orderTtl, @DefaultValue("INR") String currency,
                            Simulated simulated, Razorpay razorpay) {}
     /** Development provider: how long a "slow bank" takes to charge, and when a payment whose confirmation was lost is reported by webhook. */
-    public record Simulated(@DefaultValue("false") boolean enabled, String secret, @DefaultValue("30s") Duration pendingDelay, @DefaultValue("20s") Duration lostDelay) {}
+    public record Simulated(@DefaultValue("false") boolean enabled, String secret, @DefaultValue("30s") Duration pendingDelay, @DefaultValue("20s") Duration lostDelay,
+                            /* a refund is processed (or refused) this long after it is asked for */ @DefaultValue("60s") Duration refundDelay,
+                            /* how long each call takes while the service is "slow", and the time-out the server gives each call */ @DefaultValue("5s") Duration slowLatency,
+                            @DefaultValue("8s") Duration timeout,
+                            /* how the service starts: normal, slow or down (changed at run time: PUT /api/v1/dev/simulated-bank) */ @DefaultValue("normal") String service,
+                            @DefaultValue("false") boolean refundsFail) {}
     public record Razorpay(@DefaultValue("false") boolean enabled, @DefaultValue("https://api.razorpay.com") String baseUrl, String keyId, String keySecret, String webhookSecret) {}
 
     public record Web(List<String> allowedOrigins, @DefaultValue("Asia/Kolkata") String timeZone) {}

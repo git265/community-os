@@ -60,6 +60,10 @@ public final class PaymentService {
         this.events = events; this.tx = tx; this.clock = clock; this.orderTtl = orderTtl; this.currency = currency;
     }
 
+    private RefundService refunds;
+    /** Refund webhooks go to the refund service (wired after both exist). */
+    public PaymentService refunds(RefundService r) { this.refunds = r; return this; }
+
     public OrderView createOrder(Caller c, CreateOrder cmd, String idempotencyKey) {
         if (c.membership() == null) throw new AccessDenied("Sign in to pay");
         if (idempotencyKey == null || idempotencyKey.length() < 8 || idempotencyKey.length() > 128)
@@ -94,8 +98,14 @@ public final class PaymentService {
             return o;
         });
         // the provider call happens OUTSIDE the transaction: no database connection is held while waiting on the network
-        PaymentGateway.ProviderOrder po = gateway.createOrder(new PaymentGateway.OrderRequest(order.id().toString(), order.shortId(), order.amount(), order.currency(),
-            Map.of("community", c.community().toString(), "order", order.id().toString())));
+        PaymentGateway.ProviderOrder po;
+        try {
+            po = gateway.createOrder(new PaymentGateway.OrderRequest(order.id().toString(), order.shortId(), order.amount(), order.currency(),
+                Map.of("community", c.community().toString(), "order", order.id().toString())));
+        } catch (com.communityos.api.shared.resilience.TransientFailure | com.communityos.api.shared.resilience.CircuitBreaker.OpenException e) {
+            // the order stays Created with no provider order and expires: nothing could have been charged
+            throw new com.communityos.api.shared.resilience.TransientFailure("The payment service is not answering right now - nothing was charged. Please try again in a minute.", e);
+        }
         PaymentOrder saved = tx.inTx(() -> {
             PaymentOrder o = orders.findForUpdate(order.id()).orElseThrow();
             if (o.status() == OrderStatus.CREATED) { o.handedToProvider(po.providerOrderRef()); if (!orders.save(o)) throw new DomainException.Conflict("Payment order"); }
@@ -127,6 +137,12 @@ public final class PaymentService {
         if (read.isEmpty()) return;
         PaymentGateway.WebhookEvent e = read.get();
         if (inbound.alreadyProcessed(provider, e.eventId())) return;
+        if (e.refund()) {                                                    // a refund's news: the refund service fetches the provider's record and tells the owner
+            inbound.received(provider, e.eventId(), null, e.type());
+            if (refunds != null) refunds.webhook(provider, e.providerRefundRef());
+            inbound.markProcessed(provider, e.eventId());
+            return;
+        }
         Optional<OrderLocator.Located> where = e.providerOrderRef() == null ? Optional.empty() : locator.byProviderRef(provider, e.providerOrderRef());
         inbound.received(provider, e.eventId(), where.map((w) -> w.community().value()).orElse(null), e.type());
         if (where.isEmpty()) { log.warn("{} webhook {} for unknown order {}", provider, e.eventId(), e.providerOrderRef()); inbound.markProcessed(provider, e.eventId()); return; }

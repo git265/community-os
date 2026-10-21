@@ -239,8 +239,12 @@ public class ModulesConfig {
         if (env.matchesProfiles("prod")) throw new IllegalStateException("the simulated payment provider cannot be enabled in prod");
         CosProperties.Simulated sim = p.payments().simulated();
         String secret = sim == null ? null : sim.secret();
-        return new SimulatedGateway(secret == null || secret.isBlank() ? "dev-simulated-secret" : secret, clock,
-            sim == null ? Duration.ofSeconds(30) : sim.pendingDelay(), sim == null ? Duration.ofSeconds(20) : sim.lostDelay());
+        var d = sim == null ? SimulatedGateway.Delays.DEFAULT : new SimulatedGateway.Delays(sim.pendingDelay(), sim.lostDelay(), sim.refundDelay(), sim.slowLatency());
+        // the same protection the server puts around Razorpay: a time-out per call, retries of what may pass next time, a circuit breaker
+        Resilient r = new Resilient(sim == null ? Duration.ofSeconds(8) : sim.timeout(), new CircuitBreaker("simulated payments", 5, Duration.ofSeconds(30), clock), RetryPolicy.transientFailures(3));
+        SimulatedGateway g = new SimulatedGateway(secret == null || secret.isBlank() ? "dev-simulated-secret" : secret, clock, d, r);
+        if (sim != null) g.mode(new SimulatedGateway.Mode(SimulatedGateway.Service.valueOf(sim.service().toUpperCase(java.util.Locale.ROOT)), sim.refundsFail()));
+        return g;
     }
 
     @Bean GatewayRegistry gatewayRegistry(CosProperties p, Optional<SimulatedGateway> simulated, HttpTransport http, ObjectMapper json, Clock clock) {
@@ -265,5 +269,15 @@ public class ModulesConfig {
     @Bean PaymentService paymentService(JdbcDueRepository dues, JdbcPaymentRepository payments, JdbcPaymentOrderRepository orders, GatewayRegistry gateways, GatewaySettlement settlement,
                                         JdbcPlatformPayments platform, DomainEvents events, Tx tx, Clock clock, CosProperties p) {
         return new PaymentService(dues, payments, orders, gateways, settlement, platform, platform, events, tx, clock, p.payments().orderTtl(), p.payments().currency());
+    }
+    /** Refunds through the payment provider: the payment webhook passes refund news on; a booking's fee and deposit refunds use it. */
+    @Bean com.communityos.api.billing.application.RefundService refundService(NamedParameterJdbcTemplate jdbc, @Qualifier("platform") NamedParameterJdbcTemplate platformJdbc,
+                                                                             GatewayRegistry gateways, AuditWriter audit, Tx tx, Clock clock, PaymentService payments,
+                                                                             com.communityos.api.amenity.application.BookingService bookings) {
+        var refunds = new com.communityos.api.billing.application.RefundService(new com.communityos.api.billing.adapter.JdbcRefunds(jdbc, platformJdbc), new com.communityos.api.billing.adapter.JdbcRefunds(jdbc, platformJdbc),
+            gateways, audit, tx, clock);
+        payments.refunds(refunds);
+        bookings.refunds(refunds);
+        return refunds;
     }
 }

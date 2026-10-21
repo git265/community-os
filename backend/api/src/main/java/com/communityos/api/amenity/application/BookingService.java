@@ -187,7 +187,50 @@ public final class BookingService {
             return "Payment received " + owed.toPlainString() + " (" + mode + ")";
         });
     }
+    private com.communityos.api.billing.application.RefundService refunds;
+    /** Refunds through the payment provider (wired after both services exist); without it a refund is only paid out and recorded by hand. */
+    public BookingService refunds(com.communityos.api.billing.application.RefundService r) {
+        this.refunds = r;
+        r.register("amenity.booking", this::refundSettled);
+        return this;
+    }
+    /** Ask the payment provider to send a fee refund or a deposit back to the card / UPI / bank it was paid from. Done when the provider says so. */
+    public Booking initiateRefund(Caller c, UUID id, long version, String part) {
+        requireStaff(c);
+        if (refunds == null) throw new DomainException.RuleViolated("no-provider-refunds", "Refunds through the payment provider are not set up - pay it out and record it instead");
+        Booking b = bookings.get(id, policy.readScope(c)).orElseThrow(AccessDenied.NotVisible::new);
+        if (b.version() != version) throw new DomainException.Conflict("Booking " + b.shortId());
+        BigDecimal amount = b.providerRefundDue(part);
+        var r = refunds.initiate(c, "amenity.booking", id, part, b.state().paymentId, new Money(amount));   // the provider is asked outside any transaction
+        return tx.inTx(() -> {
+            Booking cur = bookings.get(id, policy.readScope(c)).orElseThrow();
+            cur.providerRefundAsked(part, r.shortId());
+            if (!bookings.save(cur)) throw new DomainException.Conflict("Booking " + cur.shortId());
+            done(c, cur, AuditWriter.Action.Update, "changed", ("fee".equals(part) ? "Refund " : "Deposit refund ") + amount.toPlainString() + " asked from the payment provider (" + r.shortId() + ") - " + cur.shortId());
+            return bookings.get(id, policy.readScope(c)).orElseThrow();
+        });
+    }
+    /** The provider's answer on a refund this service asked for. */
+    private void refundSettled(Caller system, com.communityos.api.billing.application.RefundService.Refund r) {
+        Booking b = bookings.get(r.ownerId(), com.communityos.api.shared.access.Spec.all()).orElse(null);
+        if (b == null) return;
+        Instant now = clock.instant();
+        String what;
+        if ("Processed".equals(r.status())) {
+            BigDecimal amount = b.providerRefundProcessed(r.part(), r.providerRefundRef(), now);
+            if (amount == null) return;
+            ledger.payout(b, amount, true, "fee".equals(r.part()) ? "Refund paid" : "Deposit paid back", now);
+            what = ("fee".equals(r.part()) ? "Refund " : "Deposit refund ") + amount.toPlainString() + " sent back by the payment provider (" + r.shortId() + ")";
+        } else {
+            b.providerRefundFailed(r.part());
+            what = ("fee".equals(r.part()) ? "Refund" : "Deposit refund") + " failed at the payment provider: " + r.failureReason() + " - due again";
+        }
+        if (!bookings.save(b)) throw new DomainException.Conflict("Booking " + b.shortId());
+        done(system, b, AuditWriter.Action.Update, "changed", what + " - " + b.shortId());
+    }
+
     public Booking refundPaid(Caller c, UUID id, long version, String mode, String ref, boolean initiate) {
+        if (initiate) return initiateRefund(c, id, version, "fee");
         requireStaff(c);
         return change(c, id, version, (b) -> {
             BigDecimal amount = b.refundPaid(mode, ref, initiate, c.membership() == null ? null : c.membership().value(), clock.instant());
@@ -218,6 +261,7 @@ public final class BookingService {
         });
     }
     public Booking depositPaid(Caller c, UUID id, long version, String mode, String ref, boolean initiate) {
+        if (initiate) return initiateRefund(c, id, version, "deposit");
         requireStaff(c);
         return change(c, id, version, (b) -> {
             BigDecimal amount = b.depositPaid(mode, ref, initiate, clock.instant());

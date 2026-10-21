@@ -69,10 +69,30 @@ public final class RazorpayGateway implements PaymentGateway {
         JsonNode n;
         try { n = json.readTree(body); } catch (java.io.IOException e) { return Optional.empty(); }
         String type = n.path("event").asText();
+        if (type.startsWith("refund.") && List.of("refund.processed", "refund.failed").contains(type)) {
+            JsonNode rf = n.path("payload").path("refund").path("entity");
+            String eventId = headers.getOrDefault("x-razorpay-event-id", type + ":" + rf.path("id").asText());
+            return Optional.of(new WebhookEvent(eventId, type, null, rf.path("payment_id").asText(null), rf.path("id").asText(null)));
+        }
         if (!HANDLED.contains(type)) return Optional.empty();
         JsonNode pay = n.path("payload").path("payment").path("entity");
         String eventId = headers.getOrDefault("x-razorpay-event-id", type + ":" + pay.path("id").asText());
         return Optional.of(new WebhookEvent(eventId, type, pay.path("order_id").asText(null), pay.path("id").asText(null)));
+    }
+
+    @Override public ProviderRefund refund(RefundRequest r) {
+        if (!r.providerPaymentRef().matches("pay_[A-Za-z0-9]{6,40}")) throw new com.communityos.api.shared.domain.DomainException.RuleViolated("bad-payment-ref", "Not a payment reference");
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("amount", paise(r.amount())); body.put("receipt", r.receipt().substring(0, Math.min(40, r.receipt().length()))); body.put("notes", r.notes()); body.put("speed", "normal");
+        return toRefund(call(HttpTransport.Request.post(s.baseUrl().resolve("/v1/payments/" + r.providerPaymentRef() + "/refund"), bytes(body)).header("X-Idempotency-Key", r.receipt())));
+    }
+    @Override public ProviderRefund fetchRefund(String ref) {
+        if (!ref.matches("rfnd_[A-Za-z0-9]{6,40}")) throw new com.communityos.api.shared.domain.DomainException.RuleViolated("bad-refund-ref", "Not a refund reference");
+        return toRefund(call(HttpTransport.Request.get(s.baseUrl().resolve("/v1/refunds/" + ref))));
+    }
+    private ProviderRefund toRefund(JsonNode n) {
+        return new ProviderRefund(n.path("id").asText(), n.path("payment_id").asText(null), new Money(BigDecimal.valueOf(n.path("amount").asLong(), 2)), n.path("status").asText("pending"),
+            n.path("error_description").asText(null));
     }
 
     private ProviderPayment toPayment(JsonNode n) {

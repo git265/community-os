@@ -394,6 +394,47 @@ class PostgresFlowTest {
             assertEquals(bal2.get("d"), bal2.get("c"), "double entry still balances");
             java.util.function.Function<String, String> acct = (code) -> (String) owner.sql("SELECT coalesce(balance, 0)::text AS b FROM finance.account a LEFT JOIN finance.account_balance ab ON ab.account_id = a.id AND ab.community_id = a.community_id WHERE a.community_id = '" + cid + "' AND a.code = '" + code + "'").get(0).get("b");
             assertEquals("0.00", acct.apply("2200"), "no deposit is still held");
+            // a booking paid online, cancelled in time: the fee and deposit go back through the payment provider - pending, then processed by its webhook
+            var refundSvc = new com.communityos.api.billing.application.RefundService(new com.communityos.api.billing.adapter.JdbcRefunds(app, platform),
+                new com.communityos.api.billing.adapter.JdbcRefunds(app, platform), new GatewayRegistry(List.of(sim), "simulated"), audit, app, clock);
+            pay.refunds(refundSvc); bookingSvc.refunds(refundSvc);
+            Runnable simBank = () -> { for (var hk : sim.dueWebhooks()) pay.webhook("simulated", hk.getKey(), hk.getValue()); };
+            java.util.function.Function<LocalDate, com.communityos.api.amenity.domain.Booking> paidOnline = (day) -> {
+                PaymentService.OrderView o = as(ownerC, () -> pay.createOrder(ownerC, new PaymentService.CreateOrder(List.of(), "booking", new UnitId(unitA), Money.of("7900")), "it-rf-" + day + "-" + tag));
+                Map<String, String> pd = sim.simulatePay(o.order().providerOrderRef(), true);
+                PaymentRepository.Receipt rc = as(ownerC, () -> pay.confirm(ownerC, o.order().id(), pd.get("providerPaymentRef"), pd.get("signature")));
+                var bk = as(ownerC, () -> bookingSvc.book(ownerC, new com.communityos.api.amenity.application.BookingService.Book(hallItem.id(), new UnitId(unitA), day, null, "UPI",
+                    rc.id().value(), false, "Unit", null, false, null, Map.of())));
+                return as(admin, () -> bookingSvc.cancel(admin, bk.id(), bk.version(), new com.communityos.api.amenity.application.BookingService.Cancel("Plans changed", false, false, null)));
+            };
+            var toRefund = paidOnline.apply(today.plusDays(20));
+            assertEquals("Refund due", toRefund.state().refundStatus); assertEquals("7900.00", toRefund.state().refundAmount.toPlainString(), "in time: the fee and the deposit");
+            var rfAsked = as(admin, () -> bookingSvc.initiateRefund(admin, toRefund.id(), toRefund.version(), "fee"));
+            assertEquals("Refund initiated", rfAsked.state().refundStatus); assertTrue(rfAsked.state().refundRef.startsWith("RFD-"));
+            simBank.run();
+            assertEquals("Refund initiated", as(admin, () -> bookingSvc.get(admin, toRefund.id())).state().refundStatus, "the bank has not sent it back yet");
+            assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> bookingSvc.initiateRefund(admin, toRefund.id(), rfAsked.version(), "fee")), "asked once");
+            com.communityos.api.demo.ReplayClock.at(java.time.Instant.now().plusSeconds(61), () -> { simBank.run(); return null; });
+            var refunded = as(admin, () -> bookingSvc.get(admin, toRefund.id()));
+            assertEquals("Refunded", refunded.state().refundStatus); assertEquals("Refunded", refunded.state().paymentStatus); assertTrue(refunded.state().refundRef.startsWith("sim_rfnd_"));
+            assertEquals("Processed", owner.sql("SELECT status FROM billing.gateway_refund WHERE community_id = '" + cid + "' AND owner_id = '" + toRefund.id() + "'").get(0).get("status"));
+            Map<String, Object> balRf = owner.sql("SELECT sum(debit)::text AS d, sum(credit)::text AS c FROM finance.account_balance WHERE community_id = '" + cid + "'").get(0);
+            assertEquals(balRf.get("d"), balRf.get("c"), "the refund is in the books");
+            // the bank refuses a refund: it is due again; the payment service down: nothing is asked, nothing charged
+            sim.mode(new SimulatedGateway.Mode(SimulatedGateway.Service.NORMAL, true));
+            var refused = paidOnline.apply(today.plusDays(25));
+            as(admin, () -> bookingSvc.initiateRefund(admin, refused.id(), refused.version(), "fee"));
+            com.communityos.api.demo.ReplayClock.at(java.time.Instant.now().plusSeconds(61), () -> { simBank.run(); return null; });
+            assertEquals("Refund due", as(admin, () -> bookingSvc.get(admin, refused.id())).state().refundStatus, "refused by the bank: due again");
+            assertEquals("Failed", owner.sql("SELECT status FROM billing.gateway_refund WHERE community_id = '" + cid + "' AND owner_id = '" + refused.id() + "'").get(0).get("status"));
+            sim.mode(new SimulatedGateway.Mode(SimulatedGateway.Service.DOWN, false));
+            var again = as(admin, () -> bookingSvc.get(admin, refused.id()));
+            assertTrue(assertThrows(com.communityos.api.shared.resilience.TransientFailure.class, () -> as(admin, () -> bookingSvc.initiateRefund(admin, refused.id(), again.version(), "fee")))
+                .getMessage().contains("nothing was sent back"));
+            assertEquals("Refund due", as(admin, () -> bookingSvc.get(admin, refused.id())).state().refundStatus);
+            assertTrue(assertThrows(com.communityos.api.shared.resilience.TransientFailure.class, () -> as(ownerC, () -> pay.createOrder(ownerC,
+                new PaymentService.CreateOrder(List.of(), "booking", new UnitId(unitA), Money.of("100")), "it-down-" + tag))).getMessage().contains("nothing was charged"));
+            sim.mode(new SimulatedGateway.Mode(SimulatedGateway.Service.NORMAL, false));
             assertEquals("0.00", acct.apply("1100"), "nothing is owed");
             assertEquals("1500.00", owner.sql("SELECT sum(amount)::text AS s FROM billing.unit_credit WHERE community_id = '" + cid + "' AND unit_id = '" + unitA + "'").get(0).get("s"), "the deposit back as credit");
 

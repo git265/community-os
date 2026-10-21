@@ -57,6 +57,13 @@ public class ProblemHandler {
     @ExceptionHandler(CircuitBreaker.OpenException.class) public ProblemDetail unavailable(CircuitBreaker.OpenException e) {
         return problem(HttpStatus.SERVICE_UNAVAILABLE, "provider-unavailable", e.getMessage());
     }
+    /** An outside service (the payment provider ...) that did not answer, after the retries: try again later; nothing was done. */
+    @ExceptionHandler(com.communityos.api.shared.resilience.TransientFailure.class) public ProblemDetail transientFailure(com.communityos.api.shared.resilience.TransientFailure e) {
+        log.info("provider unavailable: {}", e.toString());
+        ProblemDetail p = problem(HttpStatus.SERVICE_UNAVAILABLE, "provider-unavailable", e.getMessage() == null ? "A service we depend on is not answering - try again in a minute" : e.getMessage());
+        p.setProperty("retryAfterSeconds", 60);
+        return p;
+    }
     @ExceptionHandler(Exception.class) public ProblemDetail unexpected(Exception e) {
         String id = UUID.randomUUID().toString();
         log.error("unexpected error {}", id, e);

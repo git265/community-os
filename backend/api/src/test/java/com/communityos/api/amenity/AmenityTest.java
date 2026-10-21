@@ -166,8 +166,9 @@ class AmenityTest {
         assertThrows(DomainException.RuleViolated.class, () -> svc.settleDeposit(team, b.id(), b.version(), new BigDecimal("500"), " ", null), "a deduction needs a reason");
         Booking d = svc.settleDeposit(team, b.id(), b.version(), new BigDecimal("500"), "Broken chair", "UPI");
         assertEquals("Partly forfeited", d.state().depositStatus); assertEquals("Due", d.state().depositRefundStatus); assertEquals("Completed", d.status());
-        Booking back = svc.depositPaid(team, b.id(), d.version(), null, null, true);
-        assertEquals("Paid", back.state().depositRefundStatus); assertTrue(back.state().depositRefundRef.startsWith("GW"));
+        assertThrows(DomainException.RuleViolated.class, () -> svc.depositPaid(team, b.id(), d.version(), null, null, true), "no refunds through the provider without it (the flow test has them)");
+        Booking back = svc.depositPaid(team, b.id(), d.version(), "UPI", "UTR 5521", false);
+        assertEquals("Paid", back.state().depositRefundStatus); assertEquals("UTR 5521", back.state().depositRefundRef);
         assertEquals("-5500.00", bal("4200").toPlainString(), "the fee and the kept part of the deposit are income");
         assertEquals("0.00", bal("2200").toPlainString()); assertEquals("0.00", bal("1100").toPlainString());
         assertEquals(BigDecimal.ZERO.setScale(2), balances().values().stream().reduce(BigDecimal.ZERO, BigDecimal::add).setScale(2));

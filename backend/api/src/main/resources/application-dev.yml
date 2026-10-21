@@ -10,13 +10,33 @@ cos:
     issuer: http://localhost:8080
   payments:
     default-provider: simulated
-    simulated: { enabled: true, secret: dev-simulated-secret }
+    order-ttl: 30m               # an order nobody paid (a closed checkout) expires after this
+    simulated:
+      enabled: true
+      secret: dev-simulated-secret
+      pending-delay: 30s         # "Bank is slow": charged this long after Pay, then its webhook settles the order
+      lost-delay: 20s            # "Bank charged, confirmation lost": the webhook arrives this long after
+      refund-delay: 60s          # a refund through the provider is processed (or refused) this long after it is asked for
+      service: normal            # how the payment service starts: normal, slow or down (change it at run time: PUT /api/v1/dev/simulated-bank)
+      slow-latency: 5s           # each call while "slow"; set it above timeout to try time-outs, retries and the circuit breaker
+      timeout: 8s                # how long the server waits for each call (3 tries, then "not answering, nothing was charged")
+      refunds-fail: false        # true: the bank refuses every refund (the booking's refund is due again)
   web:
     allowed-origins: http://localhost:5173
   files:
     scanner: simulated     # finds the EICAR test file, calls the rest clean (no ClamAV in development)
   channels:
     provider: simulated    # WhatsApp / SMS / e-mail copies of notifications are written to the log and marked Sent
+  jobs:                    # how often the background jobs run (milliseconds)
+    channels-delay: 10000        # send queued WhatsApp / SMS / e-mail copies
+    simulated-bank-delay: 3000   # deliver the simulated bank's webhooks (declined, slow, lost, refunds)
+    reconcile-delay: 120000      # ask the provider about payments and refunds still open (a webhook that never came)
+    outbox-delay: 2000
+    webhook-delay: 5000
+    notices-delay: 60000
+    gate-delay: 30000
+    attendance-delay: 600000
+    reports-delay: 300000
   demo:
     enabled: true          # the La Paloma demo loader and sign-in without a code (POST /api/v1/demo/load/{slug}); never in prod
 spring.flyway: { url: "jdbc:postgresql://localhost:5433/cos_v2", user: postgres, password: "" }
