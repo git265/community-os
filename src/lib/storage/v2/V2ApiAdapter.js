@@ -29,7 +29,7 @@ import { AuthzError, ConflictError } from '../../security/errors.js';
 import { SessionStorageAdapter } from '../SessionStorageAdapter.js';
 import { propertyOf, unitPatch, userOf, dueOf, raiseBody, roleOf, ticketOf, ticketPatch, raiseTicketBody, commentOf, fieldStaffOf, quotationOf, addDocumentBody,
   quotationCommands, RESOURCES, resourceOf, resourceBody, isUuid, bookingOf, busyOf, bookBody, bookingCommand, gatePassOf, gateVisitOf, gateApprovalOf, gateFlagOf, gateScanOf,
-  passBody, ledgerOf, ledgerBody, bookedByServer, releaseOf, releaseCommands, payRequestOf, bankTxnOf, donationOf, donationBody, expenseOf, expenseBody, expenseCommands, fileMeta, fileRowOf, dataUrlBytes, bytesDataUrl, documentOf, documentBody, notificationOf, broadcastOf, broadcastDraft, broadcastCommands, pollVoteRows, topicOf, postOf, meetingOf, meetingBody, ballotOf, ballotBody, voteMarksOf, boxRowOf, voteUnit, contactOf, contactBody, reviewOf, attendanceOf, teamOf } from './v2map.js';
+  passBody, ledgerOf, ledgerBody, bookedByServer, releaseOf, releaseCommands, payRequestOf, bankTxnOf, donationOf, donationBody, expenseOf, expenseBody, expenseCommands, fileMeta, fileRowOf, dataUrlBytes, bytesDataUrl, documentOf, documentBody, notificationOf, broadcastOf, broadcastDraft, broadcastCommands, pollVoteRows, topicOf, postOf, meetingOf, meetingBody, ballotOf, ballotBody, voteMarksOf, boxRowOf, voteUnit, contactOf, contactBody, reviewOf, attendanceOf, teamOf, auditOf, auditFilterOf } from './v2map.js';
 import { getAuthUser } from '../../auth/session.js';
 import { getPrincipal } from '../../security/principal.js';
 
@@ -37,7 +37,7 @@ const GATE_DESK = ['gatePasses', 'gateVisits', 'gateApprovals', 'gateFlags', 'ga
 const DOCS = ['files', 'documents', 'culturalDonations', 'culturalExpenses', 'ledger', 'releases', 'payRequests', 'bankTxns'];
 const COMMS = ['notifications', 'broadcasts', 'pollVotes', 'forum', 'forumPosts'];
 const GOVERNANCE = ['meetings', 'ballots', 'voteRoll', 'ballotBox', 'serviceContacts', 'contactReviews', 'attendance', 'workforce'];
-export const V2_COLLECTIONS = ['properties', 'users', 'dues', 'roles', 'tickets', 'ticketComments', 'handymen', 'quotations', 'amenities', ...GATE_DESK, ...COMMS, ...DOCS, ...GOVERNANCE, ...Object.keys(RESOURCES)];
+export const V2_COLLECTIONS = ['properties', 'users', 'audit', 'dues', 'roles', 'tickets', 'ticketComments', 'handymen', 'quotations', 'amenities', ...GATE_DESK, ...COMMS, ...DOCS, ...GOVERNANCE, ...Object.keys(RESOURCES)];
 export const LOCAL_COLLECTIONS = ['schema', 'communityConfig', 'roleGroups'];
 
 export class NotOnV2Error extends Error { constructor(collection) { super(`"${collection}" is not on the v2 back end yet - this screen works with the Browser session or the v1 back end.`); this.name = 'NotOnV2Error'; } }
@@ -52,6 +52,8 @@ async function call(path, init = {}) {
     if (res.status === 409 || res.status === 412) throw new ConflictError(null, msg);
     const e = new Error(msg); e.status = res.status; e.code = body?.code; e.fields = body?.fields; throw e;
   }
+  const cap = res.headers?.get?.('X-List-Truncated');
+  if (cap && typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('communityos:truncated', { detail: { path, cap: Number(cap) } }));   // more rows than were sent
   return res.status === 204 ? null : res.json();
 }
 const json = (method, body, headers = {}) => ({ method, body: JSON.stringify(body), headers });
@@ -250,6 +252,21 @@ readers.files = {
     const res = await apiFetch(`/v1/files/${id}/content`);
     return fileRowOf(f, res.ok ? bytesDataUrl(await res.arrayBuffer(), f.mimeType) : '');
   },
+};
+/** The newest `max` rows of a paged list (a few calls of 200), never the whole of it. */
+async function latest(path, max) {
+  const out = []; const sep = path.includes('?') ? '&' : '?';
+  for (let offset = 0; offset < max; offset += 200) {
+    const p = await call(`${path}${sep}limit=${Math.min(200, max - offset)}&offset=${offset}`);
+    out.push(...p.items);
+    if (out.length >= p.total || !p.items.length) break;
+  }
+  return out;
+}
+// the audit trail: the server's (written by every service), read a page at a time; a whole-list read gets the newest 2,000 only
+readers.audit = {
+  list: async () => { const { noById } = await unitIndex(); return (await latest('/audit', 2000)).map((a) => auditOf(a, noById)); },
+  get: async (id) => (await readers.audit.list()).find((a) => a.id === id) || null,
 };
 readers.documents = { list: async () => (await call('/documents')).map(documentOf), get: async (id) => { if (!isUuid(id)) return null; const d = await call(`/documents/${id}`); return d && documentOf(d); } };
 // cultural: donations (a unit's own, or all for the committee), expenses (the committee and the accounts)
@@ -781,6 +798,10 @@ const PAGED = {
   dues: { path: '/dues', order: ['dueDate:desc'], search: null, filters: { unit: async (v) => ['unit', await unitParam(v)] }, rows: async (items) => items.map((d) => dueOf(d)) },
   // the Maintenance page's own filters, tiles (several statuses / priorities) and orders; "mine", "waiting for me" and "overdue" stay on the
   // whole list for now (they narrow by ids the page works out)
+  audit: { path: '/audit', order: ['when:desc'], search: 'q', dateKey: 'when',
+    filters: { action: (v) => ['action', v], unit: async (v) => ['unit', await unitParam(v)], recordId: (v) => (isUuid(v) ? ['entityId', v] : ['entityId', '__unknown__']),
+      what: (v) => { const f = auditFilterOf(v); return f ? Object.entries(f)[0] : null; } },
+    rows: async (items) => { const { noById } = await unitIndex(); return items.map((a) => auditOf(a, noById)); } },
   tickets: { path: '/tickets', order: ['recordCreatedAt:desc', 'slaDueAt:asc', 'status:asc'], orderParam: { 'recordCreatedAt:desc': 'created', 'slaDueAt:asc': 'sla', 'status:asc': 'status' },
     search: null, files: 'maintenance.ticket', multi: ['status', 'priority'],
     filters: { unit: async (v) => ['unit', await unitParam(v)], status: (v) => (Array.isArray(v) ? ['statusIn', v.join(',')] : ['status', v]), category: (v) => ['category', v],
@@ -792,7 +813,8 @@ async function serverPage(c, params) {
   const spec = PAGED[c];
   if (!spec) return null;
   const { page = 1, pageSize = 50, sort, filters = {}, search = '', dateRange, period } = params;
-  if (pageSize > 200 || dateRange?.from || dateRange?.to || period?.year || period?.month) return null;
+  if (pageSize > 200 || period?.year || period?.month) return null;
+  if ((dateRange?.from || dateRange?.to) && dateRange.key !== spec.dateKey) return null;      // a date range only on the list's own date
   if (sort?.key && !spec.order.includes(`${sort.key}:${sort.dir || 'asc'}`)) return null;
   if (search && !spec.search) return null;
   const q = new URLSearchParams();
@@ -806,6 +828,8 @@ async function serverPage(c, params) {
     q.set(name, value);
   }
   if (search) q.set(spec.search, search);
+  if (dateRange?.from) q.set('from', dateRange.from);
+  if (dateRange?.to) q.set('to', dateRange.to);
   const size = Math.max(1, pageSize); const p = Math.max(1, page);
   if (spec.orderParam) q.set('order', spec.orderParam[sort?.key ? `${sort.key}:${sort.dir || 'asc'}` : spec.order[0]]);
   q.set('limit', String(size)); q.set('offset', String((p - 1) * size));

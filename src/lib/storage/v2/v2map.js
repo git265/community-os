@@ -443,6 +443,34 @@ export function passBody(rec, unitIdByNo) {
   };
 }
 
+// ---- the audit trail ------------------------------------------------------------------------------------------------------------------------
+// The server records the table (`entity`, e.g. maintenance.ticket); the screen shows a section. Labels the trail's filter offers map back to one
+// table or one area, so the filter runs on the server (AUDIT_AREA); "Billing & Finance" spans two areas and is filtered here.
+const AUDIT_ENTITY = { 'maintenance.ticket_comment': 'Ticket Discussion', 'maintenance.task_type': 'Task Types', 'maintenance.quotation': 'Quotations',
+  'maintenance.category_coverage': 'Category Coverage', 'identity.membership': 'Users', 'assets.unit_electricity': 'Utility Readings', 'assets.electricity_bill': 'Utility Readings',
+  'assets.inventory_item': 'Inventory', 'assets.inventory_rule': 'Inventory', 'workforce.attendance_session': 'Attendance', 'cultural.donation': 'Cultural Donations',
+  'billing.payment': 'Payments Cross-check', 'comms.notification_setting': 'Notification Settings', 'comms.notification_pref': 'Notification Settings' };
+const AUDIT_SCHEMA = { maintenance: 'Maintenance', property: 'Properties & Residents', identity: 'Users', billing: 'Billing & Finance', finance: 'Billing & Finance',
+  amenity: 'Amenities', docs: 'Documents', comms: 'Communications', vendor: 'Vendors', assets: 'Utilities & Assets', workforce: 'Workforce', cultural: 'Cultural',
+  gate: 'Security & Visitors', governance: 'Governance', reports: 'Reports', platform: 'Sign-in' };
+export const auditSection = (entity) => AUDIT_ENTITY[entity] || AUDIT_SCHEMA[String(entity || '').split('.')[0]] || entity || '';
+/** A section label -> the server's filter ({ entity } or { area }), or null when it is not one table or one area. */
+export function auditFilterOf(label) {
+  const tables = Object.entries(AUDIT_ENTITY).filter(([, l]) => l === label).map(([e]) => e);
+  if (tables.length === 1) return { entity: tables[0] };
+  if (tables.length > 1) return null;
+  const areas = Object.entries(AUDIT_SCHEMA).filter(([, l]) => l === label).map(([a]) => a);
+  return areas.length === 1 ? { area: areas[0] } : null;
+}
+const words = (f) => String(f || '').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
+export function auditOf(a, noById = {}) {
+  return {
+    id: a.id, when: a.at, who: a.actor, whoName: a.actor, what: auditSection(a.entity), collection: a.entity, action: a.action, recordId: a.entityId || '',
+    recordShortId: a.entityShortId || '', unit: noById[a.unitId] || '', summary: a.summary || '',
+    changes: (Array.isArray(a.changes) ? a.changes : []).map((c) => ({ field: c.field, label: c.label || words(c.field), from: c.from ?? '', to: c.to ?? '' })),
+  };
+}
+
 // ---- notifications, notices, forum ----------------------------------------------------------------------------------------------------------------
 /** An inbox row (always the reader's own): addressed to them by name, so the app's "is it for me" check holds. */
 export function notificationOf(n, myName) {

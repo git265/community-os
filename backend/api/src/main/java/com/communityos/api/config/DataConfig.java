@@ -38,7 +38,7 @@ public class DataConfig {
     @Bean @Primary PlatformTransactionManager transactionManager(DataSource dataSource) { return new DataSourceTransactionManager(dataSource); }
     @Bean @Qualifier("platform") PlatformTransactionManager platformTransactionManager(@Qualifier("platform") DataSource ds) { return new DataSourceTransactionManager(ds); }
 
-    @Bean @Primary NamedParameterJdbcTemplate jdbc(DataSource dataSource) { return new NamedParameterJdbcTemplate(dataSource); }
+    @Bean @Primary NamedParameterJdbcTemplate jdbc(DataSource dataSource) { return new com.communityos.api.shared.jdbc.CappedJdbc(dataSource); }   // notes lists that reach their cap
     @Bean @Qualifier("platform") NamedParameterJdbcTemplate platformJdbc(@Qualifier("platform") DataSource ds) { return new NamedParameterJdbcTemplate(ds); }
 
     @Bean @Primary Tx tx(PlatformTransactionManager tm) { return new SpringTx(tm, 15); }

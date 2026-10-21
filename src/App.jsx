@@ -16,6 +16,7 @@ import { membershipsFor, setHandoff } from './lib/platform/registry.js';
 import LoginScreen from './components/LoginScreen.jsx';
 import Modal from './components/Modal.jsx';
 import NotificationBell from './components/NotificationBell.jsx';
+import TruncatedNotice from './components/TruncatedNotice.jsx';
 import GlobalSearch from './components/GlobalSearch.jsx';
 import ClockCard from './components/ClockCard.jsx';
 import { isClockRole } from './lib/attendance.js';
@@ -328,6 +329,7 @@ function Shell() {
             <div className="avatar" onClick={() => setProfileMenuOpen((v) => !v)}>{initials}</div>
           </div>
         </header>
+        <TruncatedNotice />
         {duty.staff && <OnDutyBar duty={duty} />}
         <section className="content">
           {duty.staff && !duty.ready ? null : duty.locked ? <ClockGate onDone={duty.reload} /> : Active && <Suspense fallback={<div className="page-loading" role="status" aria-live="polite">Loading…</div>}><Active key={`${activeId}-${navKey}`} onNavigate={select} /></Suspense>}

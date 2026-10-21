@@ -20,7 +20,8 @@ public final class RequestConnectionFilter implements Filter {
         boolean bound = req.getDispatcherType() == DispatcherType.REQUEST && req instanceof HttpServletRequest h
             && ("GET".equals(h.getMethod()) || "HEAD".equals(h.getMethod())) && !h.getRequestURI().endsWith("/notifications/stream")
             && TenantDataSource.bind();
+        if (bound) com.communityos.api.shared.web.Truncation.begin();      // and a list cut at its cap is reported (X-List-Truncated)
         try { chain.doFilter(req, res); }
-        finally { if (bound) TenantDataSource.release(); }
+        finally { if (bound) { TenantDataSource.release(); com.communityos.api.shared.web.Truncation.end(); } }
     }
 }

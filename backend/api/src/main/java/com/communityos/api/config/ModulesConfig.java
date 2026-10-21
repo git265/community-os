@@ -224,6 +224,8 @@ public class ModulesConfig {
         return new DueService(dues, lookups, lookups, events, audit, tx, clock);
     }
 
+    @Bean com.communityos.api.auditlog.AuditLog auditLog(NamedParameterJdbcTemplate jdbc, ObjectMapper json) { return new com.communityos.api.auditlog.AuditLog(jdbc, json); }
+
     // ---- push: the live stream to open apps, Web Push to closed ones ------------------------------------------------------------------------------
     @Bean com.communityos.api.comms.adapter.LiveHub liveHub(@org.springframework.beans.factory.annotation.Qualifier("platform") NamedParameterJdbcTemplate platformJdbc, Clock clock) {
         return new com.communityos.api.comms.adapter.LiveHub(platformJdbc, clock);

@@ -327,6 +327,12 @@ globalThis.fetch = async (url, init = {}) => {
     r.version++; return ok({ id: r.id, list: r.volunteers });
   }
   // ---- comms
+  if (path === '/audit') {
+    const rows = [{ id: 'au-2', at: '2026-10-20T07:00:00Z', actor: 'Tia (Treasurer)', action: 'Update', entity: 'billing.due', entityId: 'd1', entityShortId: 'BIL-1', unitId: A, summary: 'Bill changed', changes: [{ field: 'dueDate', from: '2026-10-15', to: '2026-10-20' }] },
+      { id: 'au-1', at: '2026-10-20T06:00:00Z', actor: 'Asha', action: 'Create', entity: 'maintenance.ticket_comment', entityId: null, entityShortId: null, unitId: null, summary: 'Comment', changes: [] }];
+    const lim = Number(u.searchParams.get('limit') || 50); const off = Number(u.searchParams.get('offset') || 0);
+    return ok({ items: rows.slice(off, off + lim), total: rows.length, limit: lim, offset: off });
+  }
   if (path === '/notifications') return ok(state.notes);
   if (path === '/notifications/stream') {                       // the live stream: ready, a ping, one notification split across two chunks, then the server ends it
     const enc = new TextEncoder(); const n = JSON.stringify({ id: 'live-1', createdAt: '2026-10-21T06:00:00Z', event: 'bill', kind: 'bill', title: 'New bill · ₹75', body: 'Due soon', link: '#/billing', refId: null });
@@ -986,4 +992,39 @@ test('push: the server pushes each new notification to the open app over one liv
   assert.ok(opened.length >= 2, 'opened again after the server ended it'); assert.equal(opened[0].headers.Authorization, 'Bearer tok-1');
   assert.equal(seen[0].id, 'live-1'); assert.equal(seen[0].title, 'New bill · ₹75'); assert.equal(seen[0].link, '#/billing'); assert.equal(seen[0].read, false);
   assert.equal(seen.filter((n) => n.id === 'live-1').length >= 1, true);
+});
+
+test('audit trail: read from the server a page at a time, with its filters and dates; a section is mapped to its table or area', async () => {
+  const n = calls.length;
+  const r = await storage.query('audit', { page: 2, pageSize: 25, sort: { key: 'when', dir: 'desc' }, search: 'bill', dateRange: { key: 'when', from: '2026-10-01', to: '2026-10-20' },
+    filters: { action: 'Update', what: 'Ticket Discussion', unit: 'Villa 101' } });
+  const q = new URL(`http://x${calls.slice(n).find((c) => /^\/audit\?/.test(c.path)).path}`).searchParams;
+  assert.equal(q.get('action'), 'Update'); assert.equal(q.get('entity'), 'maintenance.ticket_comment'); assert.equal(q.get('unit'), A); assert.equal(q.get('q'), 'bill');
+  assert.equal(q.get('from'), '2026-10-01'); assert.equal(q.get('to'), '2026-10-20'); assert.equal(q.get('offset'), '25'); assert.equal(q.get('limit'), '25');
+  assert.equal(r.total, 2);
+  const m = calls.length;
+  await storage.query('audit', { page: 1, pageSize: 25, filters: { what: 'Maintenance' } });
+  assert.equal(new URL(`http://x${calls.slice(m).find((c) => /^\/audit\?/.test(c.path)).path}`).searchParams.get('area'), 'maintenance');
+  const k = calls.length;
+  const all = await storage.query('audit', { page: 1, pageSize: 25, sort: { key: 'when', dir: 'desc' }, filters: { what: 'Billing & Finance' } });
+  assert.ok(calls.slice(k).some((c) => c.path === '/audit?limit=200&offset=0'), 'two areas: the newest rows, filtered here');
+  assert.deepEqual(all.rows.map((x) => x.id), ['au-2']);
+  assert.equal(all.rows[0].what, 'Billing & Finance'); assert.equal(all.rows[0].unit, 'Villa 101'); assert.equal(all.rows[0].changes[0].label, 'Due Date');
+});
+
+test('cache: reference lists are kept for a short while on the back end; any write drops them; moving records are always read again', async () => {
+  const count = (re) => calls.filter((c) => c.method === 'GET' && re.test(c.path)).length;
+  await storage.list('users');
+  const a = count(/^\/members/);
+  await storage.list('users'); await storage.list('users');
+  assert.equal(count(/^\/members/), a, 'kept: no second call');
+  const t = count(/^\/tickets/);
+  await storage.list('tickets'); await storage.list('tickets');
+  assert.equal(count(/^\/tickets/), t + 2, 'tickets are never kept');
+  const [u] = await storage.list('users');
+  u.name = 'changed in my copy';
+  assert.notEqual((await storage.list('users'))[0].name, 'changed in my copy', 'each caller gets its own copy');
+  await storage.put('properties', { ...(await storage.list('properties'))[0] }).catch(() => {});
+  await storage.list('users');
+  assert.equal(count(/^\/members/), a + 1, 'a write drops what was kept');
 });

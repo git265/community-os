@@ -56,7 +56,7 @@ public class SecurityConfig {
         c.setAllowedOrigins(origins == null ? List.of() : origins);
         c.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE"));
         c.setAllowedHeaders(List.of("Authorization", "Content-Type", "Idempotency-Key", "If-Match", "X-Request-Id"));
-        c.setExposedHeaders(List.of("ETag", "Retry-After", "X-Request-Id"));
+        c.setExposedHeaders(List.of("ETag", "Retry-After", "X-Request-Id", "X-List-Truncated"));
         c.setAllowCredentials(true);                               // the refresh cookie
         c.setMaxAge(3600L);
         UrlBasedCorsConfigurationSource s = new UrlBasedCorsConfigurationSource();

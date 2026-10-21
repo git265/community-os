@@ -6,6 +6,8 @@ Git tag `baseline-r76`. This is the reference version: later changes are compare
 - **One back end: `backend/api`** (Spring Boot 3.5, Java 25, PostgreSQL 18, `/api/v1`). The Node reference server (`backend/contract-server`), the
   r76 Spring service (`backend/spring`) and their schemas (`backend/db`, `backend/platform`) were retired; they remain at tag `baseline-r76` (commit 9ef79c0).
 - **Two data sources in the app:** Session (browser demo) and Back end (v2). The "old API" mode, its adapter and the browser→server copy are gone.
+- On the back end the app keeps reference lists for 30 s (dropped by any write or pushed change); records that move are always read fresh.
+  Not-paged lists that hit their cap say so (`X-List-Truncated`). See docs/REDESIGN.md section 7.
 - The r76 description below is kept as the record of that baseline.
 
 ## What is in it (r76)

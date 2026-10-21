@@ -1251,6 +1251,22 @@ class PostgresFlowTest {
             var nySummary = new com.communityos.api.summary.SummaryService(app, cclock);
             assertEquals(0, as(nyJob, () -> nySummary.tickets(nyJob)).total(), "the services take the zone from the clock");
 
+            // ---- 12. the audit trail, a page at a time, newest first; only the office reads it ----------------------------------------------------------
+            var trail = new com.communityos.api.auditlog.AuditLog(app, json);
+            var none = new com.communityos.api.auditlog.AuditLog.Filter(null, null, null, null, null, null, null, null);
+            var page1 = as(admin, () -> trail.list(admin, none, PageQuery.of(20, 0)));
+            assertEquals(20, page1.items().size()); assertTrue(page1.total() > 20, "more than a page: " + page1.total());
+            for (int k = 1; k < page1.items().size(); k++) assertFalse(page1.items().get(k).at().isAfter(page1.items().get(k - 1).at()), "newest first");
+            var page2 = as(admin, () -> trail.list(admin, none, PageQuery.of(20, 20)));
+            assertTrue(java.util.Collections.disjoint(page1.items().stream().map(com.communityos.api.auditlog.AuditLog.Entry::id).toList(), page2.items().stream().map(com.communityos.api.auditlog.AuditLog.Entry::id).toList()));
+            var billsOnly = as(admin, () -> trail.list(admin, new com.communityos.api.auditlog.AuditLog.Filter(null, "billing", null, null, null, null, null, null), PageQuery.of(200, 0)));
+            assertTrue(billsOnly.total() > 0 && billsOnly.items().stream().allMatch((e) -> e.entity().startsWith("billing.")), "one area");
+            var unitTrail = as(admin, () -> trail.list(admin, new com.communityos.api.auditlog.AuditLog.Filter(null, null, null, null, unitA, today, today, null), PageQuery.of(200, 0)));
+            assertTrue(unitTrail.total() > 0 && unitTrail.items().stream().allMatch((e) -> unitA.equals(e.unitId())), "one unit, today");
+            assertEquals(0, as(admin, () -> trail.list(admin, new com.communityos.api.auditlog.AuditLog.Filter(null, null, null, null, null, today.plusDays(1), today.plusDays(2), null), PageQuery.of(20, 0))).total(), "nothing tomorrow");
+            assertThrows(AccessDenied.class, () -> as(ownerC, () -> trail.list(ownerC, none, PageQuery.of(20, 0))));
+            assertTrue(as(demoAdmin, () -> trail.list(demoAdmin, none, PageQuery.of(200, 0))).items().stream().noneMatch((e) -> page1.items().stream().anyMatch((x) -> x.id().equals(e.id()))), "another community's trail is its own");
+
             System.out.println("flow: " + (app.statements + platform.statements) + " statements through cos_app / cos_platform");
         }
     }
