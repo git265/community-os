@@ -323,6 +323,18 @@ DO $$ DECLARE i uuid; e uuid; BEGIN
   PERFORM test.expect_error($q$INSERT INTO assets.dg_fuel_log (community_id, date, litres) VALUES ('00000000-0000-0000-0000-00000000000a', current_date, 0)$q$, '23514');
   PERFORM test.pass('assets: one asset per name, a condition from the list, stock never below zero and its movements kept, one plant log a day, meters forward, a paid bill has a date');
 END $$;
+DO $$ BEGIN
+  PERFORM set_config('app.community_id', '00000000-0000-0000-0000-00000000000a', true);
+  IF (SELECT count(*) FROM workforce.attendance_setting) <> 1 THEN RAISE EXCEPTION 'one attendance setting per community'; END IF;
+  INSERT INTO workforce.attendance_session (community_id, member_id, date, clock_in) VALUES ('00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-0000000000e1', current_date, now() - interval '1 hour');
+  PERFORM test.expect_error($q$INSERT INTO workforce.attendance_session (community_id, member_id, date, clock_in) VALUES ('00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-0000000000e1', current_date, now())$q$, '23505');
+  PERFORM test.expect_error($q$UPDATE workforce.attendance_session SET clock_out = clock_in - interval '1 minute', hours = 0 WHERE member_id = '00000000-0000-0000-0000-0000000000e1'$q$, '23514');
+  PERFORM test.expect_error($q$UPDATE workforce.attendance_session SET clock_out = now() WHERE member_id = '00000000-0000-0000-0000-0000000000e1'$q$, '23514');
+  PERFORM test.expect_error($q$UPDATE workforce.attendance_session SET source = 'Supervisor' WHERE member_id = '00000000-0000-0000-0000-0000000000e1'$q$, '23514');
+  PERFORM test.expect_error($q$UPDATE workforce.attendance_setting SET enforcement = 'Require location inside the site', site_lat = NULL$q$, '23514');
+  PERFORM test.expect_error($q$INSERT INTO workforce.site_holiday (community_id, date, name, trash) VALUES ('00000000-0000-0000-0000-00000000000a', current_date, 'Diwali', 'Rescheduled')$q$, '23514');
+  PERFORM test.pass('workforce: one setting, one open session a member, clock-out after clock-in with its hours, a correction has its supervisor and reason, a rescheduled pickup has its day');
+END $$;
 RESET ROLE;
 
 SELECT format('%s schema tests passed', count(*)) AS result FROM test.result WHERE ok;

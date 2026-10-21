@@ -31,6 +31,7 @@ public class ResourcesConfig {
         out.addAll(com.communityos.api.cultural.CulturalResources.all());
         out.addAll(com.communityos.api.vendor.VendorResources.all());
         out.addAll(com.communityos.api.assets.AssetResources.all());
+        out.addAll(com.communityos.api.workforce.WorkforceResources.all());
         return out;
     }
 

@@ -916,6 +916,38 @@ class PostgresFlowTest {
             assertThrows(RuntimeException.class, () -> as(admin, () -> kit.create(admin, com.communityos.api.assets.AssetResources.UNIT_ELECTRICITY, ueRepo, new com.communityos.api.assets.AssetResources.UnitElectricityFields(unitA,
                 "2026-09", null, null, null, null, null, null, null, null))), "one row per unit and month");
 
+            // ---- 6n. workforce: the site's setting through the kit, clock in and out at the server's time, one open session, a correction, planned shifts ----
+            var attSvc = new com.communityos.api.workforce.application.AttendanceService(new com.communityos.api.workforce.adapter.JdbcAttendanceStore(app, json), audit, app, clock, ZoneId.of("Asia/Kolkata"));
+            var wsRepo = new com.communityos.api.shared.resource.JdbcResourceRepository<>(com.communityos.api.workforce.WorkforceResources.SETTINGS.table(), app, json);
+            var shRepo = new com.communityos.api.shared.resource.JdbcResourceRepository<>(com.communityos.api.workforce.WorkforceResources.SHIFTS.table(), app, json);
+            var site = as(admin, () -> kit.list(admin, com.communityos.api.workforce.WorkforceResources.SETTINGS, wsRepo)).get(0);
+            assertEquals("Record only (flag exceptions)", site.data().enforcement(), "every community starts with one");
+            var siteNow = as(admin, () -> kit.replace(admin, com.communityos.api.workforce.WorkforceResources.SETTINGS, wsRepo, site.id(), site.version(),
+                new com.communityos.api.workforce.WorkforceResources.SettingFields("Main gate", new java.math.BigDecimal("12.9716"), new java.math.BigDecimal("77.5946"), 300, "Require location inside the site", 15,
+                    Map.of("Morning", "06:00", "General", "09:00"), new java.math.BigDecimal("12"))));
+            assertEquals("Require location inside the site", siteNow.data().enforcement());
+            assertThrows(RuntimeException.class, () -> as(admin, () -> kit.create(admin, com.communityos.api.workforce.WorkforceResources.SETTINGS, wsRepo, siteNow.data())), "one setting per community");
+            as(admin, () -> kit.create(admin, com.communityos.api.workforce.WorkforceResources.SHIFTS, shRepo, new com.communityos.api.workforce.WorkforceResources.ShiftFields(fs.id(), today, "General", null)));
+            assertThrows(RuntimeException.class, () -> as(admin, () -> kit.create(admin, com.communityos.api.workforce.WorkforceResources.SHIFTS, shRepo,
+                new com.communityos.api.workforce.WorkforceResources.ShiftFields(fs.id(), today, "Morning", null))), "one planned shift a day");
+            assertEquals("outside-site", assertThrows(DomainException.RuleViolated.class, () -> as(plumberC, () -> attSvc.clockIn(plumberC,
+                new com.communityos.api.workforce.application.AttendanceService.Position(new java.math.BigDecimal("13.2"), new java.math.BigDecimal("77.5946"), null), null, null))).code());
+            var punch = as(plumberC, () -> attSvc.clockIn(plumberC, new com.communityos.api.workforce.application.AttendanceService.Position(new java.math.BigDecimal("12.9718"), new java.math.BigDecimal("77.5947"),
+                new java.math.BigDecimal("8")), null, "at the gate"));
+            assertEquals("General", punch.shiftType, "the planned shift"); assertEquals("Inside site", punch.in.site());
+            assertEquals("t", owner.sql("SELECT clocked_in::text AS c FROM maintenance.field_staff WHERE membership_id = '" + plumberMember + "'").get(0).get("c").toString().substring(0, 1), "on duty");
+            assertThrows(RuntimeException.class, () -> owner.sql("INSERT INTO workforce.attendance_session (community_id, member_id, date, clock_in) VALUES ('" + cid + "', '" + plumberMember + "', current_date, now()) RETURNING 1"),
+                "one open session a member (the database)");
+            var punched = as(plumberC, () -> attSvc.clockOut(plumberC, null, null));
+            assertNotNull(punched.hours);
+            assertEquals("f", owner.sql("SELECT clocked_in::text AS c FROM maintenance.field_staff WHERE membership_id = '" + plumberMember + "'").get(0).get("c").toString().substring(0, 1), "off duty");
+            var corrected = as(admin, () -> attSvc.correct(admin, punched.id, punched.version, new com.communityos.api.workforce.application.AttendanceService.Correction(
+                punched.clockIn.minusSeconds(1800), punched.clockOut, "Gate tablet was down")));
+            assertEquals("Supervisor", corrected.source); assertTrue(corrected.hours.compareTo(new java.math.BigDecimal("0.49")) > 0);
+            assertEquals(1, as(plumberC, () -> attSvc.list(plumberC, today.minusDays(1), today, null)).size());
+            assertThrows(AccessDenied.class, () -> as(ownerC, () -> attSvc.list(ownerC, null, null, null)));
+            assertTrue(as(admin, () -> attSvc.teams(admin)).stream().anyMatch((t) -> t.total() >= 1));
+
             // ---- 7. audit, outbox ----------------------------------------------------------------------------------------------------------------
             assertTrue(Integer.parseInt((String) owner.sql("SELECT count(*)::text AS n FROM audit.audit_event WHERE community_id = '" + cid + "'").get(0).get("n")) >= 7);
             OutboxRelay relay = new OutboxRelay(new JdbcOutboxStore(platform), new WebhookFanout(platform), 10, clock);

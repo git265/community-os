@@ -20,6 +20,8 @@
 //   ballots, voteRoll, ballotBox  GET /v1/governance/ballots (+ /roll per ballot, /box once closed); a draft is POST / PUT, Open = /open, Closed = /close;
 //               a vote = /code, /code/verify, then /votes (the roll mark and the box row are written together by the server)
 //   serviceContacts, contactReviews  GET /v1/vendors/directory (+ /{id}/reviews), POST / PUT / DELETE; my review = PUT /{id}/review, DELETE /vendors/reviews/{id}
+//   attendance  GET /v1/workforce/attendance (staff: their own); new = clock-in, a clock-out = clock-out (the times are the server's); other changes = a supervisor's correction
+//   workforce   GET /v1/workforce/teams (field staff on duty by trade)
 //   app configuration (schema, communityConfig, roleGroups): kept in this browser until the v2 API has endpoints for them
 //   everything else: not on the v2 API yet - reads answer empty, writes are refused with a clear message (nothing is silently dropped)
 import { apiFetch } from '../../net/request.js';
@@ -27,14 +29,14 @@ import { AuthzError, ConflictError } from '../../security/errors.js';
 import { SessionStorageAdapter } from '../SessionStorageAdapter.js';
 import { propertyOf, unitPatch, userOf, dueOf, raiseBody, roleOf, ticketOf, ticketPatch, raiseTicketBody, commentOf, fieldStaffOf, quotationOf, addDocumentBody,
   quotationCommands, RESOURCES, resourceOf, resourceBody, isUuid, bookingOf, busyOf, bookBody, bookingCommand, gatePassOf, gateVisitOf, gateApprovalOf, gateFlagOf, gateScanOf,
-  passBody, ledgerOf, ledgerBody, bookedByServer, releaseOf, releaseCommands, payRequestOf, bankTxnOf, donationOf, donationBody, expenseOf, expenseBody, expenseCommands, fileMeta, fileRowOf, dataUrlBytes, bytesDataUrl, documentOf, documentBody, notificationOf, broadcastOf, broadcastDraft, broadcastCommands, pollVoteRows, topicOf, postOf, meetingOf, meetingBody, ballotOf, ballotBody, voteMarksOf, boxRowOf, voteUnit, contactOf, contactBody, reviewOf } from './v2map.js';
+  passBody, ledgerOf, ledgerBody, bookedByServer, releaseOf, releaseCommands, payRequestOf, bankTxnOf, donationOf, donationBody, expenseOf, expenseBody, expenseCommands, fileMeta, fileRowOf, dataUrlBytes, bytesDataUrl, documentOf, documentBody, notificationOf, broadcastOf, broadcastDraft, broadcastCommands, pollVoteRows, topicOf, postOf, meetingOf, meetingBody, ballotOf, ballotBody, voteMarksOf, boxRowOf, voteUnit, contactOf, contactBody, reviewOf, attendanceOf, teamOf } from './v2map.js';
 import { getAuthUser } from '../../auth/session.js';
 import { getPrincipal } from '../../security/principal.js';
 
 const GATE_DESK = ['gatePasses', 'gateVisits', 'gateApprovals', 'gateFlags', 'gateScans', 'gatePulse'];
 const DOCS = ['files', 'documents', 'culturalDonations', 'culturalExpenses', 'ledger', 'releases', 'payRequests', 'bankTxns'];
 const COMMS = ['notifications', 'broadcasts', 'pollVotes', 'forum', 'forumPosts'];
-const GOVERNANCE = ['meetings', 'ballots', 'voteRoll', 'ballotBox', 'serviceContacts', 'contactReviews'];
+const GOVERNANCE = ['meetings', 'ballots', 'voteRoll', 'ballotBox', 'serviceContacts', 'contactReviews', 'attendance', 'workforce'];
 export const V2_COLLECTIONS = ['properties', 'users', 'dues', 'roles', 'tickets', 'ticketComments', 'handymen', 'quotations', 'amenities', ...GATE_DESK, ...COMMS, ...DOCS, ...GOVERNANCE, ...Object.keys(RESOURCES)];
 export const LOCAL_COLLECTIONS = ['schema', 'communityConfig', 'roleGroups'];
 
@@ -203,6 +205,8 @@ export const evote = {
   async request(ballot, unitNo) { const r = await call(`/governance/ballots/${ballot.id}/code`, json('POST', { unitId: voteUnit(ballot, unitNo) })); return { code: r.code || '', phoneLast4: r.phoneLast4 || '' }; },
   async verify(ballot, unitNo, code) { return (await call(`/governance/ballots/${ballot.id}/code/verify`, json('POST', { unitId: voteUnit(ballot, unitNo), code: String(code || '').trim() }))).proof; },
 };
+readers.attendance = { list: async () => (await call('/workforce/attendance')).map(attendanceOf) }; readers.attendance.get = byId(readers.attendance.list);
+readers.workforce = { list: async () => (await call('/workforce/teams')).map(teamOf) }; readers.workforce.get = byId(readers.workforce.list);
 readers.files = {
   list: async () => (await call('/files?ownerType=upload')).map((f) => fileRowOf(f)),
   get: async (id) => {
@@ -517,6 +521,17 @@ async function putConditionLog(rec) {
     ticketId: isUuid(rec.ticketId) ? rec.ticketId : null }));
   return { id: e.id, shortId: e.shortId, assetId: e.assetId, assetName: e.assetName, date: e.date, condition: e.condition, source: e.source || '', note: e.note || '', ticketId: e.ticketId || '', by: rec.by || '' };
 }
+/** Clocking in and out is done by the server at its own time; only a supervisor's correction sets times. */
+async function putAttendance(rec) {
+  const before = isUuid(rec.id) ? await readers.attendance.get(rec.id) : null;
+  const pos = (p) => ({ lat: n2v(rec[`${p}Lat`]), lng: n2v(rec[`${p}Lng`]), acc: n2v(rec[`${p}Acc`]) });
+  if (!before) return attendanceOf(await call('/workforce/attendance/clock-in', json('POST', { ...pos('in'), shiftType: rec.shiftType || null, note: rec.note || null })));
+  if (!before.clockOut && rec.clockOut && rec.source !== 'Supervisor' && (!rec.clockIn || rec.clockIn === before.clockIn)) {
+    return attendanceOf(await call('/workforce/attendance/clock-out', json('POST', { ...pos('out'), note: rec.note && rec.note !== before.note ? rec.note : null })));
+  }
+  if (rec.clockIn === before.clockIn && (rec.clockOut || '') === (before.clockOut || '')) return before;
+  return attendanceOf(await call(`/workforce/attendance/${rec.id}`, json('PUT', { clockIn: rec.clockIn, clockOut: rec.clockOut || null, reason: rec.correctionNote || rec.note || '' }, ifMatch(before.version))));
+}
 async function putMeeting(rec) {
   const before = isUuid(rec.id) ? await readers.meetings.get(rec.id) : null;
   const body = meetingBody({ ...(before || {}), ...rec });
@@ -701,7 +716,7 @@ async function putBooking(rec) {
   return bookingOf(await call(`/amenities/bookings/${encodeURIComponent(rec.id)}/${cmd.path}`, json('POST', cmd.body, ifMatch(before.version))));
 }
 
-const WRITERS = { inventory: putInventory, infraLog: putConditionLog, serviceContacts: putContact, contactReviews: putReview, meetings: putMeeting, ballots: putBallot, voteRoll: putVoteMark, ballotBox: putBoxRow, ledger: putLedger, releases: putRelease, payRequests: putPayRequest, bankTxns: putBankTxn, culturalDonations: putDonation, culturalExpenses: putExpense, culturalOfferings: putOffering, culturalEvents: putEvent, culturalPhotos: putPhoto, culturalSevas: signing('culturalSevas', 'seva', 'volunteers'), culturalPrograms: signing('culturalPrograms', 'programme', 'participants'), files: putFile, documents: putDocument, notificationOutbox: async (r) => r /* the server queues channel messages itself, from the event */, notifications: putNotification, broadcasts: putBroadcast, pollVotes: putPollVote, forum: putTopic, forumPosts: putPost, gatePasses: putPass, gateApprovals: putApproval, gateFlags: putFlag, gateVisits: deskOnly, gateScans: deskOnly, gatePulse: async (r) => r, amenities: putBooking, properties: putProperty, users: putUser, dues: putDue, tickets: putTicket, ticketComments: putComment, handymen: putFieldStaff, quotations: putQuotation };
+const WRITERS = { attendance: putAttendance, workforce: async () => { throw new Error('Teams are worked out from field staff.'); }, inventory: putInventory, infraLog: putConditionLog, serviceContacts: putContact, contactReviews: putReview, meetings: putMeeting, ballots: putBallot, voteRoll: putVoteMark, ballotBox: putBoxRow, ledger: putLedger, releases: putRelease, payRequests: putPayRequest, bankTxns: putBankTxn, culturalDonations: putDonation, culturalExpenses: putExpense, culturalOfferings: putOffering, culturalEvents: putEvent, culturalPhotos: putPhoto, culturalSevas: signing('culturalSevas', 'seva', 'volunteers'), culturalPrograms: signing('culturalPrograms', 'programme', 'participants'), files: putFile, documents: putDocument, notificationOutbox: async (r) => r /* the server queues channel messages itself, from the event */, notifications: putNotification, broadcasts: putBroadcast, pollVotes: putPollVote, forum: putTopic, forumPosts: putPost, gatePasses: putPass, gateApprovals: putApproval, gateFlags: putFlag, gateVisits: deskOnly, gateScans: deskOnly, gatePulse: async (r) => r, amenities: putBooking, properties: putProperty, users: putUser, dues: putDue, tickets: putTicket, ticketComments: putComment, handymen: putFieldStaff, quotations: putQuotation };
 WRITERS.tickets = attaching(WRITERS.tickets, 'maintenance.ticket', 'attachments');
 WRITERS.ticketComments = attaching(WRITERS.ticketComments, 'maintenance.comment', 'attachments');
 WRITERS.quotations = attaching(WRITERS.quotations, 'maintenance.quotation', 'attachments');
@@ -750,6 +765,7 @@ export const V2ApiAdapter = {
     if (RESOURCES[c]) return removeResource(c, id);
     if (c === 'ledger') throw new Error('A payment is not deleted - reverse it.');
     if (c === 'voteRoll' || c === 'ballotBox') throw new Error('Voting records can never be changed or deleted');
+    if (c === 'attendance') { const a = isUuid(id) ? await readers.attendance.get(id) : null; if (a) await call(`/workforce/attendance/${id}`, { method: 'DELETE', headers: ifMatch(a.version) }); return; }
     if (c === 'contactReviews') { if (isUuid(id)) await call(`/vendors/reviews/${id}`, { method: 'DELETE' }); return; }
     if (c === 'serviceContacts') { const x = isUuid(id) ? await readers.serviceContacts.get(id) : null; if (x) await call(`/vendors/directory/${id}`, { method: 'DELETE', headers: ifMatch(x.version) }); return; }
     if (c === 'meetings' || c === 'ballots') {

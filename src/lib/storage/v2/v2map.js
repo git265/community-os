@@ -255,6 +255,11 @@ export const RESOURCES = {
   infraLayers: { path: 'assets/map-layers' },
   mapVersions: { path: 'assets/map-history' },
   infraLog: { path: 'assets/condition-log' },
+  attendanceSettings: { path: 'workforce/attendance-settings', singleton: true },
+  siteHolidays: { path: 'workforce/holidays' },
+  siteServices: { path: 'workforce/services' },
+  siteCalendar: { path: 'workforce/calendar' },
+  shifts: { path: 'workforce/shifts' },
   numberSections: { path: 'comms/number-sections' },
   mergeFields: { path: 'comms/merge-fields' },
   noticeTemplates: { path: 'comms/notice-templates' },
@@ -657,3 +662,10 @@ export const contactBody = (r) => ({ name: r.name, category: r.category || null,
   registryId: isUuid(r.registryId) ? r.registryId : null, status: r.status || null, hiddenReason: r.hiddenReason || null });
 export const reviewOf = (r) => ({ id: r.id, shortId: r.shortId, contactId: r.contactId, rating: r.rating, comment: r.comment || '', recommend: r.recommend || '', author: r.author || '',
   authorId: r.authorId || '', unit: r.unitNo || '', createdAt: r.createdAt, version: r.version });
+
+// ---- attendance ---------------------------------------------------------------------------------------------------------------------------------
+export const attendanceOf = (a) => ({ id: a.id, shortId: a.shortId, memberId: a.memberId, staffName: a.staffName, roleName: a.roleName || '', date: a.date, clockIn: a.clockIn, clockOut: a.clockOut || '',
+  note: a.note || '', inLat: num(a.in?.lat), inLng: num(a.in?.lng), inAcc: num(a.in?.acc), inSite: a.in?.site || '', inDist: num(a.in?.dist), outLat: num(a.out?.lat), outLng: num(a.out?.lng),
+  outAcc: num(a.out?.acc), outSite: a.out?.site || '', outDist: num(a.out?.dist), hours: num(a.hours) ?? '', source: a.source, shiftType: a.shiftType || '', lateMin: a.lateMin ?? 0,
+  correctionNote: a.correctionNote || '', version: a.version });
+export const teamOf = (t) => ({ id: t.team, team: t.team, onDuty: t.onDuty, total: t.total });

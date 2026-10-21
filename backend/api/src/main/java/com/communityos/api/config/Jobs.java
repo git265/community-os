@@ -20,10 +20,12 @@ public class Jobs {
     private static final Logger log = LoggerFactory.getLogger(Jobs.class);
     private final OutboxRelay outbox; private final WebhookDeliveryWorker webhooks; private final PaymentService payments; private final NamedParameterJdbcTemplate platformJdbc;
     private final com.communityos.api.gate.application.GateService gate; private final com.communityos.api.comms.application.BroadcastService notices;
+    private final com.communityos.api.workforce.application.AttendanceService attendance;
 
     public Jobs(OutboxRelay outbox, WebhookDeliveryWorker webhooks, PaymentService payments, @Qualifier("platform") NamedParameterJdbcTemplate platformJdbc,
-                com.communityos.api.gate.application.GateService gate, com.communityos.api.comms.application.BroadcastService notices) {
-        this.outbox = outbox; this.webhooks = webhooks; this.payments = payments; this.platformJdbc = platformJdbc; this.gate = gate; this.notices = notices;
+                com.communityos.api.gate.application.GateService gate, com.communityos.api.comms.application.BroadcastService notices,
+                com.communityos.api.workforce.application.AttendanceService attendance) {
+        this.outbox = outbox; this.webhooks = webhooks; this.payments = payments; this.platformJdbc = platformJdbc; this.gate = gate; this.notices = notices; this.attendance = attendance;
     }
 
     /** Communities with a notice scheduled for now or earlier. */
@@ -50,6 +52,22 @@ public class Jobs {
                 var system = com.communityos.api.shared.security.SystemCaller.of(new com.communityos.api.shared.domain.Ids.CommunityId(c), "gate sweep");
                 try { com.communityos.api.shared.tenancy.CallerHolder.runAs(system, () -> gate.sweep(system)); }
                 catch (RuntimeException e) { log.warn("gate sweep of {} failed: {}", c, e.toString()); }
+            }
+        });
+    }
+
+    /** Communities with an attendance session open longer than their longest shift. */
+    static final String ATTENDANCE_DUE = """
+        SELECT DISTINCT a.community_id FROM workforce.attendance_session a
+        LEFT JOIN workforce.attendance_setting s ON s.community_id = a.community_id
+        WHERE a.clock_out IS NULL AND a.clock_in < now() - make_interval(mins => CAST(coalesce(s.max_shift_hours, 12) * 60 AS integer))""";
+    @Scheduled(fixedDelayString = "${cos.jobs.attendance-delay:600000}", initialDelay = 90000)
+    public void closeForgottenAttendance() {
+        run("attendance", () -> {
+            for (java.util.UUID c : platformJdbc.query(ATTENDANCE_DUE, Map.of(), (rs, i) -> rs.getObject("community_id", java.util.UUID.class))) {
+                var system = com.communityos.api.shared.security.SystemCaller.of(new com.communityos.api.shared.domain.Ids.CommunityId(c), "attendance");
+                try { com.communityos.api.shared.tenancy.CallerHolder.runAs(system, () -> attendance.closeOverdue(system)); }
+                catch (RuntimeException e) { log.warn("closing attendance of {} failed: {}", c, e.toString()); }
             }
         });
     }

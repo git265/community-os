@@ -397,6 +397,23 @@ globalThis.fetch = async (url, init = {}) => {
     const eq = state.kit['assets/equipment'].find((x) => x.id === body.assetId); eq.status = body.condition; eq.version++;
     return ok({ id: uuid(), shortId: 'ILG-1', ...body, assetName: eq.name }, 201);
   }
+  // ---- attendance
+  state.sessions ||= [];
+  if (path === '/workforce/attendance' && method === 'GET') return ok(state.sessions);
+  if (path === '/workforce/attendance/clock-in') {
+    if (state.sessions.some((x) => !x.clockOut)) return problem(422, 'already-in', 'You are clocked in');
+    const x = { id: uuid(), shortId: 'ATT-1', memberId: 'm1', staffName: 'Ravi Plumber', date: '2026-10-20', clockIn: '2026-10-20T03:50:00Z', clockOut: null, in: { lat: body.lat, lng: body.lng, site: body.lat ? 'Inside site' : 'No location' }, out: {}, hours: null, source: 'Self', shiftType: body.shiftType || 'General', lateMin: 5, version: 1 };
+    state.sessions.push(x); return ok(x, 201);
+  }
+  if (path === '/workforce/attendance/clock-out') { const x = state.sessions.find((y) => !y.clockOut); x.clockOut = '2026-10-20T12:05:00Z'; x.hours = '8.25'; x.version++; return ok(x); }
+  if ((m = /^\/workforce\/attendance\/([^/]+)$/.exec(path))) {
+    const x = state.sessions.find((y) => y.id === m[1]);
+    if (h['If-Match'] !== `"${x.version}"`) return problem(409, 'conflict', 'changed');
+    if (method === 'DELETE') { state.sessions = state.sessions.filter((y) => y !== x); return ok(null, 204); }
+    if (!body.reason) return problem(422, 'reason-required', 'Say why');
+    Object.assign(x, { clockIn: body.clockIn, clockOut: body.clockOut, source: 'Supervisor', correctionNote: body.reason, hours: '8.75' }); x.version++; return ok(x);
+  }
+  if (path === '/workforce/teams') return ok([{ team: 'Plumbing', onDuty: 1, total: 2 }]);
   // ---- the service directory
   state.contacts ||= []; state.reviews ||= [];
   if (path === '/vendors/directory' && method === 'GET') return ok(state.contacts);
@@ -802,5 +819,19 @@ test('assets: specs stay JSON text in the app; a quantity change is a stock move
   assert.equal(entry.assetName, 'STP pump A');
   assert.equal((await storage.get('equipment', eq.id)).status, 'Needs attention');
   await assert.rejects(storage.remove('infraLog', entry.id), /kept as written/);
+});
+
+test('attendance: a new row is a clock-in, a clock-out is the server\'s; other time changes are a supervisor\'s correction with a reason; teams are worked out', async () => {
+  const a = await storage.put('attendance', { staffName: 'Ravi Plumber', date: '2026-10-20', clockIn: '2020-01-01T00:00:00Z', clockOut: '', source: 'Self', inLat: 12.97, inLng: 77.59, inAcc: 8, inSite: 'Outside site', lateMin: 0 });
+  assert.deepEqual(last('POST', /clock-in$/).body, { lat: 12.97, lng: 77.59, acc: 8, shiftType: null, note: null }, 'no time, no site, no lateness from the app');
+  assert.equal(a.clockIn, '2026-10-20T03:50:00Z'); assert.equal(a.lateMin, 5); assert.equal(a.inSite, 'Inside site');
+  const out = await storage.put('attendance', { ...a, clockOut: '2026-10-20T11:00:00Z', hours: 99, outLat: null });
+  assert.equal(last('POST', /clock-out$/).path, '/workforce/attendance/clock-out'); assert.equal(out.hours, 8.25, 'the server works out the hours');
+  await assert.rejects(storage.put('attendance', { ...out, clockIn: '2026-10-20T03:20:00Z' }), /Say why/);
+  const fixed = await storage.put('attendance', { ...out, clockIn: '2026-10-20T03:20:00Z', correctionNote: 'Gate tablet down' });
+  assert.equal(fixed.source, 'Supervisor'); assert.equal(last('PUT', /\/workforce\/attendance\//).headers['If-Match'], `"${out.version}"`);
+  assert.deepEqual(await storage.list('workforce'), [{ id: 'Plumbing', team: 'Plumbing', onDuty: 1, total: 2 }]);
+  await storage.remove('attendance', fixed.id);
+  assert.equal((await storage.list('attendance')).length, 0);
 });
 
