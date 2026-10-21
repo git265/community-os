@@ -44,8 +44,8 @@ export function DataSourcePanel({ onClose }) {
     <Modal title="Data source" subtitle="Where this app reads and writes its data. Switching reloads the app." onClose={onClose}>
       <div data-testid="ds-panel">
         <label className="gg-row"><input type="radio" name="ds" data-testid="ds-mode-session" checked={mode === 'session'} onChange={() => setMode('session')} style={{ width: 'auto' }} /> <span><b>Browser session</b> <span className="muted">· demo data in this tab, nothing to install, resets when the tab closes</span></span></label>
-        <label className="gg-row"><input type="radio" name="ds" data-testid="ds-mode-api" checked={mode === 'api'} onChange={() => setMode('api')} style={{ width: 'auto' }} /> <span><b>Back end</b> <span className="muted">· Spring Boot + PostgreSQL, data survives reloads and is shared</span></span></label>
-        <label className="gg-row"><input type="radio" name="ds" data-testid="ds-mode-v2" checked={mode === 'v2'} onChange={() => setMode('v2')} style={{ width: 'auto' }} /> <span><b>Back end v2</b> <span className="muted">· the typed API (units, members, bills, payments so far)</span></span></label>
+        <label className="gg-row"><input type="radio" name="ds" data-testid="ds-mode-api" checked={mode === 'api'} onChange={() => setMode('api')} style={{ width: 'auto' }} /> <span><b>Back end (old API)</b> <span className="muted">· the earlier /api contract (backend/contract-server); not the Spring Boot API in backend/api</span></span></label>
+        <label className="gg-row"><input type="radio" name="ds" data-testid="ds-mode-v2" checked={mode === 'v2'} onChange={() => setMode('v2')} style={{ width: 'auto' }} /> <span><b>Back end v2</b> <span className="muted">· Spring Boot + PostgreSQL (backend/api, /api/v1): every module, demo sign-in in dev</span></span></label>
         <div className="form-grid" style={{ marginTop: 10, opacity: mode !== 'session' ? 1 : 0.6 }}>
           <div className="field"><label>Back end address</label><input data-testid="ds-url" value={url} onChange={(e) => { setUrl(e.target.value); setHealth(null); }} placeholder="/api or https://api.example.com/api" /></div>
           <div className="field"><label>Access key (optional)</label><input data-testid="ds-token" type="password" value={token} onChange={(e) => { setToken(e.target.value); setHealth(null); }} placeholder="only if the server asks for one" autoComplete="off" /></div>
@@ -89,7 +89,7 @@ export default function DataSourceChip() {
   return (
     <>
       <button type="button" data-testid="ds-chip" className={`ds-chip${api ? ' on' : ''}`} onClick={() => setOpen(true)} title="Where the data lives">
-        {api ? (getDataSource().mode === 'v2' ? '● Back end v2' : '● Back end') : '○ Browser demo'}
+        {api ? (getDataSource().mode === 'v2' ? '● Back end v2' : '● Back end (old API)') : '○ Browser demo'}
       </button>
       {open && <DataSourcePanel onClose={() => setOpen(false)} />}
     </>
