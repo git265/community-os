@@ -27,7 +27,7 @@ public final class DirectoryService {
     static void member(Caller c) { if (!VendorPolicy.member(c)) throw new AccessDenied("Members only"); }
     /** The unit a resident speaks for (their first unit); staff speak for themselves. */
     static UUID unitOf(Caller c) {
-        if (!c.isResident() || c.units().isEmpty()) return null;
+        if (!c.hasHome()) return null;
         return c.units().stream().map((u) -> u.value()).min(Comparator.comparing(UUID::toString)).orElseThrow();
     }
 

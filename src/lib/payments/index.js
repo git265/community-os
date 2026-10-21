@@ -11,6 +11,7 @@ import { getCommunityConfig } from '../locale.js';
 import { settleDues } from '../finance/settle.js';
 import { notify } from '../notify.js';
 import { dmy } from '../finance/rules.js';
+import { COLLECTIONS } from '../storage/StorageAdapter.js';
 
 const gateways = {}; const settlers = {};
 export const registerGateway = (g) => { gateways[g.id] = g; return g; };
@@ -55,7 +56,14 @@ export async function receiveWebhook(gw, raw, signature) {
  * Start a payment. `ui(order, gateway)` shows the provider's checkout and resolves { outcome, method } (or { outcome: null } if the payer closed it).
  * Resolves { status: 'Paid'|'Failed'|'Pending'|'Cancelled', order, paymentId, message }.
  */
+// What a payment changes, by its purpose: the screens showing these lists reload when it is paid (or is being confirmed).
+const CHANGES = { due: [COLLECTIONS.DUES, COLLECTIONS.LEDGER], booking: [COLLECTIONS.AMENITIES, COLLECTIONS.LEDGER], donation: [COLLECTIONS.CULTURAL_DONATIONS, COLLECTIONS.LEDGER] };
 export async function pay(req, ui) {
+  const r = await payOnce(req, ui);
+  if (r.status === 'Paid' || r.status === 'Pending') announce(req.purpose);
+  return r;
+}
+async function payOnce(req, ui) {
   const gw = activeGateway();
   let order;
   try { order = await gw.createOrder({ currency: region().currency.code, idempotencyKey: `${req.purpose}:${[...(req.refs || [])].sort().join(',')}:${req.amount}`, ...req }); }
@@ -95,14 +103,17 @@ export const resultOf = (o) => (o.status === 'Paid' ? { status: 'Paid', order: o
 export async function quoteBills(refs, extra = {}) { const g = activeGateway(); return serverDecides() && g.quote ? g.quote({ purpose: 'due', refs, ...extra }).catch(() => null) : null; }   // a back end that prices bills itself
 
 /** Re-reads an order (the "we are checking your payment" screen). */
-export async function checkOrder(orderId) { return resultOf(await activeGateway().getOrder(orderId)); }
+const announce = (purpose) => { if (typeof window !== 'undefined') for (const c of CHANGES[purpose] || [COLLECTIONS.DUES, COLLECTIONS.LEDGER]) window.dispatchEvent(new CustomEvent('communityos:changed', { detail: { collection: c } })); };
+export async function checkOrder(orderId) { const r = resultOf(await activeGateway().getOrder(orderId)); if (r.status === 'Paid') announce(r.order?.purpose); return r; }
 
 /** Simulator only: the bank finally confirms a pending payment. */
 export async function confirmPending(orderId) {
   const gw = activeGateway(); const order = await gw.getOrder(orderId);
   if (!order || !gw.buildWebhook) return { ok: false };
   const ev = await gw.buildWebhook(order, OUTCOME.SUCCESS, order.method);
-  return receiveWebhook(gw, ev.raw, ev.signature);
+  const r = await receiveWebhook(gw, ev.raw, ev.signature);
+  announce(order.purpose);
+  return r;
 }
 
 // ---- settlers: what each kind of payment does once the webhook is verified ----

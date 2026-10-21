@@ -33,6 +33,12 @@ public record Caller(PersonId person, MembershipId membership, CommunityId commu
     public boolean isSuperAdmin() { return roleCodes.contains("super_admin"); }
     public boolean isResident() { return category == Category.Resident; }
     public boolean isCommittee() { return category == Category.EC; }
+    /**
+     * Lives in or owns a unit here. A committee member or staff member who is also an owner does everything for their own unit that any
+     * owner does (pays its bills, books for it, answers its gate, raises its requests, pledges, reviews), on top of their role.
+     */
+    public boolean hasHome() { return category != Category.Vendor && units != null && !units.isEmpty(); }
+    public boolean ownsUnit(UnitId u) { return u != null && units != null && units.contains(u); }
     public boolean isBlockLimited() { return !blocks.isEmpty() && !isSuperAdmin() && !isResident(); }
     /** "Name (Role)" as written in the audit trail at the time. */
     public String label() { return displayName + " (" + String.join(", ", roleCodes) + ")"; }

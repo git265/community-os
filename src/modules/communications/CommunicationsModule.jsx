@@ -161,7 +161,7 @@ export default function CommunicationsModule() {
     await saveBroadcast({ ...b, signedBy: [...names, currentUser.name].join(', ') });
   }
 
-  const isResidentRole = roleId === 'owner' || roleId === 'resident';
+  const isResidentRole = roleId === 'owner' || roleId === 'resident' || !!currentUser?.unit;   // an owner on the committee signs and votes for their unit too
   const reachNote = pickerKind ? `${draft.audienceUnits.length} selected` : draft.audience === 'Selected blocks' ? `${(draft.audienceBlocks || []).length} block(s)` : draft.audience;
 
   return (

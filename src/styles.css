@@ -1749,6 +1749,15 @@ textarea { font-size: var(--ctl-fs); padding: 8px 10px; border-radius: var(--ctl
 /* people stepper on a sign-up */
 .stepper { display: inline-flex; align-items: center; gap: 6px; }
 .stepper button { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--line); background: #fff; font-size: 18px; line-height: 1; }
+.stepper button:disabled { opacity: .4; }
+/* add-on items on a booking: cards in a wrapping grid with a −/+ stepper, instead of a long list of number boxes */
+.addon-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; }
+.addon-card { display: flex; flex-direction: column; gap: 6px; padding: 10px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+.addon-card.on { border-color: var(--accent, #2563eb); box-shadow: 0 0 0 1px var(--accent, #2563eb) inset; }
+.addon-card.out { opacity: .6; }
+.addon-name { display: flex; flex-direction: column; }
+.addon-card .tag { align-self: flex-start; }
+.addon-card .stepper input { width: 48px; text-align: center; }
 
 /* Service notices */
 .svc-banner { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; margin-bottom: 8px; border-radius: 12px; background: #fff4d9; border: 1px solid #f1d58a; color: #5b4300; }

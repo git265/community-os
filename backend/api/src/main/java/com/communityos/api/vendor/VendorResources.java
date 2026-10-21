@@ -11,7 +11,6 @@ import com.communityos.api.shared.security.Caller;
 import com.communityos.api.vendor.application.VendorPolicy;
 import java.time.LocalDate;
 import java.util.List;
-import java.util.Locale;
 import java.util.UUID;
 
 /** The vendor register, what each vendor is signed for, and the internal discussion on a vendor (resource kit). The directory is DirectoryService. */
@@ -19,7 +18,9 @@ public final class VendorResources {
     private VendorResources() {}
     public static final List<String> CATEGORIES = List.of("Facilities Management", "Maintenance", "Security", "Landscaping", "Utilities", "Cleaning", "Lift / AMC", "Audit / inspection agency", "Other");
     static final List<String> CONTRACTS = List.of("Contract", "AMC", "Local / no contract");
-    static final List<String> SERVICES = List.of("Security", "Landscaping", "Housekeeping", "Electrical", "Plumbing", "MEP / plant operation", "Lift", "Pest control", "Pool", "Other");
+    /** The categories a vendor's service lines can be (one line per category, each with its own head count). */
+    static final List<String> SERVICES = List.of("Security", "Landscaping", "Housekeeping", "Cleaning", "Electrical", "Plumbing", "MEP / plant operation", "Lift", "Pest control", "Pool",
+        "Facilities Management", "Maintenance", "Utilities", "Audit / inspection agency", "Other");
     static <F extends Record> Spec<F> readers(Caller c) { return VendorPolicy.reader(c) ? Spec.all() : Spec.none(); }
 
     public record VendorFields(String name, String category, String gstin, String contractType, String service, String contactPhone, String contactEmail, String address,
@@ -27,13 +28,12 @@ public final class VendorResources {
     public static final Resource<VendorFields> VENDORS = new Resource<>(
         new ResourceTable<>("vendors", "vendors/vendors", "vendor.vendor", VendorFields.class, "lower(r.name)")
             .computed("serviceLines", Kind.INT, "(SELECT count(*) FROM vendor.service_line s WHERE s.community_id = r.community_id AND s.vendor_id = r.id)")
-            .computed("signedWorkers", Kind.INT, "(SELECT coalesce(sum(s.signed_workers), 0) FROM vendor.service_line s WHERE s.community_id = r.community_id AND s.vendor_id = r.id)"),
+            .computed("signedWorkers", Kind.INT, "(SELECT coalesce(sum(coalesce(s.signed_workers, 0) + coalesce(s.contractors, 0)), 0) FROM vendor.service_line s WHERE s.community_id = r.community_id AND s.vendor_id = r.id)"),
         new ResourceRules<>() {
             @Override public Spec<VendorFields> readScope(Caller c) { return readers(c); }
             @Override public boolean mayWrite(Caller c) { return VendorPolicy.manager(c); }
             @Override public VendorFields validate(Caller c, VendorFields f, VendorFields old) {
-                String gstin = f.gstin() == null || f.gstin().isBlank() ? null : f.gstin().strip().toUpperCase(Locale.ROOT);
-                Checks.rule(gstin == null || gstin.matches("[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][0-9A-Z]Z[0-9A-Z]"), "bad-gstin", "A GSTIN is 15 characters, like 29ABCDE1234F1Z5");
+                String gstin = com.communityos.api.shared.domain.Gstin.check(f.gstin());   // blank: the vendor is not registered for GST
                 String email = com.communityos.api.shared.domain.Names.email(f.contactEmail());   // stored in lower case
                 Checks.rule(email == null || email.matches("[^@\\s]+@[^@\\s]+\\.[^@\\s]+"), "bad-email", "That e-mail address does not look right");
                 return new VendorFields(Checks.text(Checks.required(f.name(), "Name"), "Name", 200), Checks.oneOf(f.category(), "Category", CATEGORIES), gstin,
@@ -43,7 +43,8 @@ public final class VendorResources {
             @Override public String label(VendorFields f) { return f.name(); }
         });
 
-    public record ServiceLineFields(UUID vendorId, String service, Integer signedWorkers, String shift, String note) {}
+    /** signedWorkers: the vendor's own employees on this line; contractors: the sub-contracted workers they bring. */
+    public record ServiceLineFields(UUID vendorId, String service, Integer signedWorkers, String shift, String note, Integer contractors) {}
     public static final Resource<ServiceLineFields> SERVICE_LINES = new Resource<>(
         new ResourceTable<>("vendorServices", "vendors/service-lines", "vendor.service_line", ServiceLineFields.class, "r.service")
             .computed("vendorName", Kind.TEXT, "(SELECT v.name FROM vendor.vendor v WHERE v.community_id = r.community_id AND v.id = r.vendor_id)").filterBy("vendorId"),
@@ -52,8 +53,8 @@ public final class VendorResources {
             @Override public boolean mayWrite(Caller c) { return VendorPolicy.manager(c); }
             @Override public ServiceLineFields validate(Caller c, ServiceLineFields f, ServiceLineFields old) {
                 Checks.rule(f.vendorId() != null, "vendor-required", "Which vendor?");
-                return new ServiceLineFields(f.vendorId(), Checks.requiredOneOf(f.service(), "Service", SERVICES), Checks.nonNegative(f.signedWorkers(), "Workers"),
-                    Checks.text(f.shift(), "Shift", 80), Checks.text(f.note(), "Note", 500));
+                return new ServiceLineFields(f.vendorId(), Checks.requiredOneOf(f.service(), "Service", SERVICES), Checks.nonNegative(f.signedWorkers(), "Employees"),
+                    Checks.text(f.shift(), "Shift", 80), Checks.text(f.note(), "Note", 500), Checks.nonNegative(f.contractors(), "Contractors"));
             }
             @Override public String label(ServiceLineFields f) { return f.service(); }
         });

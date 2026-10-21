@@ -37,7 +37,7 @@ public final class TicketRules {
         if (c.category() == Caller.Category.Staff && c.roleCodes().stream().noneMatch(STAFF_CREATORS::contains)) return false;
         return switch (tt.creatorScope()) {
             case TaskType.ANYONE -> true;
-            case TaskType.RESIDENT -> c.isResident();
+            case TaskType.RESIDENT -> c.isResident() || c.hasHome();   // an owner on the committee raises their own requests too
             case TaskType.STAFF -> c.category() == Caller.Category.EC || c.category() == Caller.Category.Staff;
             default -> false;
         };
@@ -75,7 +75,7 @@ public final class TicketRules {
 
     static void checkStatus(Caller c, Ticket t, TicketStatus to, Set<String> finalApproverRoles) {
         boolean coord = coordinator(c), ec = c.isSuperAdmin() || c.category() == Caller.Category.EC;
-        boolean owner = raisedIt(c, t) || (c.isResident() && ownsUnit(c, t) && !t.community());
+        boolean owner = raisedIt(c, t) || (c.hasHome() && ownsUnit(c, t) && !t.community());
         switch (to) {
             case IN_PROGRESS, ON_HOLD, COMPLETED -> { if (!(coord || assignedTo(c, t))) throw new AccessDenied("Only the assignee or the Facility Manager can update the work"); }
             case CLOSED -> {

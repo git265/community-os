@@ -80,8 +80,11 @@ export function bookingWindowError(amenity, date, slot, now = new Date()) {
   return '';
 }
 
-export const RESERVATION_MODES = ['Reservation required', 'Walk-in (no reservation)'];
+export const ITEMS_ONLY = 'Items only (no space)';
+export const RESERVATION_MODES = ['Reservation required', 'Walk-in (no reservation)', ITEMS_ONLY];
 export const isWalkIn = (a) => a?.reservation === 'Walk-in (no reservation)';
+/** Chairs, tables, linen and the like hired on their own: no space is held, so any number of units may book the same day until the stock runs out. */
+export const isItemsOnly = (a) => a?.reservation === ITEMS_ONLY;
 /** May this person ignore the booking window and limits for this amenity? (Super Admin always; otherwise the roles the committee named, if they are on the amenities team.) */
 export const canOverrideRules = (amenity, roleId, isStaff) => !!isStaff && (roleId === 'super_admin' || !(amenity?.overrideRoles || []).length || amenity.overrideRoles.includes(roleId));
 

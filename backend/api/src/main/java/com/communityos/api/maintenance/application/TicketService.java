@@ -132,7 +132,7 @@ public final class TicketService {
 
     /** A resident joins (or leaves) someone else's community request with their own unit. */
     public Ticket meToo(Caller c, UUID id, UnitId unit, boolean join) {
-        if (!c.isResident()) throw new AccessDenied("Only residents add their unit to a request");
+        if (!c.hasHome()) throw new AccessDenied("Only residents add their unit to a request");
         UnitId mine = unit != null ? unit : c.units().stream().findFirst().orElseThrow(() -> new AccessDenied("Your account is not linked to a unit yet"));
         if (!c.units().contains(mine)) throw new AccessDenied("You can only add your own unit");
         return tx.inTx(() -> {
@@ -147,7 +147,7 @@ public final class TicketService {
     public Ticket rate(Caller c, UUID id, int rating) {
         return tx.inTx(() -> {
             Ticket t = tickets.findById(id, policy.readScope(c)).orElseThrow(AccessDenied.NotVisible::new);
-            if (!(c.isResident() && (TicketRules.ownsUnit(c, t) || TicketRules.raisedIt(c, t)))) throw new AccessDenied("Only the resident who asked can rate the work");
+            if (!(c.hasHome() && (TicketRules.ownsUnit(c, t) || TicketRules.raisedIt(c, t)))) throw new AccessDenied("Only the resident who asked can rate the work");
             t.rate(rating);
             if (!tickets.save(t)) throw new DomainException.Conflict("Ticket " + t.shortId());
             audit.write(c, AuditWriter.Action.Update, "maintenance.ticket", t.id(), t.shortId(), unitValue(t), "Rated " + t.shortId() + " " + rating + "/5",

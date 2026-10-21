@@ -105,10 +105,10 @@ public final class FinanceResources {
         Checks.nonNegative(f.forecast(), "Forecast"); Checks.nonNegative(f.revised(), "Revised");
         return new BudgetLineFields(f.fy(), f.kind(), Checks.required(f.name(), "Name"), f.forecast(), f.revised(), f.other(), f.heads(), Checks.text(f.notes(), "Notes", 2000));
     }));
-    public record FixedExpenseFields(String name, BigDecimal avg, BigDecimal months, String vendor, String heads, String notes) {}
+    public record FixedExpenseFields(String name, BigDecimal avg, BigDecimal months, String vendor, String heads, String notes, String vendorService) {}
     public static final Resource<FixedExpenseFields> FIXED_EXPENSES = new Resource<>(new ResourceTable<>("fixedExpenses", "finance/fixed-expenses", "finance.fixed_expense", FixedExpenseFields.class, "r.name"), books((c, f) -> {
         Checks.nonNegative(f.avg(), "Monthly amount"); Checks.nonNegative(f.months(), "Months");
-        return new FixedExpenseFields(Checks.required(f.name(), "Name"), f.avg(), f.months(), f.vendor(), f.heads(), Checks.text(f.notes(), "Notes", 2000));
+        return new FixedExpenseFields(Checks.required(f.name(), "Name"), f.avg(), f.months(), f.vendor(), f.heads(), Checks.text(f.notes(), "Notes", 2000), Checks.text(f.vendorService(), "Vendor category", 80));
     }));
     public record DepositFields(String account, String type, BigDecimal amount, BigDecimal rate, LocalDate startDate, LocalDate maturityDate, String status, String reference, String interestPayout,
                                 boolean autoRenew, BigDecimal sweepLimit, BigDecimal interestEarned, BigDecimal taxDeducted, String notes) {}

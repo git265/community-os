@@ -70,10 +70,11 @@ const AMENITY_CATALOG = [
   { id: 'at13', name: "Children's Park", facility: "Children's park", icon: '🛝', ...AMENITY_BASE, reservation: 'Walk-in (no reservation)', rate: 0, rateUnit: 'Free', capacity: 1, hours: '06:00–20:00', bookingMode: 'Time slot', rules: '<ul><li>Children below 8 with an adult.</li></ul>' },
   { id: 'at14', name: 'Cricket Box', facility: 'Sports courts', icon: '🏏', ...AMENITY_BASE, reservation: 'Walk-in (no reservation)', rate: 0, rateUnit: 'Free', capacity: 1, hours: '06:00–22:00', bookingMode: 'Time slot', rules: '<ul><li>Tennis ball only. Floodlights switch off at 22:00.</li></ul>' },
   { id: 'at15', name: 'Sand Volleyball Court', facility: 'Sports courts', icon: '🏐', ...AMENITY_BASE, reservation: 'Walk-in (no reservation)', rate: 0, rateUnit: 'Free', capacity: 1, hours: '06:00–21:00', bookingMode: 'Time slot', rules: '<ul><li>First come, first served.</li></ul>' },
+  { id: 'at16', name: 'Chairs & Tables Hire', facility: 'Clubhouse', icon: '🪑', ...AMENITY_BASE, reservation: 'Items only (no space)', rate: 0, rateUnit: 'Free', freeLabel: 'Pay per item', capacity: 1, hours: '06:00–23:00', bookingMode: 'Full day', rules: '<ul><li>Hire chairs, tables and cloths for a function at home. Collect from the clubhouse store and return the next morning.</li></ul>' },
 ].map((a) => ({ ...a, price: priceLabel(a) }));
 
 const AMENITY_SETTINGS_ROW = {
-  id: 'ams1', gstin: '36AABCL1234F1Z5', defaultGstRate: 18, receiptAccount: 'Maintenance', refundMode: 'Credit to unit account', paymentDueHours: 48,
+  id: 'ams1', gstin: '36AABCL1234F1ZZ', defaultGstRate: 18, receiptAccount: 'Maintenance', refundMode: 'Credit to unit account', paymentDueHours: 48,
   notifyOwner: true, notifyAdmin: true, reminderOn: true, dailyReport: true, dailyReportTime: '20:00', summaryReport: 'Weekly',
   adminRecipients: [{ channel: 'Email', target: 'facilities@lapaloma.example', label: 'Facility desk' }, { channel: 'WhatsApp', target: '+91 98220 10010', label: 'Amenities committee' }],
   reportRecipients: [{ channel: 'WhatsApp', target: 'La Paloma Amenities group', label: 'WhatsApp group' }, { channel: 'Email', target: 'ec@lapaloma.example', label: 'EC mailing list' }],
@@ -119,7 +120,7 @@ const INFRA_SHAPES = {
 };
 
 const SEED = {
-  [COLLECTIONS.COMMUNITY_CONFIG]: [{ id: 'cfg1', region: 'IN', legalName: 'La Paloma Residents’ Welfare Association', address: 'La Paloma Villas, Outer Ring Road, Hyderabad 500081', registrationNo: 'REG/HYD/2019/0412', taxRegistered: 'Yes', taxId: '36AABCL1234F1Z5', panNo: 'AABCL1234F', website: 'lapaloma.example', receiptThanks: 'Received with thanks', payInstructions: 'Pay by UPI: lapaloma@bank\nOr bank transfer to La Paloma RWA, A/c 0000 0000 0000, IFSC DEMO0000001.\nOffice: 9 am – 6 pm, Mon–Sat.', statementNote: 'Please report any mismatch to the office within 7 days.', contactPhone: '+91 98200 00000', contactEmail: 'office@lapaloma.example', signatory: 'Treasurer', receiptFooter: 'This is a computer-generated receipt and does not require a signature.', propertyTypes: ['Villa', 'Apartment'] }],
+  [COLLECTIONS.COMMUNITY_CONFIG]: [{ id: 'cfg1', region: 'IN', legalName: 'La Paloma Residents’ Welfare Association', address: 'La Paloma Villas, Outer Ring Road, Hyderabad 500081', registrationNo: 'REG/HYD/2019/0412', taxRegistered: 'Yes', taxId: '36AABCL1234F1ZZ', panNo: 'AABCL1234F', website: 'lapaloma.example', receiptThanks: 'Received with thanks', payInstructions: 'Pay by UPI: lapaloma@bank\nOr bank transfer to La Paloma RWA, A/c 0000 0000 0000, IFSC DEMO0000001.\nOffice: 9 am – 6 pm, Mon–Sat.', statementNote: 'Please report any mismatch to the office within 7 days.', contactPhone: '+91 98200 00000', contactEmail: 'office@lapaloma.example', signatory: 'Treasurer', receiptFooter: 'This is a computer-generated receipt and does not require a signature.', propertyTypes: ['Villa', 'Apartment'] }],
   [COLLECTIONS.BLOCKS]: [
     { id: 'blk1', name: 'Maple Enclave', code: 'ME', kind: 'Villa lane / cluster', plannedUnits: 60, active: true, notes: '' },
     { id: 'blk2', name: 'Palm District', code: 'PD', kind: 'Villa lane / cluster', plannedUnits: 90, active: true, notes: '' },
@@ -352,7 +353,7 @@ const SEED = {
   [COLLECTIONS.VENDORS]: [
     { id: 'v1', name: 'ARC Facility Management', category: 'Facilities Management', contractType: 'Contract', service: 'Integrated FM: amenities, electrical, plumbing, MEP, landscaping, housekeeping, cultural events', contactPhone: '+91 98200 11223', contactEmail: 'ops@arc-fm.example', address: 'ARC House, 4th Cross, Industrial Layout, Bengaluru 560095', contractEnds: '2027-03-31', description: '<p><b>Scope:</b> one integrated facilities contract covering amenities, electrical, plumbing, MEP, landscaping, housekeeping and cultural-event set-up.</p><ul><li>Monthly retainer billed on the 1st</li><li>Spares and out-of-scope jobs are quoted separately and need EC approval</li><li>Security is <b>not</b> part of this contract (see SecureFirst)</li></ul>', attachments: [] },
     { id: 'v2', name: 'SecureFirst', category: 'Security', contractType: 'Contract', service: 'Security staff', contactPhone: '+91 98200 77889', contactEmail: 'contracts@securefirst.example', address: '', contractEnds: '2027-06-30', description: '<p>Guards for Gates 1-3 and the night patrol, 24x7. Separate contract from the facilities contract.</p>', attachments: [] },
-    { id: 'v3', gstin: '29AAACO1234A1Z5', name: 'Otis Lift Services', category: 'Lift / AMC', contractType: 'AMC', service: 'Annual maintenance of the 6 tower lifts', contactPhone: '+91 98200 55012', contactEmail: 'amc@otis-lifts.example', address: 'Service Centre, Whitefield Road, Bengaluru', contractEnds: '2027-02-28', description: '<p><b>AMC</b> - quarterly instalments, 4 preventive visits a year, breakdown call-out within 4 hours. Parts beyond the AMC schedule are chargeable.</p>', attachments: [] },
+    { id: 'v3', gstin: '29AAACO1234A1Z2', name: 'Otis Lift Services', category: 'Lift / AMC', contractType: 'AMC', service: 'Annual maintenance of the 6 tower lifts', contactPhone: '+91 98200 55012', contactEmail: 'amc@otis-lifts.example', address: 'Service Centre, Whitefield Road, Bengaluru', contractEnds: '2027-02-28', description: '<p><b>AMC</b> - quarterly instalments, 4 preventive visits a year, breakdown call-out within 4 hours. Parts beyond the AMC schedule are chargeable.</p>', attachments: [] },
     { id: 'v4', name: 'Sri Ganesh Electricals', category: 'Maintenance', contractType: 'Local / no contract', service: 'Ad-hoc electrical repairs and fittings', contactPhone: '+91 98860 44120', contactEmail: '', address: 'Shop 12, Main Market, near Gate 3', contractEnds: '', description: '<p>Local shop used for small, quick jobs (lights, switches, MCBs). No contract - paid per job; ask for a bill every time.</p>', attachments: [] },
     { id: 'v5', name: 'EcoTest Labs', category: 'Audit / inspection agency', contractType: 'Local / no contract', service: 'STP and WTP water-quality sampling and lab testing', contactPhone: '+91 98860 31010', contactEmail: '', address: '', contractEnds: '', description: '', attachments: [] },
     { id: 'v6', name: 'AquaSafe Services', category: 'Audit / inspection agency', contractType: 'Local / no contract', service: 'Swimming pool water testing', contactPhone: '+91 98860 31020', contactEmail: '', address: '', contractEnds: '', description: '', attachments: [] },
@@ -364,11 +365,11 @@ const SEED = {
     { id: 'ai3', shortId: 'AIT-0003', name: 'Table cloths', amenity: '', stock: 40, price: 20, perLabel: 'per cloth', maxPerBooking: 40, active: true },
   ],
   [COLLECTIONS.VENDOR_SERVICES]: [
-    { id: 'vs1', vendorName: 'ARC Facility Management', service: 'Landscaping', signedWorkers: 6, shift: 'Day 7:00 to 16:00, 6 days' },
+    { id: 'vs1', vendorName: 'ARC Facility Management', service: 'Landscaping', signedWorkers: 4, contractors: 2, shift: 'Day 7:00 to 16:00, 6 days' },
     { id: 'vs2', vendorName: 'ARC Facility Management', service: 'Housekeeping', signedWorkers: 8, shift: 'Day 7:00 to 16:00, 7 days' },
     { id: 'vs3', vendorName: 'ARC Facility Management', service: 'Electrical', signedWorkers: 2, shift: 'Day 8:00 to 17:00 and on call' },
     { id: 'vs4', vendorName: 'ARC Facility Management', service: 'MEP / plant operation', signedWorkers: 3, shift: 'Day and night shifts' },
-    { id: 'vs5', vendorName: 'SecureFirst', service: 'Security', signedWorkers: 14, shift: '3 shifts, 24 x 7' },
+    { id: 'vs5', vendorName: 'SecureFirst', service: 'Security', signedWorkers: 12, contractors: 2, shift: '3 shifts, 24 x 7' },
   ],
   [COLLECTIONS.USERS]: [
     { id: 'u1', name: 'Arjun Nair', phone: '+91 98220 20001', email: 'arjun.nair@example.com', status: 'Active', roleId: 'president', extraRoleIds: [], units: [] },
@@ -491,7 +492,7 @@ const SEED = {
     { id: 'fx1', vendor: 'TSSPDCL (electricity department)', name: 'Electricity', avg: 120000, months: 5, heads: 'Electricity' },
     { id: 'fx2', name: 'ARC wages', avg: 1400000, months: 5, heads: 'ARC wages' },
     { id: 'fx3', name: 'Diesel', avg: 50000, months: 5, heads: 'Diesel' },
-    { id: 'fx4', name: 'Security', avg: 550000, months: 5, heads: 'Security' },
+    { id: 'fx4', vendor: 'SecureFirst', vendorService: 'Security', name: 'Security', avg: 550000, months: 5, heads: 'Security' },
     { id: 'fx5', vendor: 'Income Tax Department', name: 'TDS', avg: 40000, months: 5, heads: 'TDS' },
     { id: 'fx6', name: 'Operations (garbage, waste, Gandipet, salary, pest control)', avg: 160000, months: 5, heads: 'Operations' },
     { id: 'fx7', name: 'Miscellaneous', avg: 100000, months: 5, heads: '' },

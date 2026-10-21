@@ -22,6 +22,9 @@ import java.util.UUID;
  * by an entry pointing at it, and only while it is not matched to a bank line. Its words (description, heads, ITC) can be corrected.
  */
 public final class CashBookService {
+    /** What the input-credit check writes on a payment (src/lib/finance/itc.js ITC), plus the older manual words kept for rows already saved. */
+    public static final List<String> ITC_STATUSES = List.of("Not checked", "Verified", "Check vendor GSTIN", "Invoice details missing", "Not found in GSTR-2B",
+        "Not applicable", "Unregistered vendor", "Claimable", "Claimed", "Not claimable", "Mismatch");
     private final FinanceStore store; private final BillingDesk desk; private final AuditWriter audit; private final Tx tx; private final Clock clock;
     public CashBookService(FinanceStore store, BillingDesk desk, AuditWriter audit, Tx tx, Clock clock) {
         this.store = store; this.desk = desk; this.audit = audit; this.tx = tx; this.clock = clock;
@@ -70,8 +73,8 @@ public final class CashBookService {
             if (e.version != version) throw new DomainException.Conflict("Entry " + e.shortId);
             if (description != null && !description.isBlank()) e.description = description.strip();
             e.category = category; e.subCategory = subCategory;
-            if (itcStatus != null && !List.of("Not checked", "Claimable", "Claimed", "Not claimable", "Mismatch").contains(itcStatus))
-                throw new DomainException.RuleViolated("bad-itc", "ITC: Not checked, Claimable, Claimed, Not claimable or Mismatch");
+            if (itcStatus != null && !ITC_STATUSES.contains(itcStatus))
+                throw new DomainException.RuleViolated("bad-itc", "ITC status: " + String.join(", ", ITC_STATUSES));
             e.itcStatus = itcStatus; e.itcNote = itcNote;
             if (!store.annotate(e)) throw new DomainException.Conflict("Entry " + e.shortId);
             audit.write(c, AuditWriter.Action.Update, "finance.cash_book_entry", e.id, e.shortId, e.unitId, "Details corrected", List.of());

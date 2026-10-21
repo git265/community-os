@@ -89,7 +89,7 @@ function UnitDetail({ unit, onEdit, canEdit, canSeePrivate }) {
   const isEC = role?.category === 'EC';
   const isResident = role?.category === 'Resident';
   const finance = roleId === 'super_admin' || hasPermission('MANAGE_DUES') || hasPermission('MANAGE_UTILITY_BILLING');
-  const canPayRow = (d) => !['Paid', 'Cancelled'].includes(d.status) && ((isResident && !!currentUser?.unit && d.unit === currentUser.unit) || (!isResident && finance));
+  const canPayRow = (d) => !['Paid', 'Cancelled'].includes(d.status) && ((!!currentUser?.unit && d.unit === currentUser.unit) || (!isResident && finance));   // their own unit's: any owner, a committee member too
   const tabs = TABS.filter((t) => t.id !== 'activity' || isEC); // activity trail is for the EC only
   // only THIS unit's rows are read (a server query filtered on the unit), not every bill, task, document and booking of the community
   const dues = useUnitRows(COLLECTIONS.DUES, unit.unit);
@@ -119,7 +119,8 @@ function UnitDetail({ unit, onEdit, canEdit, canSeePrivate }) {
   const advance = Math.max(0, creditBalance(credits, unit.unit));
   const held = myBookings.filter((b) => b.depositStatus === 'Held');
   const isStaff = !isResident && (hasPermission('MANAGE_AMENITIES') || isEC || roleId === 'super_admin');
-  const canSettle = unpaid.length > 0 && ((isResident && !!currentUser?.unit && unit.unit === currentUser.unit) || (!isResident && finance));
+  const ownUnit = !!currentUser?.unit && unit.unit === currentUser.unit;
+  const canSettle = unpaid.length > 0 && (ownUnit || (!isResident && finance));
 
   const tag = (v, cls = '') => <span className={`tag ${cls}`}>{v}</span>;
 
@@ -186,7 +187,7 @@ function UnitDetail({ unit, onEdit, canEdit, canSeePrivate }) {
           </div>
           <div style={{ margin: '10px 0', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button type="button" className="btn secondary" data-testid="statement-open" onClick={() => setDetail({ kind: 'statement' })}>📄 Statement</button>
-            {canSettle && <button type="button" className="btn" data-testid="settle-dues" onClick={() => setDetail({ kind: 'settle' })}>{isResident ? 'Pay all dues' : 'Settle dues'}</button>}
+            {canSettle && <button type="button" className="btn" data-testid="settle-dues" onClick={() => setDetail({ kind: 'settle' })}>{isResident || ownUnit ? 'Pay all dues' : 'Settle dues'}</button>}
           </div>
           {false && <div style={{ margin: '10px 0' }}><button type="button" className="btn" data-testid="settle-dues" onClick={() => setDetail({ kind: 'settle' })}>{isResident ? 'Pay all dues' : 'Settle dues'}</button></div>}
           <ServerTable compact search={false} collection={COLLECTIONS.DUES} baseFilters={{ unit: unit.unit }} baseSort={{ key: 'dueDate', dir: 'desc' }} pageSizeDefault={10}
@@ -253,7 +254,7 @@ function UnitDetail({ unit, onEdit, canEdit, canSeePrivate }) {
       {detail?.kind === 'due' && <DueDetailModal due={detail.rec} onClose={() => setDetail(null)} />}
       {detail?.kind === 'pay' && <PayDueModal due={detail.rec} onClose={() => setDetail(null)} />}
       {detail?.kind === 'statement' && <StatementDialog unit={unit.unit} onClose={() => setDetail(null)} />}
-      {detail?.kind === 'settle' && <SettleDues unit={unit.unit} dues={myDues} credit={advance} resident={isResident} onClose={() => setDetail(null)} />}
+      {detail?.kind === 'settle' && <SettleDues unit={unit.unit} dues={myDues} credit={advance} resident={isResident || ownUnit} onClose={() => setDetail(null)} />}
       {detail?.kind === 'ticket' && <TicketsModule embeddedRef={detail.rec.ticketNumber || detail.rec.id} onEmbeddedClose={() => setDetail(null)} />}
       {detail?.kind === 'booking' && (() => { const live = bookings.find((x) => x.id === detail.rec.id) || detail.rec; return <BookingDetail booking={live} amenity={catalog.find((a) => a.name === live.amenity)} settings={amSettings[0] || {}} isStaff={isStaff} today={today} onClose={() => setDetail(null)} onAction={async (r) => !!(await saveBooking(r))} />; })()}
       {detail?.kind === 'doc' && <RecordDetailModal collection={COLLECTIONS.DOCUMENTS} record={detail.rec} title={`${detail.rec.shortId ? detail.rec.shortId + ' · ' : ''}${detail.rec.title}`} onClose={() => setDetail(null)} extra={detail.rec.fileId ? <p><button type="button" className="btn secondary" data-testid="doc-preview" onClick={() => setDetail({ kind: 'preview', rec: detail.rec })}>👁 Preview {detail.rec.fileName}</button></p> : null} />}

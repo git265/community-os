@@ -640,7 +640,7 @@ test('registers the app keeps in another shape: weekdays, recipient lists, appro
   assert.deepEqual(last('POST', /^\/workforce\/services$/).body.weekdays, ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], 'Mon=0 .. Sun=6 in the app, names on the server');
   assert.deepEqual(svc.weekdays, [0, 1, 2, 3, 4, 5]);
   const rec = [{ channel: 'Email', target: 'desk@x.example', label: 'Desk' }];
-  const st = await storage.put('amenitySettings', { gstin: '36AABCL1234F1Z5', adminRecipients: rec, reportRecipients: [], notifyOwner: true });
+  const st = await storage.put('amenitySettings', { gstin: '36AABCL1234F1ZZ', adminRecipients: rec, reportRecipients: [], notifyOwner: true });
   assert.equal(typeof last('POST', /^\/amenities\/settings$/).body.adminRecipients, 'string', 'the server keeps the list as text');
   assert.deepEqual(st.adminRecipients, rec, 'and the app gets its list back');
   const steps = [{ name: 'EC', approvers: [{ kind: 'group', value: 'EC members' }], needed: 1, canFinish: true }];

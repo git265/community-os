@@ -19,6 +19,7 @@ import { pushNotification } from './notifications.js';
 import {
   quote, priceExtras, tiersOf, startAtOf, bookingWindowError, bookingRulesError, canOverrideRules, cancellationQuote, ONLINE_MODES, OFFICE_MODES, round2, inr,
   renderTemplate, bookingVars, buildReport, addDays, BOOKING_EVENTS, defaultTemplates, creditBalance,
+  isItemsOnly,
 } from './amenityEngine.js';
 import { defaultOnlineMode, needsRef, ALL_MODES } from './region/paymentModes.js';
 const PAYOUT_ANY = () => [...ALL_MODES, 'Card'];
@@ -81,7 +82,7 @@ export async function amenityPreWrite({ record, old, isNew, p }) {
     if (!clean.date || !slot) return { error: 'Choose a date and time slot' };
     const cap = Number(amenity.capacity) || 1;
     const taken = ctx.bookings.filter((b) => b.status !== 'Cancelled' && b.amenity === amenity.name && b.date === clean.date && (dayBased ? true : b.slot === slot)).length;
-    if (taken >= cap) return { error: 'That booking is no longer available.' };
+    if (!isItemsOnly(amenity) && taken >= cap) return { error: 'That booking is no longer available.' };
     if (amenity.reservation === 'Walk-in (no reservation)' && !staff) return { error: `${amenity.name} needs no reservation. Just walk in.` };
     const bypass = canOverrideRules(amenity, p?.roleId, staff);
     if (!bypass) {
@@ -99,6 +100,7 @@ export async function amenityPreWrite({ record, old, isNew, p }) {
     const picks = (() => { try { return JSON.parse(clean.extras || '{}'); } catch { return {}; } })();
     const ex = priceExtras(picks, ctx.items, ctx.bookings, amenity.name, clean.date, slot);
     if (ex.error) return { error: ex.error };
+    if (isItemsOnly(amenity) && !ex.lines.length) return { error: `Choose how many of each item you need from ${amenity.name}` };
     clean.extras = ex.lines.length ? JSON.stringify(ex.lines) : ''; clean.extrasTotal = ex.total;
     let q = quote(amenity, clean.date, ctx.settings, ex.total);
     // staff may reserve for an association (or any unit) free of charge: nothing is charged, no deposit is taken, and the value waived is recorded

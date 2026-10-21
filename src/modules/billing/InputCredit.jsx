@@ -1,12 +1,12 @@
 import React, { useMemo, useState } from 'react';
 import { useApp, useCollection } from '../../context/AppContext.jsx';
 import { COLLECTIONS as C } from '../../lib/storage/index.js';
-import { ITC, carriesCredit, checkLine, validateGstin } from '../../lib/finance/itc.js';
+import { ITC, NO_CREDIT, carriesCredit, checkLine, validateGstin } from '../../lib/finance/itc.js';
 import { gstGateway, applyGstSettings } from '../../lib/finance/gstGateway.js';
 import { inr, dmy } from '../../lib/finance/rules.js';
 import { Kpi, Chips } from '../gate/gateUi.jsx';
 
-const TONE = { [ITC.ok]: 'green', [ITC.na]: 'blue', [ITC.none]: 'blue', [ITC.missing]: 'red', [ITC.gstin]: 'orange', [ITC.details]: 'orange' };
+const TONE = { [ITC.ok]: 'green', [ITC.na]: 'blue', [ITC.unreg]: 'blue', [ITC.none]: 'blue', [ITC.missing]: 'red', [ITC.gstin]: 'orange', [ITC.details]: 'orange' };
 
 /** Billing → Input credit: did each vendor really file the GST we pay them? On demand here; once a day in the background if switched on. */
 export default function InputCredit() {
@@ -27,7 +27,7 @@ export default function InputCredit() {
 
   async function run(list) {
     setMsg(''); setBusy('all'); let ok = 0; let bad = 0; applyGstSettings(s);
-    for (const l of list) { const r = await checkLine(l, vendors, { registered }); const out = await saveLine({ ...l, ...r, itcCheckedAt: new Date().toISOString() }); if (out && !out.error) { if (r.itcStatus === ITC.ok || r.itcStatus === ITC.na) ok += 1; else bad += 1; } }
+    for (const l of list) { const r = await checkLine(l, vendors, { registered }); const out = await saveLine({ ...l, ...r, itcCheckedAt: new Date().toISOString() }); if (out && !out.error) { if (r.itcStatus === ITC.ok || NO_CREDIT.includes(r.itcStatus)) ok += 1; else bad += 1; } }
     setBusy(''); setMsg(list.length ? `Checked ${list.length}: ${ok} fine, ${bad} need attention.` : 'Nothing to check.');
   }
   const [conn, setConn] = useState(null); const [draft, setDraft] = useState(null); const [gin, setGin] = useState({});
@@ -78,7 +78,7 @@ export default function InputCredit() {
       <div className="gg-kpis">
         <Kpi label="Payments with GST" short="Payments" value={rows.length} sub={inr(total)} />
         <Kpi label="Verified" value={count(ITC.ok)} />
-        <Kpi label="Need attention" short="Attention" value={rows.length - count(ITC.ok) - count(ITC.none) - count(ITC.na)} warn={risk > 0} sub={risk ? `${inr(risk)} at risk` : ''} />
+        <Kpi label="Need attention" short="Attention" value={rows.length - count(ITC.ok) - count(ITC.none) - count(ITC.na) - count(ITC.unreg)} warn={risk > 0} sub={risk ? `${inr(risk)} at risk` : ''} />
         <Kpi label="Not checked yet" short="Unchecked" value={count(ITC.none)} />
       </div>
       <div className="gg-row" style={{ flexWrap: 'wrap', margin: '10px 0' }}>

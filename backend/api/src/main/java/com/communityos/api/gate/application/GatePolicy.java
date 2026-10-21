@@ -26,7 +26,7 @@ public final class GatePolicy {
     /** Rows with a unit: residents see their own units', the gate team and the committee all, others none. column = e.g. "p.unit_id". */
     public static <T> Spec<T> byUnit(Caller c, String column, Function<T, UnitId> unitOf) {
         if (oversees(c)) return Spec.all();
-        if (c.isResident()) return Spec.in(column, c.units().stream().map(UnitId::value).map(UUID::toString).map(UUID::fromString).toList(), (t) -> unitOf.apply(t) != null && c.units().contains(unitOf.apply(t)));
+        if (c.hasHome()) return Spec.in(column, c.units().stream().map(UnitId::value).map(UUID::toString).map(UUID::fromString).toList(), (t) -> unitOf.apply(t) != null && c.units().contains(unitOf.apply(t)));
         return Spec.none();
     }
 }

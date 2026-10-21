@@ -21,6 +21,7 @@ public interface BookingRepository {
     void insert(Booking b);
     boolean save(Booking b);
     /** Live (not cancelled) bookings of an amenity on a date. */
+    /** A day's live bookings of an amenity; with a null amenity, of every amenity (for the shared stock of add-on items). */
     List<Booking> liveOn(UUID amenityTypeId, LocalDate date);
     /** A unit's live bookings of an amenity, for its limits. */
     List<Pricing.Held> heldBy(UUID amenityTypeId, UnitId unit);

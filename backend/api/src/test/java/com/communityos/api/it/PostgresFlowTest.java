@@ -505,13 +505,13 @@ class PostgresFlowTest {
             // household staff from the vetted registry
             var people = new com.communityos.api.shared.resource.JdbcResourceRepository<>(com.communityos.api.gate.GateResources.PEOPLE.table(), app, json);
             assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> kit.create(admin, com.communityos.api.gate.GateResources.PEOPLE, people, new com.communityos.api.gate.GateResources.PersonFields(
-                "Lakshmi", "Maid / cook", null, null, "Active", null, null, "Aadhaar", "1234", true, null, null, null, false, false, false, null, false, false, null, null, null))), "cleared without the ID check");
+                "Lakshmi", "Maid / cook", null, null, "Active", null, null, "Aadhaar", "1234", true, null, null, null, false, false, false, null, false, false, null, null, null, null))), "cleared without the ID check");
             var maid = as(admin, () -> kit.create(admin, com.communityos.api.gate.GateResources.PEOPLE, people, new com.communityos.api.gate.GateResources.PersonFields(
-                "Lakshmi", "Maid / cook", null, null, "Active", null, null, "Aadhaar", "1234", true, null, null, null, true, true, true, null, true, true, null, null, null)));
+                "Lakshmi", "Maid / cook", null, null, "Active", null, null, "Aadhaar", "1234", true, null, null, null, true, true, true, null, true, true, null, null, null, null)));
             assertThrows(DomainException.RuleViolated.class, () -> as(ownerC, () -> kit.create(ownerC, com.communityos.api.gate.GateResources.PEOPLE, people, new com.communityos.api.gate.GateResources.PersonFields(
-                "Raju", "Driver", null, null, "Active", null, null, null, null, true, null, null, null, true, false, false, null, false, false, null, null, null))), "a resident cannot clear anyone");
+                "Raju", "Driver", null, null, "Active", null, null, null, null, true, null, null, null, true, false, false, null, false, false, null, null, null, null))), "a resident cannot clear anyone");
             var invited = as(ownerC, () -> kit.create(ownerC, com.communityos.api.gate.GateResources.PEOPLE, people, new com.communityos.api.gate.GateResources.PersonFields(
-                "Raju", "Driver", null, null, null, null, null, null, null, true, null, null, null, false, false, false, null, false, false, null, null, null)));
+                "Raju", "Driver", null, null, null, null, null, null, null, true, null, null, null, false, false, false, null, false, false, null, null, null, null)));
             assertEquals("Invited", invited.data().status(), "a resident only invites"); assertFalse(invited.data().idChecked()); assertEquals(unitA, invited.data().invitedByUnitId());
             var links = new com.communityos.api.shared.resource.JdbcResourceRepository<>(com.communityos.api.gate.GateResources.LINKS.table(), app, json);
             as(ownerC, () -> kit.create(ownerC, com.communityos.api.gate.GateResources.LINKS, links, new com.communityos.api.gate.GateResources.LinkFields(maid.id(), "Lakshmi", unitA, List.of(), null, null, null)));
@@ -519,7 +519,7 @@ class PostgresFlowTest {
             assertTrue(maidIn.ok(), maidIn.reason()); assertEquals(new UnitId(unitA), maidIn.visit().unit);
             assertEquals("already-inside", as(admin, () -> gateSvc.admitPerson(admin, maid.id(), "Main gate", "Face", null)).outcome());
             var blockedP = as(admin, () -> kit.create(admin, com.communityos.api.gate.GateResources.PEOPLE, people, new com.communityos.api.gate.GateResources.PersonFields(
-                "Thief", "Other", null, null, "Blocked", null, null, null, null, false, null, null, null, false, false, false, null, false, false, null, "Theft in 2025", null)));
+                "Thief", "Other", null, null, "Blocked", null, null, null, null, false, null, null, null, false, false, false, null, false, false, null, "Theft in 2025", null, null)));
             assertEquals("blocked", as(admin, () -> gateSvc.admitPerson(admin, blockedP.id(), "Main gate", "Face", null)).outcome());
             // a goods vehicle: one more person than the pass allows is held, then let in with a reason (flagged); one less out is flagged
             var goods = as(ownerC, () -> gateSvc.createPass(ownerC, new com.communityos.api.gate.application.GateService.NewPass("Packers", null, null, "Goods", null, null, null, null, List.of(), "KA05MN1111",
@@ -1014,14 +1014,14 @@ class PostgresFlowTest {
             var vlRepo = new com.communityos.api.shared.resource.JdbcResourceRepository<>(com.communityos.api.vendor.VendorResources.SERVICE_LINES.table(), app, json);
             var vcRepo = new com.communityos.api.shared.resource.JdbcResourceRepository<>(com.communityos.api.vendor.VendorResources.COMMENTS.table(), app, json);
             var aqua = as(admin, () -> kit.create(admin, com.communityos.api.vendor.VendorResources.VENDORS, vRepo,
-                new com.communityos.api.vendor.VendorResources.VendorFields("Aqua Pumps", "Maintenance", "29abcde1234f1z5", "AMC", "Pumps", "+919845000000", null, null, today.plusYears(1), null)));
-            assertEquals("29ABCDE1234F1Z5", aqua.data().gstin());
+                new com.communityos.api.vendor.VendorResources.VendorFields("Aqua Pumps", "Maintenance", "29abcde1234f1zw", "AMC", "Pumps", "+919845000000", null, null, today.plusYears(1), null)));
+            assertEquals("29ABCDE1234F1ZW", aqua.data().gstin());
             assertThrows(RuntimeException.class, () -> as(admin, () -> kit.create(admin, com.communityos.api.vendor.VendorResources.VENDORS, vRepo,
                 new com.communityos.api.vendor.VendorResources.VendorFields("aqua pumps", null, null, null, null, null, null, null, null, null))), "one vendor per name");
             assertTrue(as(ownerC, () -> kit.list(ownerC, com.communityos.api.vendor.VendorResources.VENDORS, vRepo)).isEmpty(), "residents do not see the register");
-            as(admin, () -> kit.create(admin, com.communityos.api.vendor.VendorResources.SERVICE_LINES, vlRepo, new com.communityos.api.vendor.VendorResources.ServiceLineFields(aqua.id(), "Plumbing", 3, "Day", null)));
+            as(admin, () -> kit.create(admin, com.communityos.api.vendor.VendorResources.SERVICE_LINES, vlRepo, new com.communityos.api.vendor.VendorResources.ServiceLineFields(aqua.id(), "Plumbing", 3, "Day", null, 2)));
             var aquaNow = as(admin, () -> kit.get(admin, com.communityos.api.vendor.VendorResources.VENDORS, vRepo, aqua.id()));
-            assertEquals(3, ((Number) aquaNow.server("signedWorkers")).intValue());
+            assertEquals(5, ((Number) aquaNow.server("signedWorkers")).intValue(), "employees and contractors");
             var vc = as(admin, () -> kit.create(admin, com.communityos.api.vendor.VendorResources.COMMENTS, vcRepo, new com.communityos.api.vendor.VendorResources.CommentFields(aqua.id(), "Slow to respond in October")));
             assertEquals(members[2].toString(), String.valueOf(vc.server("authorId")));
             assertThrows(RuntimeException.class, () -> as(admin, () -> kit.replace(admin, com.communityos.api.vendor.VendorResources.COMMENTS, vcRepo, vc.id(), vc.version(),

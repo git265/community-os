@@ -9,6 +9,7 @@ Git tag `baseline-r76`. This is the reference version: later changes are compare
 - On the back end the app keeps reference lists for 30 s (dropped by any write or pushed change); records that move are always read fresh.
   Not-paged lists that hit their cap say so (`X-List-Truncated`). See docs/REDESIGN.md section 7.
 - Unit numbers follow rules (characters, a community / block naming pattern, unique whatever their case), checked in the app and on the server; units and blocks can be added, renamed and imported on the back end. Names compare case-blind; e-mail addresses are stored in lower case. See docs/REDESIGN.md.
+- A committee or staff member who owns a unit acts as its owner for that unit (pay dues, book, gate, tickets, donations). Amenities can be "Items only" (chairs, tables, linen hired with no space held; stock shared across bookings for the day). A vendor has one service line per category, each with employees and contractors; gate workers and fixed expenses name their line. Vendor GSTINs are checked (check character) on save; a vendor without one is "Unregistered vendor" for input credit.
 - The r76 description below is kept as the record of that baseline.
 
 ## What is in it (r76)

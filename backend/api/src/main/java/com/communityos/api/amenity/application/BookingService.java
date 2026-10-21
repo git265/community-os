@@ -75,7 +75,7 @@ public final class BookingService {
             // whose booking
             AmenityCatalog.UnitInfo unit = null;
             if (!association) {
-                UnitId u = cmd.unitId() != null ? cmd.unitId() : c.isResident() && c.units().size() == 1 ? c.units().iterator().next() : null;
+                UnitId u = cmd.unitId() != null ? cmd.unitId() : c.hasHome() && c.units().size() == 1 ? c.units().iterator().next() : null;
                 if (u == null) throw new DomainException.RuleViolated("unit-required", "Say which unit the booking is for");
                 if (!staff && !c.units().contains(u)) throw new AccessDenied("You can only book for your own unit");
                 unit = catalog.unit(u).orElseThrow(AccessDenied.NotVisible::new);
@@ -84,7 +84,9 @@ public final class BookingService {
             // room left
             List<Booking> sameDay = bookings.liveOn(a.id(), cmd.date());
             long taken = sameDay.stream().filter((b) -> a.fullDay() || overlaps(b.state().slot, slot)).count();
-            if (taken >= a.capacity()) throw new DomainException.RuleViolated("taken", "That booking is no longer available.");
+            if (!a.itemsOnly() && taken >= a.capacity()) throw new DomainException.RuleViolated("taken", "That booking is no longer available.");   // items only: no space to fill
+            if (a.itemsOnly() && (cmd.extras() == null || cmd.extras().values().stream().noneMatch((n) -> n != null && n > 0)))
+                throw new DomainException.RuleViolated("items-required", "Choose the items and how many");
             Instant start = Pricing.startAt(cmd.date(), slot, a, clock.getZone());
             if (!Pricing.mayOverride(a, staff, c.isSuperAdmin(), c.roleCodes())) {
                 String w = Pricing.windowError(a, start, now);
@@ -100,7 +102,9 @@ public final class BookingService {
             }
             // the price
             Map<UUID, Integer> held = new HashMap<>();
-            for (Booking b : sameDay) if (a.fullDay() || "Full day".equals(slot) || overlaps(b.state().slot, slot)) for (Pricing.Line l : b.state().extras) held.merge(l.itemId(), l.qty(), Integer::sum);
+            // the items are one stock for the community: what every booking of that day (any amenity) holds at an overlapping time
+            for (Booking b : bookings.liveOn(null, cmd.date())) if ("Full day".equals(slot) || "Full day".equals(b.state().slot) || overlaps(b.state().slot, slot))
+                for (Pricing.Line l : b.state().extras) held.merge(l.itemId(), l.qty(), Integer::sum);
             Pricing.Extras ex = Pricing.price(cmd.extras(), catalog.items(), a.id(), held);
             AmenityCatalog.Settings st = catalog.settings();
             Pricing.Quote q = Pricing.quote(a, cmd.date(), st.defaultGstRate(), ex.total());

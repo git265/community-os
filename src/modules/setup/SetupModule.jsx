@@ -227,7 +227,7 @@ function DetailsTab() {
   async function submit() {
     setErr('');
     if (!String(d.legalName).trim()) return setErr('Enter the name to print on receipts and statements.');
-    if (registered && d.taxId && region().tax.idLabel === 'GSTIN' && !/^\d{2}[A-Z]{5}\d{4}[A-Z][A-Z\d]Z[A-Z\d]$/i.test(String(d.taxId).trim())) return setErr('A GSTIN has 15 characters, like 36AABCL1234F1Z5. Check it, or choose “No” above if the community is not registered.');
+    if (registered && d.taxId && region().tax.idLabel === 'GSTIN' && !/^\d{2}[A-Z]{5}\d{4}[A-Z][A-Z\d]Z[A-Z\d]$/i.test(String(d.taxId).trim())) return setErr('A GSTIN has 15 characters, like 36AABCL1234F1ZZ. Check it, or choose “No” above if the community is not registered.');
     const ok = await save({ ...(row || {}), ...d, taxId: registered ? String(d.taxId).trim().toUpperCase() : d.taxId });
     if (ok) { setSaved(true); setTimeout(() => window.location.reload(), 600); } else setErr('Could not save.');
     return undefined;
@@ -255,7 +255,7 @@ function DetailsTab() {
           <button type="button" className={`chip-btn${!registered ? ' on' : ''}`} data-testid="det-reg-no" aria-pressed={!registered} onClick={() => set('taxRegistered', 'No')}>Not registered</button>
         </div>
         {registered
-          ? <div className="field" style={{ marginTop: 8 }}><label>{region().tax.idLabel}</label><input aria-label={region().tax.idLabel} data-testid="det-taxid" value={d.taxId || ''} onChange={(e) => set('taxId', e.target.value)} placeholder="e.g. 36AABCL1234F1Z5" /><small className="muted">Shown on receipts, invoices and booking bills. Leave blank to show nothing.</small></div>
+          ? <div className="field" style={{ marginTop: 8 }}><label>{region().tax.idLabel}</label><input aria-label={region().tax.idLabel} data-testid="det-taxid" value={d.taxId || ''} onChange={(e) => set('taxId', e.target.value)} placeholder="e.g. 36AABCL1234F1ZZ" /><small className="muted">Shown on receipts, invoices and booking bills. Leave blank to show nothing.</small></div>
           : <p className="muted" style={{ marginTop: 6 }}>No tax number is printed anywhere. If you do not charge {region().tax.name}, also set the {region().tax.name} rate to 0 on your amenities.</p>}
         <h3 style={{ marginBottom: 4 }}>Wording</h3>
         <div className="form-grid">

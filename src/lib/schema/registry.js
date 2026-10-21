@@ -397,6 +397,7 @@ const RAW_SCHEMAS = [
       { key: 'avg', label: 'Forecast avg / month', type: 'number', viewableBy: STAFF, editableBy: FIN, showInTable: true },
       { key: 'months', label: 'Months still to pay this year', type: 'number', viewableBy: STAFF, editableBy: FIN, showInTable: true },
       { key: 'vendor', label: 'Vendor / government department (optional)', type: 'lookup', lookup: { source: COLLECTIONS.VENDORS, valueKey: 'name', labelKeys: ['name'], hintKey: 'service', allowCustom: true }, viewableBy: STAFF, editableBy: FIN, showInTable: true },
+      { key: 'vendorService', label: 'Vendor category (service line)', type: 'lookup', lookup: { source: COLLECTIONS.VENDOR_SERVICES, valueKey: 'service', labelKeys: ['service'], distinct: true, allowCustom: false }, viewableBy: STAFF, editableBy: FIN },
       { key: 'heads', label: 'Statement heads counted (comma separated)', type: 'text', viewableBy: STAFF, editableBy: FIN },
       { key: 'notes', label: 'Notes', type: 'richtext', viewableBy: STAFF, editableBy: FIN },
     ],
@@ -1247,7 +1248,7 @@ const RAW_SCHEMAS = [
       { key: 'hours', label: 'Hours', type: 'text', viewableBy: ALL, editableBy: STAFF, showInTable: true },
       { key: 'bookingMode', label: 'Booking mode', type: 'select', options: ['Time slot', 'Full day'], viewableBy: ALL, editableBy: STAFF, showInTable: true },
       { key: 'rules', label: 'Rules & regulations', type: 'richtext', viewableBy: ALL, editableBy: STAFF },
-      { key: 'reservation', label: 'Reservation', type: 'select', options: ['Reservation required', 'Walk-in (no reservation)'], viewableBy: ALL, editableBy: STAFF, showInTable: true },
+      { key: 'reservation', label: 'Reservation', type: 'select', options: ['Reservation required', 'Walk-in (no reservation)', 'Items only (no space)'], viewableBy: ALL, editableBy: STAFF, showInTable: true },
       { key: 'overrideRoles', label: 'Roles that may reserve at any time, however far ahead or at short notice', type: 'tags', hidden: true, viewableBy: ALL, editableBy: STAFF },
       { key: 'maxPerDay', label: 'Most bookings one unit may hold on a day', type: 'number', viewableBy: ALL, editableBy: STAFF },
       { key: 'maxPerMonth', label: 'Most bookings one unit may make in a month', type: 'number', viewableBy: ALL, editableBy: STAFF },
@@ -1359,6 +1360,7 @@ const RAW_SCHEMAS = [
       { key: 'photo', label: 'Photo', type: 'text', hidden: true, viewableBy: ALL, editableBy: ALL },
       { key: 'status', label: 'Status', type: 'select', options: PERSON_STATUS, viewableBy: ALL, editableBy: STAFF, showInTable: true },
       { key: 'vendor', label: 'Vendor / agency', type: 'text', showWhen: { key: 'personClass', in: ['Daily worker', 'Landscaper', 'Vendor staff', 'Contractor'] }, viewableBy: ALL, editableBy: ALL },
+      { key: 'vendorService', label: 'Vendor category (service line)', type: 'lookup', lookup: { source: COLLECTIONS.VENDOR_SERVICES, valueKey: 'service', labelKeys: ['service'], distinct: true, allowCustom: false }, showWhen: { key: 'personClass', in: ['Daily worker', 'Landscaper', 'Vendor staff', 'Contractor'] }, viewableBy: ALL, editableBy: STAFF },
       { key: 'deliveryCompany', label: 'Delivery company', type: 'select', options: DELIVERY_COMPANIES, showWhen: { key: 'personClass', in: ['Delivery rider'] }, viewableBy: ALL, editableBy: ALL },
       { key: 'idType', label: 'ID type', type: 'select', options: ['Aadhaar', 'Voter ID', 'Passport', 'Driving licence', 'Other'], viewableBy: OPS, editableBy: ALL },
       { key: 'idLast4', label: 'ID number (last 4 digits only)', type: 'text', viewableBy: OPS, editableBy: ALL },
@@ -1670,7 +1672,7 @@ const RAW_SCHEMAS = [
     fields: [
       { key: 'name', label: 'Vendor', type: 'text', required: true, suggestSimilar: true, viewableBy: COORD.concat('vendor'), editableBy: ADMIN, showInTable: true },
       { key: 'category', label: 'Category', type: 'select', options: ['Facilities Management', 'Maintenance', 'Security', 'Landscaping', 'Utilities', 'Cleaning', 'Lift / AMC', 'Audit / inspection agency', 'Other'], viewableBy: COORD.concat('vendor'), editableBy: STAFF, showInTable: true },
-      { key: 'gstin', label: 'GSTIN (if registered)', type: 'text', viewableBy: COORD.concat('vendor'), editableBy: STAFF },
+      { key: 'gstin', label: 'GSTIN (blank if the vendor is not registered for GST)', type: 'text', viewableBy: COORD.concat('vendor'), editableBy: STAFF },
       { key: 'contractType', label: 'Engagement', type: 'select', options: ['Contract', 'AMC', 'Local / no contract'], required: true, viewableBy: COORD.concat('vendor'), editableBy: STAFF, showInTable: true },
       { key: 'service', label: 'Service', type: 'text', viewableBy: COORD.concat('vendor'), editableBy: STAFF, showInTable: true },
       { key: 'contactPhone', label: 'Contact phone', type: 'text', viewableBy: COORD.concat('vendor'), editableBy: STAFF, showInTable: true },
@@ -1682,13 +1684,15 @@ const RAW_SCHEMAS = [
     ],
   },
   {
-    // What a vendor is signed for: one row per service line, with the number of workers the contract promises.
+    // What a vendor is signed for: one row per category the vendor handles (a facilities company may run housekeeping, landscaping and plant
+    // operation), each with the employees and contractors the contract promises. Gate workers and fixed expenses name their line (vendorService).
     id: COLLECTIONS.VENDOR_SERVICES,
     label: 'Vendor service lines',
     fields: [
       { key: 'vendorName', label: 'Vendor', type: 'lookup', lookup: { source: COLLECTIONS.VENDORS, valueKey: 'name', labelKeys: ['name'], allowCustom: false }, required: true, viewableBy: COORD.concat('vendor'), editableBy: STAFF, showInTable: true },
-      { key: 'service', label: 'Service', type: 'select', options: ['Security', 'Landscaping', 'Housekeeping', 'Electrical', 'Plumbing', 'MEP / plant operation', 'Lift', 'Pest control', 'Pool', 'Other'], required: true, viewableBy: COORD.concat('vendor'), editableBy: STAFF, showInTable: true },
-      { key: 'signedWorkers', label: 'Workers signed for', type: 'number', required: true, viewableBy: COORD.concat('vendor'), editableBy: STAFF, showInTable: true },
+      { key: 'service', label: 'Category', type: 'select', options: ['Security', 'Landscaping', 'Housekeeping', 'Cleaning', 'Electrical', 'Plumbing', 'MEP / plant operation', 'Lift', 'Pest control', 'Pool', 'Facilities Management', 'Maintenance', 'Utilities', 'Audit / inspection agency', 'Other'], required: true, viewableBy: COORD.concat('vendor'), editableBy: STAFF, showInTable: true },
+      { key: 'signedWorkers', label: 'Employees (the vendor’s own staff)', type: 'number', required: true, viewableBy: COORD.concat('vendor'), editableBy: STAFF, showInTable: true },
+      { key: 'contractors', label: 'Contractors (sub-contracted workers)', type: 'number', viewableBy: COORD.concat('vendor'), editableBy: STAFF, showInTable: true },
       { key: 'shift', label: 'Shift / hours', type: 'text', placeholder: 'e.g. Day 8:00 to 17:00, 6 days', viewableBy: COORD.concat('vendor'), editableBy: STAFF, showInTable: true },
       { key: 'note', label: 'Note', type: 'text', viewableBy: COORD.concat('vendor'), editableBy: STAFF },
     ],

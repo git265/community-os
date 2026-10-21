@@ -64,7 +64,8 @@ public final class JdbcBookingRepository implements BookingRepository {
                deposit_refund_mode = :depositRefundMode, deposit_refund_status = :depositRefundStatus, deposit_refund_paid_at = CAST(:depositRefundPaidAt AS timestamptz),
                deposit_refund_ref = :depositRefundRef, fee_corrected_from = :feeFrom, fee_correction_reason = :feeReason
         WHERE id = CAST(:id AS uuid) AND version = :version RETURNING version, updated_at""";
-    static final String LIVE_ON = COLUMNS + "\n" + FROM + "\nWHERE b.amenity_type_id = CAST(:amenity AS uuid) AND b.date = CAST(:date AS date) AND b.status <> 'Cancelled'";
+    /** A day's live bookings of one amenity, or (amenity null) of every amenity - the add-on items are one stock for the whole community. */
+    static final String LIVE_ON = COLUMNS + "\n" + FROM + "\nWHERE (CAST(:amenity AS uuid) IS NULL OR b.amenity_type_id = CAST(:amenity AS uuid)) AND b.date = CAST(:date AS date) AND b.status <> 'Cancelled'";
     static final String HELD = "SELECT b.date, b.status FROM amenity.booking b WHERE b.amenity_type_id = CAST(:amenity AS uuid) AND b.unit_id = CAST(:unit AS uuid) AND b.status <> 'Cancelled'";
     static final String TAKEN = """
         SELECT b.amenity_type_id, b.date, b.slot, count(*) AS n,
@@ -122,7 +123,8 @@ public final class JdbcBookingRepository implements BookingRepository {
         return true;
     }
     @Override public List<Booking> liveOn(UUID amenityTypeId, LocalDate date) {
-        return jdbc.query(LIVE_ON, Map.of("amenity", amenityTypeId.toString(), "date", Rows.sqlDate(date)), (rs, i) -> map(rs));
+        Map<String, Object> p = new HashMap<>(); p.put("amenity", amenityTypeId == null ? null : amenityTypeId.toString()); p.put("date", Rows.sqlDate(date));
+        return jdbc.query(LIVE_ON, p, (rs, i) -> map(rs));
     }
     @Override public List<Pricing.Held> heldBy(UUID amenityTypeId, UnitId unit) {
         return jdbc.query(HELD, Map.of("amenity", amenityTypeId.toString(), "unit", unit.toString()), (rs, i) -> new Pricing.Held(Rows.date(rs, "date"), "Completed".equals(rs.getString("status"))));

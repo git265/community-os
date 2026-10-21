@@ -56,7 +56,7 @@ public final class AmenityResources {
                 Checks.oneOf(f.rateUnit(), "Rate unit", List.of("Per hour", "Per day / event", "Free"));
                 Checks.oneOf(f.gstMode(), "GST mode", List.of("Exclusive", "Inclusive"));
                 Checks.oneOf(f.bookingMode(), "Booking mode", List.of("Time slot", "Full day"));
-                Checks.oneOf(f.reservation(), "Reservation", List.of("Reservation required", "Walk-in (no reservation)"));
+                Checks.oneOf(f.reservation(), "Reservation", List.of("Reservation required", "Walk-in (no reservation)", com.communityos.api.amenity.domain.AmenityType.ITEMS_ONLY));
                 for (BigDecimal b : new BigDecimal[] {f.rate(), f.weekendRate(), f.depositAmount(), f.maxPerDay(), f.maxPerMonth(), f.maxUpcoming()}) Checks.nonNegative(b, "An amount or limit");
                 Checks.rule(f.gstRate() == null || (f.gstRate().signum() >= 0 && f.gstRate().compareTo(BigDecimal.valueOf(40)) <= 0), "bad-gst", "GST is between 0 and 40%");
                 Checks.nonNegative(f.minNoticeHours(), "Minimum notice"); Checks.nonNegative(f.maxAdvanceDays(), "Advance days");

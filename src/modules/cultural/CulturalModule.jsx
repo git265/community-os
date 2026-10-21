@@ -378,7 +378,7 @@ export default function CulturalModule() {
               )}
 
               {tab === 'offerings' && (
-                <Offerings key={ev.id} ev={ev} offerings={evOfferings} manager={manager} canPledge={resident || finance}
+                <Offerings key={ev.id} ev={ev} offerings={evOfferings} manager={manager} canPledge={resident || finance || !!currentUser?.unit}
                   onEdit={(o) => setModal({ kind: 'offering', record: o })} onAdd={() => setModal({ kind: 'offering', record: { eventId: ev.id, kind: 'Fixed slot', pledgeValue: 30000 } })} />
               )}
 

@@ -125,7 +125,7 @@ export default function AmenityRates() {
 
         <h4 className="bk-h">Booking rules</h4>
         <div className="form-grid" data-testid="booking-rules">
-          <div className="field"><label>Reservation</label><Segmented label="Reservation" value={draft.reservation || 'Reservation required'} onChange={(v) => set('reservation', v)} options={RESERVATION_MODES} /><small className="muted">Walk-in amenities are listed as "no reservation needed" and cannot be booked.</small></div>
+          <div className="field"><label>Reservation</label><Segmented label="Reservation" value={draft.reservation || 'Reservation required'} onChange={(v) => set('reservation', v)} options={RESERVATION_MODES} /><small className="muted">Walk-in amenities are listed as "no reservation needed" and cannot be booked. "Items only" hires out chairs, tables, linen and the like with no space held: any number of units can book the same day until the stock runs out.</small></div>
           <div className="field"><label>Most bookings one unit may hold on a day</label><input type="number" min="0" data-testid="rule-per-day" value={draft.maxPerDay ?? ''} onChange={(e) => set('maxPerDay', num(e.target.value))} /></div>
           <div className="field"><label>Most bookings one unit may make in a month</label><input type="number" min="0" data-testid="rule-per-month" value={draft.maxPerMonth ?? ''} onChange={(e) => set('maxPerMonth', num(e.target.value))} /></div>
           <div className="field"><label>Most upcoming bookings one unit may hold</label><input type="number" min="0" data-testid="rule-upcoming" value={draft.maxUpcoming ?? ''} onChange={(e) => set('maxUpcoming', num(e.target.value))} /></div>

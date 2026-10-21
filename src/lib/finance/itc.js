@@ -10,15 +10,17 @@ import { logEvent } from '../audit/auditLog.js';
 const CHARS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 export function validateGstin(g) {
   const s = String(g || '').trim().toUpperCase();
-  if (!s) return { ok: false, reason: 'No GSTIN on the vendor record' };
+  if (!s) return { ok: false, blank: true, reason: 'No GSTIN on the vendor record' };
   if (!/^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(s)) return { ok: false, reason: 'GSTIN is not in the right format (15 characters)' };
   let sum = 0;
   for (let i = 0; i < 14; i += 1) { const p = CHARS.indexOf(s[i]) * (i % 2 === 0 ? 1 : 2); sum += Math.floor(p / 36) + (p % 36); }
   const check = CHARS[(36 - (sum % 36)) % 36];
-  return check === s[14] ? { ok: true, reason: '' } : { ok: false, reason: 'GSTIN check character does not match: likely a typing mistake' };
+  return check === s[14] ? { ok: true, reason: '' } : { ok: false, expected: check, reason: `GSTIN ${s} is not valid: its last character is a check on the first 14 and does not match (for those 14 it would be ${check}), so a character was probably typed wrong. Copy it again from the vendor's invoice or GST certificate.` };
 }
 
-export const ITC = { none: 'Not checked', ok: 'Verified', gstin: 'Check vendor GSTIN', details: 'Invoice details missing', missing: 'Not found in GSTR-2B', na: 'Not applicable' };
+export const ITC = { none: 'Not checked', ok: 'Verified', gstin: 'Check vendor GSTIN', details: 'Invoice details missing', missing: 'Not found in GSTR-2B', na: 'Not applicable', unreg: 'Unregistered vendor' };
+/** No input credit can be claimed on these (nothing to chase): the society is not registered, or the vendor is not. */
+export const NO_CREDIT = [ITC.na, ITC.unreg];
 
 /** Is this payment one that carries input credit we would claim? */
 export const carriesCredit = (l) => l.type === 'Debit' && Number(l.gstAmount) > 0 && !l.reversalOf;
@@ -29,6 +31,8 @@ export async function checkLine(line, vendors, { registered = true } = {}) {
   const v = (vendors || []).find((x) => x.name === line.vendor);
   const g = validateGstin(v?.gstin);
   if (!line.vendor) return { itcStatus: ITC.details, itcNote: 'No vendor chosen on this payment.' };
+  // A vendor with no GSTIN is not registered for GST: no input credit can be claimed, and they should not have charged GST at all.
+  if (g.blank) return { itcStatus: ITC.unreg, itcNote: 'No GSTIN on the vendor record, so no input credit can be claimed. If the vendor is registered, add the GSTIN to the vendor and check again; if not, they should not charge GST: ask for a bill without GST (or the GST back).' };
   if (!g.ok) return { itcStatus: ITC.gstin, itcNote: g.reason };
   if (!String(line.invoiceNo || line.billNo || '').trim()) return { itcStatus: ITC.details, itcNote: 'Add the vendor’s invoice number so it can be matched on the GST portal.' };
   const r = await gstGateway().lookupInvoice({ gstin: v.gstin, invoiceNo: line.invoiceNo || line.billNo, date: line.date, gstAmount: line.gstAmount });
@@ -41,12 +45,12 @@ export async function runItcChecks({ actor = 'System · background check', only 
   const [ledger, vendors, settings] = await Promise.all([storage.list(C.LEDGER), storage.list(C.VENDORS), storage.list(C.TAX_SETTINGS)]);
   const registered = (settings[0]?.registered || 'No') === 'Yes';
   applyGstSettings(settings[0] || {});
-  const todo = ledger.filter((l) => carriesCredit(l) && (only === 'all' || !l.itcStatus || [ITC.none, ITC.missing, ITC.gstin, ITC.details].includes(l.itcStatus)));
+  const todo = ledger.filter((l) => carriesCredit(l) && (only === 'all' || !l.itcStatus || [ITC.none, ITC.missing, ITC.gstin, ITC.details, ITC.unreg].includes(l.itcStatus)));
   const now = new Date().toISOString(); const res = { checked: 0, ok: 0, attention: 0 };
   for (const l of todo) {
     const r = await checkLine(l, vendors, { registered });
     await put({ ...l, ...r, itcCheckedAt: now });
-    res.checked += 1; if (r.itcStatus === ITC.ok || r.itcStatus === ITC.na) res.ok += 1; else res.attention += 1;
+    res.checked += 1; if (r.itcStatus === ITC.ok || NO_CREDIT.includes(r.itcStatus)) res.ok += 1; else res.attention += 1;
   }
   if (res.checked) await logEvent({ who: actor, what: 'Billing & Finance', action: 'Update', summary: `GST input credit check: ${res.checked} payment(s) checked, ${res.attention} need attention` });
   return res;

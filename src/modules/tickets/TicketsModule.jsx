@@ -391,11 +391,14 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
   // custom attributes the Super Admin added to maintenance tasks (Studio) travel with the draft
   const customKeys = useMemo(() => (schemaFor(COLLECTIONS.TICKETS)?.fields || []).filter((f) => f.isCustom).map((f) => f.key), [schemaFor]);
   const baseline = useMemo(() => (selected ? pickDraft(selected, customKeys) : null), [selected, customKeys]);
+  // the attachments too: on the back end attaching a photo does not change the ticket's own version, so the version alone would leave the
+  // form holding the old photo list - it then looked unsaved, and saving again would have dropped the new photo
+  const attachSig = (selected?.attachments || []).map((m) => m.fileId || m.name).join('|');
   useEffect(() => {
     setDraft(selected ? pickDraft(selected, customKeys) : null);
     setPendingFiles([]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected?.id, selected?.recVersion]);
+  }, [selected?.id, selected?.recVersion, attachSig]);
   useEffect(() => { let t = 'overview'; try { const h = sessionStorage.getItem('communityos:openTicketTab'); if (h && selected?.id) { t = h; setTimeout(() => sessionStorage.removeItem('communityos:openTicketTab'), 600); } } catch { /* ignore */ } setDtab(t); }, [selected?.id]);
   const changedKeys = draft && baseline ? [...DRAFT_KEYS, ...customKeys].filter((k) => JSON.stringify(draft[k]) !== JSON.stringify(baseline[k])) : [];
   const dirty = changedKeys.length > 0 || pendingFiles.length > 0;
@@ -479,7 +482,7 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
     if (patch.attachments) patch.hasPhotos = patch.attachments.some(isImageMeta) || (selected.photos || []).length > 0;
     let out = null;
     try { out = await saveTicket({ ...selected, ...patch }); } catch (err) { window.dispatchEvent(new CustomEvent('communityos:denied', { detail: { message: `Could not save: ${err?.message || 'storage error'}` } })); } finally { setSavingTicket(false); }
-    if (out) setPendingFiles([]);
+    if (out) { setPendingFiles([]); setDraft(pickDraft({ ...selected, ...patch, ...out }, customKeys)); }   // the form is what was saved
     if (out && ['Completed', 'Closed'].includes(patch.status) && selected.assetId) setAssetAsk({ ...selected, ...patch });
     // non-financial work finished: remind the person who raised the ticket to confirm and close it
     if (out && patch.status === 'Completed' && !selected.financial) {

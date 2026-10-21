@@ -87,7 +87,7 @@ public final class GateService {
     // ---- passes (residents and the desk) -----------------------------------------------------------------------------------------------------------
     public Gate.Pass createPass(Caller c, NewPass n) {
         if (c.membership() == null) throw new AccessDenied("Sign in to make a pass");
-        UnitId unit = n.unit() != null ? n.unit() : c.isResident() && c.units().size() == 1 ? c.units().iterator().next() : null;
+        UnitId unit = n.unit() != null ? n.unit() : c.hasHome() && c.units().size() == 1 ? c.units().iterator().next() : null;
         if (unit == null && !GatePolicy.gateStaff(c)) throw new DomainException.RuleViolated("unit-required", "Say which unit the pass is for");
         if (!GatePolicy.gateStaff(c) && !c.units().contains(unit)) throw new AccessDenied("A unit manages only its own guest passes");
         String type = n.type() == null ? "One-time" : n.type();

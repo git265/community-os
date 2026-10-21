@@ -29,7 +29,7 @@ public final class CulturalPolicy {
     /** Donations (alias d): the finance side all; a resident their own units'. */
     public static Spec<Cultural.Donation> donations(Caller c) {
         if (finance(c)) return Spec.all();
-        if (!c.isResident() || c.units().isEmpty()) return Spec.none();
+        if (!c.hasHome()) return Spec.none();
         return Spec.in("d.unit_id", c.units().stream().map((u) -> u.value()).toList(), (d) -> d.unitId != null && c.units().stream().anyMatch((u) -> u.value().equals(d.unitId)));
     }
 }

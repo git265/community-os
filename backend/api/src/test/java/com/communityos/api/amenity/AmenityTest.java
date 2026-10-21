@@ -44,10 +44,15 @@ import org.junit.jupiter.api.Test;
 /** Amenity pricing and the booking workflow, with the real billing desk and ledger poster on in-memory adapters (the ledger must balance). */
 class AmenityTest {
     static final ZoneId IST = ZoneId.of("Asia/Kolkata");
-    static final UUID HALL = UUID.randomUUID(), COURT = UUID.randomUUID(), CHAIRS = UUID.randomUUID();
+    static final UUID HALL = UUID.randomUUID(), COURT = UUID.randomUUID(), CHAIRS = UUID.randomUUID(), HIRE = UUID.randomUUID();
     static AmenityType hall(int capacity) {
         return new AmenityType(HALL, "Party Hall", true, new BigDecimal("5000"), "Per day / event", new BigDecimal("6000"), true, new BigDecimal("18"), "Exclusive", new BigDecimal("2000"),
             List.of(), 24, 90, capacity, "09:00–23:00", "Full day", "Reservation required", List.of(), new BigDecimal("1"), null, new BigDecimal("2"), List.of("2026-12-25"), List.of(), List.of());
+    }
+    /** Chairs and tables booked on their own: no space, no rate of its own (only the items are charged). */
+    static AmenityType hire() {
+        return new AmenityType(HIRE, "Chairs & tables", true, BigDecimal.ZERO, "Free", null, true, new BigDecimal("18"), "Exclusive", null, List.of(), 0, 30, 1, "", "Full day", AmenityType.ITEMS_ONLY,
+            List.of(), null, null, null, List.of(), List.of(), List.of());
     }
     static AmenityType court() {
         return new AmenityType(COURT, "Tennis Court", true, BigDecimal.ZERO, "Free", null, false, null, null, null, List.of(), 0, 7, 1, "06:00–22:00", "Time slot", "Reservation required",
@@ -96,7 +101,7 @@ class AmenityTest {
         public Optional<Booking> get(UUID id, Spec<Booking> s) { return Optional.ofNullable(rows.get(id)).filter(s::matches); }
         public void insert(Booking b) { b.state().shortId = "BKG-" + (++n); b.state().version = 1; rows.put(b.id(), b); }
         public boolean save(Booking b) { b.state().version++; return true; }
-        public List<Booking> liveOn(UUID a, LocalDate d) { return rows.values().stream().filter((b) -> b.state().amenityTypeId.equals(a) && b.state().date.equals(d) && !"Cancelled".equals(b.status())).toList(); }
+        public List<Booking> liveOn(UUID a, LocalDate d) { return rows.values().stream().filter((b) -> (a == null || b.state().amenityTypeId.equals(a)) && b.state().date.equals(d) && !"Cancelled".equals(b.status())).toList(); }
         public List<Pricing.Held> heldBy(UUID a, UnitId u) { return rows.values().stream().filter((b) -> b.state().amenityTypeId.equals(a) && u.equals(b.unit()) && !"Cancelled".equals(b.status())).map((b) -> new Pricing.Held(b.state().date, "Completed".equals(b.status()))).toList(); }
         public List<Taken> taken(UUID a, LocalDate f, LocalDate t) { return List.of(); }
     };
@@ -104,7 +109,7 @@ class AmenityTest {
     String hold = null;
     final AmenityCatalog catalog = new AmenityCatalog() {
         public Optional<AmenityType> lockType(UUID id) { return type(id); }
-        public Optional<AmenityType> type(UUID id) { return id.equals(HALL) ? Optional.of(hallNow) : id.equals(COURT) ? Optional.of(court()) : Optional.empty(); }
+        public Optional<AmenityType> type(UUID id) { return id.equals(HALL) ? Optional.of(hallNow) : id.equals(COURT) ? Optional.of(court()) : id.equals(HIRE) ? Optional.of(hire()) : Optional.empty(); }
         public List<Pricing.Item> items() { return List.of(new Pricing.Item(CHAIRS, "Chairs", null, new BigDecimal("100"), new BigDecimal("15"), null, true)); }
         public Settings settings() { return new Settings(new BigDecimal("18"), false, 24); }
         public Optional<UnitInfo> unit(UnitId u) { return Optional.of(new UnitInfo(u, u.equals(UNIT_A) ? "Villa 1" : "Villa 2", "Villa", null)); }
@@ -198,5 +203,17 @@ class AmenityTest {
         assertEquals(2, svc.list(team, new BookingRepository.Filter(null, null, null, null, null, false)).size());
         assertThrows(AccessDenied.class, () -> svc.cancel(neighbour, court.id(), court.version(), new BookingService.Cancel(null, null, false, null)));
         assertThrows(DomainException.RuleViolated.class, () -> svc.cancel(team, court.id(), court.version(), new BookingService.Cancel(" ", null, false, null)), "the team gives a reason");
+    }
+
+    @Test void itemsOnTheirOwnShareOneStock() {
+        java.util.function.BiFunction<UnitId, Integer, BookingService.Book> chairs = (u, n) -> new BookingService.Book(HIRE, u, DAY, null, "Cash", null, false, "Unit", null, false, null, Map.of(CHAIRS, n));
+        Booking a = svc.book(owner, chairs.apply(UNIT_A, 40));
+        Booking b = svc.book(neighbour, chairs.apply(UNIT_B, 40));                       // no space is reserved: a second unit books the same day
+        assertEquals("600.00", a.state().extrasTotal.setScale(2).toPlainString(), "only the items are charged (40 x 15)");
+        assertNotNull(b.id());
+        // the hall's booking takes from the same stock: 80 of 100 chairs are out, so 30 more is too many
+        var tooMany = assertThrows(DomainException.RuleViolated.class, () -> svc.book(team, new BookingService.Book(HALL, UNIT_A, DAY, null, "Cash", null, false, "Unit", null, false, null, Map.of(CHAIRS, 30))));
+        assertTrue(tooMany.getMessage().contains("20"), "20 left: " + tooMany.getMessage());
+        assertThrows(DomainException.RuleViolated.class, () -> svc.book(owner, new BookingService.Book(HIRE, UNIT_A, DAY.plusDays(1), null, "Cash", null, false, "Unit", null, false, null, Map.of())), "items only: say which items");
     }
 }

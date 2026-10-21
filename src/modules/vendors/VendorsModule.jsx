@@ -7,6 +7,7 @@ import { useApp, useCollection } from '../../context/AppContext.jsx';
 import { COLLECTIONS } from '../../lib/storage/index.js';
 import { canReadCollection, canWriteCollection } from '../../lib/security/authz.js';
 import { isSameName } from '../../lib/fuzzy.js';
+import { validateGstin } from '../../lib/finance/itc.js';
 import VendorWorkers from './VendorWorkers.jsx';
 import { getPrincipal } from '../../lib/security/principal.js';
 
@@ -112,7 +113,9 @@ export default function VendorsModule({ onNavigate }) {
         statCards={vendorStatCards}
         onBeforeSave={(d, records) => {
           const dup = records.find((r) => r.id !== d.id && isSameName(r.name, d.name));
-          return dup ? `“${dup.name}” (${dup.shortId}) is already in the vendor list — open it instead of adding it again.` : '';
+          if (dup) return `“${dup.name}” (${dup.shortId}) is already in the vendor list — open it instead of adding it again.`;
+          const g = validateGstin(d.gstin);   // blank is fine: a vendor not registered for GST (no input credit is claimed on their bills)
+          return !g.ok && !g.blank ? g.reason : '';
         }}
         search
         filters={[{ key: 'category', label: 'All categories' }, { key: 'contractType', label: 'All engagements' }]}

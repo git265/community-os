@@ -33,7 +33,7 @@ public final class GateResources {
     /** A unit's own rows: residents read and write theirs; the gate team all. */
     static <F> Spec<F> ownUnit(Caller c, java.util.function.Function<F, UUID> unitOf) {
         if (GatePolicy.oversees(c)) return Spec.all();
-        if (c.isResident()) return Spec.in("r.unit_id", c.units().stream().map((u) -> u.value()).toList(), (f) -> unitOf.apply(f) != null && c.units().stream().anyMatch((u) -> u.value().equals(unitOf.apply(f))));
+        if (c.hasHome()) return Spec.in("r.unit_id", c.units().stream().map((u) -> u.value()).toList(), (f) -> unitOf.apply(f) != null && c.units().stream().anyMatch((u) -> u.value().equals(unitOf.apply(f))));
         return Spec.none();
     }
     static boolean mine(Caller c, UUID unit) { return unit != null && c.units().stream().anyMatch((u) -> u.value().equals(unit)); }
@@ -43,21 +43,22 @@ public final class GateResources {
     // ---- the vetted registry -----------------------------------------------------------------------------------------------------------------
     public record PersonFields(String name, String personClass, String phone, String photo, String status, String vendor, String deliveryCompany, String idType, String idLast4,
                                boolean idFormatOk, String licenceNo, LocalDate licenceExpiry, String vehicleNo, boolean idChecked, boolean addressChecked, boolean policeVerified,
-                               LocalDate policeExpiry, boolean referenceChecked, boolean faceEnrolled, String reviewNote, String statusReason, UUID invitedByUnitId) {}
+                               LocalDate policeExpiry, boolean referenceChecked, boolean faceEnrolled, String reviewNote, String statusReason, UUID invitedByUnitId,
+                               String vendorService) {}   // vendorService: the vendor's category (service line) this worker is on
     public static final Resource<PersonFields> PEOPLE = new Resource<>(
         new ResourceTable<>("gatePeople", "gate/people", "gate.person", PersonFields.class, "r.name")
             .server("verifiedAt", Kind.TIMESTAMP).who("verifiedBy", "verified_by_id", false).unitNo("invitedByUnit", "invited_by_unit_id"),
         new ResourceRules<>() {
             @Override public Spec<PersonFields> readScope(Caller c) {
                 if (GatePolicy.oversees(c)) return Spec.all();
-                if (!c.isResident()) return Spec.none();
+                if (!c.hasHome()) return Spec.none();
                 List<UUID> units = c.units().stream().map((u) -> u.value()).toList();
                 Spec<PersonFields> invited = Spec.in("r.invited_by_unit_id", units, (f) -> mine(c, f.invitedByUnitId()));
                 Spec<PersonFields> linked = new Spec<>("EXISTS (SELECT 1 FROM gate.household_link l WHERE l.community_id = r.community_id AND l.person_id = r.id AND l.unit_id = ANY (CAST(:s_link_units AS uuid[])))",
                     Map.of("s_link_units", "{" + String.join(",", units.stream().map(UUID::toString).toList()) + "}"), (f) -> false);
                 return invited.or(linked);
             }
-            @Override public boolean mayWrite(Caller c) { return GatePolicy.gateOrFm(c) || (c.isResident() && !c.units().isEmpty()); }
+            @Override public boolean mayWrite(Caller c) { return GatePolicy.gateOrFm(c) || c.hasHome(); }
             @Override public boolean mayChange(Caller c, Item<PersonFields> it) {
                 return GatePolicy.gateOrFm(c) || (mine(c, it.data().invitedByUnitId()) && !Gate.VETTED.contains(it.data().status()));
             }
@@ -72,7 +73,7 @@ public final class GateResources {
                     Checks.rule(!"Active".equals(status) || f.idChecked(), "not-vetted", "Tick the ID check before clearing a person for entry");
                     return new PersonFields(name, f.personClass(), f.phone(), f.photo(), status, f.vendor(), f.deliveryCompany(), f.idType(), up(f.idLast4()), f.idFormatOk(), f.licenceNo(),
                         f.licenceExpiry(), f.vehicleNo(), f.idChecked(), f.addressChecked(), f.policeVerified(), f.policeExpiry(), f.referenceChecked(), f.faceEnrolled(), f.reviewNote(),
-                        f.statusReason(), f.invitedByUnitId());
+                        f.statusReason(), f.invitedByUnitId(), Checks.text(f.vendorService(), "Vendor category", 80));
                 }
                 // a resident invites someone for their own household: no checks, no status beyond "invited"
                 UUID unit = f.invitedByUnitId() != null ? f.invitedByUnitId() : c.units().size() == 1 ? c.units().iterator().next().value() : null;
@@ -81,7 +82,7 @@ public final class GateResources {
                 Checks.rule(!f.idChecked() && !f.addressChecked() && !f.policeVerified() && !f.referenceChecked() && !f.faceEnrolled() && f.reviewNote() == null && f.statusReason() == null,
                     "vetting", "Vetting checks are ticked by the security team");
                 return new PersonFields(name, f.personClass(), f.phone(), f.photo(), f.status() == null ? "Invited" : f.status(), f.vendor(), f.deliveryCompany(), f.idType(), up(f.idLast4()),
-                    false, f.licenceNo(), f.licenceExpiry(), f.vehicleNo(), false, false, false, null, false, false, null, null, unit);
+                    false, f.licenceNo(), f.licenceExpiry(), f.vehicleNo(), false, false, false, null, false, false, null, null, unit, null);
             }
             @Override public boolean deletable(PersonFields f) { return !Gate.VETTED.contains(f.status()); }   // vetted people are blocked or suspended, not deleted
             @Override public String label(PersonFields f) { return f.name(); }
@@ -94,7 +95,7 @@ public final class GateResources {
         new ResourceTable<>("gateLinks", "gate/household-links", "gate.household_link", LinkFields.class, "r.person_name").server("confirmedAt", Kind.TIMESTAMP).unitNo("unit", "unit_id").filterBy("personId"),
         new ResourceRules<>() {
             @Override public Spec<LinkFields> readScope(Caller c) { return ownUnit(c, LinkFields::unitId); }
-            @Override public boolean mayWrite(Caller c) { return GatePolicy.gateOrFm(c) || c.isResident(); }
+            @Override public boolean mayWrite(Caller c) { return GatePolicy.gateOrFm(c) || c.hasHome(); }
             @Override public boolean mayChange(Caller c, Item<LinkFields> it) { return GatePolicy.gateOrFm(c) || mine(c, it.data().unitId()); }
             @Override public LinkFields validate(Caller c, LinkFields f, LinkFields old) {
                 Checks.rule(f.personId() != null && f.unitId() != null, "required", "Choose the person and the unit");
@@ -112,7 +113,7 @@ public final class GateResources {
         new ResourceTable<>("gateVillaRules", "gate/unit-rules", "gate.unit_rule", UnitRuleFields.class, "r.created_at").unitNo("unit", "unit_id"),
         new ResourceRules<>() {
             @Override public Spec<UnitRuleFields> readScope(Caller c) { return ownUnit(c, UnitRuleFields::unitId); }
-            @Override public boolean mayWrite(Caller c) { return GatePolicy.gateStaff(c) || c.isResident(); }
+            @Override public boolean mayWrite(Caller c) { return GatePolicy.gateStaff(c) || c.hasHome(); }
             @Override public boolean mayChange(Caller c, Item<UnitRuleFields> it) { return GatePolicy.gateStaff(c) || mine(c, it.data().unitId()); }
             @Override public UnitRuleFields validate(Caller c, UnitRuleFields f, UnitRuleFields old) {
                 Checks.rule(f.unitId() != null, "unit-required", "Which unit?");
@@ -131,7 +132,7 @@ public final class GateResources {
         new ResourceTable<>("gatePassTemplates", "gate/pass-templates", "gate.pass_template", TemplateFields.class, "r.name").unitNo("unit", "unit_id"),
         new ResourceRules<>() {
             @Override public Spec<TemplateFields> readScope(Caller c) { return ownUnit(c, TemplateFields::unitId); }
-            @Override public boolean mayWrite(Caller c) { return GatePolicy.gateStaff(c) || c.isResident(); }
+            @Override public boolean mayWrite(Caller c) { return GatePolicy.gateStaff(c) || c.hasHome(); }
             @Override public boolean mayChange(Caller c, Item<TemplateFields> it) { return GatePolicy.gateStaff(c) || mine(c, it.data().unitId()); }
             @Override public TemplateFields validate(Caller c, TemplateFields f, TemplateFields old) {
                 if (!GatePolicy.gateStaff(c)) if (!(mine(c, f.unitId()) && (old == null || Objects.equals(old.unitId(), f.unitId())))) throw new AccessDenied("A unit keeps only its own pass templates");

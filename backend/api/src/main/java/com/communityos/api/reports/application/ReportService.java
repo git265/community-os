@@ -44,7 +44,7 @@ public final class ReportService {
         Reports.Type t = known(type);
         UUID unit = unitId;
         if (!reporter(c)) {
-            if (!c.isResident() || !t.perUnit()) throw new AccessDenied("Only the committee and the facility manager run this report");
+            if (!c.hasHome() || !t.perUnit()) throw new AccessDenied("Only the committee and the facility manager run this report");
             List<UUID> mine = c.units().stream().map((u) -> u.value()).sorted().toList();
             if (mine.isEmpty()) throw new AccessDenied("No unit to report on");
             if (unit == null) unit = mine.get(0);

@@ -46,11 +46,11 @@ public final class DonationService {
 
     /** A resident's pledge for their unit (reserving a fixed slot when it names one). */
     public Cultural.Donation pledge(Caller c, Pledge p) {
-        if (!c.isResident() && !CulturalPolicy.manager(c)) throw new AccessDenied("Residents pledge; the committee records donations");
+        if (!c.hasHome() && !CulturalPolicy.manager(c)) throw new AccessDenied("Owners and residents pledge; the committee records donations");
         return tx.inTx(() -> {
             Cultural.Event ev = openEvent(c, p.eventId());
             UUID unit = p.unitId();
-            if (c.isResident()) {
+            if (!CulturalPolicy.manager(c)) {                              // an owner (a committee member too) pledges for their own unit
                 if (unit == null && c.units().size() == 1) unit = c.units().iterator().next().value();
                 UUID u = unit;
                 if (u == null || c.units().stream().noneMatch((x) -> x.value().equals(u))) throw new AccessDenied("Pledge for your own unit");
@@ -174,13 +174,13 @@ public final class DonationService {
     /** Its unit's (or the committee's) donation. */
     private Cultural.Donation mine(Caller c, UUID id, long version) {
         Cultural.Donation d = store.donation(id, CulturalPolicy.manager(c) ? Spec.all() : CulturalPolicy.donations(c)).orElseThrow(AccessDenied.NotVisible::new);
-        if (!CulturalPolicy.manager(c) && !c.isResident()) throw new AccessDenied("Only its unit or the committee changes a pledge");
+        if (!CulturalPolicy.manager(c) && !c.hasHome()) throw new AccessDenied("Only its unit or the committee changes a pledge");
         if (d.version != version) throw new DomainException.Conflict("Donation " + d.shortId);
         return d;
     }
     static Cultural.Donation apply(Cultural.Donation d, Pledge p, UUID unit, Caller c) {
         d.eventId = d.eventId == null ? p.eventId() : d.eventId;
-        d.donor = p.donor() == null || p.donor().isBlank() ? (c.isResident() ? c.displayName() : null) : p.donor();
+        d.donor = p.donor() == null || p.donor().isBlank() ? (!CulturalPolicy.manager(c) ? c.displayName() : null) : p.donor();
         d.unitId = unit; d.kind = p.kind() == null ? "Donation" : p.kind(); d.towards = p.towards() == null ? "General" : p.towards(); d.amount = p.amount(); d.date = p.date();
         d.mode = p.mode(); d.reference = blank(p.reference()); d.anonymous = p.anonymous(); d.note = blank(p.note()); d.phone = blank(p.phone()); d.members = blank(p.members());
         d.sankalpam = blank(p.sankalpam()); d.offeringId = p.offeringId();

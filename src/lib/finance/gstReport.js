@@ -19,7 +19,7 @@ export function buildGstReport({ ledger = [], vendors = [], fy }) {
   const months = new Map();
   const m = (k) => { if (!months.has(k)) months.set(k, { month: k, outTaxable: 0, outGst: 0, inGst: 0, inClaimable: 0, inAtRisk: 0, inUnchecked: 0 }); return months.get(k); };
   outward.forEach((l) => { const x = m(month(l.date)); x.outTaxable += Number(l.baseAmount) || Math.max(0, Number(l.amount) - Number(l.gstAmount)); x.outGst += Number(l.gstAmount); });
-  inward.forEach((l) => { const x = m(month(l.date)); const g = Number(l.gstAmount); x.inGst += g; if (claimable(l)) x.inClaimable += g; else if ([ITC.missing, ITC.gstin, ITC.details].includes(l.itcStatus)) x.inAtRisk += g; else if (l.itcStatus !== ITC.na) x.inUnchecked += g; });
+  inward.forEach((l) => { const x = m(month(l.date)); const g = Number(l.gstAmount); x.inGst += g; if (claimable(l)) x.inClaimable += g; else if ([ITC.missing, ITC.gstin, ITC.details].includes(l.itcStatus)) x.inAtRisk += g; else if (l.itcStatus !== ITC.na && l.itcStatus !== ITC.unreg) x.inUnchecked += g; });
   const rows = [...months.values()].sort((a, b) => a.month.localeCompare(b.month)).map((x) => ({ ...Object.fromEntries(Object.entries(x).map(([k, v]) => [k, typeof v === 'number' ? r2(v) : v])), net: r2(x.outGst - x.inClaimable) }));
   const sum = (k) => r2(rows.reduce((n, x) => n + x[k], 0));
   const totals = { outTaxable: sum('outTaxable'), outGst: sum('outGst'), inGst: sum('inGst'), inClaimable: sum('inClaimable'), inAtRisk: sum('inAtRisk'), inUnchecked: sum('inUnchecked'), net: sum('net') };

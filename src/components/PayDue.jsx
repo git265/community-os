@@ -27,10 +27,13 @@ export function usePayRights(due) {
   const resident = role?.category === 'Resident';
   const finance = roleId === 'super_admin' || hasPermission('MANAGE_DUES') || hasPermission('MANAGE_UTILITY_BILLING');
   const unpaid = due && !['Paid', 'Cancelled'].includes(due.status);
+  // their own unit's bill: any owner pays it online, a committee or staff member who owns the unit too
+  const own = !!due && !!currentUser?.unit && due.unit === currentUser.unit;
   return {
     resident,
+    own,
     finance,
-    canPay: !!unpaid && ((resident && !!currentUser?.unit && due.unit === currentUser.unit) || (!resident && finance)),
+    canPay: !!unpaid && (own || (!resident && finance)),
   };
 }
 
@@ -42,7 +45,11 @@ export function usePayRights(due) {
 export function PayDueModal({ due, onClose }) {
   const { currentUser } = useApp();
   const { save } = useCollection(COLLECTIONS.DUES, 'Billing & Finance');
-  const { resident } = usePayRights(due);
+  const { resident: isResident, own, finance } = usePayRights(due);
+  const [asOwner, setAsOwner] = useState(true);
+  // paying as the owner (online through the provider): a resident always; an owner on the committee for their own unit, unless they
+  // switch to recording a payment that arrived another way (finance roles only)
+  const resident = isResident || (own && (asOwner || !finance));
   const modes = resident ? ONLINE : ALL_MODES;
   const [mode, setMode] = useState(modes[0]);
   const [ref, setRef] = useState('');
@@ -129,6 +136,12 @@ export function PayDueModal({ due, onClose }) {
         </div>
       </div>
       <BillTerms compact due={due} amount={due.amount} flatTax={due.tax} dueDate={due.dueDate} status={due.status} />
+      {own && !isResident && finance && (
+        <div className="chips" role="group" aria-label="How" style={{ margin: '8px 0' }} data-testid="pay-as">
+          <button type="button" className={`chip${asOwner ? ' on' : ''}`} aria-pressed={asOwner} onClick={() => setAsOwner(true)}>Pay online (my unit)</button>
+          <button type="button" className={`chip${!asOwner ? ' on' : ''}`} aria-pressed={!asOwner} onClick={() => setAsOwner(false)}>Record a payment received</button>
+        </div>
+      )}
       <div className="form-grid">
         {!resident && <div className="field"><label>Payment mode *</label>
           <select value={mode} onChange={(e) => setMode(e.target.value)}>{modes.map((m) => <option key={m}>{m}</option>)}</select>

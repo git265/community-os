@@ -9,6 +9,13 @@ import { getAccessToken, getAuthUser } from './auth/session.js';
 import { notificationOf } from './storage/v2/v2map.js';
 
 let live = false;
+const CHANGED_BY = {
+  bill: ['dues', 'ledger'], payment_made: ['dues', 'ledger'], amenity_booking: ['amenities'], gate_crew_inout: ['gateVisits'], payment: ['dues', 'ledger'], refund: ['amenities', 'ledger'], amenity: ['amenities'], booking: ['amenities'],
+  assigned: ['tickets'], status: ['tickets'], ticket_new: ['tickets'], ticket_chat: ['ticketComments'], decision: ['tickets', 'quotations', 'releases'],
+  ticket_assigned: ['tickets'], ticket_status: ['tickets'], ticket_decision: ['tickets', 'quotations'], release: ['releases'], stock_low: ['inventory'],
+  gate_guest_arrived: ['gateVisits'], gate_guest_exit: ['gateVisits'], gate_delivery: ['gateVisits'], gate_staff_inout: ['gateVisits'], gate_overstay: ['gateFlags'], gate_override: ['gateVisits'],
+  gate: ['gateVisits'], gate_approval: ['gateApprovals', 'gateVisits'], announcement: ['broadcasts'], poll: ['broadcasts'], forum_topic: ['forum'], forum_reply: ['forumPosts'],
+};
 /** True while the live stream is connected (the bell then stops asking for the unread count). */
 export const isLive = () => live;
 
@@ -51,6 +58,8 @@ export function startLive({ onReconnect } = {}) {
           if (event !== 'notification') return;
           let n; try { n = JSON.parse(data); } catch { return; }
           window.dispatchEvent(new CustomEvent('communityos:notify', { detail: { notification: notificationOf(n, getAuthUser()?.name || '') } }));
+          // someone else's action: the lists it touched reload on the screens showing them (a bill paid, a booking, a ticket moved)
+          for (const c of CHANGED_BY[n.event] || CHANGED_BY[n.kind] || []) window.dispatchEvent(new CustomEvent('communityos:changed', { detail: { collection: c } }));
         });
         for (;;) { const { done, value } = await reader.read(); if (done) break; feed(dec.decode(value, { stream: true })); }
         live = false; if (!stopped) await sleep(1000);                  // the server ends each stream after a few minutes: open the next one

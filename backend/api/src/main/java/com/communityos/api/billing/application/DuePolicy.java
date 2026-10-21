@@ -21,11 +21,13 @@ public final class DuePolicy implements AccessPolicy<Due> {
     @Override public Spec<Due> readScope(Caller c) {
         if (c.isSuperAdmin()) return Spec.all();
         if (c.isResident()) return Spec.in("d.unit_id", c.units().stream().map((u) -> u.value()).toList(), (d) -> d.unit() != null && c.units().contains(d.unit()));
+        Spec<Due> own = Spec.in("d.unit_id", c.units().stream().map((u) -> u.value()).toList(), (d) -> d.unit() != null && c.units().contains(d.unit()));
         Spec<Due> s;
         if (c.hasAny(Permission.MANAGE_DUES, Permission.MANAGE_LEDGER)) s = Spec.all();
         else if (c.hasAny(Permission.MANAGE_UTILITY_BILLING, Permission.MANAGE_UTILITY_READINGS)) s = UTILITY;
-        else return Spec.none();
-        return c.isBlockLimited() ? s.and(blocks(c)) : s;
+        else return c.hasHome() ? own : Spec.none();                       // a committee / staff member who owns a unit sees its bills
+        s = c.isBlockLimited() ? s.and(blocks(c)) : s;
+        return c.hasHome() ? s.or(own) : s;
     }
 
     @Override public Spec<Due> writeScope(Caller c) {
@@ -41,7 +43,8 @@ public final class DuePolicy implements AccessPolicy<Due> {
     /** May this caller pay these bills online? Their own unit's bills, or anyone's with MANAGE_DUES (paying at the desk on someone's behalf). */
     public boolean mayPay(Caller c, Due d) {
         if (d.unit() == null) return false;
-        if (c.isResident()) return c.units().contains(d.unit());
+        if (c.units().contains(d.unit())) return true;                    // its own unit's, whoever the owner is (a committee member too)
+        if (c.isResident()) return false;
         return c.isSuperAdmin() || c.has(Permission.MANAGE_DUES);
     }
 

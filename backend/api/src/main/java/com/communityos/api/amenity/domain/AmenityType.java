@@ -21,6 +21,9 @@ public record AmenityType(UUID id, String name, boolean active, BigDecimal rate,
     }
     public boolean fullDay() { return "Full day".equals(bookingMode); }
     public boolean walkIn() { return "Walk-in (no reservation)".equals(reservation); }
+    public static final String ITEMS_ONLY = "Items only (no space)";
+    /** Chairs, tables, cloths ... booked on their own: no space is reserved, so any number of units book it the same day while the items last. */
+    public boolean itemsOnly() { return ITEMS_ONLY.equals(reservation); }
     /** Tiers cleaned and sorted, longest notice first; the community default when none are set. */
     public List<Tier> tiers() {
         List<Tier> in = cancellationRules.isEmpty() ? DEFAULT_TIERS : cancellationRules;

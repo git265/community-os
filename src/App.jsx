@@ -76,7 +76,7 @@ const NAV_GROUPS = [
       { id: 'audits', label: 'Audits', icon: '✔', Component: AuditsModule, visible: (role) => !isHandyman(role) },
       { id: 'amenities', label: 'Amenities', icon: '▣', Component: AmenitiesModule, visible: (role) => !isHandyman(role) },
       { id: 'security', label: 'Security & Visitors', icon: '◇', Component: SecurityModule, visible: (role, has) => role.category !== 'Resident' && (has('MANAGE_SECURITY') || role.category === 'EC' || role.id === 'facility_manager') },
-      { id: 'mygate', label: 'My Gate', icon: '🚪', Component: MyGate, visible: (role) => role.category === 'Resident' },
+      { id: 'mygate', label: 'My Gate', icon: '🚪', Component: MyGate, visible: (role, has, me) => role.category === 'Resident' || !!me?.unit },   // an owner on the committee has a gate too
       { id: 'shifts', label: 'Workforce', icon: '🕒', Component: WorkforceModule, visible: (role) => role.category !== 'Resident' },
       { id: 'vendors', label: 'Vendors', icon: '♙', Component: VendorsModule, visible: (role, has) => has('MANAGE_VENDORS') },
     ],
@@ -259,7 +259,7 @@ function Shell() {
 
   const visibleGroups = NAV_GROUPS.map((g) => ({
     ...g,
-    items: g.items.filter((n) => n.visible(role, hasPermission) && (n.pages ? n.pages.some((pg) => pageOpen(role, pg)) : pageOpen(role, n.id))),
+    items: g.items.filter((n) => n.visible(role, hasPermission, currentUser) && (n.pages ? n.pages.some((pg) => pageOpen(role, pg)) : pageOpen(role, n.id))),
   })).map((g) => ({ ...g, shown: g.items.filter((n) => !n.hidden) })).filter((g) => g.shown.length > 0);
 
   const visibleItems = visibleGroups.flatMap((g) => g.items);
