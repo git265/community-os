@@ -948,6 +948,36 @@ class PostgresFlowTest {
             assertThrows(AccessDenied.class, () -> as(ownerC, () -> attSvc.list(ownerC, null, null, null)));
             assertTrue(as(admin, () -> attSvc.teams(admin)).stream().anyMatch((t) -> t.total() >= 1));
 
+            // ---- 6o. reports: built on the server from the community's data, a resident's own unit only, a schedule sent to a unit and kept --------------
+            var repSvc = new com.communityos.api.reports.application.ReportService(new com.communityos.api.reports.adapter.JdbcReportData(app, "Asia/Kolkata"), inbox, json, audit, app, clock, ZoneId.of("Asia/Kolkata"));
+            for (String type : List.of("bookings", "dues", "collections", "water", "tasks", "audits", "infra", "eventwork"))
+                assertNotNull(as(admin, () -> repSvc.build(admin, type, null, null)).report().title(), type);
+            var duesAll = as(admin, () -> repSvc.build(admin, "dues", null, null)).report();
+            var duesMine = as(ownerC, () -> repSvc.build(ownerC, "dues", null, null)).report();
+            assertEquals("Your dues · Villa 101", duesMine.title());
+            assertTrue(duesMine.rows().stream().allMatch((row) -> "Villa 101".equals(row.get(0))), "only their own unit");
+            assertTrue(duesAll.rows().size() >= duesMine.rows().size());
+            assertThrows(AccessDenied.class, () -> as(ownerC, () -> repSvc.build(ownerC, "collections", null, null)));
+            assertEquals(1, as(admin, () -> repSvc.build(admin, "infra", null, null)).report().rows().size(), "the pump that needs attention");
+            var rsRepo = new com.communityos.api.shared.resource.JdbcResourceRepository<>(com.communityos.api.reports.ReportResources.SCHEDULES.table(), app, json);
+            var rrRepo = new com.communityos.api.shared.resource.JdbcResourceRepository<>(com.communityos.api.reports.ReportResources.RUNS.table(), app, json);
+            var sched = as(admin, () -> kit.create(admin, com.communityos.api.reports.ReportResources.SCHEDULES, rsRepo, new com.communityos.api.reports.ReportResources.ScheduleFields("Dues to Villa 101", "dues",
+                null, "Detailed", "Daily", java.time.LocalTime.MIDNIGHT, null, null, List.of("In-app"), "Selected villas", List.of(), List.of(unitA), List.of(), null, null, List.of(), null, null, null,
+                null, null, false, true)));
+            assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> kit.create(admin, com.communityos.api.reports.ReportResources.SCHEDULES, rsRepo, new com.communityos.api.reports.ReportResources.ScheduleFields(
+                "x", "dues", null, null, null, null, null, null, null, "Selected villas", List.of(), List.of(), List.of(), null, null, null, null, null, null, null, null, null, null))), "to which units?");
+            var manual = as(admin, () -> repSvc.run(admin, sched.id(), true));
+            assertEquals("1 unit (each sees only its own)", manual.sentTo());
+            assertTrue(as(ownerC, () -> inboxSvc.mine(ownerC, false, 200)).stream().anyMatch((n) -> n.event().equals("report") && n.title().equals("Your dues · Villa 101")), "the unit hears of its own dues");
+            var system = com.communityos.api.shared.security.SystemCaller.of(new CommunityId(cid), "scheduled reports");
+            assertEquals(1, (int) as(system, () -> repSvc.runDue(system)));
+            assertEquals(0, (int) as(system, () -> repSvc.runDue(system)), "once a day");
+            assertEquals(today.toString(), String.valueOf(as(admin, () -> kit.get(admin, com.communityos.api.reports.ReportResources.SCHEDULES, rsRepo, sched.id())).server("lastRunKey")));
+            var runs = as(admin, () -> kit.list(admin, com.communityos.api.reports.ReportResources.RUNS, rrRepo));
+            assertEquals(2, runs.size()); assertTrue(runs.stream().anyMatch((x) -> Boolean.TRUE.equals(x.server("manual"))));
+            assertTrue(as(ownerC, () -> kit.list(ownerC, com.communityos.api.reports.ReportResources.RUNS, rrRepo)).isEmpty(), "sent reports are the reporters'");
+            assertThrows(RuntimeException.class, () -> owner.sql("UPDATE reports.run SET title = 'edited' WHERE community_id = '" + cid + "' RETURNING 1"), "kept as it was sent");
+
             // ---- 7. audit, outbox ----------------------------------------------------------------------------------------------------------------
             assertTrue(Integer.parseInt((String) owner.sql("SELECT count(*)::text AS n FROM audit.audit_event WHERE community_id = '" + cid + "'").get(0).get("n")) >= 7);
             OutboxRelay relay = new OutboxRelay(new JdbcOutboxStore(platform), new WebhookFanout(platform), 10, clock);

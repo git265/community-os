@@ -183,6 +183,15 @@ readers.vendors = withFiles(readers.vendors, 'vendor.vendor', 'attachments');
 const ASSET_FILES = { equipment: ['assets.equipment', 'files'], inventory: ['assets.inventory', 'attachments'], dgFuelLogs: ['assets.dg_fuel', 'bill'],
   electricityBills: ['assets.electricity_bill', 'billFile'], audits: ['assets.audit', 'report'], logEntries: ['assets.log_entry', 'attachments'] };
 for (const [c, [owner, field]] of Object.entries(ASSET_FILES)) readers[c] = withFiles(readers[c], owner, field);
+// report schedules: units and people by id on the server, by unit number and name in the app
+async function peopleIndex() { const ms = await all('/members'); return { idByName: Object.fromEntries(ms.map((m) => [m.displayName, m.id])), nameById: Object.fromEntries(ms.map((m) => [m.id, m.displayName])) }; }
+const scheduleReader = readers.reportSchedules;
+const withAudience = async (rows) => {
+  if (!rows.length) return rows;
+  const [{ noById }, { nameById }] = await Promise.all([unitIndex(), peopleIndex()]);
+  return rows.map((r) => ({ ...r, units: (r.unitIds || []).map((id) => noById[id]).filter(Boolean), people: (r.memberIds || []).map((id) => nameById[id]).filter(Boolean) }));
+};
+readers.reportSchedules = { list: async () => withAudience(await scheduleReader.list()), get: async (id) => { const r = await scheduleReader.get(id); return r ? (await withAudience([r]))[0] : r; } };
 // the service directory: ratings and counts are worked out by the server
 readers.serviceContacts = { list: async () => (await call('/vendors/directory')).map(contactOf), get: async (id) => { if (!isUuid(id)) return null; const c = await call(`/vendors/directory/${id}`); return c && contactOf(c); } };
 readers.contactReviews = { list: async () => (await Promise.all((await call('/vendors/directory')).map((c) => call(`/vendors/directory/${c.id}/reviews`)))).flat().map(reviewOf) };
@@ -201,6 +210,8 @@ readers.ballotBox = { list: async () => (await Promise.all((await call('/governa
   .map(async (b) => ((await call(`/governance/ballots/${b.id}/box`))?.rows || []).map((r) => boxRowOf(b.id, r))))).flat() };
 readers.ballotBox.get = byId(readers.ballotBox.list);
 /** E-voting's second factor and the vote, for src/lib/evoting.js: the code goes to the owner's registered mobile (shown here only by a development server). */
+/** Send a schedule's report now: the server builds it from its own data, delivers it and keeps what was sent. */
+export async function runReportNow(scheduleId) { return call(`/reports/schedules/${scheduleId}/run`, json('POST', {})); }
 export const evote = {
   async request(ballot, unitNo) { const r = await call(`/governance/ballots/${ballot.id}/code`, json('POST', { unitId: voteUnit(ballot, unitNo) })); return { code: r.code || '', phoneLast4: r.phoneLast4 || '' }; },
   async verify(ballot, unitNo, code) { return (await call(`/governance/ballots/${ballot.id}/code/verify`, json('POST', { unitId: voteUnit(ballot, unitNo), code: String(code || '').trim() }))).proof; },
@@ -521,6 +532,13 @@ async function putConditionLog(rec) {
     ticketId: isUuid(rec.ticketId) ? rec.ticketId : null }));
   return { id: e.id, shortId: e.shortId, assetId: e.assetId, assetName: e.assetName, date: e.date, condition: e.condition, source: e.source || '', note: e.note || '', ticketId: e.ticketId || '', by: rec.by || '' };
 }
+async function putReportSchedule(rec) {
+  const [{ idByNo }, { idByName }] = await Promise.all([unitIndex(), peopleIndex()]);
+  const unitIds = (rec.units || []).map((no) => { const id = idByNo[no]; if (!id) throw new Error(`Unit ${no} is not known to the back end.`); return id; });
+  const memberIds = (rec.people || []).map((n) => { const id = idByName[n]; if (!id) throw new Error(`${n} is not a member on the back end.`); return id; });
+  const out = await putResource('reportSchedules', { ...rec, unitIds, memberIds, lastRunKey: undefined });
+  return (await withAudience([out]))[0];
+}
 /** Clocking in and out is done by the server at its own time; only a supervisor's correction sets times. */
 async function putAttendance(rec) {
   const before = isUuid(rec.id) ? await readers.attendance.get(rec.id) : null;
@@ -716,7 +734,7 @@ async function putBooking(rec) {
   return bookingOf(await call(`/amenities/bookings/${encodeURIComponent(rec.id)}/${cmd.path}`, json('POST', cmd.body, ifMatch(before.version))));
 }
 
-const WRITERS = { attendance: putAttendance, workforce: async () => { throw new Error('Teams are worked out from field staff.'); }, inventory: putInventory, infraLog: putConditionLog, serviceContacts: putContact, contactReviews: putReview, meetings: putMeeting, ballots: putBallot, voteRoll: putVoteMark, ballotBox: putBoxRow, ledger: putLedger, releases: putRelease, payRequests: putPayRequest, bankTxns: putBankTxn, culturalDonations: putDonation, culturalExpenses: putExpense, culturalOfferings: putOffering, culturalEvents: putEvent, culturalPhotos: putPhoto, culturalSevas: signing('culturalSevas', 'seva', 'volunteers'), culturalPrograms: signing('culturalPrograms', 'programme', 'participants'), files: putFile, documents: putDocument, notificationOutbox: async (r) => r /* the server queues channel messages itself, from the event */, notifications: putNotification, broadcasts: putBroadcast, pollVotes: putPollVote, forum: putTopic, forumPosts: putPost, gatePasses: putPass, gateApprovals: putApproval, gateFlags: putFlag, gateVisits: deskOnly, gateScans: deskOnly, gatePulse: async (r) => r, amenities: putBooking, properties: putProperty, users: putUser, dues: putDue, tickets: putTicket, ticketComments: putComment, handymen: putFieldStaff, quotations: putQuotation };
+const WRITERS = { reportSchedules: putReportSchedule, attendance: putAttendance, workforce: async () => { throw new Error('Teams are worked out from field staff.'); }, inventory: putInventory, infraLog: putConditionLog, serviceContacts: putContact, contactReviews: putReview, meetings: putMeeting, ballots: putBallot, voteRoll: putVoteMark, ballotBox: putBoxRow, ledger: putLedger, releases: putRelease, payRequests: putPayRequest, bankTxns: putBankTxn, culturalDonations: putDonation, culturalExpenses: putExpense, culturalOfferings: putOffering, culturalEvents: putEvent, culturalPhotos: putPhoto, culturalSevas: signing('culturalSevas', 'seva', 'volunteers'), culturalPrograms: signing('culturalPrograms', 'programme', 'participants'), files: putFile, documents: putDocument, notificationOutbox: async (r) => r /* the server queues channel messages itself, from the event */, notifications: putNotification, broadcasts: putBroadcast, pollVotes: putPollVote, forum: putTopic, forumPosts: putPost, gatePasses: putPass, gateApprovals: putApproval, gateFlags: putFlag, gateVisits: deskOnly, gateScans: deskOnly, gatePulse: async (r) => r, amenities: putBooking, properties: putProperty, users: putUser, dues: putDue, tickets: putTicket, ticketComments: putComment, handymen: putFieldStaff, quotations: putQuotation };
 WRITERS.tickets = attaching(WRITERS.tickets, 'maintenance.ticket', 'attachments');
 WRITERS.ticketComments = attaching(WRITERS.ticketComments, 'maintenance.comment', 'attachments');
 WRITERS.quotations = attaching(WRITERS.quotations, 'maintenance.quotation', 'attachments');

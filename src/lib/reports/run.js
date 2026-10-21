@@ -4,6 +4,10 @@ import { deliverDirect, unitsWithPeople } from '../notify.js';
 import { logEvent } from '../audit/auditLog.js';
 import { uuid } from '../uuid.js';
 import { REPORTS, reportOf, defOf, loadData, buildReport, textOf, iso, optsOf } from './catalog.js';
+import { getDataSource } from '../storage/dataSource.js';
+import { runReportNow } from '../storage/v2/V2ApiAdapter.js';
+// On the v2 back end the server builds, sends and records scheduled reports (its own job runs them when due); custom reports stay on the screen.
+const onServer = () => getDataSource().mode === 'v2';
 
 export const FREQUENCIES = ['Daily', 'Weekly', 'Monthly'];
 export const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -33,6 +37,11 @@ export async function previewSchedule(s, now = new Date()) {
 }
 
 export async function runSchedule(s, { now = new Date(), by = 'System · scheduled reports', manual = false } = {}) {
+  if (onServer()) {
+    if (s.reportType === 'custom') throw new Error('On this back end a custom report is previewed on the screen; scheduled sending is for the built-in reports.');
+    const r = await runReportNow(s.id); changed(C.REPORT_RUNS);
+    return { rep: { title: s.name, lines: [] }, silent: !!r.silent, inApp: r.delivered || 0, queued: 0, skipped: 0, sentTo: r.sentTo };
+  }
   const { def, data, rep } = await previewSchedule(s, now);
   const society = (await storage.list(C.MERGE_FIELDS)).find((m) => m.token === '{{SOCIETY_NAME}}')?.defaultValue || '';
   const channels = (s.channels && s.channels.length ? s.channels : ['In-app']);
@@ -72,6 +81,7 @@ export async function runSchedule(s, { now = new Date(), by = 'System · schedul
 
 /** Called by the scheduler: runs every schedule that is due now. Returns how many ran. */
 export async function runReportSchedules(now = new Date()) {
+  if (onServer()) return 0;   // the server's job sends them
   const list = (await storage.list(C.REPORT_SCHEDULES)).filter((s) => dueKey(s, now));
   let n = 0;
   for (const s of list) { try { await runSchedule(s, { now }); n += 1; } catch (e) { console.warn('report failed', s.name, e); } }

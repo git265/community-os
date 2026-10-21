@@ -335,6 +335,15 @@ DO $$ BEGIN
   PERFORM test.expect_error($q$INSERT INTO workforce.site_holiday (community_id, date, name, trash) VALUES ('00000000-0000-0000-0000-00000000000a', current_date, 'Diwali', 'Rescheduled')$q$, '23514');
   PERFORM test.pass('workforce: one setting, one open session a member, clock-out after clock-in with its hours, a correction has its supervisor and reason, a rescheduled pickup has its day');
 END $$;
+DO $$ DECLARE r uuid; BEGIN
+  PERFORM set_config('app.community_id', '00000000-0000-0000-0000-00000000000a', true);
+  PERFORM test.expect_error($q$INSERT INTO reports.schedule (community_id, name, report_type, frequency, audience) VALUES ('00000000-0000-0000-0000-00000000000a', 'x', 'gossip', 'Daily', 'Roles')$q$, '23514');
+  PERFORM test.expect_error($q$INSERT INTO reports.schedule (community_id, name, report_type, frequency, audience) VALUES ('00000000-0000-0000-0000-00000000000a', 'x', 'custom', 'Daily', 'Roles')$q$, '23514');
+  PERFORM test.expect_error($q$INSERT INTO reports.schedule (community_id, name, report_type, frequency, audience, channels) VALUES ('00000000-0000-0000-0000-00000000000a', 'x', 'dues', 'Daily', 'Roles', '{Pigeon}')$q$, '23514');
+  INSERT INTO reports.run (community_id, name, title, summary) VALUES ('00000000-0000-0000-0000-00000000000a', 'Dues', 'Dues outstanding', '3 bills') RETURNING id INTO r;
+  PERFORM test.expect_error(format($q$UPDATE reports.run SET title = 'x' WHERE id = %L$q$, r), '42501');
+  PERFORM test.pass('reports: a schedule names a known report (a custom one its recipe) and known channels; a sent report is kept as sent');
+END $$;
 RESET ROLE;
 
 SELECT format('%s schema tests passed', count(*)) AS result FROM test.result WHERE ok;

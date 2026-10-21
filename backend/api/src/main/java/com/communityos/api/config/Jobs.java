@@ -20,12 +20,12 @@ public class Jobs {
     private static final Logger log = LoggerFactory.getLogger(Jobs.class);
     private final OutboxRelay outbox; private final WebhookDeliveryWorker webhooks; private final PaymentService payments; private final NamedParameterJdbcTemplate platformJdbc;
     private final com.communityos.api.gate.application.GateService gate; private final com.communityos.api.comms.application.BroadcastService notices;
-    private final com.communityos.api.workforce.application.AttendanceService attendance;
+    private final com.communityos.api.workforce.application.AttendanceService attendance; private final com.communityos.api.reports.application.ReportService reports;
 
     public Jobs(OutboxRelay outbox, WebhookDeliveryWorker webhooks, PaymentService payments, @Qualifier("platform") NamedParameterJdbcTemplate platformJdbc,
                 com.communityos.api.gate.application.GateService gate, com.communityos.api.comms.application.BroadcastService notices,
-                com.communityos.api.workforce.application.AttendanceService attendance) {
-        this.outbox = outbox; this.webhooks = webhooks; this.payments = payments; this.platformJdbc = platformJdbc; this.gate = gate; this.notices = notices; this.attendance = attendance;
+                com.communityos.api.workforce.application.AttendanceService attendance, com.communityos.api.reports.application.ReportService reports) {
+        this.outbox = outbox; this.webhooks = webhooks; this.payments = payments; this.platformJdbc = platformJdbc; this.gate = gate; this.notices = notices; this.attendance = attendance; this.reports = reports;
     }
 
     /** Communities with a notice scheduled for now or earlier. */
@@ -68,6 +68,19 @@ public class Jobs {
                 var system = com.communityos.api.shared.security.SystemCaller.of(new com.communityos.api.shared.domain.Ids.CommunityId(c), "attendance");
                 try { com.communityos.api.shared.tenancy.CallerHolder.runAs(system, () -> attendance.closeOverdue(system)); }
                 catch (RuntimeException e) { log.warn("closing attendance of {} failed: {}", c, e.toString()); }
+            }
+        });
+    }
+
+    /** Communities with an active report schedule (each one is checked against its own time and day). */
+    static final String REPORTS_DUE = "SELECT DISTINCT community_id FROM reports.schedule WHERE active AND report_type <> 'custom'";
+    @Scheduled(fixedDelayString = "${cos.jobs.reports-delay:300000}", initialDelay = 120000)
+    public void sendScheduledReports() {
+        run("reports", () -> {
+            for (java.util.UUID c : platformJdbc.query(REPORTS_DUE, Map.of(), (rs, i) -> rs.getObject("community_id", java.util.UUID.class))) {
+                var system = com.communityos.api.shared.security.SystemCaller.of(new com.communityos.api.shared.domain.Ids.CommunityId(c), "scheduled reports");
+                try { com.communityos.api.shared.tenancy.CallerHolder.runAs(system, () -> reports.runDue(system)); }
+                catch (RuntimeException e) { log.warn("scheduled reports of {} failed: {}", c, e.toString()); }
             }
         });
     }

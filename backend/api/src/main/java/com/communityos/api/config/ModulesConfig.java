@@ -192,6 +192,13 @@ public class ModulesConfig {
         return new com.communityos.api.workforce.application.AttendanceService(new com.communityos.api.workforce.adapter.JdbcAttendanceStore(jdbc, json), audit, tx, clock, ZoneId.of(p.web().timeZone()));
     }
 
+    // ---- reports ----------------------------------------------------------------------------------------------------------------------------------
+    @Bean com.communityos.api.reports.application.ReportService reportService(NamedParameterJdbcTemplate jdbc, com.communityos.api.comms.adapter.JdbcInbox inbox, ObjectMapper json,
+                                                                            AuditWriter audit, Tx tx, Clock clock, CosProperties p) {
+        return new com.communityos.api.reports.application.ReportService(new com.communityos.api.reports.adapter.JdbcReportData(jdbc, p.web().timeZone()), inbox, json, audit, tx, clock,
+            ZoneId.of(p.web().timeZone()));
+    }
+
     // ---- billing ------------------------------------------------------------------------------------------------------------------------------
     @Bean JdbcDueRepository dueRepository(NamedParameterJdbcTemplate jdbc) { return new JdbcDueRepository(jdbc); }
     @Bean JdbcBillingLookups billingLookups(NamedParameterJdbcTemplate jdbc) { return new JdbcBillingLookups(jdbc); }

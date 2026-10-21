@@ -49,8 +49,10 @@ const KIT_FIELDS = {
   'vendors/service-lines': ['vendorId', 'service', 'signedWorkers', 'shift', 'note'],
   'assets/equipment': ['name', 'area', 'type', 'status', 'quantity', 'faulty', 'specs', 'lastInspected'],
   'assets/inventory': ['item', 'category', 'location', 'uom', 'minStock', 'vendor', 'notes'],
+  'reports/schedules': ['name', 'reportType', 'period', 'format', 'frequency', 'time', 'audience', 'roleIds', 'unitIds', 'memberIds', 'recipe', 'channels', 'active'],
+  'reports/runs': ['scheduleId', 'name', 'title', 'summary', 'columns', 'sentTo'],
 };
-const KIT_COLLECTION = { 'amenities/types': 'amenityTypes', 'amenities/items': 'amenityItems', 'maintenance/task-types': 'taskTypes', 'maintenance/categories': 'categoryMap', 'maintenance/quick-phrases': 'quickPhrases', 'maintenance/wishes': 'wishes', 'finance/settings': 'financeSettings', 'cultural/events': 'culturalEvents', 'cultural/seva': 'culturalSevas', 'cultural/offerings': 'culturalOfferings', 'vendors/vendors': 'vendors', 'vendors/service-lines': 'vendorServices', 'assets/equipment': 'equipment', 'assets/inventory': 'inventory' };
+const KIT_COLLECTION = { 'amenities/types': 'amenityTypes', 'amenities/items': 'amenityItems', 'maintenance/task-types': 'taskTypes', 'maintenance/categories': 'categoryMap', 'maintenance/quick-phrases': 'quickPhrases', 'maintenance/wishes': 'wishes', 'finance/settings': 'financeSettings', 'cultural/events': 'culturalEvents', 'cultural/seva': 'culturalSevas', 'cultural/offerings': 'culturalOfferings', 'vendors/vendors': 'vendors', 'vendors/service-lines': 'vendorServices', 'assets/equipment': 'equipment', 'assets/inventory': 'inventory', 'reports/schedules': 'reportSchedules', 'reports/runs': 'reportRuns' };
 const TT = [{ id: 'tt-res', name: 'Resident Maintenance', icon: '🔧', creatorScope: 'Resident', assignmentMode: 'Role queue (staff accepts)', residentVisible: true, residentDefault: true, canRaise: true }];
 const page = (items) => ({ items, total: items.length, limit: 200, offset: 0 });
 const ok = (body, status = 200, headers = {}) => new Response(body == null ? null : JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...headers } });
@@ -164,7 +166,7 @@ globalThis.fetch = async (url, init = {}) => {
     if (m[2] === '/send-back') q.correctionNote = body.note;
     q.version++; return ok(q);
   }
-  if ((m = /^\/(maintenance|finance|amenities|cultural|vendors|assets)\/([a-z-]+)(?:\/([^/]+))?$/.exec(path)) && KIT_FIELDS[`${m[1]}/${m[2]}`]) {
+  if ((m = /^\/(maintenance|finance|amenities|cultural|vendors|assets|reports)\/([a-z-]+)(?:\/([^/]+))?$/.exec(path)) && KIT_FIELDS[`${m[1]}/${m[2]}`] && !/\/run$/.test(path)) {
     const key = `${m[1]}/${m[2]}`; const rows = (state.kit[key] ||= []);
     if (!m[3] && method === 'GET') return ok(rows);
     if (!m[3] && method === 'POST') {
@@ -384,6 +386,10 @@ globalThis.fetch = async (url, init = {}) => {
     if (method === 'DELETE') { state.ballots = state.ballots.filter((y) => y !== b); return ok(null, 204); }
     if (b.status !== 'Draft') return problem(422, 'ballot-open', 'An open ballot cannot be edited');
     Object.assign(b, body); b.version++; return ok(ballotView(b));
+  }
+  if ((m = /^\/reports\/schedules\/([^/]+)\/run$/.exec(path)) && method === 'POST') {
+    (state.kit['reports/runs'] ||= []).push({ id: uuid(), scheduleId: m[1], name: 'Dues', title: 'Dues outstanding', summary: 'x', columns: ['Unit'], rows: [['Villa 101']], sentTo: '1 unit', version: 1 });
+    return ok({ runId: uuid(), sentTo: '1 unit (each sees only its own)', delivered: 1, silent: false });
   }
   // ---- assets: stock movements and the condition log
   if ((m = /^\/assets\/inventory\/([^/]+)\/movements$/.exec(path)) && method === 'POST') {
@@ -833,5 +839,23 @@ test('attendance: a new row is a clock-in, a clock-out is the server\'s; other t
   assert.deepEqual(await storage.list('workforce'), [{ id: 'Plumbing', team: 'Plumbing', onDuty: 1, total: 2 }]);
   await storage.remove('attendance', fixed.id);
   assert.equal((await storage.list('attendance')).length, 0);
+});
+
+test('reports: a schedule names units and people by id; sending is the server\'s (built, delivered and kept there); its scheduler, not the browser\'s, runs them', async () => {
+  const sch = await storage.put('reportSchedules', { name: 'Dues to Villa 101', reportType: 'dues', format: 'Detailed', frequency: 'Daily', time: '08:00', audience: 'Selected villas', units: ['Villa 101'],
+    people: [], channels: ['In-app'], active: true, lastRunKey: '2026-10-19', custom: '' });
+  const body = last('POST', /^\/reports\/schedules$/).body;
+  assert.deepEqual(body.unitIds, [A]); assert.equal('lastRunKey' in body, false); assert.equal('units' in body, false);
+  assert.deepEqual(sch.units, ['Villa 101'], 'read back by unit number');
+  await assert.rejects(storage.put('reportSchedules', { ...sch, units: ['Villa 999'] }), /not known to the back end/);
+  const { runSchedule, runReportSchedules } = await import('../../src/lib/reports/run.js');
+  const r = await runSchedule(sch, { manual: true });
+  assert.equal(r.sentTo, '1 unit (each sees only its own)'); assert.equal(last('POST', /\/run$/).path, `/reports/schedules/${sch.id}/run`);
+  const [run] = await storage.list('reportRuns');
+  assert.equal(run.rows, '[["Villa 101"]]', 'the table as JSON text for the screen');
+  await assert.rejects(storage.put('reportRuns', run), /written by the server only/);
+  const before = calls.length;
+  assert.equal(await runReportSchedules(), 0); assert.equal(calls.length, before, 'the browser does not send scheduled reports on this back end');
+  await assert.rejects(runSchedule({ ...sch, reportType: 'custom' }, { manual: true }), /previewed on the screen/);
 });
 

@@ -260,6 +260,8 @@ export const RESOURCES = {
   siteServices: { path: 'workforce/services' },
   siteCalendar: { path: 'workforce/calendar' },
   shifts: { path: 'workforce/shifts' },
+  reportSchedules: { path: 'reports/schedules', rename: { custom: 'recipe' }, jsonText: ['recipe'] },
+  reportRuns: { path: 'reports/runs', readOnly: true, jsonText: ['rows'] },
   numberSections: { path: 'comms/number-sections' },
   mergeFields: { path: 'comms/merge-fields' },
   noticeTemplates: { path: 'comms/notice-templates' },
