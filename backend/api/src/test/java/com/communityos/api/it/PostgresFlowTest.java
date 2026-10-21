@@ -155,7 +155,7 @@ class PostgresFlowTest {
                 AuthService.Settings.defaults());
             JdbcCallerLoader callers = new JdbcCallerLoader(platform, Duration.ofSeconds(30), clock);
             var inbox = new com.communityos.api.comms.adapter.JdbcInbox(app);
-            List<com.communityos.api.shared.events.DomainEventHandler<?>> handlers = new ArrayList<>(new LedgerPoster(new JdbcJournalWriter(app), ZoneId.of("Asia/Kolkata")).handlers());
+            List<com.communityos.api.shared.events.DomainEventHandler<?>> handlers = new ArrayList<>(new LedgerPoster(new JdbcJournalWriter(app), clock).handlers());
             handlers.add(new com.communityos.api.comms.application.Notifier(inbox, inbox));   // every event below also lands in the inboxes
             DomainEvents events = new DomainEvents(handlers, new JdbcOutboxWriter(app, json));
             JdbcAuditWriter audit = new JdbcAuditWriter(app, json);
@@ -385,8 +385,8 @@ class PostgresFlowTest {
                 new com.communityos.api.amenity.adapter.JdbcAmenityCatalog(app, json), new com.communityos.api.billing.application.BillingDesk(payments,
                     new com.communityos.api.billing.application.TargetSettlement(dues, payments, events, audit, app, clock), new JdbcJournalWriter(app), events, clock),
                 new com.communityos.api.amenity.application.AmenityLedger(new com.communityos.api.billing.application.BillingDesk(payments,
-                    new com.communityos.api.billing.application.TargetSettlement(dues, payments, events, audit, app, clock), new JdbcJournalWriter(app), events, clock), ZoneId.of("Asia/Kolkata")),
-                events, audit, app, clock, ZoneId.of("Asia/Kolkata"));
+                    new com.communityos.api.billing.application.TargetSettlement(dues, payments, events, audit, app, clock), new JdbcJournalWriter(app), events, clock), clock),
+                events, audit, app, clock);
             LocalDate party = today.plusDays(10);
             // the resident pays online first (a prepayment), then books with it
             PaymentService.OrderView pre = as(ownerC, () -> pay.createOrder(ownerC, new PaymentService.CreateOrder(List.of(), "booking", new UnitId(unitA), Money.of("7900")), "it-book-" + tag));
@@ -466,7 +466,7 @@ class PostgresFlowTest {
 
             // ---- 6f. the gate: a pass, an approval with "always allow", deliveries by the unit's rule, household staff, goods, patrols, the sweep ---------
             var gateSvc = new com.communityos.api.gate.application.GateService(new com.communityos.api.gate.adapter.JdbcGateStore(app), new com.communityos.api.gate.adapter.JdbcGateDirectory(app, json),
-                events, audit, app, clock, ZoneId.of("Asia/Kolkata"));
+                events, audit, app, clock);
             var pass = as(ownerC, () -> gateSvc.createPass(ownerC, new com.communityos.api.gate.application.GateService.NewPass("Meera", null, null, "One-time", null, null, null, null, List.of(), null,
                 null, null, null, null, false, null, null)));
             assertTrue(pass.code.matches("\\d{6}")); assertEquals(new UnitId(unitA), pass.unit);
@@ -667,7 +667,7 @@ class PostgresFlowTest {
             assertTrue(as(admin, () -> kit.list(admin, com.communityos.api.comms.CommsResources.OUTBOX, outboxRepo)).size() >= 2, "the office reads it");
             // notices: sent to all residents, read and signed; a committee-only one; a poll per unit; a draft; a scheduled one
             var store = new com.communityos.api.comms.adapter.JdbcCommsStore(app);
-            var notices = new com.communityos.api.comms.application.BroadcastService(store, inbox, events, audit, app, clock, ZoneId.of("Asia/Kolkata"));
+            var notices = new com.communityos.api.comms.application.BroadcastService(store, inbox, events, audit, app, clock);
             java.util.function.BiFunction<String, String, com.communityos.api.comms.application.BroadcastService.Draft> draft = (type, audience) ->
                 new com.communityos.api.comms.application.BroadcastService.Draft(type, audience, type + " for " + audience, "<p>Please note.</p>", List.of(), List.of(), null, null, null, null,
                     "Poll".equals(type) ? List.of("Morning", "Evening") : List.of(), false, null, true, null);
@@ -786,8 +786,8 @@ class PostgresFlowTest {
             var cstore = new com.communityos.api.cultural.adapter.JdbcCulturalStore(app, new com.communityos.api.approval.application.PlanCodec(json), json);
             var cdesk = new com.communityos.api.billing.application.BillingDesk(payments, new com.communityos.api.billing.application.TargetSettlement(dues, payments, events, audit, app, clock),
                 new JdbcJournalWriter(app), events, clock);
-            var donSvc = new com.communityos.api.cultural.application.DonationService(cstore, cdesk, events, audit, app, clock, ZoneId.of("Asia/Kolkata"));
-            var expSvc = new com.communityos.api.cultural.application.ExpenseService(cstore, new com.communityos.api.approval.adapter.JdbcApprovalSettings(app, json), cdesk, events, audit, app, clock, ZoneId.of("Asia/Kolkata"));
+            var donSvc = new com.communityos.api.cultural.application.DonationService(cstore, cdesk, events, audit, app, clock);
+            var expSvc = new com.communityos.api.cultural.application.ExpenseService(cstore, new com.communityos.api.approval.adapter.JdbcApprovalSettings(app, json), cdesk, events, audit, app, clock);
             var signSvc = new com.communityos.api.cultural.application.SignupService(cstore, audit, app);
             var evRepo = new com.communityos.api.shared.resource.JdbcResourceRepository<>(com.communityos.api.cultural.CulturalResources.EVENTS.table(), app, json);
             java.util.function.Function<String, com.communityos.api.cultural.CulturalResources.EventFields> evf = (status) -> new com.communityos.api.cultural.CulturalResources.EventFields(
@@ -875,11 +875,11 @@ class PostgresFlowTest {
 
             // ---- 6j. finance beyond bills: the cash book with taxes, a second approver above the limit, closed books, reversal, bank matching, releases ----
             var fstore = new com.communityos.api.finance.adapter.JdbcFinanceStore(app, new com.communityos.api.approval.application.PlanCodec(json));
-            var cashSvc = new com.communityos.api.finance.application.CashBookService(fstore, cdesk, audit, app, clock, ZoneId.of("Asia/Kolkata"));
+            var cashSvc = new com.communityos.api.finance.application.CashBookService(fstore, cdesk, audit, app, clock);
             var fapprovals = new com.communityos.api.approval.adapter.JdbcApprovalSettings(app, json);
             var payReqSvc = new com.communityos.api.finance.application.PayRequestService(fstore, cashSvc, fapprovals, json, audit, app);
             var bankSvc = new com.communityos.api.finance.application.BankService(fstore, audit, app);
-            var relSvc = new com.communityos.api.finance.application.ReleaseService(fstore, qrepo, fapprovals, cashSvc, events, audit, app, clock, ZoneId.of("Asia/Kolkata"));
+            var relSvc = new com.communityos.api.finance.application.ReleaseService(fstore, qrepo, fapprovals, cashSvc, events, audit, app, clock);
             java.util.function.Supplier<com.communityos.api.finance.domain.Books.Entry> plumbing = () -> {
                 var e = new com.communityos.api.finance.domain.Books.Entry();
                 e.date = today; e.type = "Debit"; e.description = "Pipe repairs"; e.vendor = "Aqua Pumps"; e.baseAmount = new java.math.BigDecimal("10000"); e.gstRate = new java.math.BigDecimal("18");
@@ -947,11 +947,11 @@ class PostgresFlowTest {
 
             // ---- 6k. governance: a meeting published to residents, its minutes; a ballot - frozen roll, code, one vote per unit, sealed box, the count ----
             var gstore = new com.communityos.api.governance.adapter.JdbcGovernanceStore(app, json);
-            var meetSvc = new com.communityos.api.governance.application.MeetingService(gstore, events, audit, app, clock, ZoneId.of("Asia/Kolkata"));
-            var ballotSvc = new com.communityos.api.governance.application.BallotService(gstore, events, audit, app, clock, ZoneId.of("Asia/Kolkata"));
+            var meetSvc = new com.communityos.api.governance.application.MeetingService(gstore, events, audit, app, clock);
+            var ballotSvc = new com.communityos.api.governance.application.BallotService(gstore, events, audit, app, clock);
             List<String> voteCodes = new ArrayList<>();
             var voteSvc = new com.communityos.api.governance.application.VoteService(gstore, new CodeHasher("integration-test-pepper-0123456789"), (to, code) -> voteCodes.add(code), false, "+91",
-                audit, app, clock, ZoneId.of("Asia/Kolkata"));
+                audit, app, clock);
             java.util.function.BiFunction<String, String, com.communityos.api.governance.application.MeetingService.Fields> agm = (vis, minutes) -> new com.communityos.api.governance.application.MeetingService.Fields(
                 "Annual general meeting", "General body / AGM", today, java.time.LocalTime.of(10, 0), java.time.LocalTime.of(12, 0), "Clubhouse", minutes == null ? "Scheduled" : "Completed", vis,
                 "<p>1. Accounts</p>", minutes, null);
@@ -1047,7 +1047,7 @@ class PostgresFlowTest {
             var invRepo = new com.communityos.api.shared.resource.JdbcResourceRepository<>(com.communityos.api.assets.AssetResources.INVENTORY.table(), app, json);
             var plRepo = new com.communityos.api.shared.resource.JdbcResourceRepository<>(com.communityos.api.assets.AssetResources.PLANT_LOGS.table(), app, json);
             var ueRepo = new com.communityos.api.shared.resource.JdbcResourceRepository<>(com.communityos.api.assets.AssetResources.UNIT_ELECTRICITY.table(), app, json);
-            var assetSvc = new com.communityos.api.assets.application.AssetService(new com.communityos.api.assets.adapter.JdbcAssetStore(app), events, audit, app, clock, ZoneId.of("Asia/Kolkata"));
+            var assetSvc = new com.communityos.api.assets.application.AssetService(new com.communityos.api.assets.adapter.JdbcAssetStore(app), events, audit, app, clock);
             var stpPump = as(admin, () -> kit.create(admin, com.communityos.api.assets.AssetResources.EQUIPMENT, eqRepo, new com.communityos.api.assets.AssetResources.EquipmentFields("STP pump A", "STP", "Pump",
                 "Plumbing", List.of("Electrical"), "STP room", 2, Map.of("Power (kW)", "7.5"), null, null, "Kirloskar", "KDS", null, null, null, null, null, null, null, null, null, "Working", 0,
                 List.of(), null, null, null, null, null, null, null)));
@@ -1081,7 +1081,7 @@ class PostgresFlowTest {
                 "2026-09", null, null, null, null, null, null, null, null))), "one row per unit and month");
 
             // ---- 6n. workforce: the site's setting through the kit, clock in and out at the server's time, one open session, a correction, planned shifts ----
-            var attSvc = new com.communityos.api.workforce.application.AttendanceService(new com.communityos.api.workforce.adapter.JdbcAttendanceStore(app, json), audit, app, clock, ZoneId.of("Asia/Kolkata"));
+            var attSvc = new com.communityos.api.workforce.application.AttendanceService(new com.communityos.api.workforce.adapter.JdbcAttendanceStore(app, json), audit, app, clock);
             var wsRepo = new com.communityos.api.shared.resource.JdbcResourceRepository<>(com.communityos.api.workforce.WorkforceResources.SETTINGS.table(), app, json);
             var shRepo = new com.communityos.api.shared.resource.JdbcResourceRepository<>(com.communityos.api.workforce.WorkforceResources.SHIFTS.table(), app, json);
             var site = as(admin, () -> kit.list(admin, com.communityos.api.workforce.WorkforceResources.SETTINGS, wsRepo)).get(0);
@@ -1113,7 +1113,7 @@ class PostgresFlowTest {
             assertTrue(as(admin, () -> attSvc.teams(admin)).stream().anyMatch((t) -> t.total() >= 1));
 
             // ---- 6o. reports: built on the server from the community's data, a resident's own unit only, a schedule sent to a unit and kept --------------
-            var repSvc = new com.communityos.api.reports.application.ReportService(new com.communityos.api.reports.adapter.JdbcReportData(app, "Asia/Kolkata"), inbox, json, audit, app, clock, ZoneId.of("Asia/Kolkata"));
+            var repSvc = new com.communityos.api.reports.application.ReportService(new com.communityos.api.reports.adapter.JdbcReportData(app), inbox, json, audit, app, clock);
             for (String type : List.of("bookings", "dues", "collections", "water", "tasks", "audits", "infra", "eventwork"))
                 assertNotNull(as(admin, () -> repSvc.build(admin, type, null, null)).report().title(), type);
             var duesAll = as(admin, () -> repSvc.build(admin, "dues", null, null)).report();
@@ -1198,7 +1198,7 @@ class PostgresFlowTest {
                 new MembershipId(UUID.fromString((String) arjun.get("id"))), new AuthService.Client("it", "10.1.2.3")), "only a membership the person has");
 
             // ---- 10. the counts above a page: worked out from the same rows with the same rules, so they always match the list under them ----------
-            var summaries = new com.communityos.api.summary.SummaryService(app, clock, ZoneId.of("Asia/Kolkata"));
+            var summaries = new com.communityos.api.summary.SummaryService(app, clock);
             for (Caller who : List.of(admin, ownerC, treasurer)) {
                 var ts = as(who, () -> summaries.tickets(who));
                 var list = as(who, () -> ticketSvc.list(who, new com.communityos.api.maintenance.application.port.TicketRepository.Filter(null, false, null, null, null, null, null), PageQuery.of(200, 0)));
@@ -1234,6 +1234,22 @@ class PostgresFlowTest {
             assertEquals(214, dash.homes().total(), "the demo's units");
             assertEquals(owner.sql("SELECT count(*)::text AS n FROM gate.visit WHERE community_id = '" + demoC + "' AND state = 'Inside' AND kind = 'Crew'").get(0).get("n"), String.valueOf(dash.gate().insideCrew()));
             assertNull(as(ownerC, () -> summaries.staff(ownerC)), "a resident does not see who is on duty");
+
+            // ---- 11. each community's own time zone: "today" is the community's, not the server's -------------------------------------------------------------
+            owner.sql("UPDATE platform.community SET time_zone = 'America/New_York' WHERE id = '" + other + "' RETURNING 1");
+            Instant at = Instant.parse("2026-10-21T02:00:00Z");                         // 07:30 on the 21st in India, 22:00 on the 20th in New York
+            var cclock = new com.communityos.api.shared.time.CommunityClock(Clock.fixed(at, ZoneId.of("Asia/Kolkata")), (cId) -> platform.query(
+                "SELECT time_zone FROM platform.community WHERE id = CAST(:id AS uuid)", Map.of("id", cId.toString()), (rs, i) -> rs.getString("time_zone")).stream().findFirst());
+            Caller nyJob = com.communityos.api.shared.security.SystemCaller.of(new CommunityId(other), "it");
+            assertEquals(ZoneId.of("America/New_York"), as(nyJob, cclock::getZone));
+            assertEquals(LocalDate.of(2026, 10, 20), as(nyJob, () -> LocalDate.now(cclock)), "the New York community's today");
+            assertEquals(LocalDate.of(2026, 10, 21), as(admin, () -> LocalDate.now(cclock)), "this community's (India)");
+            assertEquals(LocalDate.of(2026, 10, 21), LocalDate.now(cclock), "no caller: the server's default");
+            assertThrows(RuntimeException.class, () -> owner.sql("UPDATE platform.community SET time_zone = 'Mars/Olympus' WHERE id = '" + other + "' RETURNING 1"), "an unknown zone is refused");
+            var badZone = new com.communityos.api.shared.time.CommunityClock(Clock.fixed(at, ZoneId.of("Asia/Kolkata")), (cId) -> java.util.Optional.of("Mars/Olympus"));
+            assertEquals(ZoneId.of("Asia/Kolkata"), as(nyJob, badZone::getZone), "and one that got in anyway falls back to the default");
+            var nySummary = new com.communityos.api.summary.SummaryService(app, cclock);
+            assertEquals(0, as(nyJob, () -> nySummary.tickets(nyJob)).total(), "the services take the zone from the clock");
 
             System.out.println("flow: " + (app.statements + platform.statements) + " statements through cos_app / cos_platform");
         }

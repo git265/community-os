@@ -22,9 +22,9 @@ import java.util.UUID;
  * by an entry pointing at it, and only while it is not matched to a bank line. Its words (description, heads, ITC) can be corrected.
  */
 public final class CashBookService {
-    private final FinanceStore store; private final BillingDesk desk; private final AuditWriter audit; private final Tx tx; private final Clock clock; private final ZoneId zone;
-    public CashBookService(FinanceStore store, BillingDesk desk, AuditWriter audit, Tx tx, Clock clock, ZoneId zone) {
-        this.store = store; this.desk = desk; this.audit = audit; this.tx = tx; this.clock = clock; this.zone = zone;
+    private final FinanceStore store; private final BillingDesk desk; private final AuditWriter audit; private final Tx tx; private final Clock clock;
+    public CashBookService(FinanceStore store, BillingDesk desk, AuditWriter audit, Tx tx, Clock clock) {
+        this.store = store; this.desk = desk; this.audit = audit; this.tx = tx; this.clock = clock;
     }
 
     public List<Books.Entry> list(Caller c, FinanceStore.EntryFilter f) { requireReader(c); return store.entries(f); }
@@ -54,7 +54,7 @@ public final class CashBookService {
             if (e.reversed) throw new DomainException.RuleViolated("reversed", "This entry is already reversed");
             if ("Matched".equals(e.reconStatus)) throw new DomainException.RuleViolated("matched", "This entry is matched to a bank line - unmatch it first");
             locked(e.date);
-            Books.Entry r = e.reversal(LocalDate.now(clock.withZone(zone)), reason.strip());
+            Books.Entry r = e.reversal(LocalDate.now(clock), reason.strip());
             r.check();
             store.insert(r);
             desk.post(new Journal.Entry(r.date, "Reversal " + r.shortId + " of " + e.shortId, "cashbook", r.id, e.swapped()));
@@ -84,7 +84,7 @@ public final class CashBookService {
         return tx.inTx(() -> {
             LocalDate was = store.settings().lockedUntil();
             if (was != null && (until == null || until.isBefore(was)) && (reason == null || reason.isBlank())) throw new DomainException.RuleViolated("reason-required", "Say why the period is reopened");
-            if (until != null && until.isAfter(LocalDate.now(clock.withZone(zone)))) throw new DomainException.RuleViolated("future", "The books close up to today at the latest");
+            if (until != null && until.isAfter(LocalDate.now(clock))) throw new DomainException.RuleViolated("future", "The books close up to today at the latest");
             store.lock(until);
             audit.write(c, AuditWriter.Action.Update, "finance.finance_setting", null, null, null, until == null ? "Books reopened: " + reason : "Books closed up to " + until + (reason == null ? "" : " (" + reason + ")"), List.of());
             return store.settings();

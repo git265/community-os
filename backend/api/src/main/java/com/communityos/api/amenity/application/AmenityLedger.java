@@ -7,6 +7,7 @@ import com.communityos.api.billing.domain.Journal.Line;
 import com.communityos.api.shared.domain.Money;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.Clock;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.UUID;
@@ -17,12 +18,12 @@ import java.util.UUID;
  * from the moment it is made; payments (office, credit, prepayment) clear it through billing.
  */
 public final class AmenityLedger {
-    private final BillingDesk desk; private final ZoneId zone;
-    public AmenityLedger(BillingDesk desk, ZoneId zone) { this.desk = desk; this.zone = zone; }
+    private final BillingDesk desk; private final Clock clock;
+    public AmenityLedger(BillingDesk desk, Clock clock) { this.desk = desk; this.clock = clock; }
 
     static Money m(BigDecimal b) { return new Money(b == null ? BigDecimal.ZERO : b); }
     private UUID unit(Booking b) { return b.unit() == null ? null : b.unit().value(); }
-    private void post(Instant at, String memo, Booking b, List<Line> lines) { desk.post(new Journal.Entry(at.atZone(zone).toLocalDate(), memo + " " + b.shortId(), "booking", b.id(), lines)); }
+    private void post(Instant at, String memo, Booking b, List<Line> lines) { desk.post(new Journal.Entry(at.atZone(clock.getZone()).toLocalDate(), memo + " " + b.shortId(), "booking", b.id(), lines)); }
 
     /** Booked with a price: the unit owes the fee and the deposit. */
     public void charge(Booking b, Instant at) {

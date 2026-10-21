@@ -112,9 +112,9 @@ class AmenityTest {
     };
     final Fixtures.Payments payments = new Fixtures.Payments();
     final Fixtures.Journals journals = new Fixtures.Journals();
-    final DomainEvents events = Fixtures.events(new LedgerPoster(journals, IST).handlers(), new Fixtures.Outbox());
+    final DomainEvents events = Fixtures.events(new LedgerPoster(journals, CLOCK).handlers(), new Fixtures.Outbox());
     final BillingDesk desk = new BillingDesk(payments, new TargetSettlement(new Fixtures.Dues(), payments, events, new Fixtures.Audit(), Tx.direct(), CLOCK), journals, events, CLOCK);
-    final BookingService svc = new BookingService(repo, catalog, desk, new AmenityLedger(desk, IST), events, new Fixtures.Audit(), Tx.direct(), CLOCK, IST);
+    final BookingService svc = new BookingService(repo, catalog, desk, new AmenityLedger(desk, CLOCK), events, new Fixtures.Audit(), Tx.direct(), CLOCK);
     final Caller owner = owner(UNIT_A), neighbour = owner(UNIT_B);
     final Caller team = caller(Caller.Category.Staff, Set.of("facility_manager"), Set.of(), Set.of(), Permission.MANAGE_AMENITIES);
     static final LocalDate DAY = LocalDate.of(2026, 10, 27);

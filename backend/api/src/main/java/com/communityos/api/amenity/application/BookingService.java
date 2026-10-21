@@ -42,11 +42,11 @@ public final class BookingService {
     public record Cancel(String reason, Boolean refundToCredit, boolean waive, BigDecimal refundOverride) {}
 
     private final BookingRepository bookings; private final AmenityCatalog catalog; private final BillingDesk desk; private final AmenityLedger ledger;
-    private final DomainEvents events; private final AuditWriter audit; private final Tx tx; private final Clock clock; private final ZoneId zone;
+    private final DomainEvents events; private final AuditWriter audit; private final Tx tx; private final Clock clock;
     private final BookingPolicy policy = new BookingPolicy();
 
-    public BookingService(BookingRepository bookings, AmenityCatalog catalog, BillingDesk desk, AmenityLedger ledger, DomainEvents events, AuditWriter audit, Tx tx, Clock clock, ZoneId zone) {
-        this.bookings = bookings; this.catalog = catalog; this.desk = desk; this.ledger = ledger; this.events = events; this.audit = audit; this.tx = tx; this.clock = clock; this.zone = zone;
+    public BookingService(BookingRepository bookings, AmenityCatalog catalog, BillingDesk desk, AmenityLedger ledger, DomainEvents events, AuditWriter audit, Tx tx, Clock clock) {
+        this.bookings = bookings; this.catalog = catalog; this.desk = desk; this.ledger = ledger; this.events = events; this.audit = audit; this.tx = tx; this.clock = clock;
     }
 
     public List<Booking> list(Caller c, BookingRepository.Filter f) { return bookings.find(policy.readScope(c), f); }
@@ -67,7 +67,7 @@ public final class BookingService {
         if (!staff && cmd.freeOfCharge()) throw new AccessDenied("Only the amenities team can waive the charges");
         if (cmd.date() == null) throw new DomainException.RuleViolated("date-required", "Choose a date");
         return tx.inTx(() -> {
-            Instant now = clock.instant(); LocalDate today = LocalDate.now(clock.withZone(zone));
+            Instant now = clock.instant(); LocalDate today = LocalDate.now(clock);
             AmenityType a = catalog.lockType(cmd.amenityTypeId()).orElseThrow(() -> new DomainException.RuleViolated("unknown-amenity", "There is no such amenity"));
             if (!a.active()) throw new DomainException.RuleViolated("closed", "This amenity is not open for booking right now");
             if (a.walkIn() && !staff) throw new DomainException.RuleViolated("walk-in", a.name() + " needs no reservation. Just walk in.");
@@ -85,7 +85,7 @@ public final class BookingService {
             List<Booking> sameDay = bookings.liveOn(a.id(), cmd.date());
             long taken = sameDay.stream().filter((b) -> a.fullDay() || overlaps(b.state().slot, slot)).count();
             if (taken >= a.capacity()) throw new DomainException.RuleViolated("taken", "That booking is no longer available.");
-            Instant start = Pricing.startAt(cmd.date(), slot, a, zone);
+            Instant start = Pricing.startAt(cmd.date(), slot, a, clock.getZone());
             if (!Pricing.mayOverride(a, staff, c.isSuperAdmin(), c.roleCodes())) {
                 String w = Pricing.windowError(a, start, now);
                 if (w != null) throw new DomainException.RuleViolated("window", w);

@@ -51,7 +51,7 @@ class WorkforceTest {
 
     @Test void clocking() {
         Store store = new Store(); MovingClock clock = new MovingClock();
-        AttendanceService svc = new AttendanceService(store, new Fixtures.Audit(), Tx.direct(), clock, IST);
+        AttendanceService svc = new AttendanceService(store, new Fixtures.Audit(), Tx.direct(), clock);
         Caller ravi = Fixtures.caller(Caller.Category.Staff, Set.of("handyman_plumber"), Set.of(), Set.of());
         Caller sup = Fixtures.caller(Caller.Category.Staff, Set.of("facility_manager"), Set.of(), Set.of(), Permission.MANAGE_FIELD_DUTIES);
         assertThrows(AccessDenied.class, () -> svc.clockIn(Fixtures.owner(Fixtures.UNIT_A), null, null, null), "residents do not clock in");

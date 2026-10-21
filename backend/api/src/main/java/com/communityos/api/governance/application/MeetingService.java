@@ -31,9 +31,9 @@ public final class MeetingService {
                          String agenda, String minutes, String cancelReason) {}
     public record MeetingEvent(String topic, UUID aggregateId, CommunityId communityId, String title, String detail, Instant occurredAt) implements DomainEvent {}
 
-    private final GovernanceStore store; private final DomainEvents events; private final AuditWriter audit; private final Tx tx; private final Clock clock; private final ZoneId zone;
-    public MeetingService(GovernanceStore store, DomainEvents events, AuditWriter audit, Tx tx, Clock clock, ZoneId zone) {
-        this.store = store; this.events = events; this.audit = audit; this.tx = tx; this.clock = clock; this.zone = zone;
+    private final GovernanceStore store; private final DomainEvents events; private final AuditWriter audit; private final Tx tx; private final Clock clock;
+    public MeetingService(GovernanceStore store, DomainEvents events, AuditWriter audit, Tx tx, Clock clock) {
+        this.store = store; this.events = events; this.audit = audit; this.tx = tx; this.clock = clock;
     }
 
     public List<Meeting> list(Caller c, LocalDate from, LocalDate to, String committee) {
@@ -87,7 +87,7 @@ public final class MeetingService {
 
     /** Copies the fields in, checks them against what the meeting was and today, and says what residents should hear. */
     List<DomainEvent> apply(Caller c, Meeting old, Meeting m, Fields f) {
-        LocalDate today = LocalDate.now(clock.withZone(zone));
+        LocalDate today = LocalDate.now(clock);
         Instant now = clock.instant();
         m.title = trim(f.title()); m.committee = trim(f.committee()); m.date = f.date(); m.startTime = f.startTime(); m.endTime = f.endTime(); m.location = trim(f.location());
         m.status = f.status() == null ? (old == null ? "Scheduled" : old.status) : f.status();

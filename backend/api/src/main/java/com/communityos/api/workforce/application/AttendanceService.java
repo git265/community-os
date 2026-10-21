@@ -26,8 +26,8 @@ public final class AttendanceService {
     public record Position(BigDecimal lat, BigDecimal lng, BigDecimal acc) {}
     public record Correction(Instant clockIn, Instant clockOut, String reason) {}
 
-    private final AttendanceStore store; private final AuditWriter audit; private final Tx tx; private final Clock clock; private final ZoneId zone;
-    public AttendanceService(AttendanceStore store, AuditWriter audit, Tx tx, Clock clock, ZoneId zone) { this.store = store; this.audit = audit; this.tx = tx; this.clock = clock; this.zone = zone; }
+    private final AttendanceStore store; private final AuditWriter audit; private final Tx tx; private final Clock clock;
+    public AttendanceService(AttendanceStore store, AuditWriter audit, Tx tx, Clock clock) { this.store = store; this.audit = audit; this.tx = tx; this.clock = clock; }
     static final DateTimeFormatter HM = DateTimeFormatter.ofPattern("HH:mm");
 
     public List<Attendance.Session> list(Caller c, LocalDate from, LocalDate to, UUID memberId) {
@@ -47,13 +47,13 @@ public final class AttendanceService {
         require(s, fix, true);
         return tx.inTx(() -> {
             UUID me = c.membership().value();
-            store.openSession(me).ifPresent((o) -> { throw new DomainException.RuleViolated("already-in", "You are clocked in since " + HM.format(o.clockIn.atZone(zone)) + " - clock out first"); });
+            store.openSession(me).ifPresent((o) -> { throw new DomainException.RuleViolated("already-in", "You are clocked in since " + HM.format(o.clockIn.atZone(clock.getZone())) + " - clock out first"); });
             Instant now = clock.instant();
-            LocalDate today = LocalDate.ofInstant(now, zone);
+            LocalDate today = LocalDate.ofInstant(now, clock.getZone());
             String shift = shiftType != null && !shiftType.isBlank() ? shiftType.strip() : store.shiftOf(me, today);
             Attendance.Session x = new Attendance.Session();
             x.memberId = me; x.staffName = c.displayName(); x.roleName = store.roleName(me); x.date = today; x.clockIn = now; x.in = fix; x.source = "Self";
-            x.shiftType = shift; x.lateMin = Attendance.lateMinutes(shift, s, now, zone); x.note = note == null || note.isBlank() ? null : note.strip();
+            x.shiftType = shift; x.lateMin = Attendance.lateMinutes(shift, s, now, clock.getZone()); x.note = note == null || note.isBlank() ? null : note.strip();
             store.insert(x);
             store.onDuty(me, true);
             audit.write(c, AuditWriter.Action.Create, "workforce.attendance_session", x.id, x.shortId, null,
@@ -93,13 +93,13 @@ public final class AttendanceService {
             Attendance.Session x = store.session(id, true).orElseThrow(() -> new DomainException.NotFound("Attendance entry"));
             if (x.version != version) throw new DomainException.Conflict("The entry");
             if (f.clockOut() == null && x.clockOut != null) throw new DomainException.RuleViolated("keep-closed", "A closed entry stays closed - give its clock-out time");
-            String was = HM.format(x.clockIn.atZone(zone)) + "-" + (x.clockOut == null ? "open" : HM.format(x.clockOut.atZone(zone)));
-            x.clockIn = f.clockIn(); x.clockOut = f.clockOut(); x.date = LocalDate.ofInstant(f.clockIn(), zone); x.hours = f.clockOut() == null ? null : Attendance.hours(f.clockIn(), f.clockOut());
+            String was = HM.format(x.clockIn.atZone(clock.getZone())) + "-" + (x.clockOut == null ? "open" : HM.format(x.clockOut.atZone(clock.getZone())));
+            x.clockIn = f.clockIn(); x.clockOut = f.clockOut(); x.date = LocalDate.ofInstant(f.clockIn(), clock.getZone()); x.hours = f.clockOut() == null ? null : Attendance.hours(f.clockIn(), f.clockOut());
             x.source = "Supervisor"; x.correctedById = c.membership().value(); x.correctionNote = f.reason().strip();
             if (!store.update(x)) throw new DomainException.Conflict("The entry");
             if (x.clockOut != null && store.openSession(x.memberId).isEmpty()) store.onDuty(x.memberId, false);
             audit.write(c, AuditWriter.Action.Update, "workforce.attendance_session", x.id, x.shortId, null,
-                "Corrected " + x.staffName + "'s attendance (" + was + " -> " + HM.format(x.clockIn.atZone(zone)) + "-" + (x.clockOut == null ? "open" : HM.format(x.clockOut.atZone(zone))) + "): " + x.correctionNote, List.of());
+                "Corrected " + x.staffName + "'s attendance (" + was + " -> " + HM.format(x.clockIn.atZone(clock.getZone())) + "-" + (x.clockOut == null ? "open" : HM.format(x.clockOut.atZone(clock.getZone()))) + "): " + x.correctionNote, List.of());
             return x;
         });
     }

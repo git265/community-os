@@ -97,7 +97,7 @@ class GovernanceTest {
     // ---- meetings --------------------------------------------------------------------------------------------------------------------------------
     @Test void meetings() {
         Store store = new Store(); Fixtures.Outbox outbox = new Fixtures.Outbox(); Fixtures.Audit audit = new Fixtures.Audit();
-        MeetingService ms = new MeetingService(store, Fixtures.events(List.of(), outbox), audit, Tx.direct(), Fixtures.CLOCK, ZoneId.of("Asia/Kolkata"));
+        MeetingService ms = new MeetingService(store, Fixtures.events(List.of(), outbox), audit, Tx.direct(), Fixtures.CLOCK);
         Caller sec = secretary(), owner = Fixtures.owner(Fixtures.UNIT_A);
         assertThrows(AccessDenied.class, () -> ms.create(owner, fields("AGM", TODAY.plusDays(5), "Scheduled", Governance.INTERNAL, null)));
         Governance.Meeting m = ms.create(sec, fields("AGM", TODAY.plusDays(5), "Scheduled", Governance.INTERNAL, null));
@@ -129,9 +129,9 @@ class GovernanceTest {
     @Test void ballot() {
         Store store = new Store(); Fixtures.Outbox outbox = new Fixtures.Outbox(); Fixtures.Audit audit = new Fixtures.Audit(); MovingClock clock = new MovingClock();
         ZoneId zone = ZoneId.of("Asia/Kolkata");
-        BallotService bs = new BallotService(store, Fixtures.events(List.of(), outbox), audit, Tx.direct(), clock, zone);
+        BallotService bs = new BallotService(store, Fixtures.events(List.of(), outbox), audit, Tx.direct(), clock);
         List<String> sent = new ArrayList<>();
-        VoteService vs = new VoteService(store, new CodeHasher("x".repeat(32)), (to, code) -> sent.add(code), false, "+91", audit, Tx.direct(), clock, zone);
+        VoteService vs = new VoteService(store, new CodeHasher("x".repeat(32)), (to, code) -> sent.add(code), false, "+91", audit, Tx.direct(), clock);
         Caller sec = secretary();
         UUID u1 = UUID.randomUUID(), u2 = UUID.randomUUID(), u3 = UUID.randomUUID();
         Caller asha = person(u1), ravi = person(u2), tenant = Fixtures.caller(Caller.Category.Resident, Set.of("resident"), Set.of(), Set.of());

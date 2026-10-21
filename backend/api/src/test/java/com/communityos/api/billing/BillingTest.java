@@ -43,7 +43,7 @@ import org.junit.jupiter.api.Test;
 class BillingTest {
     final Fixtures.Dues dues = new Fixtures.Dues(); final Fixtures.Orders orders = new Fixtures.Orders(); final Fixtures.Payments payments = new Fixtures.Payments();
     final Fixtures.Journals journal = new Fixtures.Journals(); final Fixtures.Audit audit = new Fixtures.Audit(); final Fixtures.Outbox outbox = new Fixtures.Outbox();
-    final com.communityos.api.shared.events.DomainEvents events = Fixtures.events(new LedgerPoster(journal, ZoneId.of("Asia/Kolkata")).handlers(), outbox);
+    final com.communityos.api.shared.events.DomainEvents events = Fixtures.events(new LedgerPoster(journal, CLOCK).handlers(), outbox);
     final SimulatedGateway sim = new SimulatedGateway("s3cret");
     final GatewaySettlement gatewaySettlement = new GatewaySettlement(dues, payments, events, audit, Tx.direct(), orders, CLOCK);
     final CounterSettlement counter = new CounterSettlement(dues, payments, events, audit, Tx.direct(), dues, CLOCK);

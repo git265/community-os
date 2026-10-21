@@ -39,11 +39,11 @@ public final class BallotService {
 
     static final String NOT_OWNER = "Only registered owners can vote (tenants and other residents are not on the owners’ roll)";
 
-    private final GovernanceStore store; private final DomainEvents events; private final AuditWriter audit; private final Tx tx; private final Clock clock; private final ZoneId zone;
-    public BallotService(GovernanceStore store, DomainEvents events, AuditWriter audit, Tx tx, Clock clock, ZoneId zone) {
-        this.store = store; this.events = events; this.audit = audit; this.tx = tx; this.clock = clock; this.zone = zone;
+    private final GovernanceStore store; private final DomainEvents events; private final AuditWriter audit; private final Tx tx; private final Clock clock;
+    public BallotService(GovernanceStore store, DomainEvents events, AuditWriter audit, Tx tx, Clock clock) {
+        this.store = store; this.events = events; this.audit = audit; this.tx = tx; this.clock = clock;
     }
-    LocalDate today() { return LocalDate.now(clock.withZone(zone)); }
+    LocalDate today() { return LocalDate.now(clock); }
 
     public List<View> list(Caller c) {
         if (!GovernancePolicy.member(c)) throw new AccessDenied("Members only");

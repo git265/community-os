@@ -37,9 +37,8 @@ public final class DonationService {
                          String note, String phone, String members, String sankalpam, UUID offeringId) {}
 
     private final CulturalStore store; private final BillingDesk desk; private final DomainEvents events; private final AuditWriter audit; private final Tx tx; private final Clock clock;
-    private final ZoneId zone;
-    public DonationService(CulturalStore store, BillingDesk desk, DomainEvents events, AuditWriter audit, Tx tx, Clock clock, ZoneId zone) {
-        this.store = store; this.desk = desk; this.events = events; this.audit = audit; this.tx = tx; this.clock = clock; this.zone = zone;
+    public DonationService(CulturalStore store, BillingDesk desk, DomainEvents events, AuditWriter audit, Tx tx, Clock clock) {
+        this.store = store; this.desk = desk; this.events = events; this.audit = audit; this.tx = tx; this.clock = clock;
     }
 
     public List<Cultural.Donation> list(Caller c, UUID eventId) { return store.donations(CulturalPolicy.donations(c), eventId); }
@@ -135,7 +134,7 @@ public final class DonationService {
         boolean inKind = "In-kind".equals(d.kind);
         if (prepaymentId == null && !inKind && (mode == null || !Cultural.MODES.contains(mode))) throw new DomainException.RuleViolated("bad-mode", "Received by: " + String.join(", ", Cultural.MODES));
         Instant now = clock.instant();
-        LocalDate day = now.atZone(zone).toLocalDate();
+        LocalDate day = now.atZone(clock.getZone()).toLocalDate();
         String code = ev.receiptCode();
         d.receiptNo = code + "-" + String.format(Locale.ROOT, "%04d", store.lastReceipt(code) + 1);
         d.status = "Received"; d.receivedAt = now; d.receivedById = c.membership() == null ? null : c.membership().value();

@@ -30,15 +30,15 @@ public final class ReportService {
     public record Built(Reports.Report report, String text) {}
     public record Sent(UUID runId, String sentTo, int delivered, boolean silent) {}
 
-    private final ReportData data; private final Inbox inbox; private final ObjectMapper json; private final AuditWriter audit; private final Tx tx; private final Clock clock; private final ZoneId zone;
-    public ReportService(ReportData data, Inbox inbox, ObjectMapper json, AuditWriter audit, Tx tx, Clock clock, ZoneId zone) {
-        this.data = data; this.inbox = inbox; this.json = json; this.audit = audit; this.tx = tx; this.clock = clock; this.zone = zone;
+    private final ReportData data; private final Inbox inbox; private final ObjectMapper json; private final AuditWriter audit; private final Tx tx; private final Clock clock;
+    public ReportService(ReportData data, Inbox inbox, ObjectMapper json, AuditWriter audit, Tx tx, Clock clock) {
+        this.data = data; this.inbox = inbox; this.json = json; this.audit = audit; this.tx = tx; this.clock = clock;
     }
     /** Runs reports and their schedules: the committee, the facility manager, notification managers and the super admin (and the scheduler). */
     public static boolean reporter(Caller c) {
         return c.isSuperAdmin() || c.isCommittee() || c.roleCodes().contains("facility_manager") || c.has(Permission.MANAGE_NOTIFICATIONS) || c.category() == Caller.Category.System;
     }
-    LocalDate today() { return LocalDate.now(clock.withZone(zone)); }
+    LocalDate today() { return LocalDate.now(clock); }
 
     public Built build(Caller c, String type, String period, UUID unitId) {
         Reports.Type t = known(type);
@@ -67,7 +67,7 @@ public final class ReportService {
             case "dues" -> Reports.dues(data.unpaidDues(unit), today, unitNo);
             case "collections" -> Reports.collections(data.payments(r.from(), r.to()));
             case "water" -> Reports.water(data.plantLogs(r.from(), r.to()));
-            case "tasks" -> Reports.tasks(data.tasks(), r, today, zone);
+            case "tasks" -> Reports.tasks(data.tasks(), r, today, clock.getZone());
             case "audits" -> Reports.audits(data.audits(), today);
             case "infra" -> Reports.infra(data.infra());
             case "eventwork" -> Reports.eventWork(data.pendingEventWork(), r, today);
@@ -93,7 +93,7 @@ public final class ReportService {
 
     /** The job: every schedule due now in this community. */
     public int runDue(Caller system) {
-        ZonedDateTime now = ZonedDateTime.now(clock.withZone(zone));
+        ZonedDateTime now = ZonedDateTime.now(clock);
         int n = 0;
         for (ReportData.Schedule s : data.activeSchedules()) {
             if ("custom".equals(s.reportType())) continue;

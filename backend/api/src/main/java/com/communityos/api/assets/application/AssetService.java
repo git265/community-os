@@ -27,11 +27,11 @@ public final class AssetService {
     public record StockEvent(String topic, UUID aggregateId, CommunityId communityId, String item, BigDecimal balance, BigDecimal minStock, String uom, Instant occurredAt) implements DomainEvent {}
     public record Moved(AssetStore.Stock item, AssetStore.Movement movement) {}
 
-    private final AssetStore store; private final DomainEvents events; private final AuditWriter audit; private final Tx tx; private final Clock clock; private final ZoneId zone;
-    public AssetService(AssetStore store, DomainEvents events, AuditWriter audit, Tx tx, Clock clock, ZoneId zone) {
-        this.store = store; this.events = events; this.audit = audit; this.tx = tx; this.clock = clock; this.zone = zone;
+    private final AssetStore store; private final DomainEvents events; private final AuditWriter audit; private final Tx tx; private final Clock clock;
+    public AssetService(AssetStore store, DomainEvents events, AuditWriter audit, Tx tx, Clock clock) {
+        this.store = store; this.events = events; this.audit = audit; this.tx = tx; this.clock = clock;
     }
-    LocalDate today() { return LocalDate.now(clock.withZone(zone)); }
+    LocalDate today() { return LocalDate.now(clock); }
 
     public Moved move(Caller c, UUID itemId, String kind, BigDecimal quantity, LocalDate on, UUID ticketId, String vendor, String note) {
         if (!AssetPolicy.coordinator(c)) throw new AccessDenied("Only the EC, Facility Manager or MEP can update stock");

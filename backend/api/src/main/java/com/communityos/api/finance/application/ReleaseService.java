@@ -34,9 +34,9 @@ public final class ReleaseService {
     static final BigDecimal TOLERANCE = new BigDecimal("0.50");
 
     private final FinanceStore store; private final TaskMoney money; private final ApprovalSettings approvals; private final CashBookService cash; private final DomainEvents events;
-    private final AuditWriter audit; private final Tx tx; private final Clock clock; private final ZoneId zone;
-    public ReleaseService(FinanceStore store, TaskMoney money, ApprovalSettings approvals, CashBookService cash, DomainEvents events, AuditWriter audit, Tx tx, Clock clock, ZoneId zone) {
-        this.store = store; this.money = money; this.approvals = approvals; this.cash = cash; this.events = events; this.audit = audit; this.tx = tx; this.clock = clock; this.zone = zone;
+    private final AuditWriter audit; private final Tx tx; private final Clock clock;
+    public ReleaseService(FinanceStore store, TaskMoney money, ApprovalSettings approvals, CashBookService cash, DomainEvents events, AuditWriter audit, Tx tx, Clock clock) {
+        this.store = store; this.money = money; this.approvals = approvals; this.cash = cash; this.events = events; this.audit = audit; this.tx = tx; this.clock = clock;
     }
 
     public List<Books.Release> list(Caller c, UUID ticketId, UUID expenseId) { requireSeer(c); return store.releases(ticketId, expenseId); }
@@ -110,7 +110,7 @@ public final class ReleaseService {
             Books.Release r = current(id, version);
             if (!"Approved".equals(r.status)) throw new DomainException.RuleViolated("not-approved", "Only an approved release is paid");
             Books.Entry e = new Books.Entry();
-            e.date = date == null ? LocalDate.now(clock.withZone(zone)) : date; e.type = "Debit"; e.amount = r.amount; e.vendor = r.vendor; e.mode = mode == null ? "Bank transfer" : mode; e.ref = blank(ref);
+            e.date = date == null ? LocalDate.now(clock) : date; e.type = "Debit"; e.amount = r.amount; e.vendor = r.vendor; e.mode = mode == null ? "Bank transfer" : mode; e.ref = blank(ref);
             e.description = "Release " + r.shortId + (r.ticketShortId != null ? " on " + r.ticketShortId : "") + (r.vendor == null ? "" : " to " + r.vendor);
             e.sourceType = "release"; e.sourceId = r.id; e.sourceLabel = r.kind; e.taskRef = r.ticketShortId; e.module = r.expenseId != null ? "Cultural" : "Maintenance";
             Books.Entry paid = cash.recordApproved(c, e);

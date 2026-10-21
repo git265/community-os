@@ -90,16 +90,16 @@ public final class SummaryService {
     public static final String ON_DUTY = "SELECT count(*) AS n FROM workforce.attendance_session a WHERE a.clock_out IS NULL";
     public static final String UNREAD = "SELECT count(*) AS n FROM comms.notification n WHERE n.to_membership_id = CAST(:me AS uuid) AND n.read_at IS NULL";
 
-    private final NamedParameterJdbcTemplate jdbc; private final Clock clock; private final ZoneId zone;
+    private final NamedParameterJdbcTemplate jdbc; private final Clock clock;
     private final TicketPolicy tickets = new TicketPolicy(); private final DuePolicy dues = new DuePolicy(); private final BookingPolicy bookings = new BookingPolicy();
-    public SummaryService(NamedParameterJdbcTemplate jdbc, Clock clock, ZoneId zone) { this.jdbc = jdbc; this.clock = clock; this.zone = zone; }
+    public SummaryService(NamedParameterJdbcTemplate jdbc, Clock clock) { this.jdbc = jdbc; this.clock = clock; }
 
-    private LocalDate today() { return LocalDate.now(clock.withZone(zone)); }
+    private LocalDate today() { return LocalDate.now(clock); }
     private Map<String, Object> params(Spec<?> s, Caller c) {
         Map<String, Object> p = new HashMap<>(s.params());
         LocalDate t = today();
         p.put("today", java.sql.Date.valueOf(t)); p.put("month", java.sql.Date.valueOf(t.withDayOfMonth(1)));
-        p.put("dayStart", java.sql.Timestamp.from(t.atStartOfDay(zone).toInstant()));
+        p.put("dayStart", java.sql.Timestamp.from(t.atStartOfDay(clock.getZone()).toInstant()));
         p.put("me", c.membership() == null ? null : c.membership().value().toString());
         return p;
     }

@@ -52,12 +52,12 @@ public final class GateService {
     }
 
     private final GateStore store; private final GateDirectory dir; private final DomainEvents events; private final AuditWriter audit; private final Tx tx; private final Clock clock;
-    private final ZoneId zone; private final SecureRandom random = new SecureRandom();
+    private final SecureRandom random = new SecureRandom();
 
-    public GateService(GateStore store, GateDirectory dir, DomainEvents events, AuditWriter audit, Tx tx, Clock clock, ZoneId zone) {
-        this.store = store; this.dir = dir; this.events = events; this.audit = audit; this.tx = tx; this.clock = clock; this.zone = zone;
+    public GateService(GateStore store, GateDirectory dir, DomainEvents events, AuditWriter audit, Tx tx, Clock clock) {
+        this.store = store; this.dir = dir; this.events = events; this.audit = audit; this.tx = tx; this.clock = clock;
     }
-    private ZonedDateTime now() { return ZonedDateTime.now(clock.withZone(zone)); }
+    private ZonedDateTime now() { return ZonedDateTime.now(clock); }
     static void desk(Caller c) { if (!GatePolicy.gateStaff(c)) throw new AccessDenied("Only the security team works the gate desk"); }
 
     // ---- reads -------------------------------------------------------------------------------------------------------------------------------------
@@ -432,7 +432,7 @@ public final class GateService {
             GateDirectory.Round live = null;
             for (GateDirectory.Round r : dir.rounds()) {
                 if (!r.active() || r.time() == null || (!r.days().isEmpty() && !r.days().contains(Gate.dayOf(now.toLocalDate()))) || !r.checkpointIds().contains(cp.id())) continue;
-                ZonedDateTime start = now.toLocalDate().atTime(r.time()).atZone(zone), end = start.plusMinutes(r.windowMin() <= 0 ? 60 : r.windowMin());
+                ZonedDateTime start = now.toLocalDate().atTime(r.time()).atZone(clock.getZone()), end = start.plusMinutes(r.windowMin() <= 0 ? 60 : r.windowMin());
                 if (!now.isBefore(start) && !now.isAfter(end)) { live = r; break; }
             }
             store.insert(new GateStore.Scan(cp.id(), cp.name(), guard, c.displayName(), now.toInstant(), live == null ? null : live.id(), live == null ? null : live.name(), now.toLocalDate(), blank(note)));
@@ -465,7 +465,7 @@ public final class GateService {
             for (Gate.Visit v : store.overdue(now.minusSeconds(60L * s.overstayGraceMinutes()))) {
                 boolean late = v.expectedUntil != null && Duration.between(v.expectedUntil, now).toMinutes() > 60L * s.autoCloseHours();
                 if ("QR / OTP".equals(v.method) && s.autoCloseHours() > 0 && late) { v.move(VisitState.AUTO_CLOSED); v.outAt = now; v.outMethod = "Auto"; store.save(v); n++; continue; }
-                if (!store.hasFlag("Overstay", v.id)) { flag(system, "Overstay", v, "Expected out by " + v.expectedUntil.atZone(zone).toLocalTime().withNano(0).withSecond(0) + "; still inside."); n++; }
+                if (!store.hasFlag("Overstay", v.id)) { flag(system, "Overstay", v, "Expected out by " + v.expectedUntil.atZone(clock.getZone()).toLocalTime().withNano(0).withSecond(0) + "; still inside."); n++; }
             }
             return n;
         });
@@ -484,8 +484,8 @@ public final class GateService {
     private Instant expected(String kind, LocalTime linkTo, LocalTime orderTo) {
         if ("Resident vehicle".equals(kind)) return null;
         ZonedDateTime now = now();
-        if (linkTo != null) return now.toLocalDate().atTime(linkTo).atZone(zone).toInstant();
-        if (orderTo != null) return now.toLocalDate().atTime(orderTo).atZone(zone).plusMinutes(30).toInstant();
+        if (linkTo != null) return now.toLocalDate().atTime(linkTo).atZone(clock.getZone()).toInstant();
+        if (orderTo != null) return now.toLocalDate().atTime(orderTo).atZone(clock.getZone()).plusMinutes(30).toInstant();
         int m = dir.settings().minutesFor(kind);
         return m <= 0 ? null : now.plusMinutes(m).toInstant();
     }

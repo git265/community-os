@@ -35,9 +35,8 @@ public final class BroadcastService {
     public record Voter(String name, String unitNo, List<String> choices) {}
 
     private final CommsStore store; private final Inbox inbox; private final DomainEvents events; private final AuditWriter audit; private final Tx tx; private final Clock clock;
-    private final ZoneId zone;
-    public BroadcastService(CommsStore store, Inbox inbox, DomainEvents events, AuditWriter audit, Tx tx, Clock clock, ZoneId zone) {
-        this.store = store; this.inbox = inbox; this.events = events; this.audit = audit; this.tx = tx; this.clock = clock; this.zone = zone;
+    public BroadcastService(CommsStore store, Inbox inbox, DomainEvents events, AuditWriter audit, Tx tx, Clock clock) {
+        this.store = store; this.inbox = inbox; this.events = events; this.audit = audit; this.tx = tx; this.clock = clock;
     }
 
     /** Publishers see every notice; everyone else the sent notices that reached them. */
@@ -141,7 +140,7 @@ public final class BroadcastService {
             Comms.Broadcast b = find(c, id);
             if (!store.recipients(id).contains(c.membership().value()))
                 throw new AccessDenied("This poll was not sent to you");
-            List<String> picked = b.choices(choices, LocalDate.now(clock.withZone(zone)));
+            List<String> picked = b.choices(choices, LocalDate.now(clock));
             UUID unit = unitOf(c, unitId);
             var existing = store.voteOf(id, null, c.membership().value(), unit);
             store.vote(id, null, c.membership().value(), unit, picked, existing.orElse(null));

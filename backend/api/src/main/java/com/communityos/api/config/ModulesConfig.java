@@ -78,15 +78,14 @@ public class ModulesConfig {
     // ---- amenities ----------------------------------------------------------------------------------------------------------------------------
     @Bean com.communityos.api.amenity.application.BookingService bookingService(NamedParameterJdbcTemplate jdbc, ObjectMapper json, com.communityos.api.billing.application.BillingDesk desk,
                                                                                DomainEvents events, AuditWriter audit, Tx tx, Clock clock, CosProperties p) {
-        ZoneId zone = ZoneId.of(p.web().timeZone());
         return new com.communityos.api.amenity.application.BookingService(new com.communityos.api.amenity.adapter.JdbcBookingRepository(jdbc, json),
-            new com.communityos.api.amenity.adapter.JdbcAmenityCatalog(jdbc, json), desk, new com.communityos.api.amenity.application.AmenityLedger(desk, zone), events, audit, tx, clock, zone);
+            new com.communityos.api.amenity.adapter.JdbcAmenityCatalog(jdbc, json), desk, new com.communityos.api.amenity.application.AmenityLedger(desk, clock), events, audit, tx, clock);
     }
 
     // ---- gate -------------------------------------------------------------------------------------------------------------------------------
     @Bean com.communityos.api.gate.application.GateService gateService(NamedParameterJdbcTemplate jdbc, ObjectMapper json, DomainEvents events, AuditWriter audit, Tx tx, Clock clock, CosProperties p) {
         return new com.communityos.api.gate.application.GateService(new com.communityos.api.gate.adapter.JdbcGateStore(jdbc), new com.communityos.api.gate.adapter.JdbcGateDirectory(jdbc, json),
-            events, audit, tx, clock, ZoneId.of(p.web().timeZone()));
+            events, audit, tx, clock);
     }
 
     // ---- notices, notifications, forum ----------------------------------------------------------------------------------------------------------
@@ -97,7 +96,7 @@ public class ModulesConfig {
     @Bean com.communityos.api.comms.application.InboxService inboxService(com.communityos.api.comms.adapter.JdbcInbox inbox) { return new com.communityos.api.comms.application.InboxService(inbox); }
     @Bean com.communityos.api.comms.application.BroadcastService broadcastService(com.communityos.api.comms.adapter.JdbcCommsStore store, com.communityos.api.comms.adapter.JdbcInbox inbox,
                                                                                  DomainEvents events, AuditWriter audit, Tx tx, Clock clock, CosProperties p) {
-        return new com.communityos.api.comms.application.BroadcastService(store, inbox, events, audit, tx, clock, ZoneId.of(p.web().timeZone()));
+        return new com.communityos.api.comms.application.BroadcastService(store, inbox, events, audit, tx, clock);
     }
     @Bean com.communityos.api.comms.application.ForumService forumService(com.communityos.api.comms.adapter.JdbcCommsStore store, com.communityos.api.comms.adapter.JdbcInbox inbox,
                                                                          DomainEvents events, AuditWriter audit, Tx tx, Clock clock) {
@@ -132,11 +131,11 @@ public class ModulesConfig {
     }
     @Bean com.communityos.api.cultural.application.DonationService donationService(com.communityos.api.cultural.adapter.JdbcCulturalStore store,
                                                                                  com.communityos.api.billing.application.BillingDesk desk, DomainEvents events, AuditWriter audit, Tx tx, Clock clock, CosProperties p) {
-        return new com.communityos.api.cultural.application.DonationService(store, desk, events, audit, tx, clock, ZoneId.of(p.web().timeZone()));
+        return new com.communityos.api.cultural.application.DonationService(store, desk, events, audit, tx, clock);
     }
     @Bean com.communityos.api.cultural.application.ExpenseService culturalExpenseService(com.communityos.api.cultural.adapter.JdbcCulturalStore store, JdbcApprovalSettings approvals,
                                                                                        com.communityos.api.billing.application.BillingDesk desk, DomainEvents events, AuditWriter audit, Tx tx, Clock clock, CosProperties p) {
-        return new com.communityos.api.cultural.application.ExpenseService(store, approvals, desk, events, audit, tx, clock, ZoneId.of(p.web().timeZone()));
+        return new com.communityos.api.cultural.application.ExpenseService(store, approvals, desk, events, audit, tx, clock);
     }
     @Bean com.communityos.api.cultural.application.SignupService signupService(com.communityos.api.cultural.adapter.JdbcCulturalStore store, AuditWriter audit, Tx tx) {
         return new com.communityos.api.cultural.application.SignupService(store, audit, tx);
@@ -146,11 +145,11 @@ public class ModulesConfig {
     @Bean com.communityos.api.finance.adapter.JdbcFinanceStore financeStore(NamedParameterJdbcTemplate jdbc, PlanCodec plans) { return new com.communityos.api.finance.adapter.JdbcFinanceStore(jdbc, plans); }
     @Bean com.communityos.api.finance.application.CashBookService cashBookService(com.communityos.api.finance.adapter.JdbcFinanceStore store, com.communityos.api.billing.application.BillingDesk desk,
                                                                                  AuditWriter audit, Tx tx, Clock clock, CosProperties p) {
-        return new com.communityos.api.finance.application.CashBookService(store, desk, audit, tx, clock, ZoneId.of(p.web().timeZone()));
+        return new com.communityos.api.finance.application.CashBookService(store, desk, audit, tx, clock);
     }
     @Bean com.communityos.api.finance.application.ReleaseService releaseService(com.communityos.api.finance.adapter.JdbcFinanceStore store, JdbcQuotationRepository money, JdbcApprovalSettings approvals,
                                                                                com.communityos.api.finance.application.CashBookService cash, DomainEvents events, AuditWriter audit, Tx tx, Clock clock, CosProperties p) {
-        return new com.communityos.api.finance.application.ReleaseService(store, money, approvals, cash, events, audit, tx, clock, ZoneId.of(p.web().timeZone()));
+        return new com.communityos.api.finance.application.ReleaseService(store, money, approvals, cash, events, audit, tx, clock);
     }
     @Bean com.communityos.api.finance.application.PayRequestService payRequestService(com.communityos.api.finance.adapter.JdbcFinanceStore store, com.communityos.api.finance.application.CashBookService cash,
                                                                                      JdbcApprovalSettings approvals, ObjectMapper json, AuditWriter audit, Tx tx) {
@@ -166,17 +165,17 @@ public class ModulesConfig {
     }
     @Bean com.communityos.api.governance.application.MeetingService meetingService(com.communityos.api.governance.adapter.JdbcGovernanceStore store, DomainEvents events,
                                                                                  AuditWriter audit, Tx tx, Clock clock, CosProperties p) {
-        return new com.communityos.api.governance.application.MeetingService(store, events, audit, tx, clock, ZoneId.of(p.web().timeZone()));
+        return new com.communityos.api.governance.application.MeetingService(store, events, audit, tx, clock);
     }
     @Bean com.communityos.api.governance.application.BallotService ballotService(com.communityos.api.governance.adapter.JdbcGovernanceStore store, DomainEvents events,
                                                                                AuditWriter audit, Tx tx, Clock clock, CosProperties p) {
-        return new com.communityos.api.governance.application.BallotService(store, events, audit, tx, clock, ZoneId.of(p.web().timeZone()));
+        return new com.communityos.api.governance.application.BallotService(store, events, audit, tx, clock);
     }
     /** Voting codes go the way sign-in codes go (the same sender and pepper); only where codes are written to the log (never prod) is the code also shown on screen. */
     @Bean com.communityos.api.governance.application.VoteService voteService(com.communityos.api.governance.adapter.JdbcGovernanceStore store,
                                                                            com.communityos.api.identity.application.port.OtpSender sender, AuditWriter audit, Tx tx, Clock clock, CosProperties p) {
         return new com.communityos.api.governance.application.VoteService(store, new com.communityos.api.identity.application.CodeHasher(p.auth().otpPepper()), sender,
-            "log".equals(p.auth().otpSender()), p.auth().defaultCountryCode(), audit, tx, clock, ZoneId.of(p.web().timeZone()));
+            "log".equals(p.auth().otpSender()), p.auth().defaultCountryCode(), audit, tx, clock);
     }
 
     // ---- vendors: the service directory -----------------------------------------------------------------------------------------------------------
@@ -186,19 +185,18 @@ public class ModulesConfig {
 
     // ---- assets: stock and condition ------------------------------------------------------------------------------------------------------------
     @Bean com.communityos.api.assets.application.AssetService assetService(NamedParameterJdbcTemplate jdbc, DomainEvents events, AuditWriter audit, Tx tx, Clock clock, CosProperties p) {
-        return new com.communityos.api.assets.application.AssetService(new com.communityos.api.assets.adapter.JdbcAssetStore(jdbc), events, audit, tx, clock, ZoneId.of(p.web().timeZone()));
+        return new com.communityos.api.assets.application.AssetService(new com.communityos.api.assets.adapter.JdbcAssetStore(jdbc), events, audit, tx, clock);
     }
 
     // ---- workforce: attendance -------------------------------------------------------------------------------------------------------------------
     @Bean com.communityos.api.workforce.application.AttendanceService attendanceService(NamedParameterJdbcTemplate jdbc, ObjectMapper json, AuditWriter audit, Tx tx, Clock clock, CosProperties p) {
-        return new com.communityos.api.workforce.application.AttendanceService(new com.communityos.api.workforce.adapter.JdbcAttendanceStore(jdbc, json), audit, tx, clock, ZoneId.of(p.web().timeZone()));
+        return new com.communityos.api.workforce.application.AttendanceService(new com.communityos.api.workforce.adapter.JdbcAttendanceStore(jdbc, json), audit, tx, clock);
     }
 
     // ---- reports ----------------------------------------------------------------------------------------------------------------------------------
     @Bean com.communityos.api.reports.application.ReportService reportService(NamedParameterJdbcTemplate jdbc, com.communityos.api.comms.adapter.JdbcInbox inbox, ObjectMapper json,
                                                                             AuditWriter audit, Tx tx, Clock clock, CosProperties p) {
-        return new com.communityos.api.reports.application.ReportService(new com.communityos.api.reports.adapter.JdbcReportData(jdbc, p.web().timeZone()), inbox, json, audit, tx, clock,
-            ZoneId.of(p.web().timeZone()));
+        return new com.communityos.api.reports.application.ReportService(new com.communityos.api.reports.adapter.JdbcReportData(jdbc), inbox, json, audit, tx, clock);
     }
 
     // ---- billing ------------------------------------------------------------------------------------------------------------------------------
@@ -208,7 +206,7 @@ public class ModulesConfig {
     @Bean JdbcPaymentOrderRepository paymentOrderRepository(NamedParameterJdbcTemplate jdbc) { return new JdbcPaymentOrderRepository(jdbc); }
     @Bean JdbcPlatformPayments platformPayments(@Qualifier("platform") NamedParameterJdbcTemplate platformJdbc) { return new JdbcPlatformPayments(platformJdbc); }
 
-    @Bean LedgerPoster ledgerPoster(NamedParameterJdbcTemplate jdbc, CosProperties p) { return new LedgerPoster(new JdbcJournalWriter(jdbc), ZoneId.of(p.web().timeZone())); }
+    @Bean LedgerPoster ledgerPoster(NamedParameterJdbcTemplate jdbc, Clock clock) { return new LedgerPoster(new JdbcJournalWriter(jdbc), clock); }
     @Bean DomainEventHandler<?> ledgerOnDueRaised(LedgerPoster l) { return l.handlers().get(0); }
     @Bean DomainEventHandler<?> ledgerOnDueCancelled(LedgerPoster l) { return l.handlers().get(1); }
     @Bean DomainEventHandler<?> ledgerOnDueWaived(LedgerPoster l) { return l.handlers().get(2); }
@@ -303,7 +301,7 @@ public class ModulesConfig {
         return new PaymentService(dues, payments, orders, gateways, settlement, platform, platform, events, tx, clock, p.payments().orderTtl(), p.payments().currency());
     }
     @Bean com.communityos.api.summary.SummaryService summaryService(NamedParameterJdbcTemplate jdbc, Clock clock, CosProperties p) {
-        return new com.communityos.api.summary.SummaryService(jdbc, clock, ZoneId.of(p.web().timeZone()));
+        return new com.communityos.api.summary.SummaryService(jdbc, clock);
     }
     /** Refunds through the payment provider: the payment webhook passes refund news on; a booking's fee and deposit refunds use it. */
     @Bean com.communityos.api.billing.application.RefundService refundService(NamedParameterJdbcTemplate jdbc, @Qualifier("platform") NamedParameterJdbcTemplate platformJdbc,

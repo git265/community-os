@@ -36,11 +36,11 @@ public final class VoteService {
     public record Receipt(UUID ballotId, int seq, String receipt, String hash) {}
 
     private final GovernanceStore store; private final CodeHasher hasher; private final OtpSender sender; private final boolean echo; private final String countryCode;
-    private final AuditWriter audit; private final Tx tx; private final Clock clock; private final ZoneId zone;
-    public VoteService(GovernanceStore store, CodeHasher hasher, OtpSender sender, boolean echoCodes, String countryCode, AuditWriter audit, Tx tx, Clock clock, ZoneId zone) {
-        this.store = store; this.hasher = hasher; this.sender = sender; this.echo = echoCodes; this.countryCode = countryCode; this.audit = audit; this.tx = tx; this.clock = clock; this.zone = zone;
+    private final AuditWriter audit; private final Tx tx; private final Clock clock;
+    public VoteService(GovernanceStore store, CodeHasher hasher, OtpSender sender, boolean echoCodes, String countryCode, AuditWriter audit, Tx tx, Clock clock) {
+        this.store = store; this.hasher = hasher; this.sender = sender; this.echo = echoCodes; this.countryCode = countryCode; this.audit = audit; this.tx = tx; this.clock = clock;
     }
-    LocalDate today() { return LocalDate.now(clock.withZone(zone)); }
+    LocalDate today() { return LocalDate.now(clock); }
 
     record Voter(Ballot ballot, Governance.Elector elector, UUID person) {}
     /** May this person vote for this unit on this ballot now? The unit may be left out when they own just one unit on the roll. */

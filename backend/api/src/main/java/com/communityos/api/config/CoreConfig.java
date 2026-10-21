@@ -31,10 +31,13 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 /** The shared kernel's beans: clock, JSON, events (Observer + outbox), audit, idempotency, custom fields, outbound HTTP, webhooks. */
 @Configuration
 public class CoreConfig {
-    /** The system clock; with the demo on (development only) the demo loader may set it back for its own thread (demo.ReplayClock). */
-    @Bean Clock clock(CosProperties p) {
+    /** The system clock in the served community's time zone (platform.community.time_zone; cos.web.time-zone without a caller). With the demo on
+     *  (development only) the demo loader may set it back for its own thread (demo.ReplayClock). */
+    @Bean Clock clock(CosProperties p, @org.springframework.beans.factory.annotation.Qualifier("platform") NamedParameterJdbcTemplate platformJdbc) {
         Clock system = Clock.system(ZoneId.of(p.web().timeZone()));
-        return p.demo().enabled() ? new com.communityos.api.demo.ReplayClock(system) : system;
+        Clock base = p.demo().enabled() ? new com.communityos.api.demo.ReplayClock(system) : system;
+        return new com.communityos.api.shared.time.CommunityClock(base, (id) -> platformJdbc.query("SELECT time_zone FROM platform.community WHERE id = CAST(:id AS uuid)",
+            java.util.Map.of("id", id.toString()), (rs, i) -> rs.getString("time_zone")).stream().findFirst());
     }
     @Bean @Primary ObjectMapper objectMapper() { return Json.mapper(); }
 

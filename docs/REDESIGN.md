@@ -90,6 +90,8 @@ Every tenant row carries `community_id`. The primary key is `(community_id, id)`
 
 **Row-level security** is forced on every tenant table. The policy is `community_id = app.community_id`. `TenantDataSource` sets `app.community_id` and `app.user_id` on every connection from the caller, and clears them when the connection goes back to the pool. If no caller is set, no row is visible (fail closed).
 
+**Each community's own time zone.** The server's `Clock` is a `CommunityClock`: its zone is the served community's `platform.community.time_zone` (cached for 5 minutes), so "today", month starts, due dates, SLA checks, quiet hours at the gate, journal dates and report dates are that community's, whatever zone the server runs in. Services use `LocalDate.now(clock)` / `clock.getZone()` and take no zone of their own. Without a caller the zone is `cos.web.time-zone`. Only zone names PostgreSQL knows are accepted (V26). The demo loader keeps its sample data's IST timeline. SQL that uses `current_date` (a few occupancy checks) still follows the database session's zone.
+
 ### Roles
 
 | Role | Used for | Row-level security |

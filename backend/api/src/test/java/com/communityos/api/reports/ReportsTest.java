@@ -89,7 +89,7 @@ class ReportsTest {
             @Override public int unread(UUID membership) { return 0; }
             @Override public int markRead(UUID membership, UUID id) { return 0; }
         };
-        ReportService svc = new ReportService(data, inbox, new ObjectMapper(), new Fixtures.Audit(), Tx.direct(), Fixtures.CLOCK, IST);
+        ReportService svc = new ReportService(data, inbox, new ObjectMapper(), new Fixtures.Audit(), Tx.direct(), Fixtures.CLOCK);
         Caller owner = Fixtures.owner(Fixtures.UNIT_A), fm = Fixtures.caller(Caller.Category.Staff, Set.of("facility_manager"), Set.of(), Set.of());
         assertThrows(AccessDenied.class, () -> svc.build(owner, "tasks", null, null), "residents get only their own unit's reports");
         assertThrows(AccessDenied.class, () -> svc.build(owner, "dues", null, Fixtures.UNIT_B.value()));

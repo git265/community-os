@@ -32,13 +32,13 @@ public final class JdbcReportData implements ReportData {
         WHERE d.status IN ('Unpaid', 'Partly paid') AND d.total - d.paid_amount - d.credit_applied > 0 AND (CAST(:unit AS uuid) IS NULL OR d.unit_id = CAST(:unit AS uuid))
         ORDER BY d.due_date NULLS LAST LIMIT 5000""";
     static final String PAYMENTS = """
-        SELECT CAST(timezone(CAST(:tz AS text), p.received_at) AS date) AS paid_on, u.unit_no, p.amount - p.refunded_amount AS amount, p.method,
+        SELECT CAST(timezone((SELECT tzc.time_zone FROM platform.community tzc WHERE tzc.id = platform.current_community()), p.received_at) AS date) AS paid_on, u.unit_no, p.amount - p.refunded_amount AS amount, p.method,
                coalesce((SELECT string_agg(DISTINCT c.name, ', ') FROM billing.payment_allocation a
                          JOIN billing.due d ON d.community_id = a.community_id AND d.id = a.due_id
                          JOIN billing.charge_category c ON c.community_id = d.community_id AND c.id = d.category_id
                          WHERE a.community_id = p.community_id AND a.payment_id = p.id), initcap(coalesce(p.claimed_type, 'Other'))) AS kinds
         FROM billing.payment p LEFT JOIN property.unit u ON u.community_id = p.community_id AND u.id = p.unit_id
-        WHERE p.status IN ('Captured', 'Partly refunded') AND CAST(timezone(CAST(:tz AS text), p.received_at) AS date) BETWEEN CAST(:from AS date) AND CAST(:to AS date)
+        WHERE p.status IN ('Captured', 'Partly refunded') AND CAST(timezone((SELECT tzc.time_zone FROM platform.community tzc WHERE tzc.id = platform.current_community()), p.received_at) AS date) BETWEEN CAST(:from AS date) AND CAST(:to AS date)
         ORDER BY p.received_at LIMIT 5000""";
     static final String PLANT = """
         SELECT l.date, l.bh_kl, l.wtp_kl, l.stp_kl, l.salt_used, l.chlorine_used, l.remarks FROM assets.plant_log l
@@ -85,8 +85,8 @@ public final class JdbcReportData implements ReportData {
         INSERT INTO comms.outbox_message (community_id, id, created_at, event, channel, to_value, status, subject, body)
         VALUES (platform.current_community(), gen_random_uuid(), now(), 'report', :channel, :to, 'Queued', :subject, :body)""";
 
-    private final NamedParameterJdbcTemplate jdbc; private final String zone;
-    public JdbcReportData(NamedParameterJdbcTemplate jdbc, String zone) { this.jdbc = jdbc; this.zone = zone; }
+    private final NamedParameterJdbcTemplate jdbc;   // dates are the community's own (platform.community.time_zone)
+    public JdbcReportData(NamedParameterJdbcTemplate jdbc) { this.jdbc = jdbc; }
 
     static Map<String, Object> range(LocalDate from, LocalDate to) { Map<String, Object> p = new HashMap<>(); p.put("from", from.toString()); p.put("to", to.toString()); return p; }
     @Override public List<Reports.BookingRow> bookings(LocalDate from, LocalDate to, UUID unitId) {
@@ -100,7 +100,7 @@ public final class JdbcReportData implements ReportData {
             rs.getBigDecimal("outstanding"), rs.getBigDecimal("tax_amount"), Rows.date(rs, "due_date")));
     }
     @Override public List<Reports.PaymentRow> payments(LocalDate from, LocalDate to) {
-        Map<String, Object> p = range(from, to); p.put("tz", zone);
+        Map<String, Object> p = range(from, to);
         return jdbc.query(PAYMENTS, p, (rs, i) -> new Reports.PaymentRow(Rows.date(rs, "paid_on"), rs.getString("unit_no"), rs.getString("kinds"), rs.getBigDecimal("amount"), rs.getString("method")));
     }
     @Override public List<Reports.PlantRow> plantLogs(LocalDate from, LocalDate to) {

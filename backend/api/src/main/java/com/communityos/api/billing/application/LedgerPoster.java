@@ -11,6 +11,7 @@ import com.communityos.api.billing.domain.Journal.Line;
 import com.communityos.api.shared.domain.DomainEvent;
 import com.communityos.api.shared.domain.Money;
 import com.communityos.api.shared.events.DomainEventHandler;
+import java.time.Clock;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
@@ -22,8 +23,8 @@ import java.util.UUID;
  * 2100 Tax payable, 5000 Operating expenses (write-offs); income per charge category.
  */
 public final class LedgerPoster {
-    private final JournalWriter journal; private final ZoneId zone;
-    public LedgerPoster(JournalWriter journal, ZoneId zone) { this.journal = journal; this.zone = zone; }
+    private final JournalWriter journal; private final Clock clock;
+    public LedgerPoster(JournalWriter journal, Clock clock) { this.journal = journal; this.clock = clock; }
 
     public List<DomainEventHandler<?>> handlers() {
         return List.of(handler(DueRaised.class, this::onRaised), handler(DueCancelled.class, this::onCancelled),
@@ -32,14 +33,14 @@ public final class LedgerPoster {
 
     void onRaised(DueRaised e) {
         UUID unit = e.unitId() == null ? null : e.unitId().value();
-        journal.post(new Journal.Entry(e.occurredAt().atZone(zone).toLocalDate(), "Bill raised", "due", e.dueId().value(), List.of(
+        journal.post(new Journal.Entry(e.occurredAt().atZone(clock.getZone()).toLocalDate(), "Bill raised", "due", e.dueId().value(), List.of(
             Line.debit("1100", unit, e.amount().plus(e.tax()), "Receivable"),
             Line.creditId(e.incomeAccountId(), unit, e.amount(), "Income"),
             Line.credit("2100", unit, e.tax(), "Tax"))));
     }
     void onCancelled(DueCancelled e) {
         UUID unit = e.unitId() == null ? null : e.unitId().value();
-        journal.post(new Journal.Entry(e.occurredAt().atZone(zone).toLocalDate(), "Bill cancelled: " + e.reason(), "due", e.dueId().value(), List.of(
+        journal.post(new Journal.Entry(e.occurredAt().atZone(clock.getZone()).toLocalDate(), "Bill cancelled: " + e.reason(), "due", e.dueId().value(), List.of(
             Line.debitId(e.incomeAccountId(), unit, e.amount(), "Income reversed"),
             Line.debit("2100", unit, e.tax(), "Tax reversed"),
             Line.credit("1100", unit, e.amount().plus(e.tax()), "Receivable cleared"))));
@@ -47,7 +48,7 @@ public final class LedgerPoster {
     void onWaived(DueWaived e) {
         if (!e.waived().isPositive()) return;
         UUID unit = e.unitId() == null ? null : e.unitId().value();
-        journal.post(new Journal.Entry(e.occurredAt().atZone(zone).toLocalDate(), "Bill waived: " + e.reason(), "due", e.dueId().value(), List.of(
+        journal.post(new Journal.Entry(e.occurredAt().atZone(clock.getZone()).toLocalDate(), "Bill waived: " + e.reason(), "due", e.dueId().value(), List.of(
             Line.debit("5000", unit, e.waived(), "Written off"),
             Line.credit("1100", unit, e.waived(), "Receivable cleared"))));
     }
@@ -58,12 +59,12 @@ public final class LedgerPoster {
         lines.add(Line.debit(e.viaGateway() ? "1200" : "1000", unit, e.amount(), e.viaGateway() ? "Received via " + e.provider() : "Received: " + e.method()));
         lines.add(Line.credit("1100", unit, allocated, "Bills settled"));
         lines.add(Line.credit("2000", unit, e.toCredit(), "Advance kept as unit credit"));
-        journal.post(new Journal.Entry(e.occurredAt().atZone(zone).toLocalDate(), "Payment " + e.receiptNo(), "payment", e.paymentId().value(), lines));
+        journal.post(new Journal.Entry(e.occurredAt().atZone(clock.getZone()).toLocalDate(), "Payment " + e.receiptNo(), "payment", e.paymentId().value(), lines));
     }
 
     void onCreditApplied(CreditApplied e) {
         UUID unit = e.unitId() == null ? null : e.unitId().value();
-        journal.post(new Journal.Entry(e.occurredAt().atZone(zone).toLocalDate(), "Unit credit used for a " + e.targetType(), "credit", e.targetId(), List.of(
+        journal.post(new Journal.Entry(e.occurredAt().atZone(clock.getZone()).toLocalDate(), "Unit credit used for a " + e.targetType(), "credit", e.targetId(), List.of(
             Line.debit("2000", unit, e.amount(), "Unit credit used"),
             Line.credit("1100", unit, e.amount(), "Paid from credit"))));
     }

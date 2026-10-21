@@ -38,9 +38,9 @@ public final class ExpenseService {
     public record Fields(String item, String category, String vendor, BigDecimal amount, BigDecimal estimate, LocalDate date, String fund, String note) {}
 
     private final CulturalStore store; private final ApprovalSettings approvals; private final BillingDesk desk; private final DomainEvents events; private final AuditWriter audit;
-    private final Tx tx; private final Clock clock; private final ZoneId zone;
-    public ExpenseService(CulturalStore store, ApprovalSettings approvals, BillingDesk desk, DomainEvents events, AuditWriter audit, Tx tx, Clock clock, ZoneId zone) {
-        this.store = store; this.approvals = approvals; this.desk = desk; this.events = events; this.audit = audit; this.tx = tx; this.clock = clock; this.zone = zone;
+    private final Tx tx; private final Clock clock;
+    public ExpenseService(CulturalStore store, ApprovalSettings approvals, BillingDesk desk, DomainEvents events, AuditWriter audit, Tx tx, Clock clock) {
+        this.store = store; this.approvals = approvals; this.desk = desk; this.events = events; this.audit = audit; this.tx = tx; this.clock = clock;
     }
 
     public List<Cultural.Expense> list(Caller c, UUID eventId) { requireFinance(c); return store.expenses(eventId); }
@@ -115,7 +115,7 @@ public final class ExpenseService {
             x.status = "Paid"; x.paidAt = now; x.paidById = c.membership() == null ? null : c.membership().value(); x.paidMode = mode == null || mode.isBlank() ? "Bank transfer" : mode;
             if (!store.update(x)) throw new DomainException.Conflict("Expense " + x.shortId);
             Money amt = new Money(x.amount);
-            desk.post(new Journal.Entry(now.atZone(zone).toLocalDate(), "Event expense " + x.shortId + " · " + x.item, "expense", x.id,
+            desk.post(new Journal.Entry(now.atZone(clock.getZone()).toLocalDate(), "Event expense " + x.shortId + " · " + x.item, "expense", x.id,
                 List.of(Journal.Line.debit("5100", null, amt, x.item), Journal.Line.credit("1000", null, amt, "Paid (" + x.paidMode + ")"))));
             done(c, x, "cultural.expense.paid", AuditWriter.Action.Update, "Paid " + x.amount.toPlainString() + " for " + x.item);
             return store.expense(id).orElseThrow();

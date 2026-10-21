@@ -62,7 +62,7 @@ class AssetTest {
 
     @Test void stockAndCondition() {
         Store store = new Store(); Fixtures.Outbox outbox = new Fixtures.Outbox();
-        AssetService svc = new AssetService(store, Fixtures.events(List.of(), outbox), new Fixtures.Audit(), Tx.direct(), Fixtures.CLOCK, ZoneId.of("Asia/Kolkata"));
+        AssetService svc = new AssetService(store, Fixtures.events(List.of(), outbox), new Fixtures.Audit(), Tx.direct(), Fixtures.CLOCK);
         UUID salt = store.item("Salt", "Kg", "0", "20");
         assertThrows(AccessDenied.class, () -> svc.move(reader(), salt, "Received", BigDecimal.TEN, null, null, null, null));
         var in = svc.move(fm(), salt, "Received", new BigDecimal("50"), null, null, "Tata", null);
