@@ -1,19 +1,18 @@
 // WHICH storage the app talks to is a runtime choice, not a build choice:
 //
 //   session  the browser demo store (sessionStorage + IndexedDB). Nothing to install; resets with the tab.
-//   api      the Spring Boot + PostgreSQL back end (backend/), reached over HTTP.
-//   v2       the typed v2 API (backend/api: /api/v1, one table per object) - units, members, bills, payments and sign-in so far
+//   v2       the back end: Spring Boot + PostgreSQL (backend/api, /api/v1). The only back end since the old /api servers were retired.
 //
 // The choice is kept in localStorage so it survives reloads and tabs, and can be flipped from the "Data source" panel
 // (login screen, and Super Admin -> profile menu) without rebuilding. Build-time defaults:
-//   VITE_USE_API=true            start in api mode
+//   VITE_USE_API=v2              start on the back end
 //   VITE_API_BASE_URL=/api       where the back end lives (a Vite proxy or an absolute https://api.example.com/api)
 //   VITE_API_KEY=...             optional bearer token for dev (real sign-in: see docs/BACKEND.md "Authentication")
 import { apiFetch } from '../net/request.js';
 const KEY = 'communityos:dataSource';
 
 const defaults = () => ({
-  mode: import.meta.env.VITE_USE_API === 'v2' ? 'v2' : import.meta.env.VITE_USE_API === 'true' ? 'api' : 'session',
+  mode: import.meta.env.VITE_USE_API === 'v2' || import.meta.env.VITE_USE_API === 'true' ? 'v2' : 'session',
   baseUrl: import.meta.env.VITE_API_BASE_URL || '/api',
   token: import.meta.env.VITE_API_KEY || '',
 });
@@ -21,12 +20,12 @@ const defaults = () => ({
 export function getDataSource() {
   try {
     const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
-    if (saved && (saved.mode === 'session' || saved.mode === 'api' || saved.mode === 'v2')) return { ...defaults(), ...saved };
+    if (saved && (saved.mode === 'session' || saved.mode === 'v2')) return { ...defaults(), ...saved };   // a saved 'api' (the retired old back end) falls back to the default
   } catch { /* unavailable: use defaults */ }
   return defaults();
 }
 
-export const isApiMode = () => getDataSource().mode === 'api' || getDataSource().mode === 'v2';   // a back end (either API) holds the data
+export const isApiMode = () => getDataSource().mode === 'v2';   // the back end holds the data
 
 /** Save the choice. The app must reload afterwards, because screens keep what they loaded in memory. */
 export function setDataSource(next) {

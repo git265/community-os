@@ -13,7 +13,7 @@ import { ExportIcon } from './ExportIcon.jsx';
  * "Server-side" by contract: it never loads a collection - it asks
  * secureStorage.query() for ONE page (default 50 rows) with the current
  * sort / filters / search / date range, so it works unchanged against the
- * Spring Boot `/query` endpoint (see ApiStorageAdapter.query). Authorization
+ * back end's paged lists (see V2ApiAdapter serverPage). Authorization
  * (row scope + field masking) is applied inside that call.
  *
  * Props

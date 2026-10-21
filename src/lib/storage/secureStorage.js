@@ -2,7 +2,7 @@
 // EVERY module reads/writes through this (via useCollection), never through
 // the raw adapter. It plays the role of the Spring Boot controller/service
 // layer: authenticate -> authorize -> stamp -> persist -> audit.
-import { storage, isApiMode, serverReads } from './index.js';
+import { storage, isApiMode } from './index.js';
 import { remoteSecure } from './remoteSecure.js';
 import { serverDecides } from '../auth/session.js';
 import { ConflictError } from '../security/errors.js';
@@ -94,27 +94,6 @@ async function scoped(collection) {
   return rows.map((r) => maskRecord(r, schema, p.roleId, p));
 }
 
-// ---- SERVER fast path: the database applies the row scope, the filters, the sort and the page ---------------------------------------------
-// Only when the scope is exactly expressible as data (scope.sql, or no row rule at all) and nothing in the request could reveal a field the caller may
-// not see (a filter / sort / search on a hidden field would leak its value one yes-or-no at a time). Anything else takes the in-memory path above,
-// which is always correct. The API tests compare both paths for every role.
-const queryKeys = (params = {}) => [...Object.keys(params.filters || {}), params.sort?.key, params.dateRange?.key, params.period?.key, ...(params.searchKeys || [])].filter(Boolean);
-async function fastScope(collection, params = null) {
-  if (!serverReads.available() || collection === COLLECTIONS.BALLOT_BOX) return null;
-  const p = getPrincipal();
-  if (!p || !canReadCollection(collection, p)) return null;
-  const scope = await rowScope(collection, p, readRaw);
-  if (scope.predicate && !scope.sql) return null;                                  // not expressible: use memory
-  if (params) {
-    const hidden = hiddenFieldKeys(getSchema(collection), p.roleId, p);
-    if (queryKeys(params).some((k) => hidden.includes(k))) return null;
-    if (params.search && !(params.searchKeys || []).length && hidden.length) return null;
-    if (scope.transform && (queryKeys(params).length || params.search)) return null;   // a row transform may change the very values being filtered
-  }
-  return { p, scope };
-}
-const shape = (rows, scope, schema, p) => rows.map((r) => maskRecord(scope.transform ? scope.transform(r) : r, schema, p.roleId, p));
-
 async function denied(collection, op, record, reason) {
   const p = getPrincipal();
   if (p && collection !== COLLECTIONS.AUDIT && !NO_AUDIT.has(collection)) {
@@ -179,23 +158,16 @@ const stripMeta = (r) => { const o = { ...r }; META_KEYS.forEach((k) => { if (k 
 
 const localSecure = {
   async list(collection) {
-    const f = await fastScope(collection);
-    if (f) return shape(await serverReads.selectScoped(collection, f.scope.sql || null), f.scope, getSchema(collection), f.p);
     return scoped(collection);
   },
 
   /** Server-side style paging: scope -> mask -> filter/sort/page. */
   async query(collection, params = {}) {
-    const f = await fastScope(collection, params);
-    if (f) { const r = await serverReads.queryScoped(collection, params, f.scope.sql || null); return { ...r, rows: shape(r.rows, f.scope, getSchema(collection), f.p) }; }
     return runQuery(await scoped(collection), params);
   },
 
   async get(collection, id) {
-    const f = await fastScope(collection);
-    let row;
-    if (f) { const r = await serverReads.getScoped(collection, id, f.scope.sql || null); row = r ? shape([r], f.scope, getSchema(collection), f.p)[0] : null; }
-    else row = (await scoped(collection)).find((r) => r.id === id) ?? null;
+    const row = (await scoped(collection)).find((r) => r.id === id) ?? null;
     // Listing a back end gives file METADATA only (bytes are not sent in lists). Fetch the bytes for the one file being opened.
     if (row && collection === COLLECTIONS.FILES && !row.dataUrl && row.hasContent) return (await storage.get(collection, id)) ?? row;
     return row;

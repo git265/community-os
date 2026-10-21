@@ -17,11 +17,9 @@
 // This runs in the browser, which is not a trust boundary. In production the same checks must run in the Spring Boot service
 // (see README "E-voting"): OTP via an SMS/e-mail gateway, the box and roll in separate tables with separate DB roles, the
 // chain head anchored by an external timestamp.
-import { storage, isApiMode } from './storage/index.js';
-import { ApiStorageAdapter } from './storage/ApiStorageAdapter.js';
+import { storage } from './storage/index.js';
 import { getDataSource } from './storage/dataSource.js';
 import { evote } from './storage/v2/V2ApiAdapter.js';
-import { serverDecides } from './auth/session.js';
 import { COLLECTIONS as C } from './storage/StorageAdapter.js';
 import { ownersOf } from './people.js';
 
@@ -98,17 +96,12 @@ const proofs = new Map();     // token -> { key, exp }
 const boxAllowance = new Map(); // key -> remaining ballot-box writes granted by the last roll mark
 const keyOf = (ballotId, unit, name) => `${ballotId}|${unit}|${String(name).toLowerCase()}`;
 
-// When a back end is in charge (sign-in enforced by the server) the code is asked for and checked THERE: the proof the voter-roll write demands has
-// to live where the write is checked, and a browser is not a place to keep a second factor. The same two functions serve both modes.
-const viaServer = () => isApiMode() && serverDecides();
+// On the back end (v2) the code is asked for and checked THERE: the proof the voter-roll write demands has to live where the write is checked, and
+// a browser is not a place to keep a second factor. The same two functions serve both modes.
 
 /** Sends a code to the owner's registered mobile. Returns the code ONLY because this demo has no SMS gateway (shown as a simulated SMS); a real server never returns it. */
 export async function requestOtp(ballot, principal) {
   if (getDataSource().mode === 'v2') return evote.request(ballot, principal?.unit);
-  if (viaServer()) {
-    const r = await ApiStorageAdapter.rpc('/evoting/otp/request', 'POST', { ballotId: ballot?.id });
-    return { code: r.code, phoneLast4: r.phoneLast4 || '' };
-  }
   const reason = whyCannotVote(ballot, principal);
   if (reason) throw new Error(reason);
   const key = keyOf(ballot.id, principal.unit, principal.name);
@@ -123,7 +116,6 @@ export async function requestOtp(ballot, principal) {
 /** Checks the code; on success returns a single-use proof token. */
 export async function verifyOtp(ballot, principal, code) {
   if (getDataSource().mode === 'v2') return evote.verify(ballot, principal?.unit, code);
-  if (viaServer()) return (await ApiStorageAdapter.rpc('/evoting/otp/verify', 'POST', { ballotId: ballot?.id, code })).proof;
   const key = keyOf(ballot.id, principal.unit, principal.name);
   const ch = challenges.get(key);
   if (!ch) throw new Error('Ask for a code first.');

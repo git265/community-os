@@ -1,5 +1,7 @@
 # Back end: Spring Boot + PostgreSQL
 
+> **Historical (r76).** This describes the retired servers (`backend/contract-server`, `backend/spring`). The current back end is `backend/api`: see docs/REDESIGN.md.
+
 The browser app runs on either of two data sources, switched **at run time** from the small chip at the bottom-left of the screen
 (“○ Browser demo” / “● Back end”):
 

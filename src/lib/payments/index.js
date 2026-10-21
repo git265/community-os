@@ -2,7 +2,6 @@
 //   const result = await pay({ purpose:'due', refs:[dueId], amount, unit, payer }, checkoutUi);
 // Registry: gateways by id; settlers by purpose (what to do once money is confirmed). Both are extension points.
 import SimulatedGateway from './SimulatedGateway.js';
-import ServerGateway from './ServerGateway.js';
 import V2Gateway from './V2Gateway.js';
 import { getDataSource } from '../storage/dataSource.js';
 import { serverDecides } from '../auth/session.js';
@@ -18,13 +17,11 @@ export const registerGateway = (g) => { gateways[g.id] = g; return g; };
 export const registerSettler = (purpose, fn) => { settlers[purpose] = fn; };
 export const listGateways = () => Object.values(gateways);
 registerGateway(new SimulatedGateway());
-registerGateway(new ServerGateway());
 registerGateway(new V2Gateway());
 
 /** The community's chosen provider if the country supports it, else the first one the country supports, else the simulator. */
 export function activeGateway() {
   if (getDataSource().mode === 'v2') return gateways.v2;   // the typed v2 API: priced, verified and settled by backend/api
-  if (serverDecides()) return gateways.server;   // the server prices, settles and reconciles; the browser only starts and watches
   const want = getCommunityConfig().paymentGateway;
   const ok = region().gateways;
   const id = (want && gateways[want] && ok.includes(want)) ? want : (ok.find((g) => gateways[g]) || 'simulated');
@@ -95,7 +92,7 @@ export const resultOf = (o) => (o.status === 'Paid' ? { status: 'Paid', order: o
   : { status: 'Pending', order: o, checking: true, message: 'The bank has not confirmed yet.' });
 
 /** The server's price for bills (late fees included), for showing the payer the exact amount before they pay. null when the browser demo prices it itself. */
-export async function quoteBills(refs, extra = {}) { return serverDecides() ? gateways.server.quote({ purpose: 'due', refs, ...extra }).catch(() => null) : null; }
+export async function quoteBills(refs, extra = {}) { const g = activeGateway(); return serverDecides() && g.quote ? g.quote({ purpose: 'due', refs, ...extra }).catch(() => null) : null; }   // a back end that prices bills itself
 
 /** Re-reads an order (the "we are checking your payment" screen). */
 export async function checkOrder(orderId) { return resultOf(await activeGateway().getOrder(orderId)); }

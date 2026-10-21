@@ -2,7 +2,13 @@
 
 Git tag `baseline-r76`. This is the reference version: later changes are compared with it, and it is the version to return to if a later round goes wrong.
 
-## What is in it
+## Since r76 (current structure)
+- **One back end: `backend/api`** (Spring Boot 3.5, Java 25, PostgreSQL 18, `/api/v1`). The Node reference server (`backend/contract-server`), the
+  r76 Spring service (`backend/spring`) and their schemas (`backend/db`, `backend/platform`) were retired; they remain at tag `baseline-r76`.
+- **Two data sources in the app:** Session (browser demo) and Back end (v2). The "old API" mode, its adapter and the browser→server copy are gone.
+- The r76 description below is kept as the record of that baseline.
+
+## What is in it (r76)
 - **Web app** (React / Vite): every module, Session (browser) or Back-end data source. Data is loaded only when the screen shows it; nothing is cached.
 - **Node reference server** (`backend/contract-server`, PostgreSQL): every rule enforced in `AUTH_MODE=enforce`, phone sign-in, payments, jobs, the platform console's server side (`PLATFORM_ADMIN_KEY`), invite links from `PUBLIC_APP_URL`.
 - **Spring Boot service** (`backend/spring`): parity with the Node server for authorization and row scope, money rules, payments and settlement, amenities, e-voting, notifications, the eight background jobs, field encryption, phone sign-in, the property and meeting hooks, payers with several units and creating a community.

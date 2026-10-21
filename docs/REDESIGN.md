@@ -2,7 +2,7 @@
 
 `backend/api` is a new Spring Boot service (Spring Boot 3.5.16, Java 25) with a new PostgreSQL 18 schema. Every object has its own table. The web app talks only to this service, through typed `/api/v1` endpoints.
 
-It sits beside the r76 services (`backend/contract-server`, `backend/spring`) and does not change them. The app reaches it through a third data-source mode, **Back end v2**.
+It replaced the r76 services (`backend/contract-server`, `backend/spring`), which were retired; they remain at tag `baseline-r76`. The app reaches it through the **Back end** data source.
 
 Status:
 

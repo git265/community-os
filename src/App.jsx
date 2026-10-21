@@ -238,7 +238,7 @@ function Shell() {
   // Amenity "cron": release unpaid bookings, reminders, daily/summary reports. Idempotent; runs on sign-in and every 5 minutes while open.
   useEffect(() => {
     if (!ready || !role) return undefined;
-    if (serverDecides()) return undefined;   // with a back end that enforces sign-in these jobs run on the server (backend/contract-server/jobs.mjs), once, instead of in every open browser
+    if (serverDecides()) return undefined;   // with a back end that enforces sign-in these jobs run on the server (backend/api, config/Jobs.java), once, instead of in every open browser
     ensureUtilityTypes().catch(() => {});
     const run = () => (jobsRunning ||= runJobsOnce().finally(() => { jobsRunning = null; }));
     const runJobsOnce = () => runAmenityScheduler().then(() => runRecurringBills()).then(() => runAutoLateFees()).then(() => runDueReminders()).then(() => runBallotReminders()).then(() => runAutoItc()).then(() => runReportSchedules()).then(() => window.dispatchEvent(new CustomEvent('communityos:changed'))).catch(() => {});

@@ -1,9 +1,5 @@
 node_modules
 dist
-backend/spring/target
-backend/contract-server/node_modules
-backend/contract-server/data
-backend/spring/data
 .env
 backend/api/target
 tests/v2/.out

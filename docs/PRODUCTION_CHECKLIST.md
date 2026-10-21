@@ -1,5 +1,7 @@
 # Production checklist: data integrity, security, payments, scale, audit
 
+> **Historical (r76).** This describes the retired servers (`backend/contract-server`, `backend/spring`). The current back end is `backend/api`: see docs/REDESIGN.md.
+
 Each point of the review below is marked with where it stands. **Node** = the `backend/contract-server` reference (tested: `cd backend/contract-server && npm test`, 81 tests). **Spring** = `backend/spring`, which is **uncompiled** and has not received the Node work; the last column says what is left for it.
 
 ## 1. Data integrity and concurrency

@@ -189,7 +189,8 @@ export function folderAllowed(folderId, folders, p) {
  * Row scope as DATA. Every scope the database can apply exactly is also described as a small tree (`scope.sql`), so the server can put it in the
  * WHERE clause instead of loading the collection and filtering in memory. The tree must mean EXACTLY what `predicate` means (the API tests compare
  * both for every role); a scope that cannot be expressed this way simply has no `sql` and is applied in memory as before.
- * Nodes: eq / ne / in / empty / notEmpty / and / or / true / false  (see backend/contract-server/store/sqlquery.mjs).
+ * Nodes: eq / ne / in / empty / notEmpty / and / or / true / false. (Its consumer, the retired Node server, is gone: nothing reads `sql` now;
+ * backend/api has its own policies. Kept until the browser rule book is trimmed to the Session demo.)
  */
 export const S = {
   eq: (key, value) => ({ op: 'eq', key, value }), ne: (key, value) => ({ op: 'ne', key, value }), in: (key, values) => ({ op: 'in', key, values: [...values] }),

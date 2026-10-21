@@ -27,9 +27,8 @@ export default function FilePreview({ meta, onClose }) {
       try {
         const dataUrl = meta.dataUrl || await loadFileData(meta.fileId);
         if (!dataUrl) {
-          const api = getDataSource().mode === 'api';
-          throw new Error(api
-            ? 'This file is not on the back end. If it was uploaded while the Data source was set to Browser, switch the Data source back to Browser to see it, or copy the browser data to the back end first.'
+          throw new Error(getDataSource().mode === 'v2'
+            ? 'This file is not on the back end. If it was uploaded while the Data source was set to Browser, switch the Data source back to Browser to see it.'
             : 'This file is not in this browser. If it was uploaded while the Data source was set to Back end, switch the Data source to Back end to see it. (Browser storage is cleared when the tab is closed.)');
         }
         if (kind === 'image') return on && setState({ kind, src: dataUrl });

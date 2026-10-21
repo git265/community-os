@@ -1,13 +1,14 @@
 # CommunityOS back end
 
-Start here: **docs/BACKEND.md** (design, REST contract, how to run), **docs/INTEGRATIONS.md** (every outside system and how to switch vendor),
-**docs/MYGATE_MIGRATION.md** (moving from MyGate).
+One service: **`api/`** — Spring Boot 3.5 on Java 25, PostgreSQL 18, typed `/api/v1` endpoints, one table per object. The web app's
+"Back end" data source talks only to it. Design, API and how to run: **docs/REDESIGN.md**.
 
 ```
-db/                 V1__documents.sql  (the one schema)
-spring/             the Spring Boot service (Java 21, Maven)   mvn spring-boot:run -Dspring-boot.run.profiles=memory
-contract-server/    Node stand-in on the same schema/contract  node server.mjs   (development only)
-docker-compose.yml  postgres + service (+ MinIO, Mailpit)      docker compose up -d --build
-.env.example        every setting
+api/                the service (Maven)                       cd api && mvn verify
+api/src/main/resources/db/migration   the schema (Flyway)     api/tools/migrate-local.sh <db>, api/tools/test-schema.sh
+docker-compose.yml  postgres + api + seed + demo + web        docker compose up -d --build     (http://localhost:8081)
+.env.example        the settings docker compose passes
 ```
-The Spring project has not been compiled in the environment that wrote it (no Maven Central access); see docs/BACKEND.md §7.
+
+The earlier servers (`contract-server/`, the Node reference; `spring/`, its Spring port; `platform/` and `db/`, their schemas) were retired
+after r76: everything they did is in `api/`. They are in git history (tag `baseline-r76`) if anything needs looking up.

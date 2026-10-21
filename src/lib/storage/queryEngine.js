@@ -1,6 +1,6 @@
 // Shared query semantics used by every adapter. SessionStorageAdapter runs it
 // in the browser; the Spring Boot backend implements the SAME parameters in
-// SQL/JPA (see ApiStorageAdapter.query for the wire format), so every table in
+// SQL where it can (see V2ApiAdapter serverPage), so every table in
 // the app is "server-side" by contract: it only ever asks for one page.
 //
 // params = {

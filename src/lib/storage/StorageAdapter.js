@@ -14,9 +14,8 @@
 //     updated_at TIMESTAMPTZ DEFAULT now()
 //   );
 //
-// so ApiStorageAdapter (see ApiStorageAdapter.js) can implement the exact
-// same methods against a Spring Boot REST controller with zero changes to
-// any component or module.
+// so V2ApiAdapter (storage/v2) implements the exact same methods against the
+// Spring Boot API (backend/api) with zero changes to any component or module.
 
 /**
  * @typedef {Object} StorageAdapter

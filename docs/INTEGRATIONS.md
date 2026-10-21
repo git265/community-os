@@ -17,7 +17,7 @@ the vendor is chosen by a setting. Switching vendor = change the setting (and, f
 | 10 | Virus scan of uploads | `scanRemote()` in `lib/files/fileValidation.js` | (your scanner) | `VITE_SCAN_URL` | local checks only unless set |
 | 11 | MyGate | file import only (no connection) | – | – | see MYGATE_MIGRATION.md |
 
-All server settings live in `backend/spring/src/main/resources/application.yml` as `${ENV_VAR:default}`; `backend/.env.example` lists every variable.
+All server settings live in `backend/api/src/main/resources/application.yml` as `${COS_*:default}` (dev overrides in `application-dev.yml`); `backend/.env.example` lists what docker compose passes. The server-side columns of the table above describe the retired r76 servers; `docs/REDESIGN.md` section 11 has the current list.
 **Secrets (keys, passwords) go in environment variables or your secret manager, never in the browser, never in git.** The browser holds no provider key.
 
 ---------------------------------------------------------------------------------------------------------------------------------
