@@ -43,7 +43,7 @@ public final class PsqlJdbc extends NamedParameterJdbcTemplate implements Tx, Au
     public int statements;
 
     public PsqlJdbc(String db, String role, boolean tenant) throws Exception {
-        super(null);
+        super(new org.springframework.jdbc.core.JdbcTemplate());   // never used: every call goes to psql below (super(null) is ambiguous and fails the null check)
         this.tenant = tenant;
         psql = new ProcessBuilder("psql", "-h", "localhost", "-p", PORT, "-U", "postgres", "-d", db, "-X", "-q", "-v", "VERBOSITY=verbose").start();
         in = new OutputStreamWriter(psql.getOutputStream(), StandardCharsets.UTF_8);

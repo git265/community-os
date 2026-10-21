@@ -26,7 +26,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
 /** The service directory and its reviews. Who added a contact (and from which unit), ratings and counts are the server's. */
-@RestController
+@RestController("vendorDirectoryController")   // identity.web.DirectoryController already takes the default bean name
 @Tag(name = "Vendors")
 public class DirectoryController {
     public record ContactRequest(@NotNull @Size(max = 120) String name, @Size(max = 80) String category, @Size(max = 30) String phone, @Size(max = 120) String area,

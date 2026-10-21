@@ -9,6 +9,10 @@
 #   docker compose logs -f api | grep "sign-in code"
 # Payments use the simulated provider. For anything real, set the COS_* secrets and SPRING_PROFILES_ACTIVE=prod
 # (see docs/REDESIGN.md section 11).
+# Its own project name (and so its own pgdata volume): every copy of this repo has a backend/ folder, and the default name "backend" would
+# share a volume with the v1 stack, whose database the v2 API cannot start on.
+name: communityos-v2
+
 x-db: &db
   POSTGRES_DB: communityos
   POSTGRES_USER: cos_owner

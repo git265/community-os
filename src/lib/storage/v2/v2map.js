@@ -1,6 +1,8 @@
 // Record shapes: the app's collections (properties, users, dues, roles) <-> the typed /api/v1 resources (units, members, dues, roles).
 // Pure functions, no I/O - the adapter (V2ApiAdapter.js) does the calls. Money travels as decimal strings on the wire ("3540.00") and is a
 // number in the app, as before. Only fields the server lets a caller change are ever sent; everything else is the server's.
+import { DEFAULT_GROUPS, groupIdForCategory, overridesFor } from '../../access/roles.js';
+
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 export const num = (s) => (s == null || s === '' ? null : Number(s));
 export const money = (n) => (n == null || n === '' ? null : Number(n).toFixed(2));
@@ -75,7 +77,13 @@ export function raiseBody(rec, unitIdByNo) {
 }
 
 // ---- roles ---------------------------------------------------------------------------------------------------------------------------------
-export const roleOf = (r) => ({ id: r.code, name: r.name, category: r.category, permissions: r.permissions, builtIn: true });
+// A role arrives with its group already set (the group of its access level, its permissions as additions / removals against it), so
+// loadRoles() never "upgrades" it with a write - roles are read-only on v2.
+export function roleOf(r) {
+  const groupId = groupIdForCategory(r.category);
+  const groupPerms = DEFAULT_GROUPS.find((g) => g.id === groupId)?.permissions || [];
+  return { id: r.code, name: r.name, category: r.category, permissions: r.permissions, builtIn: true, groupId, ...overridesFor(groupPerms, r.permissions || []) };
+}
 
 // ---- the signed-in person (GET /v1/me) as the app's user -----------------------------------------------------------------------------------
 export function meUser(me, unitNoById = {}) {
