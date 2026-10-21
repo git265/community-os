@@ -11,6 +11,8 @@ import java.util.regex.Pattern;
  */
 public final class Truncation {
     public static final String HEADER = "X-List-Truncated";
+    /** Caps below this are single-row look-ups (LIMIT 1) or fixed "top n" lists (LIMIT 4), not lists that can be cut. */
+    static final int MIN_CAP = 100;
     private static final Pattern CAP = Pattern.compile("(?is)\\bLIMIT\\s+(\\d+)\\s*$");
     private static final ThreadLocal<int[]> SEEN = new ThreadLocal<>();   // [0] = the cap reached (0 = none)
     private Truncation() {}
@@ -22,7 +24,7 @@ public final class Truncation {
         int[] seen = SEEN.get();
         if (seen == null || rows == 0) return;
         Matcher m = CAP.matcher(sql);
-        if (m.find()) { int cap = Integer.parseInt(m.group(1)); if (rows >= cap) seen[0] = Math.max(seen[0], cap); }
+        if (m.find()) { int cap = Integer.parseInt(m.group(1)); if (cap >= MIN_CAP && rows >= cap) seen[0] = Math.max(seen[0], cap); }
     }
     /** The cap this request reached, or 0. */
     public static int reached() { int[] seen = SEEN.get(); return seen == null ? 0 : seen[0]; }

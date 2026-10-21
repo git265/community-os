@@ -259,7 +259,8 @@ async function latest(path, max) {
   for (let offset = 0; offset < max; offset += 200) {
     const p = await call(`${path}${sep}limit=${Math.min(200, max - offset)}&offset=${offset}`);
     out.push(...p.items);
-    if (out.length >= p.total || !p.items.length) break;
+    if (out.length >= p.total || !p.items.length) return out;
+    if (out.length >= max && typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('communityos:truncated', { detail: { path, cap: max } }));   // older rows exist
   }
   return out;
 }

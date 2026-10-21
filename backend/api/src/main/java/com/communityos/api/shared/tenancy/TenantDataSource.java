@@ -39,7 +39,7 @@ public final class TenantDataSource implements DataSource {
         Bound b = BOUND.get(); BOUND.remove();
         if (b == null || b.real == null) return;
         try {
-            if (!b.real.getAutoCommit()) b.real.rollback();                  // never leave a transaction open on a pooled connection
+            if (!b.real.getAutoCommit()) { b.real.rollback(); b.real.setAutoCommit(true); }   // never leave a transaction open; the clear below then commits
             try (PreparedStatement ps = b.real.prepareStatement(CLEAR)) { ps.execute(); }
         } catch (SQLException ignored) { /* the pool validates and discards broken connections */ }
         finally { try { b.real.close(); } catch (SQLException ignored) { /* already gone */ } }

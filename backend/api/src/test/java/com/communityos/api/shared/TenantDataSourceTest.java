@@ -20,7 +20,7 @@ import org.junit.jupiter.api.Test;
 class TenantDataSourceTest {
     /** A pool of fake connections that records what reaches the database. */
     static final class FakePool implements DataSource {
-        final List<String> log = new ArrayList<>(); int taken, returned;
+        final List<String> log = new ArrayList<>(); int taken, returned; boolean autoCommitRestored;
         public Connection getConnection() {
             int n = ++taken; boolean[] auto = {true};
             return (Connection) Proxy.newProxyInstance(Connection.class.getClassLoader(), new Class<?>[]{Connection.class}, (p, m, a) -> switch (m.getName()) {
@@ -34,7 +34,7 @@ class TenantDataSourceTest {
                 }
                 case "close" -> { returned++; yield null; }
                 case "getAutoCommit" -> auto[0];
-                case "setAutoCommit" -> { auto[0] = (Boolean) a[0]; yield null; }
+                case "setAutoCommit" -> { auto[0] = (Boolean) a[0]; if (auto[0]) autoCommitRestored = true; yield null; }
                 case "rollback" -> { log.add("#" + n + " ROLLBACK"); yield null; }
                 case "isClosed" -> false;
                 default -> null;
@@ -81,6 +81,18 @@ class TenantDataSourceTest {
         assertEquals(2, pool.taken, "unbound again: a connection per statement");
     }
 
+    @Test void aFailedZoneLookupIsNotKept() {
+        int[] calls = {0};
+        var clock = new com.communityos.api.shared.time.CommunityClock(java.time.Clock.fixed(java.time.Instant.EPOCH, java.time.ZoneId.of("Asia/Kolkata")), (id) -> {
+            if (++calls[0] == 1) throw new IllegalStateException("pool busy");
+            return java.util.Optional.of("America/New_York");
+        });
+        java.util.UUID c = java.util.UUID.randomUUID();
+        assertEquals(java.time.ZoneId.of("Asia/Kolkata"), clock.zoneFor(c), "the default while the look-up fails");
+        assertEquals(java.time.ZoneId.of("America/New_York"), clock.zoneFor(c), "asked again next time, not 5 minutes later");
+        assertEquals(java.time.ZoneId.of("America/New_York"), clock.zoneFor(c)); assertEquals(2, calls[0], "then kept");
+    }
+
     @Test void aBoundRequestThatReadsNothingTakesNoConnection() {
         FakePool pool = new FakePool();
         new TenantDataSource(pool);
@@ -94,6 +106,7 @@ class TenantDataSourceTest {
         CallerHolder.runAs(Fixtures.treasurer(), () -> { try { ds.getConnection().setAutoCommit(false); } catch (Exception e) { throw new IllegalStateException(e); } return null; });
         TenantDataSource.release();
         assertTrue(pool.log.contains("#1 ROLLBACK"), pool.log.toString());
+        assertTrue(pool.autoCommitRestored, "the clear is committed, not rolled back by the pool");
         assertEquals("#1 CLEAR", pool.log.get(pool.log.size() - 1));
     }
 }

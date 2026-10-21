@@ -2,6 +2,7 @@ import { SessionStorageAdapter } from './SessionStorageAdapter.js';
 import { V2ApiAdapter } from './v2/V2ApiAdapter.js';
 import { getDataSource } from './dataSource.js';
 import { getCommunity } from '../community.js';
+import { getAuthUser } from '../auth/session.js';
 import { COLLECTIONS } from './StorageAdapter.js';
 export { COLLECTIONS };
 export { getDataSource, setDataSource, isApiMode, pingBackend } from './dataSource.js';
@@ -30,14 +31,15 @@ const KEPT = new Set([COLLECTIONS.PROPERTIES, COLLECTIONS.USERS, COLLECTIONS.ROL
 const kept = new Map(); // key -> { at, value }
 const slugNow = () => { try { return getCommunity(); } catch { return ''; } };
 let generation = 0;   // a read that started before a write must not keep its (older) answer
-const forgetKept = () => { generation += 1; kept.clear(); };
-const dropReads = (slug, collection) => { const p = `${slug}|${collection}|`; for (const k of inflight.keys()) if (k.startsWith(p)) inflight.delete(k); };
+export const forgetKept = () => { generation += 1; kept.clear(); };
+const whoNow = () => { const u = getAuthUser(); return u ? String(u.membershipId || u.id || u.personId || u.name || '') : ''; };
+const dropReads = (slug, collection) => { const p = `${slug}|`; const c = `|${collection}|`; for (const k of inflight.keys()) if (k.startsWith(p) && k.includes(c)) inflight.delete(k); };
 export const storage = Object.fromEntries(METHODS.map((m) => [m, (...args) => {
   const a = activeAdapter();
   if (a !== V2ApiAdapter) return a[m](...args);
   const slug = slugNow(); const collection = typeof args[0] === 'string' ? args[0] : '';
   if (READS.has(m)) {
-    const key = `${slug}|${collection}|${m}|${JSON.stringify(args.slice(1))}`;
+    const key = `${slug}|${whoNow()}|${collection}|${m}|${JSON.stringify(args.slice(1))}`;
     const keep = a === V2ApiAdapter && KEPT.has(collection);
     const k = keep && kept.get(key);
     if (k && Date.now() - k.at < KEEP_MS) return Promise.resolve(k.value && typeof k.value === 'object' ? structuredClone(k.value) : k.value);
@@ -63,5 +65,6 @@ if (typeof window !== 'undefined') {
     if (c) dropReads(slugNow(), c); else inflight.clear();
     forgetKept();
   });
-  window.addEventListener('communityos:notify', forgetKept);   // the server pushed news: someone else changed something
+  window.addEventListener('communityos:notify', forgetKept);
+  window.addEventListener('communityos:auth', forgetKept);    // signed in or out: nothing kept for the last person survives   // the server pushed news: someone else changed something
 }

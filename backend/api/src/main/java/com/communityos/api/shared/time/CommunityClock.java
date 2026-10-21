@@ -42,9 +42,11 @@ public final class CommunityClock extends Clock {
         Instant now = Instant.now();
         Cached hit = cache.get(community);
         if (hit != null && hit.until().isAfter(now)) return hit.zone();
-        ZoneId z = base.getZone();
-        try { z = zoneOf.apply(community).map(ZoneId::of).orElse(base.getZone()); }
-        catch (RuntimeException e) { /* an unknown zone name, or the lookup failed: the default */ }
+        Optional<String> name;
+        try { name = zoneOf.apply(community); }
+        catch (RuntimeException e) { return hit != null ? hit.zone() : base.getZone(); }   // the look-up failed: the last known zone, not kept as new
+        ZoneId z;
+        try { z = name.map(ZoneId::of).orElse(base.getZone()); } catch (RuntimeException e) { z = base.getZone(); }   // an unknown name: the default
         cache.put(community, new Cached(z, now.plus(KEEP)));
         return z;
     }

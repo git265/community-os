@@ -10,6 +10,7 @@ async function call(path, body, headers = {}) {
   const res = await apiFetch(`/v1${path}`, body === undefined ? {} : { method: 'POST', body: JSON.stringify(body), headers });
   let out = null; try { out = res.status === 204 ? null : await res.json(); } catch { /* no body */ }
   if (!res.ok) { const e = new Error(out?.detail || `Gate: ${res.status}`); e.status = res.status; e.code = out?.code; throw e; }
+  if (body !== undefined) (await import('../storage/index.js')).forgetKept();   // a desk command can change the people and vehicle lists
   return out;
 }
 const ifMatch = (v) => ({ 'If-Match': `"${v}"` });
