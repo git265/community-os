@@ -20,7 +20,8 @@ const state = {
     { id: B, shortId: 'UNIT-2', unitNo: 'Villa 202', blockId: null, blockName: 'Block 2', unitType: 'Villa', occupancy: 'Vacant', areaSqft: null, maintenancePlan: null, sanctionedKw: null, status: 'Active', custom: {}, updatedAt: '2026-10-20T06:00:00Z', version: 1 },
   ],
   dues: [], members: [{ id: M1, displayName: 'Asha', phone: '+919800000001', status: 'Active', roles: [{ code: 'owner', name: 'Owner', primary: true }], units: [A], createdAt: null, updatedAt: null, version: 2 }],
-  orders: [], tickets: [], comments: [], quotes: [], bookings: [], kit: {
+  orders: [], tickets: [], comments: [], quotes: [], bookings: [],
+  passes: [], approvals: [{ id: '00000000-0000-4000-8000-0000000aa001', shortId: 'GAP-1', name: 'Ravi Uncle', unit: A, unitNo: 'Villa 101', status: 'Pending', kind: 'Guest', version: 1 }], kit: {
     'amenities/types': [{ id: HALL, shortId: 'AMN-1', name: 'Party Hall', rate: '5000.00', capacity: 1, bookingMode: 'Full day', version: 1 }],
     'amenities/items': [],
     'maintenance/task-types': [{ id: 'tt-res', shortId: 'TT-1', name: 'Resident Maintenance', icon: '🔧', creatorScope: 'Resident', assignmentMode: 'Role queue (staff accepts)', residentVisible: true, residentDefault: true, active: true, version: 1 },
@@ -97,6 +98,20 @@ globalThis.fetch = async (url, init = {}) => {
   }
   if ((m = /^\/payment-orders\/([^/]+)$/.exec(path))) return ok(state.orders.find((x) => x.id === m[1]));
   if (path === '/task-types') return ok(TT);
+  if (path === '/gate/passes' && method === 'GET') return ok(state.passes);
+  if (path === '/gate/passes' && method === 'POST') {
+    const extra = Object.keys(body).filter((k) => !['visitorName', 'phone', 'unitId', 'type', 'validFrom', 'validTo', 'fromTime', 'toTime', 'days', 'vehicle', 'guestCap', 'goodsKind', 'peopleCount', 'material', 'carryingOut', 'outItems', 'photo'].includes(k));
+    if (extra.length) return problem(400, 'bad-request', `unknown properties ${extra}`);
+    const p = { id: uuid(), shortId: `GPS-${++seq}`, ...body, unit: body.unitId, unitNo: 'Villa 101', code: '482913', status: 'Active', usedCount: 0, version: 1 }; state.passes.push(p); return ok(p, 201);
+  }
+  if ((m = /^\/gate\/passes\/([^/]+)\/(cancel|admit)$/.exec(path))) {
+    const p = state.passes.find((x) => x.id === m[1]);
+    if (m[2] === 'cancel') { if (h['If-Match'] !== `"${p.version}"`) return problem(409, 'conflict', 'changed'); p.status = 'Cancelled'; p.version++; return ok(p); }
+    if (p.status !== 'Active') return problem(422, 'pass', 'This pass was cancelled');
+    return ok({ ok: true, outcome: 'admitted', visit: { id: uuid(), shortId: 'GVS-1', name: p.visitorName, kind: 'Guest', unit: p.unit, unitNo: 'Villa 101', state: 'Inside', inAt: '2026-10-20T10:00:00Z', version: 1 } });
+  }
+  if (path === '/gate/approvals' && method === 'GET') return ok(state.approvals);
+  if ((m = /^\/gate\/approvals\/([^/]+)\/answer$/.exec(path))) { const a = state.approvals.find((x) => x.id === m[1]); a.status = body.decision; a.alwaysAllow = body.always; return ok(a); }
   if (path === '/amenities/availability') return ok([{ amenityTypeId: HALL, date: '2026-11-01', slot: 'Full day', bookings: 2, items: { [CHAIRS]: 30 } }]);
   if (path === '/amenities/bookings' && method === 'GET') return ok(state.bookings);
   if (path === '/amenities/bookings' && method === 'POST') {
@@ -240,8 +255,8 @@ test('members: new member is a POST, a role change a PUT with If-Match', async (
 });
 
 test('not yet on v2: reads are empty, writes refused loudly', async () => {
-  assert.deepEqual(await storage.list('gatePasses'), []);
-  await assert.rejects(storage.put('gatePasses', { id: 'p1' }), /not on the v2 back end yet/);
+  assert.deepEqual(await storage.list('ballots'), []);
+  await assert.rejects(storage.put('ballots', { id: 'p1' }), /not on the v2 back end yet/);
 });
 
 test('paying: the server prices, the simulator pays, confirm settles', async () => {
@@ -346,4 +361,21 @@ test('bookings: a resident pays first (a prepayment), books with it; others\' bo
   const item = await storage.put('amenityItems', { name: 'Chairs', amenity: 'Party Hall', stock: 100, price: 15, active: true });
   assert.equal(last('POST', /^\/amenities\/items$/).body.amenityTypeId, HALL, 'the amenity by name becomes its id');
   assert.equal(item.name, 'Chairs');
+});
+
+test('gate: a pass is POSTed (the code is the server\'s) and cancelled; a resident answers an approval; the desk is the server\'s', async () => {
+  const p = await storage.put('gatePasses', { visitorName: 'Meera', unit: 'Villa 101', type: 'One-time', code: '000000', status: 'Active', usedCount: 5, days: [] });
+  const post = last('POST', /^\/gate\/passes$/).body;
+  assert.equal(post.unitId, A); assert.equal('code' in post, false); assert.equal('usedCount' in post, false);
+  assert.equal(p.code, '482913'); assert.equal(p.unit, 'Villa 101');
+  const c = await storage.put('gatePasses', { ...p, status: 'Cancelled' });
+  assert.equal(last('POST', /\/cancel$/).headers['If-Match'], '"1"'); assert.equal(c.status, 'Cancelled');
+  const [ap] = await storage.list('gateApprovals');
+  const answered = await storage.put('gateApprovals', { ...ap, status: 'Approved', alwaysAllow: true });
+  assert.deepEqual(last('POST', /\/answer$/).body, { decision: 'Approved', always: true }); assert.equal(answered.status, 'Approved');
+  await assert.rejects(storage.put('gateVisits', { id: 'v1', state: 'Inside' }), /gate desk/);
+  assert.deepEqual(await storage.list('gateFlags'), [], 'residents see no flags');
+  const engine = await import('../../src/lib/gate/engine.js');
+  const r = await engine.admitPass(c);
+  assert.equal(r.ok, false); assert.equal(r.reason, 'This pass was cancelled', 'a refusal comes back as the reason, not an exception');
 });

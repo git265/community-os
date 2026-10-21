@@ -25,6 +25,7 @@ public class ResourcesConfig {
         out.addAll(MaintenanceResources.all());
         out.addAll(FinanceResources.all());
         out.addAll(com.communityos.api.amenity.AmenityResources.all());
+        out.addAll(com.communityos.api.gate.GateResources.all());
         return out;
     }
 

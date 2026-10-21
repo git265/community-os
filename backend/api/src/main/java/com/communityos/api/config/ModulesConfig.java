@@ -83,6 +83,12 @@ public class ModulesConfig {
             new com.communityos.api.amenity.adapter.JdbcAmenityCatalog(jdbc, json), desk, new com.communityos.api.amenity.application.AmenityLedger(desk, zone), events, audit, tx, clock, zone);
     }
 
+    // ---- gate -------------------------------------------------------------------------------------------------------------------------------
+    @Bean com.communityos.api.gate.application.GateService gateService(NamedParameterJdbcTemplate jdbc, ObjectMapper json, DomainEvents events, AuditWriter audit, Tx tx, Clock clock, CosProperties p) {
+        return new com.communityos.api.gate.application.GateService(new com.communityos.api.gate.adapter.JdbcGateStore(jdbc), new com.communityos.api.gate.adapter.JdbcGateDirectory(jdbc, json),
+            events, audit, tx, clock, ZoneId.of(p.web().timeZone()));
+    }
+
     // ---- billing ------------------------------------------------------------------------------------------------------------------------------
     @Bean JdbcDueRepository dueRepository(NamedParameterJdbcTemplate jdbc) { return new JdbcDueRepository(jdbc); }
     @Bean JdbcBillingLookups billingLookups(NamedParameterJdbcTemplate jdbc) { return new JdbcBillingLookups(jdbc); }

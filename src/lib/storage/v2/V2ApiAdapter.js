@@ -18,10 +18,12 @@ import { apiFetch } from '../../net/request.js';
 import { AuthzError, ConflictError } from '../../security/errors.js';
 import { SessionStorageAdapter } from '../SessionStorageAdapter.js';
 import { propertyOf, unitPatch, userOf, dueOf, raiseBody, roleOf, ticketOf, ticketPatch, raiseTicketBody, commentOf, fieldStaffOf, quotationOf, addDocumentBody,
-  quotationCommands, RESOURCES, resourceOf, resourceBody, isUuid, bookingOf, busyOf, bookBody, bookingCommand } from './v2map.js';
+  quotationCommands, RESOURCES, resourceOf, resourceBody, isUuid, bookingOf, busyOf, bookBody, bookingCommand, gatePassOf, gateVisitOf, gateApprovalOf, gateFlagOf, gateScanOf,
+  passBody } from './v2map.js';
 import { getAuthUser } from '../../auth/session.js';
 
-export const V2_COLLECTIONS = ['properties', 'users', 'dues', 'roles', 'tickets', 'ticketComments', 'handymen', 'quotations', 'amenities', ...Object.keys(RESOURCES)];
+const GATE_DESK = ['gatePasses', 'gateVisits', 'gateApprovals', 'gateFlags', 'gateScans', 'gatePulse'];
+export const V2_COLLECTIONS = ['properties', 'users', 'dues', 'roles', 'tickets', 'ticketComments', 'handymen', 'quotations', 'amenities', ...GATE_DESK, ...Object.keys(RESOURCES)];
 export const LOCAL_COLLECTIONS = ['schema', 'communityConfig', 'roleGroups'];
 
 export class NotOnV2Error extends Error { constructor(collection) { super(`"${collection}" is not on the v2 back end yet - this screen works with the Browser session or the v1 back end.`); this.name = 'NotOnV2Error'; } }
@@ -89,6 +91,16 @@ readers.amenities = {
   },
   get: async (id) => { if (!isUuid(id)) return null; const b = await call(`/amenities/bookings/${id}`); return b && bookingOf(b); },
 };
+// the gate: passes (a unit's own), visits, approvals; flags and patrols for the security team and the committee
+const oversees = () => { const u = getAuthUser(); return u && u.category !== 'Resident'; };
+const byId = (list) => async (id) => (await list()).find((x) => x.id === id) || null;
+readers.gatePasses = { list: async () => (await call('/gate/passes')).map(gatePassOf) }; readers.gatePasses.get = byId(readers.gatePasses.list);
+readers.gateVisits = { list: async () => (await call('/gate/visits')).map(gateVisitOf) }; readers.gateVisits.get = byId(readers.gateVisits.list);
+readers.gateApprovals = { list: async () => (await call('/gate/approvals')).map(gateApprovalOf) }; readers.gateApprovals.get = byId(readers.gateApprovals.list);
+readers.gateFlags = { list: async () => { if (!oversees()) return []; const { noById } = await unitIndex(); return (await call('/gate/flags')).map((f) => gateFlagOf(f, noById)); } };
+readers.gateFlags.get = byId(readers.gateFlags.list);
+readers.gateScans = { list: async () => (oversees() ? (await call('/gate/scans')).map(gateScanOf) : []) }; readers.gateScans.get = byId(readers.gateScans.list);
+readers.gatePulse = { list: async () => [], get: async () => null };   // the server keeps the console heartbeats
 // every register of the resource kit reads the same way
 for (const [c, spec] of Object.entries(RESOURCES)) {
   readers[c] = {
@@ -244,7 +256,7 @@ async function putResource(c, rec) {
   const fields = await resourceFields(c);
   let before = isUuid(rec.id) ? await call(`/${spec.path}/${rec.id}`) : null;
   if (!before && spec.singleton) before = (await call(`/${spec.path}`))[0] || null;
-  const { idByNo } = spec.unit ? await unitIndex() : { idByNo: {} };
+  const { idByNo } = spec.unit || spec.units ? await unitIndex() : { idByNo: {} };
   const refIds = {};
   for (const [appKey, r] of Object.entries(spec.refs || {})) refIds[appKey] = Object.fromEntries((await call(`/${RESOURCES[r.collection].path}`)).map((x) => [x[r.key], x.id]));
   const merged = before ? { ...resourceOf(before, spec), ...rec } : rec;          // a write is the whole record: keep what the app did not send
@@ -261,6 +273,31 @@ async function removeResource(c, id) {
   await call(`/${spec.path}/${id}`, { method: 'DELETE', headers: ifMatch(before.version) });
 }
 
+async function putPass(rec) {
+  const before = isUuid(rec.id) ? await readers.gatePasses.get(rec.id) : null;
+  if (!before) { const { idByNo } = await unitIndex(); return gatePassOf(await call('/gate/passes', json('POST', passBody(rec, idByNo)))); }
+  if (rec.status === 'Cancelled' && before.status !== 'Cancelled') return gatePassOf(await call(`/gate/passes/${rec.id}/cancel`, json('POST', {}, ifMatch(before.version))));
+  return before;   // a pass is used at the gate and cancelled by its unit; it is not edited
+}
+async function putApproval(rec) {
+  const before = isUuid(rec.id) ? await readers.gateApprovals.get(rec.id) : null;
+  if (!before) throw new Error('Only the gate asks for an approval.');
+  if ((rec.status === 'Approved' || rec.status === 'Denied') && rec.status !== before.status) {
+    return gateApprovalOf(await call(`/gate/approvals/${rec.id}/answer`, json('POST', { decision: rec.status, always: !!rec.alwaysAllow })));
+  }
+  return before;
+}
+async function putFlag(rec) {
+  const before = isUuid(rec.id) ? await readers.gateFlags.get(rec.id) : null;
+  if (!before) throw new Error('Flags are raised by the gate itself.');
+  if (rec.state === 'Closed' && before.state !== 'Closed') {
+    const { noById } = await unitIndex();
+    return gateFlagOf(await call(`/gate/flags/${rec.id}/resolve`, json('POST', { resolution: rec.resolution, note: rec.resolutionNote || null }, ifMatch(before.version))), noById);
+  }
+  return before;
+}
+const deskOnly = () => { throw new Error('Visits and patrol scans are recorded by the gate desk (the gate screens), not edited.'); };
+
 async function putBooking(rec) {
   const before = isUuid(rec.id) ? await readers.amenities.get(rec.id) : null;
   if (!before) {
@@ -275,7 +312,7 @@ async function putBooking(rec) {
   return bookingOf(await call(`/amenities/bookings/${encodeURIComponent(rec.id)}/${cmd.path}`, json('POST', cmd.body, ifMatch(before.version))));
 }
 
-const WRITERS = { amenities: putBooking, properties: putProperty, users: putUser, dues: putDue, tickets: putTicket, ticketComments: putComment, handymen: putFieldStaff, quotations: putQuotation };
+const WRITERS = { gatePasses: putPass, gateApprovals: putApproval, gateFlags: putFlag, gateVisits: deskOnly, gateScans: deskOnly, gatePulse: async (r) => r, amenities: putBooking, properties: putProperty, users: putUser, dues: putDue, tickets: putTicket, ticketComments: putComment, handymen: putFieldStaff, quotations: putQuotation };
 for (const c of Object.keys(RESOURCES)) WRITERS[c] = (rec) => putResource(c, rec);
 const warned = new Set();
 const notYet = (c) => { if (!warned.has(c)) { warned.add(c); console.info(`[v2] "${c}" is not on the v2 back end yet; showing it empty.`); } };

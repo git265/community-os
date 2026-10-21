@@ -19,9 +19,26 @@ import org.springframework.stereotype.Component;
 public class Jobs {
     private static final Logger log = LoggerFactory.getLogger(Jobs.class);
     private final OutboxRelay outbox; private final WebhookDeliveryWorker webhooks; private final PaymentService payments; private final NamedParameterJdbcTemplate platformJdbc;
+    private final com.communityos.api.gate.application.GateService gate;
 
-    public Jobs(OutboxRelay outbox, WebhookDeliveryWorker webhooks, PaymentService payments, @Qualifier("platform") NamedParameterJdbcTemplate platformJdbc) {
-        this.outbox = outbox; this.webhooks = webhooks; this.payments = payments; this.platformJdbc = platformJdbc;
+    public Jobs(OutboxRelay outbox, WebhookDeliveryWorker webhooks, PaymentService payments, @Qualifier("platform") NamedParameterJdbcTemplate platformJdbc,
+                com.communityos.api.gate.application.GateService gate) {
+        this.outbox = outbox; this.webhooks = webhooks; this.payments = payments; this.platformJdbc = platformJdbc; this.gate = gate;
+    }
+
+    /** Communities with gate work due: an approval past its wait, or a visit past its expected time. */
+    static final String GATE_DUE = """
+        SELECT community_id FROM gate.approval WHERE status = 'Pending' AND expires_at < now()
+        UNION SELECT community_id FROM gate.visit WHERE state = 'Inside' AND expected_until < now() - interval '5 minutes'""";
+    @Scheduled(fixedDelayString = "${cos.jobs.gate-delay:30000}", initialDelay = 30000)
+    public void gateSweep() {
+        run("gate", () -> {
+            for (java.util.UUID c : platformJdbc.query(GATE_DUE, Map.of(), (rs, i) -> rs.getObject("community_id", java.util.UUID.class))) {
+                var system = com.communityos.api.shared.security.SystemCaller.of(new com.communityos.api.shared.domain.Ids.CommunityId(c), "gate sweep");
+                try { com.communityos.api.shared.tenancy.CallerHolder.runAs(system, () -> gate.sweep(system)); }
+                catch (RuntimeException e) { log.warn("gate sweep of {} failed: {}", c, e.toString()); }
+            }
+        });
     }
 
     @Scheduled(fixedDelayString = "${cos.jobs.outbox-delay:2000}")

@@ -209,15 +209,26 @@ export const RESOURCES = {
   amenityTypes: { path: 'amenities/types' },
   amenityItems: { path: 'amenities/items', refs: { amenity: { field: 'amenityTypeId', collection: 'amenityTypes', key: 'name' } } },
   amenitySettings: { path: 'amenities/settings', singleton: true },
+  gatePeople: { path: 'gate/people', units: { invitedByUnit: 'invitedByUnitId' } },
+  gateLinks: { path: 'gate/household-links', unit: true },
+  gateVillaRules: { path: 'gate/unit-rules', unit: true },
+  gatePassTemplates: { path: 'gate/pass-templates', unit: true },
+  gateVehicles: { path: 'gate/vehicles', unit: true },
+  gateWorkOrders: { path: 'gate/work-orders' },
+  gateCheckpoints: { path: 'gate/checkpoints' },
+  gateRounds: { path: 'gate/rounds' },
+  incidents: { path: 'gate/incidents' },
+  gateSettings: { path: 'gate/settings', singleton: true, json: ['durations', 'events'] },
   financeSettings: { path: 'finance/settings', rename: { finalCanDecideEC: 'finalCanDecideEc' }, singleton: true },
 };
 const invert = (o = {}) => Object.fromEntries(Object.entries(o).map(([k, v]) => [v, k]));
 /** A row of the API as the app's record: renamed fields back, nulls as '' (the app's forms expect text), the unit number for a unit id. */
+const unitFields = (spec) => ({ ...(spec.unit ? { unit: 'unitId' } : {}), ...(spec.units || {}) });
 export function resourceOf(row, spec = {}) {
   const back = invert(spec.rename);
   const out = {};
   for (const [k, v] of Object.entries(row)) out[back[k] || k] = v === null ? '' : v;
-  if (spec.unit) { out.unitId = row.unitId || ''; out.unit = row.unit || ''; }
+  for (const [appKey, apiField] of Object.entries(unitFields(spec))) { out[apiField] = row[apiField] || ''; out[appKey] = row[appKey] || ''; }
   return out;
 }
 /** The body of a write: exactly `fields` (the resource's request type), from the app's record; '' becomes null, absent stays absent. */
@@ -225,6 +236,7 @@ export function resourceBody(rec, spec, fields, unitIdByNo = {}, refIds = {}) {
   const ren = spec.rename || {};
   const appKey = invert(ren);
   const refByField = Object.fromEntries(Object.entries(spec.refs || {}).map(([k, r]) => [r.field, { ...r, appKey: k }]));
+  const unitByField = invert(unitFields(spec));
   const body = {};
   for (const f of fields) {
     let v;
@@ -232,10 +244,12 @@ export function resourceBody(rec, spec, fields, unitIdByNo = {}, refIds = {}) {
       const r = refByField[f]; const shown = rec[r.appKey];
       v = rec[f] || (shown ? (refIds[r.appKey] || {})[shown] : null) || null;
       if (shown && !v) throw new Error(`"${shown}" is not known to the back end.`);
-    } else if (spec.unit && f === 'unitId') {
-      v = rec.unitId || (rec.unit ? unitIdByNo[rec.unit] : null) || null;
-      if (rec.unit && !v) throw new Error(`Unit ${rec.unit} is not known to the back end.`);
+    } else if (unitByField[f]) {
+      const no = rec[unitByField[f]];
+      v = rec[f] || (no ? unitIdByNo[no] : null) || null;
+      if (no && !v) throw new Error(`Unit ${no} is not known to the back end.`);
     } else v = rec[appKey[f] || f];
+    if ((spec.json || []).includes(f) && typeof v === 'string') { try { v = v ? JSON.parse(v) : null; } catch { throw new Error(`${f} is not valid JSON.`); } }
     if (v === undefined) continue;
     body[f] = v === '' ? null : v;
   }
@@ -304,4 +318,51 @@ export function bookingCommand(rec) {
     case 'adjust_fee': return { path: 'fee', body: { fee: n(rec.newFee), reason: rec.adjustReason || '' } };
     default: return null;
   }
+}
+
+// ---- gate ---------------------------------------------------------------------------------------------------------------------------------------
+const hhmm = (t) => (t ? String(t).slice(0, 5) : '');
+const isoOr = (t) => t || '';
+export function gatePassOf(p) {
+  return {
+    id: p.id, shortId: p.shortId, visitorName: p.visitorName, phone: p.phone || '', unit: p.unitNo || '', unitId: p.unit || '', type: p.type, validFrom: p.validFrom || '', validTo: p.validTo || '',
+    fromTime: hhmm(p.fromTime), toTime: hhmm(p.toTime), days: p.days || [], vehicle: p.vehicle || '', guestCap: p.guestCap ?? '', goodsKind: p.goodsKind || '', peopleCount: p.peopleCount ?? '',
+    material: p.material || '', carryingOut: !!p.carryingOut, outItems: p.outItems || '', usedCount: p.usedCount || 0, code: p.code, photo: p.photo || '', hostName: p.hostName || '',
+    status: p.status, recordCreatedAt: p.createdAt, version: p.version,
+  };
+}
+export function gateVisitOf(v) {
+  return {
+    id: v.id, shortId: v.shortId, name: v.name, kind: v.kind, unit: v.unitNo || (v.unit ? '' : 'Common area'), unitId: v.unit || '', gate: v.gate || '', company: v.company || '', vehicle: v.vehicle || '',
+    phone: v.phone || '', purpose: v.purpose || '', state: v.state, method: v.method || '', inAt: isoOr(v.inAt), outAt: isoOr(v.outAt), expectedUntil: isoOr(v.expectedUntil), photo: v.photo || '',
+    personId: v.personId || '', passId: v.passId || '', workOrderId: v.workOrderId || '', approvalId: v.approvalId || '', note: v.note || '', headcountExpected: v.headcountExpected ?? '',
+    headcountIn: v.headcountIn ?? '', headcountOut: v.headcountOut ?? '', material: v.material || '', carryingOut: !!v.carryingOut, outItems: v.outItems || '', openReason: v.openReason || '',
+    outMethod: v.outMethod || '', verifiedBy: v.verifiedByName || '', version: v.version,
+  };
+}
+export function gateApprovalOf(a) {
+  return {
+    id: a.id, shortId: a.shortId, name: a.name, unit: a.unitNo || 'Common area', unitId: a.unit || '', company: a.company || '', purpose: a.purpose || '', vehicle: a.vehicle || '', gate: a.gate || '',
+    photo: a.photo || '', visitId: a.visitId || '', kind: a.kind || '', status: a.status, requestedAt: isoOr(a.requestedAt), expiresAt: isoOr(a.expiresAt), fallback: a.fallback || '',
+    answeredAt: isoOr(a.answeredAt), answeredBy: a.answeredByName || '', alwaysAllow: !!a.alwaysAllow, version: a.version,
+  };
+}
+export function gateFlagOf(f, unitNoById = {}) {
+  return {
+    id: f.id, shortId: f.shortId, type: f.type, state: f.state, gate: f.gate || '', personName: f.personName || '', unit: f.unit ? (unitNoById[f.unit] || '') : '', detail: f.detail || '',
+    raisedAt: isoOr(f.raisedAt), graceUntil: isoOr(f.graceUntil), visitId: f.visitId || '', personId: f.personId || '', photo: f.photo || '', resolution: f.resolution || '',
+    resolutionNote: f.resolutionNote || '', resolvedBy: f.resolvedByName || '', resolvedAt: isoOr(f.resolvedAt), roundId: f.roundId || '', day: f.day || '', version: f.version,
+  };
+}
+export const gateScanOf = (s, i) => ({ id: `scan-${s.at}-${i}`, checkpointId: s.checkpointId, checkpointName: s.checkpointName, guard: s.guard, at: s.at, roundId: s.roundId || '', roundName: s.roundName || '', day: s.day, note: s.note || '' });
+/** A new pass from the app's record: what the pass is; the code, status and use count are the server's. */
+export function passBody(rec, unitIdByNo) {
+  const unitId = rec.unitId || (rec.unit ? unitIdByNo[rec.unit] : null) || null;
+  if (rec.unit && !unitId) throw new Error(`Unit ${rec.unit} is not known to the back end.`);
+  const n = (x) => (x === '' || x == null ? null : Number(x));
+  return {
+    visitorName: rec.visitorName, phone: rec.phone || null, unitId, type: rec.type || 'One-time', validFrom: rec.validFrom || null, validTo: rec.validTo || null, fromTime: rec.fromTime || null,
+    toTime: rec.toTime || null, days: rec.days || [], vehicle: rec.vehicle || null, guestCap: n(rec.guestCap), goodsKind: rec.goodsKind || null, peopleCount: n(rec.peopleCount),
+    material: rec.material || null, carryingOut: !!rec.carryingOut, outItems: rec.outItems || null, photo: rec.photo || null,
+  };
 }

@@ -9,6 +9,7 @@ import { alsoRolesOf, queueExtraChannels } from '../notify.js';
 import { uuid } from '../uuid.js';
 import { avatar } from './photo.js';
 import { DAYS, DEFAULT_SETTINGS, GATE_EVENTS, VILLA_CLASSES, CREW_CLASSES } from './constants.js';
+import * as v2 from './v2gate.js';   // on the v2 back end the server's gate desk decides: these functions hand over to it
 
 const C = COLLECTIONS;
 export const iso = (d = new Date()) => d.toISOString();
@@ -93,7 +94,11 @@ async function newVisit(fields, state = 'Inside') {
   return put(C.GATE_VISITS, { kind: 'Guest', gate: 'Main gate', purpose: '', method: 'Guard manual', ...fields, state, inAt: iso(now), outAt: state === 'Inside' ? '' : iso(now), expectedUntil: state === 'Inside' ? (fields.expectedUntil ?? expectedFor(fields.kind || 'Guest', s, now)) : '', verifiedBy: me() });
 }
 
-export async function closeVisit(v, method = 'Guard') {
+export async function closeVisit(...args) {
+  if (v2.onV2()) return v2.closeVisit(...args);
+  return closeVisitLocal(...args);
+}
+async function closeVisitLocal(v, method = 'Guard') {
   const saved = await put(C.GATE_VISITS, { ...v, state: method === 'Auto' ? 'Auto-closed' : 'Exited', outAt: iso(), outMethod: method });
   if (v.kind === 'Guest') notifyGate('guest_exit', { unit: v.unit, title: `${v.name} has left`, body: `Exited ${v.gate || 'the gate'}.`, image: v.photo });
   if (v.kind === 'Maid / cook' || v.kind === 'Driver') notifyGate('staff_inout', { unit: v.unit, title: `${v.name} left`, body: `${v.kind} signed out at ${hm(new Date())}.`, image: v.photo });
@@ -102,7 +107,11 @@ export async function closeVisit(v, method = 'Guard') {
 
 // ---- approvals ------------------------------------------------------------------------------------------------------------
 /** Ask a villa (or, for an unlisted worker, the Facility Manager) to let someone in. The visit waits in "Awaiting approval". */
-export async function requestApproval(f) {
+export async function requestApproval(...args) {
+  if (v2.onV2()) return v2.requestApproval(...args);
+  return requestApprovalLocal(...args);
+}
+async function requestApprovalLocal(f) {
   const s = await getSettings(); const now = new Date();
   const unit = f.unit || 'Common area';
   const rule = unit === 'Common area' ? null : await villaRule(unit);
@@ -114,7 +123,11 @@ export async function requestApproval(f) {
   await notifyGate('approval', { unit, approvalId: approval.id, visitId: visit.id, image: photo, title: `${f.name} is at ${visit.gate}`, body: `${[f.purpose || visit.kind, f.company, f.vehicle].filter(Boolean).join(' · ')}. Approve or deny.` });
   return { visit: { ...visit, approvalId: approval.id }, approval };
 }
-export async function retryApproval(visit) {
+export async function retryApproval(...args) {
+  if (v2.onV2()) return v2.retryApproval(...args);
+  return retryApprovalLocal(...args);
+}
+async function retryApprovalLocal(visit) {
   const old = (await list(C.GATE_APPROVALS)).find((a) => a.id === visit.approvalId);
   const s = await getSettings(); const now = new Date();
   const approval = await put(C.GATE_APPROVALS, { ...(old || {}), id: undefined, shortId: undefined, status: 'Pending', requestedAt: iso(now), expiresAt: iso(new Date(now.getTime() + Number(s.waitSeconds || 60) * 1000)), answeredAt: '', answeredBy: '', visitId: visit.id, name: visit.name, unit: visit.unit, photo: visit.photo, gate: visit.gate, kind: visit.kind });
@@ -123,7 +136,11 @@ export async function retryApproval(visit) {
   return approval;
 }
 /** A resident (or the Facility Manager) answers. "Always allow" leaves a standing permission so the next visit needs no question. */
-export async function answerApproval(id, decision, { always = false } = {}) {
+export async function answerApproval(...args) {
+  if (v2.onV2()) return v2.answerApproval(...args);
+  return answerApprovalLocal(...args);
+}
+async function answerApprovalLocal(id, decision, { always = false } = {}) {
   const ap = (await list(C.GATE_APPROVALS)).find((a) => a.id === id);
   if (!ap) return null;
   if (!['Pending', 'No answer'].includes(ap.status)) return ap; // first answer wins
@@ -162,7 +179,11 @@ export async function sweepApprovals() {
   return n;
 }
 /** Open the gate for a visitor the villa approved. With a kiosk in use the kiosk does this by face (see kioskOpen); the guard opening it by hand needs a reason and is flagged. */
-export async function admitApproved(v, { manualReason = '' } = {}) {
+export async function admitApproved(...args) {
+  if (v2.onV2()) return v2.admitApproved(...args);
+  return admitApprovedLocal(...args);
+}
+async function admitApprovedLocal(v, { manualReason = '' } = {}) {
   const s = await getSettings();
   const out = await put(C.GATE_VISITS, { ...v, state: 'Inside', inAt: iso(), expectedUntil: expectedFor(v.kind, s, new Date()), method: manualReason ? 'Manual open' : 'Guard approval', openReason: manualReason, verifiedBy: me() });
   if (manualReason) await flagManual(out, manualReason);
@@ -180,7 +201,7 @@ export async function kioskOpen(v, { matched }) {
   const out = await put(C.GATE_VISITS, { ...v, state: 'Inside', inAt: iso(), expectedUntil: expectedFor(v.kind, s, new Date()), method: 'Kiosk face', verifiedBy: 'Kiosk' });
   return { ok: true, visit: out };
 }
-export const refuseVisit = (v, note = '') => put(C.GATE_VISITS, { ...v, state: 'Refused', outAt: iso(), note: note || v.note || '' });
+export const refuseVisit = (v, note = '') => (v2.onV2() ? v2.refuseVisit(v, note) : put(C.GATE_VISITS, { ...v, state: 'Refused', outAt: iso(), note: note || v.note || '' }));
 
 // ---- passes ---------------------------------------------------------------------------------------------------------------
 export function passProblem(p, d = new Date()) {
@@ -195,12 +216,20 @@ export function passProblem(p, d = new Date()) {
   if (p.type !== 'Recurring' && (p.fromTime || p.toTime) && !windowOpen({ fromTime: p.fromTime, toTime: p.toTime }, d)) return 'Outside the hours of this pass';
   return '';
 }
-export async function findPasses(q) {
+export async function findPasses(...args) {
+  if (v2.onV2()) return v2.findPasses(...args);
+  return findPassesLocal(...args);
+}
+async function findPassesLocal(q) {
   let t = String(q || '').trim().toLowerCase(); if (!t) return [];
   if (t.startsWith('ggp|')) t = t.split('|')[1] || '';
   return (await list(C.GATE_PASSES)).filter((p) => p.status !== 'Cancelled' && (String(p.code) === t || `${p.visitorName} ${p.phone || ''}`.toLowerCase().includes(t)));
 }
-export async function admitPass(p, { gate = 'Main gate', photo = '', vehicle = '' } = {}) {
+export async function admitPass(...args) {
+  if (v2.onV2()) return v2.admitPass(...args);
+  return admitPassLocal(...args);
+}
+async function admitPassLocal(p, { gate = 'Main gate', photo = '', vehicle = '' } = {}) {
   const bad = passProblem(p); if (bad) return { ok: false, reason: bad };
   const s = await getSettings();
   const visit = await newVisit({ kind: 'Guest', name: p.visitorName, phone: p.phone || '', unit: p.unit, gate, vehicle: vehicle || p.vehicle || '', photo: photo || p.photo || avatar(p.visitorName), passId: p.id, method: 'QR / OTP', purpose: `${p.type} pass`, expectedUntil: iso(addMin(new Date(), Number(s.durations?.Guest ?? 240))) });
@@ -221,13 +250,21 @@ async function notifyFlag(flag) {
   const ev = ['Guard silence', 'Headcount mismatch', 'Missed patrol'].includes(flag.type) ? 'ghost' : ['Override entry', 'Manual open'].includes(flag.type) ? 'override' : flag.type === 'Blocked person attempt' ? 'blocked' : flag.type === 'Overstay' ? 'overstay' : 'ghost';
   await notifyGate(ev, { unit: flag.type === 'Overstay' ? flag.unit : '', flagId: flag.id, image: flag.photo, title: `${flag.type}${flag.gate ? ` · ${flag.gate}` : ''}`, body: `${flag.personName ? `${flag.personName}. ` : ''}${flag.detail || ''}` });
 }
-export async function resolveFlag(flag, resolution, note = '') {
+export async function resolveFlag(...args) {
+  if (v2.onV2()) return v2.resolveFlag(...args);
+  return resolveFlagLocal(...args);
+}
+async function resolveFlagLocal(flag, resolution, note = '') {
   return put(C.GATE_FLAGS, { ...flag, state: 'Closed', resolution, resolutionNote: note, resolvedBy: me(), resolvedAt: iso() });
 }
 
 /** Heartbeat from a guard console: any tap on it (or the "I'm here" button) counts as activity. Throttled so it does not write on every click. */
 let lastBeat = 0;
-export async function guardBeat(kind = 'activity', force = false) {
+export async function guardBeat(...args) {
+  if (v2.onV2()) return v2.guardBeat(...args);
+  return guardBeatLocal(...args);
+}
+async function guardBeatLocal(kind = 'activity', force = false) {
   const p = getPrincipal(); if (!p?.name) return;
   if (!force && Date.now() - lastBeat < 20000) return;
   lastBeat = Date.now();
@@ -280,6 +317,7 @@ export async function readDigest() { try { return (await rawList(C.GATE_PULSE)).
 let sweeping = null;
 /** One sweep at a time: the timer, the screen opening and a second tab's timer must not all run it at once (they would raise the same flag twice and hammer the server). */
 export function sweep() {
+  if (v2.onV2()) return v2.sweep();
   if (!sweeping) { memo = new Map(); sweeping = sweepOnce().finally(() => { sweeping = null; memo = null; }); }
   return sweeping;
 }
@@ -312,7 +350,11 @@ async function sweepOnce() {
 }
 
 /** Guard opens the gate with no token: allowed, but never silent. */
-export async function overrideEntry({ name, reason, photo, unit = '', gate = 'Main gate', vehicle = '' }) {
+export async function overrideEntry(...args) {
+  if (v2.onV2()) return v2.overrideEntry(...args);
+  return overrideEntryLocal(...args);
+}
+async function overrideEntryLocal({ name, reason, photo, unit = '', gate = 'Main gate', vehicle = '' }) {
   const visit = await newVisit({ kind: 'Other', name: name || 'Unidentified person', unit, gate, vehicle, photo: photo || avatar(name || 'Override'), method: 'Override', purpose: 'Guard override', note: reason });
   await raiseFlag({ type: 'Override entry', visitId: visit.id, personName: visit.name, unit, gate, photo: visit.photo, detail: `Reason given: ${reason}` });
   return visit;
@@ -320,7 +362,11 @@ export async function overrideEntry({ name, reason, photo, unit = '', gate = 'Ma
 
 // ---- registered people (face terminal or guard picks from the registry) ----------------------------------------------------
 const expired = (d) => !!d && todayStr() > d;
-export async function admitPerson(person, { gate = 'Main gate', method = 'Face', unit: wanted = '' } = {}) {
+export async function admitPerson(...args) {
+  if (v2.onV2()) return v2.admitPerson(...args);
+  return admitPersonLocal(...args);
+}
+async function admitPersonLocal(person, { gate = 'Main gate', method = 'Face', unit: wanted = '' } = {}) {
   const [visits, links, orders] = await Promise.all([list(C.GATE_VISITS), list(C.GATE_LINKS), list(C.GATE_WORKORDERS)]);
   const now = new Date();
   if (visits.some((v) => v.personId === person.id && v.state === 'Inside')) return { ok: false, outcome: 'already-inside', reason: `${person.name} is already inside` };
@@ -363,7 +409,11 @@ export async function admitPerson(person, { gate = 'Main gate', method = 'Face',
   const visit = await newVisit({ kind: 'Other', name: person.name, phone: person.phone, unit: wanted, gate, photo: person.photo, personId: person.id, method });
   return { ok: true, outcome: 'admitted', visit };
 }
-export async function exitPerson(person, method = 'Face') {
+export async function exitPerson(...args) {
+  if (v2.onV2()) return v2.exitPerson(...args);
+  return exitPersonLocal(...args);
+}
+async function exitPersonLocal(person, method = 'Face') {
   const v = (await list(C.GATE_VISITS)).find((x) => x.personId === person.id && x.state === 'Inside');
   if (!v) return { ok: false, reason: `No open visit for ${person.name}` };
   await closeVisit(v, method);
@@ -371,7 +421,11 @@ export async function exitPerson(person, method = 'Face') {
 }
 
 // ---- deliveries -----------------------------------------------------------------------------------------------------------
-export async function deliveryDecision({ person = null, name = '', phone = '', photo = '', company = 'Other', unit, gate = 'Main gate', vehicle = '', method = 'Guard manual' }) {
+export async function deliveryDecision(...args) {
+  if (v2.onV2()) return v2.deliveryDecision(...args);
+  return deliveryDecisionLocal(...args);
+}
+async function deliveryDecisionLocal({ person = null, name = '', phone = '', photo = '', company = 'Other', unit, gate = 'Main gate', vehicle = '', method = 'Guard manual' }) {
   const s = await getSettings(); const rule = await villaRule(unit); const now = new Date();
   const who = person?.name || name || 'Delivery rider'; const pic = person?.photo || photo || avatar(who);
   const base = { kind: 'Delivery', name: who, phone: person?.phone || phone, company, unit, gate, photo: pic, personId: person?.id || '', vehicle: vehicle || person?.vehicleNo || '', purpose: `${company} delivery`, method };
@@ -436,7 +490,11 @@ const normPlate = (x) => String(x || '').replace(/\s+/g, '').toUpperCase();
 const goodsExpiry = (p, s, now) => { const e = p.toTime ? atTime(now, p.toTime) : null; return e ? iso(addMin(e, 30)) : iso(addMin(now, Number(s.durations?.['Goods vehicle'] ?? 240))); };
 
 /** The guard counted `people` in the vehicle. Fewer or equal to the pass: in. More: held until the guard confirms with a reason (or let in and flagged, by the community's rule). A different plate always needs a reason. */
-export async function admitGoods(p, { gate = 'Main gate', people, vehicle = '', photo = '', force = '' } = {}) {
+export async function admitGoods(...args) {
+  if (v2.onV2()) return v2.admitGoods(...args);
+  return admitGoodsLocal(...args);
+}
+async function admitGoodsLocal(p, { gate = 'Main gate', people, vehicle = '', photo = '', force = '' } = {}) {
   const bad = passProblem(p); if (bad) return { ok: false, outcome: 'pass', reason: bad };
   const n = Number(people); if (!(n >= 1)) return { ok: false, outcome: 'count', reason: 'Count the people in the vehicle, driver included' };
   const visits = await list(C.GATE_VISITS);
@@ -455,7 +513,11 @@ export async function admitGoods(p, { gate = 'Main gate', people, vehicle = '', 
   return { ok: true, visit };
 }
 /** Leaving: count the people again. A different number from the one who came in is a flag; a vehicle taking items out needs the out-pass items checked. */
-export async function exitGoods(v, { people, itemsChecked = false } = {}) {
+export async function exitGoods(...args) {
+  if (v2.onV2()) return v2.exitGoods(...args);
+  return exitGoodsLocal(...args);
+}
+async function exitGoodsLocal(v, { people, itemsChecked = false } = {}) {
   const n = Number(people); if (!(n >= 0) || people === '' || people == null) return { ok: false, reason: 'Count the people leaving, driver included' };
   if (v.carryingOut && !itemsChecked) return { ok: false, outcome: 'items', reason: `Check the items against the out-pass${v.outItems ? `: ${v.outItems}` : ''}` };
   const saved = await put(C.GATE_VISITS, { ...v, state: 'Exited', outAt: iso(), outMethod: 'Guard', headcountOut: n });
@@ -510,7 +572,11 @@ export function roundProgress(round, scans) {
   scans.forEach((s) => { const t = new Date(s.at); if (ids.includes(s.checkpointId) && t >= round.start && t <= new Date(round.end.getTime() + 60000)) done.add(s.checkpointId); });
   return { done: [...done], total: ids.length, complete: ids.length > 0 && done.size >= ids.length };
 }
-export async function scanCheckpoint(text, { note = '' } = {}) {
+export async function scanCheckpoint(...args) {
+  if (v2.onV2()) return v2.scanCheckpoint(...args);
+  return scanCheckpointLocal(...args);
+}
+async function scanCheckpointLocal(text, { note = '' } = {}) {
   const m = /^GGCP\|([^|]+)\|(.+)$/.exec(String(text || '').trim());
   if (!m) return { ok: false, reason: 'This is not a checkpoint code' };
   const [cps, scans, rounds, s] = await Promise.all([list(C.GATE_CHECKPOINTS), list(C.GATE_SCANS), list(C.GATE_ROUNDS), getSettings()]);

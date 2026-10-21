@@ -30,11 +30,12 @@ public final class SqlCatalog {
                 "identity.adapter.JdbcMemberRepository", "identity.adapter.JdbcRoleCatalog", "property.adapter.JdbcUnitRepository", "billing.adapter.JdbcDueRepository",
                 "billing.adapter.JdbcBillingLookups", "billing.adapter.JdbcPaymentOrderRepository", "billing.adapter.JdbcPaymentRepository", "billing.adapter.JdbcJournalWriter",
                 "maintenance.adapter.JdbcTicketRepository", "maintenance.adapter.JdbcMaintenanceDirectory", "maintenance.adapter.JdbcQuotationRepository",
-                "maintenance.application.WishVotes", "approval.adapter.JdbcApprovalSettings", "amenity.adapter.JdbcBookingRepository", "amenity.adapter.JdbcAmenityCatalog"))
+                "maintenance.application.WishVotes", "approval.adapter.JdbcApprovalSettings", "amenity.adapter.JdbcBookingRepository", "amenity.adapter.JdbcAmenityCatalog",
+                "gate.adapter.JdbcGateStore", "gate.adapter.JdbcGateDirectory"))
             CLASSES.put(c, "cos_app");
         for (String c : List.of("shared.jdbc.JdbcOutboxStore", "identity.adapter.JdbcOtpStore", "identity.adapter.JdbcRefreshTokenStore", "identity.adapter.JdbcPersonDirectory",
                 "identity.adapter.JdbcRateLimiter", "identity.adapter.JdbcCallerLoader", "identity.adapter.JdbcCommunityDirectory", "billing.adapter.JdbcPlatformPayments", "shared.integration.WebhookFanout",
-                "shared.integration.WebhookDeliveryWorker"))
+                "shared.integration.WebhookDeliveryWorker", "config.Jobs"))
             CLASSES.put(c, "cos_platform");
     }
     /** fragments that are only valid once composed */
@@ -42,7 +43,8 @@ public final class SqlCatalog {
         "JdbcDueRepository.COLUMNS", "JdbcDueRepository.FROM", "JdbcDueRepository.FILTER",
         "JdbcTicketRepository.COLUMNS", "JdbcTicketRepository.FROM", "JdbcTicketRepository.FILTER", "JdbcMaintenanceDirectory.STAFF", "JdbcMaintenanceDirectory.RECENT_COMMENTS",
         "JdbcQuotationRepository.COLUMNS", "JdbcQuotationRepository.LIVE", "JdbcBookingRepository.COLUMNS", "JdbcBookingRepository.FROM", "JdbcBookingRepository.FILTER",
-        "JdbcAmenityCatalog.TYPE_COLUMNS");
+        "JdbcAmenityCatalog.TYPE_COLUMNS", "JdbcGateStore.PASS_COLUMNS", "JdbcGateStore.VISIT_COLUMNS", "JdbcGateStore.VISIT_FILTER", "JdbcGateStore.APPROVAL_COLUMNS",
+        "JdbcGateStore.FLAG_COLUMNS");
 
     public static void main(String[] a) throws Exception {
         List<Stmt> out = new ArrayList<>();
@@ -76,6 +78,14 @@ public final class SqlCatalog {
             Spec<?> bs = new com.communityos.api.amenity.application.BookingPolicy().readScope(c);
             out.add(new Stmt("cos_app", "bookings.list." + i, com.communityos.api.amenity.adapter.JdbcBookingRepository.listSql(bs.sql())));
             out.add(new Stmt("cos_app", "bookings.get." + i, com.communityos.api.amenity.adapter.JdbcBookingRepository.getSql(bs.sql())));
+            Spec<?> gp = com.communityos.api.gate.application.GatePolicy.byUnit(c, "p.unit_id", (Object x) -> null), gv = com.communityos.api.gate.application.GatePolicy.byUnit(c, "v.unit_id", (Object x) -> null),
+                ga = com.communityos.api.gate.application.GatePolicy.byUnit(c, "a.unit_id", (Object x) -> null);
+            out.add(new Stmt("cos_app", "gate.passes." + i, com.communityos.api.gate.adapter.JdbcGateStore.passesSql(gp.sql())));
+            out.add(new Stmt("cos_app", "gate.pass." + i, com.communityos.api.gate.adapter.JdbcGateStore.passSql(gp.sql())));
+            out.add(new Stmt("cos_app", "gate.visits." + i, com.communityos.api.gate.adapter.JdbcGateStore.visitsSql(gv.sql())));
+            out.add(new Stmt("cos_app", "gate.visit." + i, com.communityos.api.gate.adapter.JdbcGateStore.visitSql(gv.sql())));
+            out.add(new Stmt("cos_app", "gate.approvals." + i, com.communityos.api.gate.adapter.JdbcGateStore.approvalsSql(ga.sql())));
+            out.add(new Stmt("cos_app", "gate.approval." + i, com.communityos.api.gate.adapter.JdbcGateStore.approvalSql(ga.sql())));
             out.add(new Stmt("cos_app", "quotations.all." + i, com.communityos.api.maintenance.adapter.JdbcQuotationRepository.allSql(ts.sql())));
             // every resource of the kit: its list / detail with this caller's scope, a filtered list
             for (com.communityos.api.shared.resource.Resource<?> r : com.communityos.api.config.ResourcesConfig.all()) {
