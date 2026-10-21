@@ -1,0 +1,103 @@
+package com.communityos.api.comms.application;
+
+import com.communityos.api.amenity.domain.BookingEvents;
+import com.communityos.api.billing.domain.BillingEvents;
+import com.communityos.api.comms.application.port.Facts;
+import com.communityos.api.comms.application.port.Facts.Fact;
+import com.communityos.api.comms.domain.Comms.Message;
+import com.communityos.api.comms.domain.Comms.To;
+import com.communityos.api.gate.application.GateService.GateEvent;
+import com.communityos.api.maintenance.application.QuotationService;
+import com.communityos.api.maintenance.domain.TicketEvents;
+import com.communityos.api.shared.domain.DomainEvent;
+import java.math.BigDecimal;
+import java.text.NumberFormat;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.Optional;
+import java.util.UUID;
+
+/**
+ * What to tell whom when something happens - one recipe per kind of event. Pure: the facts (a ticket's number, a visitor's name) come from
+ * the Facts port, and the inbox decides the rest (one row per person, their channels, never the person who did it).
+ * Events with no recipe tell nobody.
+ */
+public final class Recipes {
+    private Recipes() {}
+    /** The team told about new requests and gate flags (by role code). */
+    static final String[] HELPDESK = {"facility_manager", "helpdesk"};
+    static final String[] SECURITY = {"committee_security", "facility_manager"};
+
+    public static List<Message> of(DomainEvent e, Facts facts) {
+        List<Message> out = new ArrayList<>();
+        switch (e) {
+            case TicketEvents.TicketRaised r -> ticket(facts, r.ticketId()).ifPresent((f) -> out.add(new Message("ticket_new", "community", "New request · " + f.number(),
+                f.title() + " — " + (f.unitNo() == null ? "common area" : f.unitNo()), ticketLink(f), r.ticketId(),
+                "Community".equals(r.scope()) ? To.roles("facility_manager", "helpdesk", "handyman_mep") : To.roles(HELPDESK))));
+            case TicketEvents.TicketAssigned a -> ticket(facts, a.ticketId()).ifPresent((f) -> out.add(new Message("ticket_assigned", "assigned", "New task assigned · " + f.number(),
+                f.title() + " was assigned to you.", ticketLink(f), a.ticketId(), To.member(a.assigneeId() == null ? null : a.assigneeId().value()))));
+            case TicketEvents.TicketStatusChanged s -> ticket(facts, s.ticketId()).ifPresent((f) -> out.add(new Message("ticket_status", "status", f.number() + " is now " + s.to(),
+                f.title() + ": " + s.from() + " → " + s.to() + ".", ticketLink(f), s.ticketId(), To.member(f.owner()))));
+            case TicketEvents.CommentAdded c -> ticket(facts, c.ticketId()).ifPresent((f) -> out.add(new Message("ticket_chat", "chat", "New message · " + f.number(),
+                "There is a new message on " + f.title() + ".", ticketLink(f), c.ticketId(),
+                "Internal".equals(c.visibility()) ? To.member(f.other()) : To.member(f.owner()).and(To.member(f.other())))));
+            case QuotationService.Changed q when "Approved".equals(q.status()) || "Rejected".equals(q.status()) ->
+                ticket(facts, q.ticketId()).ifPresent((f) -> out.add(new Message("ticket_decision", "decision", f.number() + ": " + q.kind().toLowerCase(Locale.ROOT) + " " + q.status().toLowerCase(Locale.ROOT),
+                    "The " + q.kind().toLowerCase(Locale.ROOT) + " on " + f.title() + " was " + q.status().toLowerCase(Locale.ROOT) + ".", ticketLink(f), q.ticketId(),
+                    To.member(f.owner()).and(To.member(f.other())))));
+            case BillingEvents.DueRaised d -> out.add(new Message("bill", "bill", "New bill · " + rupees(d.amount().amount().add(d.tax() == null ? BigDecimal.ZERO : d.tax().amount())),
+                "A bill for " + (d.billedMonth() == null ? "your unit" : d.billedMonth().getMonth().getDisplayName(java.time.format.TextStyle.SHORT, Locale.ENGLISH) + " " + d.billedMonth().getYear())
+                    + " is due on " + d.dueDate() + ".", "#/billing", d.dueId().value(), To.unit(d.unitId() == null ? null : d.unitId().value())));
+            case BillingEvents.PaymentRecorded p when p.unitId() != null -> out.add(new Message("bill", "payment", "Payment received · " + p.receiptNo(),
+                rupees(p.amount().amount()) + " was received" + (p.toCredit() != null && p.toCredit().amount().signum() > 0 ? " (" + rupees(p.toCredit().amount()) + " kept as credit)" : "") + ".",
+                "#/billing", p.paymentId().value(), To.unit(p.unitId().value())));
+            case BookingEvents b when b.topic().endsWith(".created") || b.topic().endsWith(".cancelled") ->
+                facts.of(Facts.Kind.BOOKING, b.aggregateId()).ifPresent((f) -> out.add(new Message("amenity_booking", "booking",
+                    (b.topic().endsWith(".created") ? "Booked: " : "Booking cancelled: ") + f.title() + " on " + b.date(),
+                    f.number() + (f.extra() == null ? "" : " · " + f.extra()) + " · " + b.status() + (b.paymentStatus() == null ? "" : ", " + b.paymentStatus()), "#/amenities", b.aggregateId(),
+                    To.unit(f.unitId()))));
+            case GateEvent g -> gate(g, facts).ifPresent(out::add);
+            default -> { }
+        }
+        return out;
+    }
+
+    static Optional<Message> gate(GateEvent g, Facts facts) {
+        UUID unit = g.unitId();
+        String topic = g.topic();
+        return switch (topic) {
+            case "gate.approval.requested" -> facts.of(Facts.Kind.GATE_APPROVAL, g.aggregateId()).map((f) -> new Message("gate_approval", "gate", "At the gate: " + f.title(),
+                kindOf(g) + " for " + nz(f.unitNo(), "your unit") + (f.extra() == null ? "" : " at " + f.extra()) + ". Approve or deny.", "#/mygate", g.aggregateId(), To.unit(unit)));
+            case "gate.approval.unanswered" -> facts.of(Facts.Kind.GATE_APPROVAL, g.aggregateId()).map((f) -> new Message("gate_approval", "gate", "No answer for " + f.title(),
+                "Nobody answered in time, so the gate applied your setting: " + nz(g.state(), "held") + ".", "#/mygate", g.aggregateId(), To.unit(unit)));
+            case "gate.guest.arrived", "gate.staff.arrived", "gate.crew.arrived", "gate.delivery.arrived", "gate.delivery.left", "gate.visit.exited" -> {
+                String event = switch (topic) {
+                    case "gate.staff.arrived" -> "gate_staff_inout"; case "gate.crew.arrived" -> "gate_crew_inout";
+                    case "gate.delivery.arrived", "gate.delivery.left" -> "gate_delivery"; case "gate.visit.exited" -> "gate_guest_exit"; default -> "gate_guest_arrived";
+                };
+                if ("gate.visit.exited".equals(topic) && !"Guest".equals(g.kind())) yield Optional.empty();
+                yield facts.of(Facts.Kind.GATE_VISIT, g.aggregateId()).map((f) -> new Message(event, "gate",
+                    switch (topic) { case "gate.delivery.left" -> "Delivery left at the gate: " + f.title(); case "gate.visit.exited" -> f.title() + " has left"; default -> f.title() + " has arrived"; },
+                    kindOf(g) + (f.extra() == null ? "" : " · " + f.extra()), "#/mygate", g.aggregateId(), To.unit(unit)));
+            }
+            case "gate.flag.raised" -> facts.of(Facts.Kind.GATE_FLAG, g.aggregateId()).map((f) -> new Message(flagEvent(g.kind()), "gate", "Gate flag: " + g.kind(),
+                nz(f.title(), "") + (f.extra() == null ? "" : (f.title() == null ? "" : " — ") + f.extra()), "#/security", g.aggregateId(), To.roles(SECURITY)));
+            case "gate.visit.override" -> facts.of(Facts.Kind.GATE_VISIT, g.aggregateId()).map((f) -> new Message("gate_override", "gate", "Guard override: " + f.title(),
+                "The gate was opened by hand" + (f.extra() == null ? "" : " · " + f.extra()) + ".", "#/security", g.aggregateId(), To.roles("committee_security")));
+            default -> Optional.empty();
+        };
+    }
+    static String flagEvent(String type) {
+        if (type == null) return "gate_ghost";
+        if (type.contains("Overstay") || type.contains("No exit")) return "gate_overstay";
+        if (type.contains("Blocked")) return "gate_blocked";
+        if (type.contains("Manual") || type.contains("override")) return "gate_override";
+        return "gate_ghost";
+    }
+    static String kindOf(GateEvent g) { return g.kind() == null ? "Visitor" : g.kind(); }
+    static Optional<Fact> ticket(Facts facts, UUID id) { return facts.of(Facts.Kind.TICKET, id); }
+    static String ticketLink(Fact f) { return "#/ticket/" + f.number(); }
+    static String nz(String s, String dflt) { return s == null || s.isBlank() ? dflt : s; }
+    static String rupees(BigDecimal v) { NumberFormat f = NumberFormat.getNumberInstance(Locale.forLanguageTag("en-IN")); f.setMaximumFractionDigits(2); f.setMinimumFractionDigits(0); return "₹" + f.format(v); }
+}

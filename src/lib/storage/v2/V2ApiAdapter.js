@@ -12,18 +12,24 @@
 //   handymen  GET /v1/field-staff, clock in / out, add a member as field staff
 //   registers (RESOURCES in v2map.js: task types, categories, phrases, wishes, approval rules, finance settings ...)  the resource kit:
 //               GET /v1/{module}/{resource}, POST (new), PUT with If-Match (change), DELETE with If-Match - the server's rules decide each one
-//   app configuration (schema, communityConfig, financeSettings, roleGroups): kept in this browser until the v2 API has endpoints for them
+//   notifications  GET /v1/notifications (the reader's own inbox), POST /{id}/read - the server writes them from what happened, so a new row here is a no-op
+//   broadcasts  GET /v1/comms/broadcasts, POST (new: draft or send), then the command a change means: /sign, /reschedule, PUT (draft), /send
+//   pollVotes   per poll: GET /results (a reader) or /voters (the committee), POST /vote
+//   forum, forumPosts  GET /v1/comms/forum/topics (+ /results for polls), /topics/{id}/posts; POST, PATCH, /vote, /react, /hide, DELETE
+//   app configuration (schema, communityConfig, roleGroups): kept in this browser until the v2 API has endpoints for them
 //   everything else: not on the v2 API yet - reads answer empty, writes are refused with a clear message (nothing is silently dropped)
 import { apiFetch } from '../../net/request.js';
 import { AuthzError, ConflictError } from '../../security/errors.js';
 import { SessionStorageAdapter } from '../SessionStorageAdapter.js';
 import { propertyOf, unitPatch, userOf, dueOf, raiseBody, roleOf, ticketOf, ticketPatch, raiseTicketBody, commentOf, fieldStaffOf, quotationOf, addDocumentBody,
   quotationCommands, RESOURCES, resourceOf, resourceBody, isUuid, bookingOf, busyOf, bookBody, bookingCommand, gatePassOf, gateVisitOf, gateApprovalOf, gateFlagOf, gateScanOf,
-  passBody } from './v2map.js';
+  passBody, notificationOf, broadcastOf, broadcastDraft, broadcastCommands, pollVoteRows, topicOf, postOf } from './v2map.js';
 import { getAuthUser } from '../../auth/session.js';
+import { getPrincipal } from '../../security/principal.js';
 
 const GATE_DESK = ['gatePasses', 'gateVisits', 'gateApprovals', 'gateFlags', 'gateScans', 'gatePulse'];
-export const V2_COLLECTIONS = ['properties', 'users', 'dues', 'roles', 'tickets', 'ticketComments', 'handymen', 'quotations', 'amenities', ...GATE_DESK, ...Object.keys(RESOURCES)];
+const COMMS = ['notifications', 'broadcasts', 'pollVotes', 'forum', 'forumPosts'];
+export const V2_COLLECTIONS = ['properties', 'users', 'dues', 'roles', 'tickets', 'ticketComments', 'handymen', 'quotations', 'amenities', ...GATE_DESK, ...COMMS, ...Object.keys(RESOURCES)];
 export const LOCAL_COLLECTIONS = ['schema', 'communityConfig', 'roleGroups'];
 
 export class NotOnV2Error extends Error { constructor(collection) { super(`"${collection}" is not on the v2 back end yet - this screen works with the Browser session or the v1 back end.`); this.name = 'NotOnV2Error'; } }
@@ -101,6 +107,45 @@ readers.gateFlags = { list: async () => { if (!oversees()) return []; const { no
 readers.gateFlags.get = byId(readers.gateFlags.list);
 readers.gateScans = { list: async () => (oversees() ? (await call('/gate/scans')).map(gateScanOf) : []) }; readers.gateScans.get = byId(readers.gateScans.list);
 readers.gatePulse = { list: async () => [], get: async () => null };   // the server keeps the console heartbeats
+// notices, the inbox, polls and the forum
+const myName = () => getPrincipal()?.name || getAuthUser()?.name || '';
+const publisher = () => { const u = getAuthUser(); return !!u && (u.category === 'EC' || (u.roleIds || []).includes('super_admin') || (u.permissions || []).some((x) => x === 'MANAGE_NOTICE_TEMPLATES' || x === 'MANAGE_GOVERNANCE')); };
+async function placeIndex() {
+  const units = await all('/units');
+  return {
+    unitNoById: Object.fromEntries(units.map((u) => [u.id, u.unitNo])), unitIdByNo: Object.fromEntries(units.map((u) => [u.unitNo, u.id])),
+    blockNameById: Object.fromEntries(units.filter((u) => u.blockId).map((u) => [u.blockId, u.blockName])), blockIdByName: Object.fromEntries(units.filter((u) => u.blockId).map((u) => [u.blockName, u.blockId])),
+  };
+}
+readers.notifications = { list: async () => (await call('/notifications?limit=200')).map((n) => notificationOf(n, myName())) };
+readers.notifications.get = byId(readers.notifications.list);
+readers.broadcasts = {
+  list: async () => { const [rows, ix] = await Promise.all([call('/comms/broadcasts'), placeIndex()]); return rows.map((b) => broadcastOf(b, { ...ix, myName: myName() })); },
+  get: async (id) => { if (!isUuid(id)) return null; const [b, ix] = await Promise.all([call(`/comms/broadcasts/${id}`), placeIndex()]); return b && broadcastOf(b, { ...ix, myName: myName() }); },
+};
+readers.pollVotes = {
+  list: async () => {
+    const polls = (await call('/comms/broadcasts?status=Sent')).filter((b) => b.type === 'Poll');
+    const me = getPrincipal(); const out = [];
+    for (const p of polls) {
+      const voters = publisher() ? await call(`/comms/broadcasts/${p.id}/voters`).catch(() => null) : null;
+      out.push(...pollVoteRows(p.id, voters ? { counts: [], total: 0, mine: [] } : await call(`/comms/broadcasts/${p.id}/results`), { voters, myName: myName(), myUnit: me?.unit || getAuthUser()?.unit || '' }));
+    }
+    return out;
+  },
+};
+readers.pollVotes.get = byId(readers.pollVotes.list);
+readers.forum = {
+  list: async () => {
+    const topics = await call('/comms/forum/topics');
+    return Promise.all(topics.map(async (t) => topicOf(t, t.kind === 'Poll' ? await call(`/comms/forum/topics/${t.id}/results`) : null, myName())));
+  },
+  get: async (id) => { if (!isUuid(id)) return null; const t = await call(`/comms/forum/topics/${id}`); return t && topicOf(t, t.kind === 'Poll' ? await call(`/comms/forum/topics/${id}/results`) : null, myName()); },
+};
+readers.forumPosts = {
+  list: async () => { const topics = await call('/comms/forum/topics'); return (await Promise.all(topics.map((t) => call(`/comms/forum/topics/${t.id}/posts`)))).flat().map(postOf); },
+};
+readers.forumPosts.get = byId(readers.forumPosts.list);
 // every register of the resource kit reads the same way
 for (const [c, spec] of Object.entries(RESOURCES)) {
   readers[c] = {
@@ -253,6 +298,7 @@ async function putQuotation(rec) {
 
 async function putResource(c, rec) {
   const spec = RESOURCES[c];
+  if (spec.readOnly) throw new Error(`"${c}" is written by the server only.`);
   const fields = await resourceFields(c);
   let before = isUuid(rec.id) ? await call(`/${spec.path}/${rec.id}`) : null;
   if (!before && spec.singleton) before = (await call(`/${spec.path}`))[0] || null;
@@ -296,6 +342,58 @@ async function putFlag(rec) {
   }
   return before;
 }
+// the inbox: the server writes the rows (from what happened); the app only marks its own as read
+async function putNotification(rec) {
+  const before = isUuid(rec.id) ? await readers.notifications.get(rec.id) : null;
+  if (!before) return rec;   // a notification the app composed: on v2 the server sends it from the event itself
+  if (rec.read && !before.read) await call(`/notifications/${rec.id}/read`, { method: 'POST' });
+  return { ...before, read: !!rec.read || before.read };
+}
+async function putBroadcast(rec) {
+  const before = isUuid(rec.id) ? await readers.broadcasts.get(rec.id) : null;
+  const ix = await placeIndex();
+  const map = (b) => broadcastOf(b, { ...ix, myName: myName() });
+  if (!before) return map(await call('/comms/broadcasts', json('POST', { notice: broadcastDraft(rec, ix), send: rec.status === 'Sent', scheduleFor: rec.scheduledFor || null })));
+  let version = before.version; let out = null;
+  for (const cmd of broadcastCommands(before, rec, myName())) {
+    const path = `/comms/broadcasts/${rec.id}${cmd.path ? `/${cmd.path}` : ''}`;
+    const body = cmd.draft ? broadcastDraft(rec, ix) : (cmd.body || {});
+    out = await call(path, json(cmd.draft ? 'PUT' : 'POST', body, cmd.versioned ? ifMatch(version) : {}));
+    version = out.version;
+  }
+  return out ? map(out) : before;
+}
+async function putPollVote(rec) {
+  if (!isUuid(rec.broadcastId)) throw new Error('A vote answers a poll.');
+  await call(`/comms/broadcasts/${rec.broadcastId}/vote`, json('POST', { choices: rec.choices || [] }));
+  return (await readers.pollVotes.list()).find((v) => v.broadcastId === rec.broadcastId && v.id.endsWith('-mine')) || rec;
+}
+async function putTopic(rec) {
+  const before = isUuid(rec.id) ? await readers.forum.get(rec.id) : null;
+  if (!before) {
+    const t = await call('/comms/forum/topics', json('POST', { title: rec.title, category: rec.category || null, kind: rec.kind || 'Discussion', pollOptions: (rec.pollOptions || []).map((o) => (typeof o === 'string' ? o : o.label)) }));
+    return readers.forum.get(t.id);
+  }
+  const me = myName();
+  if ((rec.voters || []).includes(me) && !(before.voters || []).includes(me)) {
+    const i = (rec.pollOptions || []).findIndex((o, k) => (o.votes || 0) > (before.pollOptions?.[k]?.votes || 0));
+    if (i < 0) throw new Error('Choose an answer.');
+    await call(`/comms/forum/topics/${rec.id}/vote`, json('POST', { choice: i }));
+  }
+  const change = {};
+  for (const k of ['title', 'category', 'pinned', 'status']) if (rec[k] !== undefined && rec[k] !== before[k]) change[k] = rec[k];
+  if (Object.keys(change).length) await call(`/comms/forum/topics/${rec.id}`, json('PATCH', change, ifMatch(before.version)));
+  return readers.forum.get(rec.id);   // the reply count is the server's
+}
+async function putPost(rec) {
+  const before = isUuid(rec.id) ? await readers.forumPosts.get(rec.id) : null;
+  if (!before) return postOf(await call(`/comms/forum/topics/${encodeURIComponent(rec.topicId)}/posts`, json('POST', { parentId: isUuid(rec.parentId) ? rec.parentId : null, body: rec.body })));
+  let out = null;
+  if ((rec.reactions || 0) > (before.reactions || 0)) out = await call(`/comms/forum/posts/${rec.id}/react`, { method: 'POST' });
+  if (rec.body !== undefined && rec.body !== before.body) out = await call(`/comms/forum/posts/${rec.id}`, json('PATCH', { body: rec.body }, ifMatch(out?.version ?? before.version)));
+  if (rec.hidden !== undefined && !!rec.hidden !== before.hidden) out = await call(`/comms/forum/posts/${rec.id}/hide`, json('POST', { hidden: !!rec.hidden, reason: rec.hiddenReason || null }, ifMatch(out?.version ?? before.version)));
+  return out ? postOf(out) : before;
+}
 const deskOnly = () => { throw new Error('Visits and patrol scans are recorded by the gate desk (the gate screens), not edited.'); };
 
 async function putBooking(rec) {
@@ -312,8 +410,8 @@ async function putBooking(rec) {
   return bookingOf(await call(`/amenities/bookings/${encodeURIComponent(rec.id)}/${cmd.path}`, json('POST', cmd.body, ifMatch(before.version))));
 }
 
-const WRITERS = { gatePasses: putPass, gateApprovals: putApproval, gateFlags: putFlag, gateVisits: deskOnly, gateScans: deskOnly, gatePulse: async (r) => r, amenities: putBooking, properties: putProperty, users: putUser, dues: putDue, tickets: putTicket, ticketComments: putComment, handymen: putFieldStaff, quotations: putQuotation };
-for (const c of Object.keys(RESOURCES)) WRITERS[c] = (rec) => putResource(c, rec);
+const WRITERS = { notificationOutbox: async (r) => r /* the server queues channel messages itself, from the event */, notifications: putNotification, broadcasts: putBroadcast, pollVotes: putPollVote, forum: putTopic, forumPosts: putPost, gatePasses: putPass, gateApprovals: putApproval, gateFlags: putFlag, gateVisits: deskOnly, gateScans: deskOnly, gatePulse: async (r) => r, amenities: putBooking, properties: putProperty, users: putUser, dues: putDue, tickets: putTicket, ticketComments: putComment, handymen: putFieldStaff, quotations: putQuotation };
+for (const c of Object.keys(RESOURCES)) if (!WRITERS[c]) WRITERS[c] = (rec) => putResource(c, rec);
 const warned = new Set();
 const notYet = (c) => { if (!warned.has(c)) { warned.add(c); console.info(`[v2] "${c}" is not on the v2 back end yet; showing it empty.`); } };
 
@@ -343,8 +441,14 @@ export const V2ApiAdapter = {
   async remove(c, id) {
     if (LOCAL_COLLECTIONS.includes(c)) return SessionStorageAdapter.remove(c, id);
     if (RESOURCES[c]) return removeResource(c, id);
+    if (c === 'forum' || c === 'forumPosts' || c === 'broadcasts') {
+      const path = c === 'forum' ? `/comms/forum/topics/${id}` : c === 'forumPosts' ? `/comms/forum/posts/${id}` : `/comms/broadcasts/${id}`;
+      const before = isUuid(id) ? await readers[c].get(id) : null;
+      if (before) await call(path, { method: 'DELETE', headers: ifMatch(before.version) });
+      return;
+    }
     if (c === 'quotations') { const q = isUuid(id) ? await call(`/quotations/${id}`) : null; if (q) await call(`/quotations/${id}`, { method: 'DELETE', headers: ifMatch(q.version) }); return; }
-    throw new Error(c === 'amenities' ? 'Bookings cannot be deleted - cancel them instead.' : c === 'dues' ? 'A bill is not deleted: cancel it with a reason.' : c === 'users' ? 'Deactivate the member instead.' : c === 'tickets' ? 'Tickets cannot be deleted - cancel or close them instead.' : `"${c}" cannot be removed on the v2 back end.`);
+    throw new Error(c === 'notifications' ? 'Notifications cannot be deleted.' : c === 'amenities' ? 'Bookings cannot be deleted - cancel them instead.' : c === 'dues' ? 'A bill is not deleted: cancel it with a reason.' : c === 'users' ? 'Deactivate the member instead.' : c === 'tickets' ? 'Tickets cannot be deleted - cancel or close them instead.' : `"${c}" cannot be removed on the v2 back end.`);
   },
   async replaceAll(c, records) { if (LOCAL_COLLECTIONS.includes(c)) return SessionStorageAdapter.replaceAll(c, records); throw new NotOnV2Error(c); },
   forCommunity() { return V2ApiAdapter; },          // the community comes from the access token, not from the client

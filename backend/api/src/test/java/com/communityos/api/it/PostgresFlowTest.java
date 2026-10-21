@@ -128,7 +128,10 @@ class PostgresFlowTest {
                 new JdbcRateLimiter(platform), new JwtTokenIssuer(codec, Duration.ofMinutes(10), clock), new CodeHasher("integration-test-pepper-0123456789"), platform, clock,
                 AuthService.Settings.defaults());
             JdbcCallerLoader callers = new JdbcCallerLoader(platform, Duration.ofSeconds(30), clock);
-            DomainEvents events = new DomainEvents(new LedgerPoster(new JdbcJournalWriter(app), ZoneId.of("Asia/Kolkata")).handlers(), new JdbcOutboxWriter(app, json));
+            var inbox = new com.communityos.api.comms.adapter.JdbcInbox(app);
+            List<com.communityos.api.shared.events.DomainEventHandler<?>> handlers = new ArrayList<>(new LedgerPoster(new JdbcJournalWriter(app), ZoneId.of("Asia/Kolkata")).handlers());
+            handlers.add(new com.communityos.api.comms.application.Notifier(inbox, inbox));   // every event below also lands in the inboxes
+            DomainEvents events = new DomainEvents(handlers, new JdbcOutboxWriter(app, json));
             JdbcAuditWriter audit = new JdbcAuditWriter(app, json);
             JdbcDueRepository dues = new JdbcDueRepository(app); JdbcBillingLookups lookups = new JdbcBillingLookups(app);
             JdbcPaymentOrderRepository orders = new JdbcPaymentOrderRepository(app); JdbcPaymentRepository payments = new JdbcPaymentRepository(app);
@@ -460,6 +463,115 @@ class PostgresFlowTest {
             assertEquals("Closed", resolved.state);
             var mineVisits = as(ownerC, () -> gateSvc.visits(ownerC, new com.communityos.api.gate.application.port.GateStore.VisitFilter(null, null, null, null, false)));
             assertTrue(mineVisits.stream().allMatch((v) -> new UnitId(unitA).equals(v.unit)), "a resident sees their own unit's visits");
+
+            // ---- 6g. notices, notifications, forum ---------------------------------------------------------------------------------------------------------
+            var inboxSvc = new com.communityos.api.comms.application.InboxService(inbox);
+            var mineNotes = as(ownerC, () -> inboxSvc.mine(ownerC, false, 200));
+            List<String> titles = mineNotes.stream().map(com.communityos.api.comms.domain.Comms.Note::title).toList();
+            assertTrue(titles.stream().anyMatch((t) -> t.startsWith("New bill")), "bills reach the unit: " + titles);
+            assertTrue(titles.stream().anyMatch((t) -> t.equals("At the gate: Ravi Uncle")), "the gate asked the unit: " + titles);
+            assertTrue(titles.stream().noneMatch((t) -> t.startsWith("Payment received") || t.startsWith("Booked")), "nobody is told about what they did themselves: " + titles);
+            assertTrue(as(plumberC, () -> inboxSvc.mine(plumberC, false, 50)).stream().anyMatch((n) -> n.event().equals("ticket_assigned")), "the assignee hears of the task");
+            assertTrue(as(treasurer, () -> inboxSvc.mine(treasurer, false, 200)).stream().noneMatch((n) -> n.title().startsWith("New bill")), "not the treasurer's unit (and they raised it)");
+            int unread = as(ownerC, () -> inboxSvc.unread(ownerC));
+            assertTrue(unread >= 3);
+            assertEquals(1, (int) as(ownerC, () -> inboxSvc.markRead(ownerC, mineNotes.get(0).id())));
+            assertEquals(0, (int) as(treasurer, () -> inboxSvc.markRead(treasurer, mineNotes.get(1).id())), "someone else's row is not marked");
+            as(ownerC, () -> inboxSvc.markAllRead(ownerC));
+            assertEquals(0, (int) as(ownerC, () -> inboxSvc.unread(ownerC)));
+            // channels: the owner wants WhatsApp; the community switches WhatsApp off for bills, and adds the super admin to bills
+            var prefRepo = new com.communityos.api.shared.resource.JdbcResourceRepository<>(com.communityos.api.comms.CommsResources.PREFS.table(), app, json);
+            var pref = as(ownerC, () -> kit.create(ownerC, com.communityos.api.comms.CommsResources.PREFS, prefRepo, new com.communityos.api.comms.CommsResources.PrefFields(true, false, true)));
+            assertEquals("Member owner", pref.server("userName"));
+            assertEquals(0, as(treasurer, () -> kit.list(treasurer, com.communityos.api.comms.CommsResources.PREFS, prefRepo)).size(), "another member's choices are theirs");
+            as(treasurer, () -> dueService.raise(treasurer, new DueService.RaiseDue(new UnitId(unitA), "Water", today.withDayOfMonth(1), "Oct", Money.of("100"), today.plusDays(9))));
+            var queued = owner.sql("SELECT channel, status, to_value FROM comms.outbox_message WHERE community_id = '" + cid + "' AND membership_id = '" + members[0] + "' AND event = 'bill' ORDER BY channel");
+            assertEquals(2, queued.size(), "WhatsApp and e-mail: " + queued);
+            assertEquals("Skipped", queued.get(0).get("status"), "no e-mail address on file"); assertEquals("Queued", queued.get(1).get("status")); assertEquals(ownerPhone, queued.get(1).get("to_value"));
+            var setRepo = new com.communityos.api.shared.resource.JdbcResourceRepository<>(com.communityos.api.comms.CommsResources.SETTINGS.table(), app, json);
+            var setting = as(admin, () -> kit.list(admin, com.communityos.api.comms.CommsResources.SETTINGS, setRepo)).get(0);
+            assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> kit.replace(admin, com.communityos.api.comms.CommsResources.SETTINGS, setRepo, setting.id(), setting.version(),
+                new com.communityos.api.comms.CommsResources.SettingFields(Map.of("bill", Map.of("fax", true))))));
+            as(admin, () -> kit.replace(admin, com.communityos.api.comms.CommsResources.SETTINGS, setRepo, setting.id(), setting.version(),
+                new com.communityos.api.comms.CommsResources.SettingFields(Map.of("bill", Map.of("whatsapp", false, "email", false, "alsoRoles", List.of("super_admin"))))));
+            as(treasurer, () -> dueService.raise(treasurer, new DueService.RaiseDue(new UnitId(unitA), "Water", today.withDayOfMonth(1), "Oct", Money.of("50"), today.plusDays(9))));
+            assertEquals("2", owner.sql("SELECT count(*)::text AS n FROM comms.outbox_message WHERE community_id = '" + cid + "' AND membership_id = '" + members[0] + "' AND event = 'bill'").get(0).get("n"),
+                "WhatsApp is switched off for bills now");
+            assertTrue(as(admin, () -> inboxSvc.mine(admin, true, 50)).stream().anyMatch((n) -> n.title().equals("New bill · ₹50")), "also told: the super admin");
+            assertThrows(AccessDenied.class, () -> as(ownerC, () -> kit.create(ownerC, com.communityos.api.comms.CommsResources.NUMBERS,
+                new com.communityos.api.shared.resource.JdbcResourceRepository<>(com.communityos.api.comms.CommsResources.NUMBERS.table(), app, json),
+                new com.communityos.api.comms.CommsResources.NumberFields("Plumber", "98450 00000", null, null, null, null, true))));
+            assertEquals(3, as(ownerC, () -> kit.list(ownerC, com.communityos.api.comms.CommsResources.NUMBERS,
+                new com.communityos.api.shared.resource.JdbcResourceRepository<>(com.communityos.api.comms.CommsResources.NUMBERS.table(), app, json))).size(), "police, fire, ambulance");
+            var outboxRepo = new com.communityos.api.shared.resource.JdbcResourceRepository<>(com.communityos.api.comms.CommsResources.OUTBOX.table(), app, json);
+            assertTrue(as(ownerC, () -> kit.list(ownerC, com.communityos.api.comms.CommsResources.OUTBOX, outboxRepo)).isEmpty(), "the queue is the office's");
+            assertTrue(as(admin, () -> kit.list(admin, com.communityos.api.comms.CommsResources.OUTBOX, outboxRepo)).size() >= 2, "the office reads it");
+            // notices: sent to all residents, read and signed; a committee-only one; a poll per unit; a draft; a scheduled one
+            var store = new com.communityos.api.comms.adapter.JdbcCommsStore(app);
+            var notices = new com.communityos.api.comms.application.BroadcastService(store, inbox, events, audit, app, clock, ZoneId.of("Asia/Kolkata"));
+            java.util.function.BiFunction<String, String, com.communityos.api.comms.application.BroadcastService.Draft> draft = (type, audience) ->
+                new com.communityos.api.comms.application.BroadcastService.Draft(type, audience, type + " for " + audience, "<p>Please note.</p>", List.of(), List.of(), null, null, null, null,
+                    "Poll".equals(type) ? List.of("Morning", "Evening") : List.of(), false, null, true, null);
+            assertThrows(AccessDenied.class, () -> as(ownerC, () -> notices.create(ownerC, draft.apply("Notice", "All residents"), true, null)));
+            assertTrue(as(treasurer, () -> notices.reach(treasurer, draft.apply("Notice", "All residents"))) >= 1);
+            var sentN = as(treasurer, () -> notices.create(treasurer, draft.apply("Notice", "All residents"), true, null));
+            assertEquals("Sent", sentN.status); assertTrue(sentN.recipients >= 1); assertEquals("Member treasurer", sentN.sentBy);
+            var seen = as(ownerC, () -> notices.list(ownerC, null));
+            assertEquals(List.of(sentN.id), seen.stream().map((b) -> b.id).toList(), "the owner sees what reached them");
+            assertTrue(as(ownerC, () -> inboxSvc.mine(ownerC, true, 10)).stream().anyMatch((n) -> n.title().equals("Notice: Notice for All residents")));
+            var viewed = as(ownerC, () -> notices.view(ownerC, sentN.id));
+            assertNotNull(viewed.viewedAt); assertEquals(1, viewed.viewed); assertTrue(viewed.signedBy.isEmpty(), "readers do not see who signed");
+            as(ownerC, () -> notices.sign(ownerC, sentN.id));
+            assertEquals(List.of("Member owner"), as(treasurer, () -> notices.get(treasurer, sentN.id)).signedBy);
+            var ecOnly = as(treasurer, () -> notices.create(treasurer, draft.apply("Announcement", "EC members"), true, null));
+            assertThrows(AccessDenied.NotVisible.class, () -> as(ownerC, () -> notices.get(ownerC, ecOnly.id)));
+            assertThrows(AccessDenied.class, () -> as(ownerC, () -> notices.sign(ownerC, ecOnly.id)));
+            var poll = as(treasurer, () -> notices.create(treasurer, draft.apply("Poll", "Owners"), true, null));
+            var r1 = as(ownerC, () -> notices.vote(ownerC, poll.id, List.of("1"), null));
+            assertEquals(List.of(0, 1), r1.counts()); assertEquals(List.of("1"), r1.mine());
+            var r2 = as(ownerC, () -> notices.vote(ownerC, poll.id, List.of("0"), null));
+            assertEquals(List.of(1, 0), r2.counts()); assertEquals(1, r2.total(), "one answer per unit, changed");
+            assertThrows(AccessDenied.class, () -> as(treasurer, () -> notices.vote(treasurer, poll.id, List.of("0"), null)), "not an owner: the poll did not reach them");
+            assertEquals("Villa 101", as(treasurer, () -> notices.voters(treasurer, poll.id)).get(0).unitNo());
+            assertThrows(AccessDenied.class, () -> as(ownerC, () -> notices.voters(ownerC, poll.id)));
+            var dr = as(treasurer, () -> notices.create(treasurer, draft.apply("Announcement", "All residents"), false, null));
+            assertEquals("Draft", dr.status); assertEquals(0, dr.recipients);
+            assertThrows(AccessDenied.NotVisible.class, () -> as(ownerC, () -> notices.get(ownerC, dr.id)), "a draft is the committee's");
+            as(treasurer, () -> { notices.remove(treasurer, dr.id, dr.version); return null; });
+            assertThrows(DomainException.RuleViolated.class, () -> as(treasurer, () -> { notices.remove(treasurer, sentN.id, notices.get(treasurer, sentN.id).version); return null; }), "a sent notice stays");
+            var liftNotice = as(treasurer, () -> notices.create(treasurer, new com.communityos.api.comms.application.BroadcastService.Draft("Scheduled maintenance", "Selected blocks", "Lift service",
+                "<p>Lift off</p>", List.of(), List.of(b1), today.plusDays(2), "10:00", "12:00", "Lift", List.of(), false, null, false, null), false, clock.instant().plusSeconds(3600)));
+            assertEquals("Scheduled", liftNotice.status);
+            owner.sql("UPDATE comms.broadcast SET scheduled_for = now() - interval '1 minute' WHERE id = '" + liftNotice.id + "' RETURNING 1");
+            Caller noticeJob = com.communityos.api.shared.security.SystemCaller.of(new CommunityId(cid), "scheduled notices");
+            assertEquals(1, (int) as(noticeJob, () -> notices.sendDue(noticeJob)));
+            var lift = as(treasurer, () -> notices.get(treasurer, liftNotice.id));
+            assertEquals("Sent", lift.status); assertEquals(1, lift.recipients, "Block 1 is Villa 101 only");
+            var moved = as(treasurer, () -> notices.reschedule(treasurer, liftNotice.id, lift.version, today.plusDays(3), "14:00", "16:00"));
+            assertEquals("14:00", moved.startTime);
+            assertTrue(as(ownerC, () -> inboxSvc.mine(ownerC, true, 10)).stream().anyMatch((n) -> n.title().startsWith("RESCHEDULED - Lift service")));
+            // the forum: a topic, a reply that tells the author, moderation, a topic poll
+            var forum = new com.communityos.api.comms.application.ForumService(store, inbox, events, audit, app, clock);
+            var topic = as(ownerC, () -> forum.start(ownerC, new com.communityos.api.comms.application.ForumService.NewTopic("Pool timings in winter", "Amenities", "Poll", List.of("6-9", "7-10"))));
+            assertEquals("Member owner", topic.author); assertEquals(0, topic.replies);
+            var reply = as(treasurer, () -> forum.reply(treasurer, topic.id, null, "<p>7-10 please</p>"));
+            assertEquals("Member treasurer", reply.author); assertEquals("treasurer", reply.authorRole);
+            assertTrue(as(ownerC, () -> inboxSvc.mine(ownerC, true, 10)).stream().anyMatch((n) -> n.event().equals("forum_reply")), "the author hears of the reply");
+            var t1 = as(ownerC, () -> forum.topic(ownerC, topic.id));
+            assertEquals(1, t1.replies, "counted by the server");
+            assertThrows(AccessDenied.class, () -> as(ownerC, () -> forum.change(ownerC, topic.id, t1.version, new com.communityos.api.comms.application.ForumService.TopicChange(null, null, true, null))));
+            assertThrows(AccessDenied.class, () -> as(ownerC, () -> forum.edit(ownerC, reply.id, reply.version, "changed")), "not their post");
+            var hidden = as(admin, () -> forum.hide(admin, reply.id, reply.version, true, "Off topic"));
+            assertTrue(hidden.hidden);
+            assertEquals("", as(ownerC, () -> forum.posts(ownerC, topic.id)).get(0).body, "a hidden post keeps its place, not its words");
+            assertEquals("<p>7-10 please</p>", as(treasurer, () -> forum.posts(treasurer, topic.id)).get(0).body, "its author still reads it");
+            assertEquals(0, as(ownerC, () -> forum.topic(ownerC, topic.id)).replies);
+            var tv = as(ownerC, () -> forum.vote(ownerC, topic.id, 1));
+            assertEquals(List.of(0, 1), tv.counts());
+            assertThrows(DomainException.RuleViolated.class, () -> as(ownerC, () -> forum.vote(ownerC, topic.id, 0)), "one vote per person");
+            var pinned = as(admin, () -> forum.change(admin, topic.id, forum.topic(admin, topic.id).version, new com.communityos.api.comms.application.ForumService.TopicChange(null, null, true, "Closed")));
+            assertTrue(pinned.pinned); assertEquals("Closed", pinned.status);
+            assertThrows(DomainException.RuleViolated.class, () -> as(treasurer, () -> forum.reply(treasurer, topic.id, null, "late")), "closed");
 
             // ---- 7. audit, outbox ----------------------------------------------------------------------------------------------------------------
             assertTrue(Integer.parseInt((String) owner.sql("SELECT count(*)::text AS n FROM audit.audit_event WHERE community_id = '" + cid + "'").get(0).get("n")) >= 7);

@@ -89,6 +89,21 @@ public class ModulesConfig {
             events, audit, tx, clock, ZoneId.of(p.web().timeZone()));
     }
 
+    // ---- notices, notifications, forum ----------------------------------------------------------------------------------------------------------
+    @Bean com.communityos.api.comms.adapter.JdbcInbox inbox(NamedParameterJdbcTemplate jdbc) { return new com.communityos.api.comms.adapter.JdbcInbox(jdbc); }
+    @Bean com.communityos.api.comms.adapter.JdbcCommsStore commsStore(NamedParameterJdbcTemplate jdbc) { return new com.communityos.api.comms.adapter.JdbcCommsStore(jdbc); }
+    /** Every domain event becomes inbox rows (and queued channel messages) in the same transaction. */
+    @Bean DomainEventHandler<?> notifier(com.communityos.api.comms.adapter.JdbcInbox inbox) { return new com.communityos.api.comms.application.Notifier(inbox, inbox); }
+    @Bean com.communityos.api.comms.application.InboxService inboxService(com.communityos.api.comms.adapter.JdbcInbox inbox) { return new com.communityos.api.comms.application.InboxService(inbox); }
+    @Bean com.communityos.api.comms.application.BroadcastService broadcastService(com.communityos.api.comms.adapter.JdbcCommsStore store, com.communityos.api.comms.adapter.JdbcInbox inbox,
+                                                                                 DomainEvents events, AuditWriter audit, Tx tx, Clock clock, CosProperties p) {
+        return new com.communityos.api.comms.application.BroadcastService(store, inbox, events, audit, tx, clock, ZoneId.of(p.web().timeZone()));
+    }
+    @Bean com.communityos.api.comms.application.ForumService forumService(com.communityos.api.comms.adapter.JdbcCommsStore store, com.communityos.api.comms.adapter.JdbcInbox inbox,
+                                                                         DomainEvents events, AuditWriter audit, Tx tx, Clock clock) {
+        return new com.communityos.api.comms.application.ForumService(store, inbox, events, audit, tx, clock);
+    }
+
     // ---- billing ------------------------------------------------------------------------------------------------------------------------------
     @Bean JdbcDueRepository dueRepository(NamedParameterJdbcTemplate jdbc) { return new JdbcDueRepository(jdbc); }
     @Bean JdbcBillingLookups billingLookups(NamedParameterJdbcTemplate jdbc) { return new JdbcBillingLookups(jdbc); }

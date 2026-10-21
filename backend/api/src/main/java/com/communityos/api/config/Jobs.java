@@ -19,11 +19,24 @@ import org.springframework.stereotype.Component;
 public class Jobs {
     private static final Logger log = LoggerFactory.getLogger(Jobs.class);
     private final OutboxRelay outbox; private final WebhookDeliveryWorker webhooks; private final PaymentService payments; private final NamedParameterJdbcTemplate platformJdbc;
-    private final com.communityos.api.gate.application.GateService gate;
+    private final com.communityos.api.gate.application.GateService gate; private final com.communityos.api.comms.application.BroadcastService notices;
 
     public Jobs(OutboxRelay outbox, WebhookDeliveryWorker webhooks, PaymentService payments, @Qualifier("platform") NamedParameterJdbcTemplate platformJdbc,
-                com.communityos.api.gate.application.GateService gate) {
-        this.outbox = outbox; this.webhooks = webhooks; this.payments = payments; this.platformJdbc = platformJdbc; this.gate = gate;
+                com.communityos.api.gate.application.GateService gate, com.communityos.api.comms.application.BroadcastService notices) {
+        this.outbox = outbox; this.webhooks = webhooks; this.payments = payments; this.platformJdbc = platformJdbc; this.gate = gate; this.notices = notices;
+    }
+
+    /** Communities with a notice scheduled for now or earlier. */
+    static final String NOTICES_DUE = "SELECT DISTINCT community_id FROM comms.broadcast WHERE status = 'Scheduled' AND scheduled_for <= now()";
+    @Scheduled(fixedDelayString = "${cos.jobs.notices-delay:60000}", initialDelay = 45000)
+    public void sendScheduledNotices() {
+        run("notices", () -> {
+            for (java.util.UUID c : platformJdbc.query(NOTICES_DUE, Map.of(), (rs, i) -> rs.getObject("community_id", java.util.UUID.class))) {
+                var system = com.communityos.api.shared.security.SystemCaller.of(new com.communityos.api.shared.domain.Ids.CommunityId(c), "scheduled notices");
+                try { com.communityos.api.shared.tenancy.CallerHolder.runAs(system, () -> notices.sendDue(system)); }
+                catch (RuntimeException e) { log.warn("scheduled notices of {} failed: {}", c, e.toString()); }
+            }
+        });
     }
 
     /** Communities with gate work due: an approval past its wait, or a visit past its expected time. */

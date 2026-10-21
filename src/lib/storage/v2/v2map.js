@@ -220,6 +220,14 @@ export const RESOURCES = {
   incidents: { path: 'gate/incidents' },
   gateSettings: { path: 'gate/settings', singleton: true, json: ['durations', 'events'] },
   financeSettings: { path: 'finance/settings', rename: { finalCanDecideEC: 'finalCanDecideEc' }, singleton: true },
+  importantNumbers: { path: 'comms/important-numbers' },
+  numberSections: { path: 'comms/number-sections' },
+  mergeFields: { path: 'comms/merge-fields' },
+  noticeTemplates: { path: 'comms/notice-templates' },
+  notificationTemplates: { path: 'comms/notification-templates' },
+  notificationPrefs: { path: 'comms/notification-prefs' },
+  notificationSettings: { path: 'comms/notification-settings', singleton: true, json: ['events'], alias: 'default' },
+  notificationOutbox: { path: 'comms/outbox', readOnly: true },
 };
 const invert = (o = {}) => Object.fromEntries(Object.entries(o).map(([k, v]) => [v, k]));
 /** A row of the API as the app's record: renamed fields back, nulls as '' (the app's forms expect text), the unit number for a unit id. */
@@ -229,6 +237,7 @@ export function resourceOf(row, spec = {}) {
   const out = {};
   for (const [k, v] of Object.entries(row)) out[back[k] || k] = v === null ? '' : v;
   for (const [appKey, apiField] of Object.entries(unitFields(spec))) { out[apiField] = row[apiField] || ''; out[appKey] = row[appKey] || ''; }
+  if (spec.alias) { out.serverId = row.id; out.id = spec.alias; }   // the app finds this one row by a fixed id ('default')
   return out;
 }
 /** The body of a write: exactly `fields` (the resource's request type), from the app's record; '' becomes null, absent stays absent. */
@@ -364,5 +373,83 @@ export function passBody(rec, unitIdByNo) {
     visitorName: rec.visitorName, phone: rec.phone || null, unitId, type: rec.type || 'One-time', validFrom: rec.validFrom || null, validTo: rec.validTo || null, fromTime: rec.fromTime || null,
     toTime: rec.toTime || null, days: rec.days || [], vehicle: rec.vehicle || null, guestCap: n(rec.guestCap), goodsKind: rec.goodsKind || null, peopleCount: n(rec.peopleCount),
     material: rec.material || null, carryingOut: !!rec.carryingOut, outItems: rec.outItems || null, photo: rec.photo || null,
+  };
+}
+
+// ---- notifications, notices, forum ----------------------------------------------------------------------------------------------------------------
+/** An inbox row (always the reader's own): addressed to them by name, so the app's "is it for me" check holds. */
+export function notificationOf(n, myName) {
+  return {
+    id: n.id, kind: n.kind || n.event, event: n.event, title: n.title, body: n.body || '', link: n.link || '', read: !!n.readAt, readAt: n.readAt || '', createdAt: n.createdAt,
+    by: n.sender || '', toName: myName || '', refId: n.refId || '',
+  };
+}
+/** A notice as the app shows it: unit numbers and block names instead of ids; who signed (the committee sees all, a reader only themself). */
+export function broadcastOf(b, { unitNoById = {}, blockNameById = {}, myName = '' } = {}) {
+  const signed = b.signedBy && b.signedBy.length ? b.signedBy : (b.signedAt && myName ? [myName] : []);
+  return {
+    id: b.id, shortId: b.shortId, type: b.type, audience: b.audience, subject: b.subject, message: b.message || '',
+    audienceUnits: (b.unitIds || []).map((id) => unitNoById[id] || id), audienceBlocks: (b.blockIds || []).map((id) => blockNameById[id] || id),
+    eventDate: b.eventDate || '', startTime: b.startTime || '', endTime: b.endTime || '', affects: b.affects || '', pollOptions: b.pollOptions || [], pollMultiple: !!b.pollMultiple,
+    pollClosesOn: b.pollClosesOn || '', sentAt: day(b.sentAt), status: b.status, scheduledFor: b.scheduledFor || '', sentBy: b.sentBy || '', recipients: b.recipients, viewed: b.viewed,
+    signed: b.signed, pushDelivered: b.pushDelivered, requiresSignature: !!b.requiresSignature, reminderFrequency: b.reminderFrequency || 'None', signedBy: signed.join(', '),
+    viewedAt: b.viewedAt || '', signedAt: b.signedAt || '', version: b.version, recordCreatedAt: b.createdAt,
+  };
+}
+/** The notice the app wrote -> the draft the server takes (ids for units and blocks; counts, status and sender are the server's). */
+export function broadcastDraft(rec, { unitIdByNo = {}, blockIdByName = {} } = {}) {
+  const ids = (xs, map, what) => (xs || []).map((x) => { const id = isUuid(x) ? x : map[x]; if (!id) throw new Error(`${what} ${x} is not known to the back end.`); return id; });
+  const selectedUnits = /^Selected (villas|apartments)$/.test(rec.audience || '');
+  return {
+    type: rec.type || 'Announcement', audience: rec.audience || 'All residents', subject: (rec.subject || '').trim(), message: rec.message || null,
+    unitIds: selectedUnits ? ids(rec.audienceUnits, unitIdByNo, 'Unit') : [], blockIds: rec.audience === 'Selected blocks' ? ids(rec.audienceBlocks, blockIdByName, 'Block') : [],
+    eventDate: rec.eventDate || null, startTime: rec.startTime || null, endTime: rec.endTime || null, affects: rec.affects || null,
+    pollOptions: rec.type === 'Poll' ? (rec.pollOptions || []) : [], pollMultiple: !!rec.pollMultiple, pollClosesOn: rec.pollClosesOn || null,
+    requiresSignature: !!rec.requiresSignature, reminderFrequency: rec.reminderFrequency || 'None',
+  };
+}
+const names = (v) => String(v || '').split(',').map((x) => x.trim()).filter(Boolean);
+/** What a change to a notice means, in the order to send: sign, move the maintenance window, edit the draft, send. */
+export function broadcastCommands(before, rec, myName) {
+  const out = [];
+  if (myName && names(rec.signedBy).includes(myName) && !names(before.signedBy).includes(myName)) out.push({ path: 'sign' });
+  const timeMoved = ['eventDate', 'startTime', 'endTime'].some((k) => (rec[k] ?? '') !== (before[k] ?? ''));
+  if (before.status === 'Sent') {
+    if (timeMoved) out.push({ path: 'reschedule', body: { eventDate: rec.eventDate, startTime: rec.startTime, endTime: rec.endTime || null }, versioned: true });
+    return out;
+  }
+  const draftKeys = ['type', 'audience', 'subject', 'message', 'audienceUnits', 'audienceBlocks', 'eventDate', 'startTime', 'endTime', 'affects', 'pollOptions', 'pollMultiple', 'pollClosesOn',
+    'requiresSignature', 'reminderFrequency'];
+  if (draftKeys.some((k) => JSON.stringify(rec[k] ?? '') !== JSON.stringify(before[k] ?? ''))) out.push({ path: '', draft: true, versioned: true });
+  if (rec.status === 'Sent') out.push({ path: 'send', versioned: true });
+  return out;
+}
+/**
+ * A poll's answers as the app's vote rows: the committee gets the real rows (who voted what); a reader gets their own unit's row and
+ * anonymous rows that add up to the same counts (the server never tells a reader who else voted).
+ */
+export function pollVoteRows(pollId, result, { voters = null, myName = '', myUnit = '' } = {}) {
+  if (voters) return voters.map((v, i) => ({ id: `${pollId}-v${i}`, broadcastId: pollId, voter: v.name || '', unit: v.unitNo || '', choices: v.choices || [] }));
+  const rows = [];
+  const mine = result.mine || [];
+  if (mine.length) rows.push({ id: `${pollId}-mine`, broadcastId: pollId, voter: result.mineBy || myName, unit: myUnit, choices: mine });
+  const others = result.total - (mine.length ? 1 : 0);
+  const left = (result.counts || []).map((n, i) => n - (mine.includes(String(i)) ? 1 : 0));
+  for (let r = 0; r < others; r += 1) rows.push({ id: `${pollId}-o${r}`, broadcastId: pollId, voter: '', unit: '—', choices: [] });
+  left.forEach((n, i) => { for (let k = 0; k < n && others > 0; k += 1) rows[(mine.length ? 1 : 0) + (k % others)].choices.push(String(i)); });
+  return rows;
+}
+/** A forum topic as the app shows it; a poll carries its counts and whether the reader has voted. */
+export function topicOf(t, result = null, myName = '') {
+  return {
+    id: t.id, shortId: t.shortId, title: t.title, category: t.category, kind: t.kind, replies: t.replies, pinned: !!t.pinned, status: t.status, author: t.author || '',
+    authorId: t.authorId || '', lastPostAt: t.lastPostAt || '', createdAt: t.createdAt, version: t.version,
+    ...(t.kind === 'Poll' ? { pollOptions: (t.pollOptions || []).map((label, i) => ({ label, votes: result?.counts?.[i] || 0 })), voters: result?.mine?.length ? [myName] : [] } : {}),
+  };
+}
+export function postOf(p) {
+  return {
+    id: p.id, shortId: p.shortId, topicId: p.topicId, parentId: p.parentId || '', author: p.author || '', authorRoleId: p.authorRole || '', body: p.hidden && !p.body ? '' : p.body,
+    hidden: !!p.hidden, hiddenReason: p.hiddenReason || '', reactions: p.reactions || 0, createdAt: p.createdAt, editedAt: p.editedAt || '', version: p.version,
   };
 }

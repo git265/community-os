@@ -20,7 +20,8 @@ const state = {
     { id: B, shortId: 'UNIT-2', unitNo: 'Villa 202', blockId: null, blockName: 'Block 2', unitType: 'Villa', occupancy: 'Vacant', areaSqft: null, maintenancePlan: null, sanctionedKw: null, status: 'Active', custom: {}, updatedAt: '2026-10-20T06:00:00Z', version: 1 },
   ],
   dues: [], members: [{ id: M1, displayName: 'Asha', phone: '+919800000001', status: 'Active', roles: [{ code: 'owner', name: 'Owner', primary: true }], units: [A], createdAt: null, updatedAt: null, version: 2 }],
-  orders: [], tickets: [], comments: [], quotes: [], bookings: [],
+  orders: [], tickets: [], comments: [], quotes: [], bookings: [], broadcasts: [], votes: {}, topics: [], posts: [],
+  notes: [{ id: '00000000-0000-4000-8000-0000000ee001', createdAt: '2026-10-20T06:00:00Z', event: 'bill', kind: 'bill', title: 'New bill · ₹3,540', body: 'Due 15 Oct', link: '#/billing', refId: null, sender: 'Treasurer', readAt: null }],
   passes: [], approvals: [{ id: '00000000-0000-4000-8000-0000000aa001', shortId: 'GAP-1', name: 'Ravi Uncle', unit: A, unitNo: 'Villa 101', status: 'Pending', kind: 'Guest', version: 1 }], kit: {
     'amenities/types': [{ id: HALL, shortId: 'AMN-1', name: 'Party Hall', rate: '5000.00', capacity: 1, bookingMode: 'Full day', version: 1 }],
     'amenities/items': [],
@@ -198,6 +199,48 @@ globalThis.fetch = async (url, init = {}) => {
     if (verb === '/assign') { t.assigneeId = body.assigneeId; t.assigneeName = body.assigneeId ? 'Ravi Plumber' : null; t.status = body.assigneeId ? 'Assigned' : 'Open'; }
     if (verb === '/status') { t.status = body.status; t.cancelReason = body.reason; }
     t.version++; return ok(t);
+  }
+  // ---- comms
+  if (path === '/notifications') return ok(state.notes);
+  if ((m = /^\/notifications\/([^/]+)\/read$/.exec(path))) { const n = state.notes.find((x) => x.id === m[1]); n.readAt = '2026-10-20T07:00:00Z'; return ok({ changed: 1 }); }
+  if (path === '/comms/broadcasts' && method === 'GET') return ok(state.broadcasts.filter((b) => !u.searchParams.get('status') || b.status === u.searchParams.get('status')));
+  if (path === '/comms/broadcasts' && method === 'POST') {
+    const b = { ...body.notice, id: uuid(), shortId: `BRD-${state.broadcasts.length + 1}`, status: body.send ? 'Sent' : 'Draft', sentAt: body.send ? '2026-10-20T06:00:00Z' : null, sentBy: 'Asha',
+      recipients: body.send ? 2 : 0, viewed: 0, signed: 0, pushDelivered: body.send ? 2 : 0, signedBy: [], viewedAt: null, signedAt: null, createdAt: '2026-10-20T06:00:00Z', version: 1 };
+    state.broadcasts.push(b); return ok(b, 201);
+  }
+  if ((m = /^\/comms\/broadcasts\/([^/]+)(\/[a-z]+)?$/.exec(path))) {
+    const b = state.broadcasts.find((x) => x.id === m[1]); if (!b) return problem(404, 'not-found', 'Not found');
+    const verb = m[2] || '';
+    if (verb === '' && method === 'GET') return ok(b);
+    if (verb === '/results') { const v = state.votes[b.id] || []; return ok({ counts: b.pollOptions.map((_, i) => v.filter((x) => x.includes(String(i))).length), total: v.length, mine: v[0] || [], mineBy: null }); }
+    if (verb === '/vote') { state.votes[b.id] = [body.choices, ['1']]; return ok({}); }
+    if (verb === '/sign') { b.signedAt = '2026-10-20T08:00:00Z'; b.signed++; b.version++; return ok(b); }
+    if (h['If-Match'] !== `"${b.version}"`) return problem(409, 'conflict', 'changed');
+    if (verb === '') Object.assign(b, body);
+    if (verb === '/send') { b.status = 'Sent'; b.recipients = 2; }
+    if (verb === '/reschedule') Object.assign(b, body);
+    b.version++; return ok(b);
+  }
+  if (path === '/comms/forum/topics' && method === 'GET') return ok(state.topics);
+  if (path === '/comms/forum/topics' && method === 'POST') { const t = { ...body, id: uuid(), shortId: 'FT-1', replies: 0, pinned: false, status: 'Open', author: 'Asha', votes: [], version: 1 }; state.topics.push(t); return ok(t, 201); }
+  if ((m = /^\/comms\/forum\/topics\/([^/]+)(\/[a-z]+)?$/.exec(path))) {
+    const t = state.topics.find((x) => x.id === m[1]); if (!t) return problem(404, 'not-found', 'Not found');
+    const verb = m[2] || '';
+    if (verb === '' && method === 'GET') return ok(t);
+    if (verb === '/results') return ok({ counts: t.pollOptions.map((_, i) => t.votes.filter((x) => x === i).length), total: t.votes.length, mine: t.votes.length ? [String(t.votes[0])] : [] });
+    if (verb === '/vote') { t.votes.push(body.choice); return ok({}); }
+    if (verb === '/posts' && method === 'GET') return ok(state.posts.filter((x) => x.topicId === t.id));
+    if (verb === '/posts') { const p = { id: uuid(), shortId: 'FP-1', topicId: t.id, parentId: body.parentId, author: 'Asha', authorRole: 'owner', body: body.body, reactions: 0, hidden: false, version: 1 }; state.posts.push(p); t.replies++; t.version++; return ok(p, 201); }
+    if (h['If-Match'] !== `"${t.version}"`) return problem(409, 'conflict', 'changed');
+    Object.assign(t, body); t.version++; return ok(t);
+  }
+  if ((m = /^\/comms\/forum\/posts\/([^/]+)(\/[a-z]+)?$/.exec(path))) {
+    const p = state.posts.find((x) => x.id === m[1]);
+    if (m[2] === '/react') { p.reactions++; p.version++; return ok(p); }
+    if (h['If-Match'] !== `"${p.version}"`) return problem(409, 'conflict', 'changed');
+    if (method === 'DELETE') { state.posts = state.posts.filter((x) => x !== p); return ok(null, 204); }
+    Object.assign(p, body); p.version++; return ok(p);
   }
   return problem(404, 'not-found', `no fake for ${method} ${path}`);
 };
@@ -378,4 +421,42 @@ test('gate: a pass is POSTed (the code is the server\'s) and cancelled; a reside
   const engine = await import('../../src/lib/gate/engine.js');
   const r = await engine.admitPass(c);
   assert.equal(r.ok, false); assert.equal(r.reason, 'This pass was cancelled', 'a refusal comes back as the reason, not an exception');
+});
+
+test('comms: the inbox is the server\'s; a notice goes as a draft the server sends; a reader signs and votes; the forum counts its replies', async () => {
+  const [n] = await storage.list('notifications');
+  assert.equal(n.title, 'New bill · ₹3,540'); assert.equal(n.read, false); assert.equal(n.toName, 'Asha', 'addressed to me, so the bell shows it');
+  await storage.put('notifications', { ...n, read: true });
+  assert.equal(last('POST', /^\/notifications\//).path, `/notifications/${n.id}/read`);
+  const writes = calls.filter((x) => x.method !== 'GET').length;
+  await storage.putMany('notifications', [{ event: 'announcement', title: 'Hello', toRoleIds: ['owner'] }]);
+  assert.equal(calls.filter((x) => x.method !== 'GET').length, writes, 'the app composing a notification sends nothing: the server notifies from the event');
+  const b = await storage.put('broadcasts', { type: 'Poll', audience: 'Selected villas', audienceUnits: ['Villa 101'], subject: 'Pool timings?', message: '', pollOptions: ['Morning', 'Evening'],
+    status: 'Sent', recipients: 99, viewed: 0, pushDelivered: 99, signedBy: '', requiresSignature: true, reminderFrequency: 'None', sentAt: '2026-10-20' });
+  const post = last('POST', /^\/comms\/broadcasts$/).body;
+  assert.equal(post.send, true); assert.deepEqual(post.notice.unitIds, [A]); assert.equal('recipients' in post.notice, false, 'counts are the server\'s');
+  assert.equal(b.recipients, 2); assert.deepEqual(b.audienceUnits, ['Villa 101']);
+  const signed = await storage.put('broadcasts', { ...b, signedBy: 'Asha' });
+  assert.equal(last('POST', /\/sign$/).path, `/comms/broadcasts/${b.id}/sign`); assert.equal(signed.signedBy, 'Asha');
+  await storage.put('pollVotes', { broadcastId: b.id, voter: 'Asha', unit: 'Villa 101', choices: ['0'] });
+  assert.deepEqual(last('POST', /\/vote$/).body, { choices: ['0'] });
+  const votes = (await storage.list('pollVotes')).filter((v) => v.broadcastId === b.id);
+  assert.equal(votes.length, 2, 'mine and one anonymous'); assert.deepEqual(votes[0].choices, ['0']); assert.equal(votes[1].voter, '', 'who else voted is not shown');
+  const d = await storage.put('broadcasts', { type: 'Notice', audience: 'All residents', subject: 'Draft', message: '<p>x</p>', status: 'Draft' });
+  await storage.put('broadcasts', { ...d, subject: 'Draft 2', status: 'Sent' });
+  assert.deepEqual(calls.slice(-2).map((c) => [c.method, c.path, c.headers['If-Match']]), [['PUT', `/comms/broadcasts/${d.id}`, '"1"'], ['POST', `/comms/broadcasts/${d.id}/send`, '"2"']]);
+  // forum
+  const t = await storage.put('forum', { title: 'Pool timings', category: 'Amenities', kind: 'Poll', pollOptions: [{ label: '6-9', votes: 0 }, { label: '7-10', votes: 0 }], replies: 0, voters: [] });
+  assert.deepEqual(last('POST', /^\/comms\/forum\/topics$/).body.pollOptions, ['6-9', '7-10']);
+  await storage.put('forumPosts', { topicId: t.id, parentId: '', author: 'Asha', body: '<p>7-10</p>', reactions: 0 });
+  assert.deepEqual(last('POST', /\/posts$/).body, { parentId: null, body: '<p>7-10</p>' });
+  const t1 = await storage.put('forum', { ...t, replies: 7 });
+  assert.equal(t1.replies, 1, 'the reply count is the server\'s');
+  const voted = await storage.put('forum', { ...t1, pollOptions: [{ label: '6-9', votes: 0 }, { label: '7-10', votes: 1 }], voters: ['Asha'] });
+  assert.deepEqual(last('POST', /\/topics\/[^/]+\/vote$/).body, { choice: 1 }); assert.deepEqual(voted.voters, ['Asha']); assert.equal(voted.pollOptions[1].votes, 1);
+  const [post1] = await storage.list('forumPosts');
+  const reacted = await storage.put('forumPosts', { ...post1, reactions: 1 });
+  assert.equal(reacted.reactions, 1);
+  await storage.remove('forumPosts', post1.id);
+  assert.equal(last('DELETE', /^\/comms\/forum\/posts\//).headers['If-Match'], '"2"');
 });

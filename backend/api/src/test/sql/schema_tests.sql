@@ -129,12 +129,12 @@ BEGIN;
 INSERT INTO billing.due (community_id, id, unit_id, category_id, amount, due_date)
   SELECT '00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000d001', '00000000-0000-0000-0000-0000000000c1', id, 1000, current_date FROM billing.charge_category WHERE code = 'Maintenance';
 INSERT INTO billing.payment (community_id, id, unit_id, amount, method, received_at) VALUES ('00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000a001', '00000000-0000-0000-0000-0000000000c1', 500, 'Cash', now());
-INSERT INTO billing.payment_allocation (community_id, payment_id, due_id, amount) VALUES ('00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000a001', '00000000-0000-0000-0000-00000000d001', 500);
+INSERT INTO billing.payment_allocation (community_id, payment_id, due_id, target_id, amount) VALUES ('00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000a001', '00000000-0000-0000-0000-00000000d001', '00000000-0000-0000-0000-00000000d001', 500);
 COMMIT;
 DO $$ BEGIN
   PERFORM set_config('app.community_id', '00000000-0000-0000-0000-00000000000a', true);
   -- a deferred constraint is checked at commit; SET CONSTRAINTS ALL IMMEDIATE checks it now, inside this block
-  PERFORM test.expect_error($q$INSERT INTO billing.payment_allocation (community_id, payment_id, due_id, amount) SELECT '00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000a001', id, 1 FROM billing.due WHERE id = '00000000-0000-0000-0000-00000000d001' ON CONFLICT (community_id, payment_id, due_id) DO UPDATE SET amount = 501; SET CONSTRAINTS ALL IMMEDIATE$q$, '23514');
+  PERFORM test.expect_error($q$INSERT INTO billing.payment_allocation (community_id, payment_id, due_id, target_id, amount) SELECT '00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000a001', id, id, 1 FROM billing.due WHERE id = '00000000-0000-0000-0000-00000000d001' ON CONFLICT (community_id, payment_id, target_type, target_id) DO UPDATE SET amount = 501; SET CONSTRAINTS ALL IMMEDIATE$q$, '23514');
   PERFORM test.expect_error($q$INSERT INTO billing.payment (community_id, unit_id, amount, method, provider, provider_payment_ref, received_at) VALUES ('00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-0000000000c1', 10, 'UPI', 'razorpay', 'pay_1', now()), ('00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-0000000000c1', 10, 'UPI', 'razorpay', 'pay_1', now())$q$, '23505');
   PERFORM test.expect_error($q$DELETE FROM billing.payment WHERE id = '00000000-0000-0000-0000-00000000a001'$q$, '42501');
   PERFORM test.pass('a payment is allocated at most once over, recorded once per provider reference, and never deleted');
@@ -201,7 +201,7 @@ END $$;
 DO $$ BEGIN
   PERFORM set_config('app.community_id', '00000000-0000-0000-0000-00000000000a', true);
   PERFORM test.expect_error($q$INSERT INTO maintenance.ticket_comment (community_id, ticket_id, author_id, body) VALUES ('00000000-0000-0000-0000-00000000000a', gen_random_uuid(), gen_random_uuid(), 'orphan')$q$, '23503');
-  PERFORM test.expect_error($q$INSERT INTO gate.pass (community_id, unit_id, visitor_name) VALUES ('00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-0000000000c2', 'x')$q$, '23503');
+  PERFORM test.expect_error($q$INSERT INTO gate.pass (community_id, unit_id, visitor_name, type, code) VALUES ('00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-0000000000c2', 'x', 'One-time', '123456')$q$, '23503');
   PERFORM test.pass('module tables keep their references: no comment without its ticket, no pass for another community''s unit');
 END $$;
 DO $$ DECLARE tt uuid; tk uuid; sn text; BEGIN
@@ -219,6 +219,20 @@ DO $$ DECLARE tt uuid; tk uuid; sn text; BEGIN
   PERFORM test.expect_error(format($q$UPDATE maintenance.ticket SET assignee_id = '00000000-0000-0000-0000-0000000000e2' WHERE id = %L$q$, tk), '23503');
   PERFORM test.expect_error(format($q$INSERT INTO maintenance.ticket_comment (community_id, ticket_id, author_id, body, visibility) VALUES ('00000000-0000-0000-0000-00000000000a', %L, '00000000-0000-0000-0000-0000000000e1', 'x', 'Secret')$q$, tk), '23514');
   PERFORM test.pass('tickets: numbered from TKT-1051, status / scope / rating checked, an assignee from this community, a reason to cancel', sn);
+END $$;
+DO $$ DECLARE b uuid; t uuid; BEGIN
+  PERFORM set_config('app.community_id', '00000000-0000-0000-0000-00000000000a', true);
+  IF (SELECT count(*) FROM comms.notification_setting) <> 1 THEN RAISE EXCEPTION 'one notification settings row per community'; END IF;
+  PERFORM test.expect_error($q$INSERT INTO comms.broadcast (community_id, type, audience, subject, status) VALUES ('00000000-0000-0000-0000-00000000000a', 'Poll', 'All residents', 'Pool?', 'Draft')$q$, '23514');
+  PERFORM test.expect_error($q$INSERT INTO comms.broadcast (community_id, type, audience, subject, status) VALUES ('00000000-0000-0000-0000-00000000000a', 'Notice', 'All residents', 'x', 'Sent')$q$, '23514');
+  INSERT INTO comms.broadcast (community_id, type, audience, subject, poll_options, status, sent_at)
+    VALUES ('00000000-0000-0000-0000-00000000000a', 'Poll', 'Owners', 'Pool?', '{Yes,No}', 'Sent', now()) RETURNING id INTO b;
+  INSERT INTO comms.poll_vote (community_id, broadcast_id, voter_id, unit_id, choices) VALUES ('00000000-0000-0000-0000-00000000000a', b, '00000000-0000-0000-0000-0000000000e1', '00000000-0000-0000-0000-0000000000c1', '{0}');
+  PERFORM test.expect_error(format($q$INSERT INTO comms.poll_vote (community_id, broadcast_id, voter_id, unit_id, choices) VALUES ('00000000-0000-0000-0000-00000000000a', %L, '00000000-0000-0000-0000-0000000000e1', '00000000-0000-0000-0000-0000000000c1', '{1}')$q$, b), '23505');
+  INSERT INTO comms.forum_topic (community_id, title, author_id) VALUES ('00000000-0000-0000-0000-00000000000a', 'Pool timings', '00000000-0000-0000-0000-0000000000e1') RETURNING id INTO t;
+  PERFORM test.expect_error(format($q$INSERT INTO comms.forum_post (community_id, topic_id, author_id, body, hidden) VALUES ('00000000-0000-0000-0000-00000000000a', %L, '00000000-0000-0000-0000-0000000000e1', 'x', true)$q$, t), '23514');
+  PERFORM test.expect_error($q$INSERT INTO comms.notification (community_id, to_membership_id, event, title, body, link) VALUES ('00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-0000000000e1', 'bill', 'x', 'y', 'https://x')$q$, '23514');
+  PERFORM test.pass('comms: a poll has answers, a sent notice a time, one vote per unit, a hidden post a reason, a notification links inside the app');
 END $$;
 RESET ROLE;
 
