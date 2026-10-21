@@ -8,7 +8,7 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
 
 /** Everything configurable, bound from application.yml / environment (secrets come from the environment or a secret manager, never the repo). */
 @ConfigurationProperties("cos")
-public record CosProperties(Db db, Auth auth, Payments payments, Web web, @DefaultValue Files files, @DefaultValue Demo demo, @DefaultValue Channels channels) {
+public record CosProperties(Db db, Auth auth, Payments payments, Web web, @DefaultValue Files files, @DefaultValue Demo demo, @DefaultValue Channels channels, @DefaultValue Push push) {
 
     /** Two pools: the API role (row-level security applies) and the platform role (sign-in, webhooks, cross-community jobs). */
     public record Db(Pool app, Pool platform) {}
@@ -45,6 +45,9 @@ public record CosProperties(Db db, Auth auth, Payments payments, Web web, @Defau
     /** Who sends the WhatsApp / SMS / e-mail copies of notifications: none (they stay Queued, nothing leaves the server) or simulated
      *  (development only: written to the log and marked Sent). A real provider adapter plugs in behind comms.application.port.ChannelSender. */
     public record Channels(@DefaultValue("none") String provider) {}
+    /** Push notifications to phones and computers (Web Push): webpush (with the server's VAPID key pair, base64url), log (development: written
+     *  to the log), or none. `subject` is the contact the push services may write to (mailto: or https:). The live in-app stream needs none of it. */
+    public record Push(@DefaultValue("none") String provider, String vapidPublicKey, String vapidPrivateKey, @DefaultValue("mailto:admin@communityos.app") String subject) {}
     /** Development and demos only (refused in prod): load the La Paloma demo into a community and sign in as anyone on its roster without a code. */
     public record Demo(@DefaultValue("false") boolean enabled) {}
 }

@@ -19,6 +19,7 @@ const RETRY_STATUS = new Set([502, 503, 504]);
 async function once(url, init, timeout) {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), timeout);
+  init.signal?.addEventListener('abort', () => ctl.abort(), { once: true });   // the caller can stop it too (a long-lived stream)
   try { return await fetch(url, { ...init, signal: ctl.signal }); }
   catch (e) {
     if (e?.name === 'AbortError') throw new TimeoutError('The server is taking too long to answer. Nothing was lost - please try again in a moment.');

@@ -27,7 +27,15 @@ cos:
     scanner: simulated     # finds the EICAR test file, calls the rest clean (no ClamAV in development)
   channels:
     provider: simulated    # WhatsApp / SMS / e-mail copies of notifications are written to the log and marked Sent
+  push:
+    provider: webpush      # Web Push to phones and computers (real: the browser's own push service); "log" without internet, "none" for off
+    subject: mailto:dev@localhost
+    # vapid-public-key / vapid-private-key: left empty in development - a pair is made at start-up and printed in the log (copy them here to
+    # keep browsers subscribed across restarts)
   jobs:                    # how often the background jobs run (milliseconds)
+    live-delay: 2000             # new notifications to the open apps (server push stream)
+    live-heartbeat: 25000        # keep-alive ping on the open streams
+    push-delay: 3000             # send queued Web Push messages
     channels-delay: 10000        # send queued WhatsApp / SMS / e-mail copies
     simulated-bank-delay: 3000   # deliver the simulated bank's webhooks (declined, slow, lost, refunds)
     reconcile-delay: 120000      # ask the provider about payments and refunds still open (a webhook that never came)

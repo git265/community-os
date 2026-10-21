@@ -17,6 +17,7 @@ import { loadAuthConfig, publicCommunity, whoAmI } from '../lib/auth/authApi.js'
 import { authProviderFor } from '../lib/auth/providers.js';
 import { getAuthConfig, getAuthUser } from '../lib/auth/session.js';
 import { getDataSource } from '../lib/storage/dataSource.js';
+import { disablePush } from '../lib/push.js';
 
 const AppCtx = createContext(null);
 
@@ -167,7 +168,7 @@ export function AppProvider({ children }) {
     logEvent({ who, what: 'Sign-in', action: 'Sign-in', summary: `${who} signed in${unit ? ` · ${unit}` : ''}`, unit: unit || '' });
   }
   function logout() {
-    if (enforced) { authProviderFor(getAuthConfig()).signOut(); setCurrentUser(null); return; }
+    if (enforced) { disablePush().finally(() => authProviderFor(getAuthConfig()).signOut()); setCurrentUser(null); return; }   // this device stops getting their push first
     if (currentUser) { const who = `${currentUser.name} (${roleFor(currentUser.roleId)?.name || currentUser.roleId})`; logEvent({ who, what: 'Sign-in', action: 'Sign-out', summary: `${who} signed out`, unit: currentUser.unit || '' }); }
     setCurrentUser(null);
   }

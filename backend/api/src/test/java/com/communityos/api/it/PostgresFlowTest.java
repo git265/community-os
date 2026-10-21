@@ -70,6 +70,8 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.nio.charset.StandardCharsets;
+import com.communityos.api.shared.http.HttpTransport;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -83,6 +85,30 @@ import org.junit.jupiter.api.Test;
  */
 class PostgresFlowTest {
     static <T> T as(Caller c, Supplier<T> w) { return CallerHolder.runAs(c, w); }
+    /** What the phone does with a Web Push message (RFC 8291 / RFC 8188, one record): proves only that phone can read it. */
+    static byte[] decryptPush(byte[] body, java.security.interfaces.ECPrivateKey uaPriv, java.security.interfaces.ECPublicKey uaPub, byte[] auth) throws Exception {
+        java.nio.ByteBuffer b = java.nio.ByteBuffer.wrap(body);
+        byte[] salt = new byte[16]; b.get(salt); int rs = b.getInt(); byte[] asRaw = new byte[b.get() & 0xff]; b.get(asRaw);
+        byte[] ct = new byte[b.remaining()]; b.get(ct);
+        assertEquals(4096, rs);
+        var ka = javax.crypto.KeyAgreement.getInstance("ECDH"); ka.init(uaPriv); ka.doPhase(com.communityos.api.shared.push.WebPush.publicKey(asRaw), true);
+        byte[] ecdh = ka.generateSecret();
+        java.util.function.BiFunction<byte[], byte[], byte[]> hmac = (k, d) -> {
+            try { var m = javax.crypto.Mac.getInstance("HmacSHA256"); m.init(new javax.crypto.spec.SecretKeySpec(k, "HmacSHA256")); return m.doFinal(d); } catch (Exception e) { throw new IllegalStateException(e); }
+        };
+        java.io.ByteArrayOutputStream info = new java.io.ByteArrayOutputStream();
+        info.write("WebPush: info\0".getBytes(StandardCharsets.US_ASCII)); info.write(com.communityos.api.shared.push.WebPush.raw(uaPub)); info.write(asRaw); info.write(1);
+        byte[] ikm = hmac.apply(hmac.apply(auth, ecdh), info.toByteArray());
+        byte[] prk = hmac.apply(salt, ikm);
+        byte[] cek = java.util.Arrays.copyOf(hmac.apply(prk, "Content-Encoding: aes128gcm\0\1".getBytes(StandardCharsets.US_ASCII)), 16);
+        byte[] nonce = java.util.Arrays.copyOf(hmac.apply(prk, "Content-Encoding: nonce\0\1".getBytes(StandardCharsets.US_ASCII)), 12);
+        var gcm = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding");
+        gcm.init(javax.crypto.Cipher.DECRYPT_MODE, new javax.crypto.spec.SecretKeySpec(cek, "AES"), new javax.crypto.spec.GCMParameterSpec(128, nonce));
+        byte[] plain = gcm.doFinal(ct);
+        int end = plain.length - 1; while (end >= 0 && plain[end] == 0) end--;
+        assertEquals(2, plain[end], "the last record's delimiter");
+        return java.util.Arrays.copyOf(plain, end);
+    }
 
     /** Needs psql and a migrated cos_v2 on localhost:$PGPORT, default 5433 (tools/migrate-local.sh); skipped otherwise, e.g. in a plain `mvn test`. */
     static boolean databaseAvailable() {
@@ -576,6 +602,58 @@ class PostgresFlowTest {
             assertEquals("2", owner.sql("SELECT count(*)::text AS n FROM comms.outbox_message WHERE community_id = '" + cid + "' AND membership_id = '" + members[0] + "' AND event = 'bill'").get(0).get("n"),
                 "WhatsApp is switched off for bills now");
             assertTrue(as(admin, () -> inboxSvc.mine(admin, true, 50)).stream().anyMatch((n) -> n.title().equals("New bill · ₹50")), "also told: the super admin");
+            // push: the owner allows notifications on a phone; a new bill is queued for it, encrypted for that phone alone (RFC 8291) and signed with the
+            // server's key (VAPID); a phone the push service no longer knows is removed; the open app gets it over its live stream, once
+            var phoneGen = java.security.KeyPairGenerator.getInstance("EC"); phoneGen.initialize(new java.security.spec.ECGenParameterSpec("secp256r1"));
+            var phoneKeys = phoneGen.generateKeyPair(); byte[] phoneAuth = new byte[16]; new java.security.SecureRandom().nextBytes(phoneAuth);
+            String p256dh = com.communityos.api.shared.push.WebPush.B64.encodeToString(com.communityos.api.shared.push.WebPush.raw((java.security.interfaces.ECPublicKey) phoneKeys.getPublic()));
+            String authB64 = com.communityos.api.shared.push.WebPush.B64.encodeToString(phoneAuth);
+            var vapid = com.communityos.api.shared.push.WebPush.generate();
+            List<HttpTransport.Request> pushed = new ArrayList<>();
+            HttpTransport pushService = (preq) -> { pushed.add(preq); return new HttpTransport.Response(preq.uri().getPath().startsWith("/gone") ? 410 : 201, Map.of(), new byte[0]); };
+            var pushSender = new com.communityos.api.comms.adapter.WebPushSender(pushService, vapid, "mailto:it@test", json, clock);
+            var pushSvc = new com.communityos.api.comms.application.PushService(app, pushSender);
+            assertEquals(vapid.publicKeyB64(), pushSvc.key().publicKey());
+            assertThrows(DomainException.RuleViolated.class, () -> as(ownerC, () -> { pushSvc.subscribe(ownerC, "http://push.example.test/x", p256dh, authB64, null); return null; }), "https only");
+            assertThrows(DomainException.RuleViolated.class, () -> as(ownerC, () -> { pushSvc.subscribe(ownerC, "https://push.example.test/x", "short", authB64, null); return null; }));
+            as(ownerC, () -> { pushSvc.subscribe(ownerC, "https://push.example.test/phone-" + tag, p256dh, authB64, "it"); pushSvc.subscribe(ownerC, "https://push.example.test/gone-" + tag, p256dh, authB64, "it"); return null; });
+            as(ownerC, () -> { pushSvc.subscribe(ownerC, "https://push.example.test/phone-" + tag, p256dh, authB64, "it again"); return null; });   // the same device again: one row
+            assertEquals(2L, (long) as(ownerC, () -> pushSvc.devices(ownerC)));
+            assertEquals(0L, (long) as(treasurer, () -> pushSvc.devices(treasurer)), "someone else's devices are theirs");
+            as(treasurer, () -> { pushSvc.unsubscribe(treasurer, "https://push.example.test/phone-" + tag); return null; });
+            assertEquals(2L, (long) as(ownerC, () -> pushSvc.devices(ownerC)), "and only they can remove them");
+            var live = new com.communityos.api.comms.adapter.LiveHub(platform, clock);
+            List<Map<String, Object>> onScreen = new ArrayList<>();
+            com.communityos.api.comms.adapter.LiveHub.Tab tab = (ev, data) -> { if (ev.equals("notification")) onScreen.add(data); return true; };
+            live.connect(UUID.fromString(cid.toString()), UUID.fromString(String.valueOf(members[0])), tab);
+            live.connect(UUID.randomUUID(), UUID.fromString(String.valueOf(members[0])), (ev, data) -> { if (ev.equals("notification")) throw new AssertionError("another community's tab"); return true; });
+            as(treasurer, () -> dueService.raise(treasurer, new DueService.RaiseDue(new UnitId(unitA), "Water", today.withDayOfMonth(1), "Push", Money.of("75"), today.plusDays(9))));
+            var queuedPush = owner.sql("SELECT q.status, q.title FROM comms.push_queue q JOIN comms.push_subscription s ON s.community_id = q.community_id AND s.id = q.subscription_id WHERE q.community_id = '" + cid + "' ORDER BY s.endpoint");
+            assertEquals(2, queuedPush.size(), "one per device: " + queuedPush); assertEquals("New bill · ₹75", queuedPush.get(0).get("title"));
+            var pushes = new com.communityos.api.comms.adapter.PushDelivery(platform, pushSender);
+            while (pushes.runOnce(100) > 0) { }                      // every community's queue (rows left by earlier runs too)
+            pushed.removeIf((pr) -> !pr.uri().getPath().endsWith("-" + tag));
+            assertEquals(2, pushed.size(), "one message per device");
+            assertEquals(0, pushes.runOnce(100), "sent once");
+            var toPhone = pushed.stream().filter((pr) -> pr.uri().getPath().startsWith("/phone-")).findFirst().orElseThrow();
+            assertEquals("aes128gcm", toPhone.headers().get("Content-Encoding")); assertTrue(toPhone.headers().get("TTL") != null);
+            String authz = toPhone.headers().get("Authorization");
+            assertTrue(authz.startsWith("vapid t=") && authz.endsWith(", k=" + vapid.publicKeyB64()), authz);
+            String[] jwt = authz.substring("vapid t=".length(), authz.indexOf(',')).split("\\.");
+            var verify = java.security.Signature.getInstance("SHA256withECDSAinP1363Format"); verify.initVerify(vapid.publicKey());
+            verify.update((jwt[0] + "." + jwt[1]).getBytes(StandardCharsets.US_ASCII));
+            assertTrue(verify.verify(com.communityos.api.shared.push.WebPush.D64.decode(jwt[2])), "signed with the server's key");
+            assertTrue(new String(com.communityos.api.shared.push.WebPush.D64.decode(jwt[1]), StandardCharsets.UTF_8).contains("\"aud\":\"https://push.example.test\""));
+            Map<?, ?> openedPush = json.readValue(decryptPush(toPhone.body(), (java.security.interfaces.ECPrivateKey) phoneKeys.getPrivate(), (java.security.interfaces.ECPublicKey) phoneKeys.getPublic(), phoneAuth), Map.class);
+            assertEquals("New bill · ₹75", openedPush.get("title")); assertTrue(String.valueOf(openedPush.get("link")).startsWith("#/"), "opens the app: " + openedPush);
+            var afterPush = owner.sql("SELECT s.endpoint, s.last_sent_at IS NOT NULL AS touched, (SELECT string_agg(q.status, ',') FROM comms.push_queue q WHERE q.community_id = s.community_id AND q.subscription_id = s.id) AS st FROM comms.push_subscription s WHERE s.community_id = '" + cid + "'");
+            assertEquals(1, afterPush.size(), "the device the push service no longer knows is removed: " + afterPush);
+            assertEquals("Sent", afterPush.get(0).get("st")); assertEquals("t", afterPush.get(0).get("touched"));
+            assertTrue(live.fanOut() >= 1); assertTrue(onScreen.stream().anyMatch((n) -> "New bill · ₹75".equals(n.get("title"))), "on the open screen: " + onScreen);
+            int shown = onScreen.size();
+            int liveAgain = live.fanOut();
+            assertEquals(0, liveAgain, "not twice"); assertEquals(shown, onScreen.size());
+            live.heartbeat(); live.disconnect(UUID.fromString(String.valueOf(members[0])), tab);
             assertThrows(AccessDenied.class, () -> as(ownerC, () -> kit.create(ownerC, com.communityos.api.comms.CommsResources.NUMBERS,
                 new com.communityos.api.shared.resource.JdbcResourceRepository<>(com.communityos.api.comms.CommsResources.NUMBERS.table(), app, json),
                 new com.communityos.api.comms.CommsResources.NumberFields("Plumber", "98450 00000", null, null, null, null, true))));

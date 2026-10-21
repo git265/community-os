@@ -33,6 +33,8 @@ public class SecurityConfig {
             .cors((c) -> c.configurationSource(cors(p.web().allowedOrigins())))
             .sessionManagement((s) -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests((a) -> a
+                // the second pass of a request that was already allowed (the live stream ending, an error page): not checked again
+                .dispatcherTypeMatchers(jakarta.servlet.DispatcherType.ASYNC, jakarta.servlet.DispatcherType.ERROR).permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/auth/otp", "/api/v1/auth/token", "/api/v1/auth/refresh", "/api/v1/auth/logout").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/webhooks/*").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/v1/public/**").permitAll()

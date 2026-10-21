@@ -226,6 +226,38 @@ public class ModulesConfig {
         return new DueService(dues, lookups, lookups, events, audit, tx, clock);
     }
 
+    // ---- push: the live stream to open apps, Web Push to closed ones ------------------------------------------------------------------------------
+    @Bean com.communityos.api.comms.adapter.LiveHub liveHub(@org.springframework.beans.factory.annotation.Qualifier("platform") NamedParameterJdbcTemplate platformJdbc, Clock clock) {
+        return new com.communityos.api.comms.adapter.LiveHub(platformJdbc, clock);
+    }
+    @Bean Optional<com.communityos.api.comms.application.port.PushSender> pushSender(CosProperties p, Environment env, HttpTransport http, ObjectMapper json, Clock clock) {
+        CosProperties.Push push = p.push();
+        switch (push.provider()) {
+            case "webpush" -> {
+                com.communityos.api.shared.push.WebPush.Vapid v;
+                if (push.vapidPublicKey() == null || push.vapidPublicKey().isBlank() || push.vapidPrivateKey() == null || push.vapidPrivateKey().isBlank()) {
+                    if (env.matchesProfiles("prod")) throw new IllegalStateException("cos.push.vapid-public-key and vapid-private-key are required for Web Push in prod");
+                    v = com.communityos.api.shared.push.WebPush.generate();   // development: a key pair for this run (browsers subscribe again after a restart)
+                    org.slf4j.LoggerFactory.getLogger(ModulesConfig.class).warn("Web Push: no VAPID keys configured - made a pair for this run. To keep subscriptions across restarts set "
+                        + "COS_PUSH_VAPID_PUBLIC_KEY={} and COS_PUSH_VAPID_PRIVATE_KEY={}", v.publicKeyB64(), v.privateKeyB64());
+                } else v = com.communityos.api.shared.push.WebPush.of(push.vapidPublicKey(), push.vapidPrivateKey());
+                return Optional.of(new com.communityos.api.comms.adapter.WebPushSender(http, v, push.subject(), json, clock));
+            }
+            case "log" -> {
+                if (env.matchesProfiles("prod")) throw new IllegalStateException("cos.push.provider=log cannot be used in prod");
+                return Optional.of(new com.communityos.api.comms.adapter.LogPushSender());
+            }
+            default -> { return Optional.empty(); }
+        }
+    }
+    @Bean com.communityos.api.comms.application.PushService pushService(NamedParameterJdbcTemplate jdbc, Optional<com.communityos.api.comms.application.port.PushSender> sender) {
+        return new com.communityos.api.comms.application.PushService(jdbc, sender.orElse(null));
+    }
+    @Bean Optional<com.communityos.api.comms.adapter.PushDelivery> pushDelivery(@org.springframework.beans.factory.annotation.Qualifier("platform") NamedParameterJdbcTemplate platformJdbc,
+                                                                               Optional<com.communityos.api.comms.application.port.PushSender> sender) {
+        return sender.map((s) -> new com.communityos.api.comms.adapter.PushDelivery(platformJdbc, s));
+    }
+
     /** The WhatsApp / SMS / e-mail copies of notifications: delivered by the configured provider (cos.channels.provider), or not at all. */
     @Bean @ConditionalOnProperty(name = "cos.channels.provider", havingValue = "simulated")
     com.communityos.api.comms.adapter.ChannelDelivery channelDelivery(@org.springframework.beans.factory.annotation.Qualifier("platform") NamedParameterJdbcTemplate platformJdbc, Environment env) {

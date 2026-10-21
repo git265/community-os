@@ -328,6 +328,11 @@ globalThis.fetch = async (url, init = {}) => {
   }
   // ---- comms
   if (path === '/notifications') return ok(state.notes);
+  if (path === '/notifications/stream') {                       // the live stream: ready, a ping, one notification split across two chunks, then the server ends it
+    const enc = new TextEncoder(); const n = JSON.stringify({ id: 'live-1', createdAt: '2026-10-21T06:00:00Z', event: 'bill', kind: 'bill', title: 'New bill · ₹75', body: 'Due soon', link: '#/billing', refId: null });
+    const parts = ['event:ready\ndata:{"reconnectAfterMinutes":5}\n\n', 'event:ping\ndata:{}\n\n', `event:notification\ndata:${n.slice(0, 20)}`, `${n.slice(20)}\n\n`];
+    return new Response(new ReadableStream({ start(c) { parts.forEach((x) => c.enqueue(enc.encode(x))); c.close(); } }), { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+  }
   if ((m = /^\/notifications\/([^/]+)\/read$/.exec(path))) { const n = state.notes.find((x) => x.id === m[1]); n.readAt = '2026-10-20T07:00:00Z'; return ok({ changed: 1 }); }
   if (path === '/comms/broadcasts' && method === 'GET') return ok(state.broadcasts.filter((b) => !u.searchParams.get('status') || b.status === u.searchParams.get('status')));
   if (path === '/comms/broadcasts' && method === 'POST') {
@@ -957,3 +962,19 @@ test('reports: a schedule names units and people by id; sending is the server\'s
   await assert.rejects(runSchedule({ ...sch, reportType: 'custom' }, { manual: true }), /previewed on the screen/);
 });
 
+
+test('push: the server pushes each new notification to the open app over one live stream (fetch with the token, not polling); it reconnects when the stream ends', async () => {
+  const { startLive, sseParser } = await import('../../src/lib/push.js');
+  const got = []; const feed = sseParser((m) => got.push(m));
+  feed('event: a\ndata: 1\n'); feed('data: 2\n\n: comment\n\nevent:b\r\ndata:x\r\n\r\n');
+  assert.deepEqual(got, [{ event: 'a', data: '1\n2' }, { event: 'b', data: 'x' }], 'multi-line data, comments, CRLF, split chunks');
+  const seen = []; const before = window.dispatchEvent;
+  window.dispatchEvent = (e) => { if (e.type === 'communityos:notify') seen.push(e.detail.notification); return true; };
+  let reconnects = 0; let stop;
+  await new Promise((done) => { stop = startLive({ onReconnect: () => { if (++reconnects === 2) done(); } }); });
+  stop(); window.dispatchEvent = before;
+  const opened = calls.filter((c) => c.path === '/notifications/stream');
+  assert.ok(opened.length >= 2, 'opened again after the server ended it'); assert.equal(opened[0].headers.Authorization, 'Bearer tok-1');
+  assert.equal(seen[0].id, 'live-1'); assert.equal(seen[0].title, 'New bill · ₹75'); assert.equal(seen[0].link, '#/billing'); assert.equal(seen[0].read, false);
+  assert.equal(seen.filter((n) => n.id === 'live-1').length >= 1, true);
+});

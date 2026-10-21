@@ -34,11 +34,11 @@ public final class SqlCatalog {
                 "gate.adapter.JdbcGateStore", "gate.adapter.JdbcGateDirectory", "comms.adapter.JdbcInbox", "comms.adapter.JdbcCommsStore", "docs.adapter.JdbcFileRepository",
                 "docs.adapter.JdbcDocumentRepository", "cultural.adapter.JdbcCulturalStore", "finance.adapter.JdbcFinanceStore",
                 "governance.adapter.JdbcGovernanceStore", "vendor.adapter.JdbcDirectoryStore", "assets.adapter.JdbcAssetStore",
-                "workforce.adapter.JdbcAttendanceStore", "reports.adapter.JdbcReportData", "billing.adapter.JdbcRefunds"))
+                "workforce.adapter.JdbcAttendanceStore", "reports.adapter.JdbcReportData", "billing.adapter.JdbcRefunds", "comms.application.PushService"))
             CLASSES.put(c, "cos_app");
         for (String c : List.of("shared.jdbc.JdbcOutboxStore", "identity.adapter.JdbcOtpStore", "identity.adapter.JdbcRefreshTokenStore", "identity.adapter.JdbcPersonDirectory",
                 "identity.adapter.JdbcRateLimiter", "identity.adapter.JdbcCallerLoader", "identity.adapter.JdbcCommunityDirectory", "billing.adapter.JdbcPlatformPayments", "shared.integration.WebhookFanout",
-                "shared.integration.WebhookDeliveryWorker", "config.Jobs", "demo.DemoController", "demo.PlatformSetup", "comms.adapter.ChannelDelivery"))
+                "shared.integration.WebhookDeliveryWorker", "config.Jobs", "demo.DemoController", "demo.PlatformSetup", "comms.adapter.ChannelDelivery", "comms.adapter.PushDelivery", "comms.adapter.LiveHub"))
             CLASSES.put(c, "cos_platform");
     }
     /** fragments that are only valid once composed */

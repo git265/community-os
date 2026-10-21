@@ -24,14 +24,17 @@ public class Jobs {
     private final java.util.Optional<com.communityos.api.comms.adapter.ChannelDelivery> channels;
     private final java.util.Optional<com.communityos.api.billing.adapter.gateway.SimulatedGateway> simulatedBank;
     private final java.util.Optional<com.communityos.api.billing.application.RefundService> refunds;
+    private final com.communityos.api.comms.adapter.LiveHub live;
+    private final java.util.Optional<com.communityos.api.comms.adapter.PushDelivery> pushes;
 
     public Jobs(OutboxRelay outbox, WebhookDeliveryWorker webhooks, PaymentService payments, @Qualifier("platform") NamedParameterJdbcTemplate platformJdbc,
                 com.communityos.api.gate.application.GateService gate, com.communityos.api.comms.application.BroadcastService notices,
                 com.communityos.api.workforce.application.AttendanceService attendance, com.communityos.api.reports.application.ReportService reports,
                 java.util.Optional<com.communityos.api.comms.adapter.ChannelDelivery> channels,
                 java.util.Optional<com.communityos.api.billing.adapter.gateway.SimulatedGateway> simulatedBank,
-                java.util.Optional<com.communityos.api.billing.application.RefundService> refunds) {
-        this.channels = channels; this.simulatedBank = simulatedBank; this.refunds = refunds;
+                java.util.Optional<com.communityos.api.billing.application.RefundService> refunds, com.communityos.api.comms.adapter.LiveHub live,
+                java.util.Optional<com.communityos.api.comms.adapter.PushDelivery> pushes) {
+        this.channels = channels; this.simulatedBank = simulatedBank; this.refunds = refunds; this.live = live; this.pushes = pushes;
         this.outbox = outbox; this.webhooks = webhooks; this.payments = payments; this.platformJdbc = platformJdbc; this.gate = gate; this.notices = notices; this.attendance = attendance; this.reports = reports;
     }
 
@@ -95,6 +98,16 @@ public class Jobs {
     @Scheduled(fixedDelayString = "${cos.jobs.outbox-delay:2000}")
     public void relayOutbox() { run("outbox", () -> { while (outbox.runOnce(200) == 200) { /* drain a backlog */ } }); }
 
+    /** New notifications to the open apps connected to this instance (one query for all of them). */
+    @Scheduled(fixedDelayString = "${cos.jobs.live-delay:2000}", initialDelay = 5000)
+    public void liveNotifications() { run("live", live::fanOut); }
+    /** A ping now and then keeps the open streams alive through proxies, and drops the ones that have gone. */
+    @Scheduled(fixedDelayString = "${cos.jobs.live-heartbeat:25000}", initialDelay = 25000)
+    public void liveHeartbeat() { run("live heartbeat", live::heartbeat); }
+    /** Web Push to phones and computers, when a provider is configured. */
+    @Scheduled(fixedDelayString = "${cos.jobs.push-delay:3000}", initialDelay = 15000)
+    public void deliverPushes() { pushes.ifPresent((d) -> run("push", () -> { while (d.runOnce(100) == 100) { /* drain a backlog */ } })); }
+
     /** The WhatsApp / SMS / e-mail copies of notifications, when a provider is configured (otherwise they stay Queued). */
     @Scheduled(fixedDelayString = "${cos.jobs.channels-delay:10000}", initialDelay = 20000)
     public void deliverChannelMessages() { channels.ifPresent((d) -> run("channels", () -> { while (d.runOnce(100) == 100) { /* drain a backlog */ } })); }
@@ -124,6 +137,7 @@ public class Jobs {
             platformJdbc.update("DELETE FROM identity.refresh_token WHERE expires_at < now() - interval '7 days'", Map.of());
             platformJdbc.update("DELETE FROM integration.idempotency_key WHERE created_at < now() - interval '1 day'", Map.of());
             platformJdbc.update("DELETE FROM integration.inbound_event WHERE processed_at < now() - interval '30 days'", Map.of());
+            platformJdbc.update("DELETE FROM comms.push_queue WHERE created_at < now() - interval '7 days'", Map.of());
         });
     }
 

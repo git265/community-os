@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { listMine, markRead, markAllRead, NOTIFICATIONS } from '../lib/notifications.js';
 import { getDataSource } from '../lib/storage/dataSource.js';
 import { apiFetch } from '../lib/net/request.js';
+import { startLive, isLive, enablePush } from '../lib/push.js';
 import { ApprovalButtons } from './GateApproval.jsx';
 
 export const ICON = { gate: '🚪', gate_approval: '🚪', amenity: '🏊', assigned: '📌', status: '🔁', decision: '✅', bill: '🧾', announcement: '📣', ballot: '🗳', meeting: '📅', shift: '🕒', forum_topic: '💬', forum_reply: '💬', poll: '📊', ballot_result: '🗳', ballot_reminder: '🗳', ticket_chat: '💬', ticket_new: '🆕', payment_made: '💳' };
@@ -27,12 +28,24 @@ export default function NotificationBell({ onOpen, onViewAll }) {
 
   const load = useCallback(async () => { setItems(await listMine()); }, []);
   useEffect(() => { load(); }, [load]);
-  // On the v2 back end other people's actions reach this inbox on the server: ask for the unread COUNT now and then (one number),
-  // and fetch the list again only when it changed.
+  // On the v2 back end other people's actions reach this inbox on the server. The server PUSHES each one to the open app over a live stream
+  // (lib/push.js); after a reconnect the list is read again to catch up. Only while the stream is down does the bell ask for the unread
+  // COUNT now and then (one number), fetching the list again only when it changed. Closed apps get Web Push through the service worker.
+  useEffect(() => {
+    if (getDataSource().mode !== 'v2') return undefined;
+    let first = true;
+    const stop = startLive({ onReconnect: () => { if (first) first = false; else load(); } });
+    if (typeof Notification !== 'undefined' && Notification.permission === 'granted') enablePush();
+    const fromWorker = (e) => { if (e.data?.type === 'communityos:open') onOpen(e.data.link); };   // a push notification was tapped
+    navigator.serviceWorker?.addEventListener('message', fromWorker);
+    return () => { stop(); navigator.serviceWorker?.removeEventListener('message', fromWorker); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [load]);
   useEffect(() => {
     if (getDataSource().mode !== 'v2') return undefined;
     let on = true;
-    const tick = async () => {
+    const tick = async (force) => {
+      if (isLive() && force !== true) return;
       try {
         const res = await apiFetch('/v1/notifications/unread-count');
         if (!res.ok) return;
@@ -41,7 +54,7 @@ export default function NotificationBell({ onOpen, onViewAll }) {
       } catch { /* offline: try again next time */ }
     };
     const t = setInterval(tick, 30000);
-    const vis = () => { if (document.visibilityState === 'visible') tick(); };
+    const vis = () => { if (document.visibilityState === 'visible') tick(true); };
     document.addEventListener('visibilitychange', vis);
     return () => { on = false; clearInterval(t); document.removeEventListener('visibilitychange', vis); };
   }, [load]);
@@ -88,7 +101,9 @@ export default function NotificationBell({ onOpen, onViewAll }) {
   }
   async function enable() {
     if (typeof Notification === 'undefined') return;
-    setPerm(await Notification.requestPermission());
+    const p = await Notification.requestPermission();
+    setPerm(p);
+    if (p === 'granted') enablePush();                 // and on this device when the app is closed (v2: Web Push)
   }
 
   return (

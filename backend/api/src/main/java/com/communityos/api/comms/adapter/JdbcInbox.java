@@ -36,7 +36,12 @@ public final class JdbcInbox implements Inbox, Facts {
           SELECT platform.current_community(), gen_random_uuid(), now(), who.id, CAST(:event AS text), CAST(:kind AS text), CAST(:title AS text), CAST(:body AS text),
                  CAST(:link AS text), platform.current_actor(), CAST(:ref AS uuid)
           FROM who
-          RETURNING to_membership_id),
+          RETURNING to_membership_id, id),
+        pushed AS (
+          INSERT INTO comms.push_queue (community_id, subscription_id, notification_id, title, body, link)
+          SELECT platform.current_community(), ps.id, sent.id, CAST(:title AS text), left(CAST(:body AS text), 4000), CAST(:link AS text)
+          FROM sent JOIN comms.push_subscription ps ON ps.membership_id = sent.to_membership_id
+          RETURNING 1),
         queued AS (
           INSERT INTO comms.outbox_message (community_id, id, created_at, event, channel, to_value, status, membership_id, subject, body, error)
           SELECT platform.current_community(), gen_random_uuid(), now(), CAST(:event AS text), ch.channel, ch.addr, CASE WHEN ch.addr IS NULL THEN 'Skipped' ELSE 'Queued' END,
@@ -49,7 +54,7 @@ public final class JdbcInbox implements Inbox, Facts {
           CROSS JOIN LATERAL (VALUES ('WhatsApp', np.whatsapp, p.phone_e164), ('SMS', np.sms, p.phone_e164), ('Email', np.email, CAST(p.email AS text))) AS ch(channel, wanted, addr)
           WHERE ch.wanted AND coalesce(CAST(s.events -> CAST(:event AS text) ->> lower(ch.channel) AS boolean), TRUE)
           RETURNING 1)
-        SELECT (SELECT count(*) FROM sent) AS sent, (SELECT count(*) FROM queued) AS queued""";
+        SELECT (SELECT count(*) FROM sent) AS sent, (SELECT count(*) FROM queued) AS queued, (SELECT count(*) FROM pushed) AS pushed""";
     static final String MINE = """
         SELECT n.id, n.created_at, n.event, n.kind, n.title, n.body, n.link, n.ref_id, s.display_name AS sender, n.read_at
         FROM comms.notification n LEFT JOIN identity.membership s ON s.community_id = n.community_id AND s.id = n.sender_id
