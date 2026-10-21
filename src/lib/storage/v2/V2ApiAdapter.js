@@ -23,13 +23,14 @@ import { AuthzError, ConflictError } from '../../security/errors.js';
 import { SessionStorageAdapter } from '../SessionStorageAdapter.js';
 import { propertyOf, unitPatch, userOf, dueOf, raiseBody, roleOf, ticketOf, ticketPatch, raiseTicketBody, commentOf, fieldStaffOf, quotationOf, addDocumentBody,
   quotationCommands, RESOURCES, resourceOf, resourceBody, isUuid, bookingOf, busyOf, bookBody, bookingCommand, gatePassOf, gateVisitOf, gateApprovalOf, gateFlagOf, gateScanOf,
-  passBody, notificationOf, broadcastOf, broadcastDraft, broadcastCommands, pollVoteRows, topicOf, postOf } from './v2map.js';
+  passBody, fileMeta, fileRowOf, dataUrlBytes, bytesDataUrl, documentOf, documentBody, notificationOf, broadcastOf, broadcastDraft, broadcastCommands, pollVoteRows, topicOf, postOf } from './v2map.js';
 import { getAuthUser } from '../../auth/session.js';
 import { getPrincipal } from '../../security/principal.js';
 
 const GATE_DESK = ['gatePasses', 'gateVisits', 'gateApprovals', 'gateFlags', 'gateScans', 'gatePulse'];
+const DOCS = ['files', 'documents'];
 const COMMS = ['notifications', 'broadcasts', 'pollVotes', 'forum', 'forumPosts'];
-export const V2_COLLECTIONS = ['properties', 'users', 'dues', 'roles', 'tickets', 'ticketComments', 'handymen', 'quotations', 'amenities', ...GATE_DESK, ...COMMS, ...Object.keys(RESOURCES)];
+export const V2_COLLECTIONS = ['properties', 'users', 'dues', 'roles', 'tickets', 'ticketComments', 'handymen', 'quotations', 'amenities', ...GATE_DESK, ...COMMS, ...DOCS, ...Object.keys(RESOURCES)];
 export const LOCAL_COLLECTIONS = ['schema', 'communityConfig', 'roleGroups'];
 
 export class NotOnV2Error extends Error { constructor(collection) { super(`"${collection}" is not on the v2 back end yet - this screen works with the Browser session or the v1 back end.`); this.name = 'NotOnV2Error'; } }
@@ -153,6 +154,33 @@ for (const [c, spec] of Object.entries(RESOURCES)) {
     get: async (id) => { if (!isUuid(id)) return null; const r = await call(`/${spec.path}/${id}`); return r && resourceOf(r, spec); },
   };
 }
+// files: bytes go up as the request body; a record's attachments are the files attached to it on the server
+async function filesOf(ownerType, ownerId) { return (await call(`/files?ownerType=${ownerType}${ownerId ? `&ownerId=${ownerId}` : ''}`)).map(fileMeta); }
+/** Add each record's attachments (files attached to it) under `field`. */
+function withFiles(reader, ownerType, field, extra = () => ({})) {
+  const group = async (rows) => {
+    if (!rows.length) return rows;
+    const by = {};
+    for (const f of await call(`/files?ownerType=${ownerType}`)) (by[f.ownerId] ||= []).push(fileMeta(f));
+    return rows.map((r) => (by[r.id] ? { ...r, [field]: by[r.id], ...extra(by[r.id]) } : r));
+  };
+  return { list: async () => group(await reader.list()), get: async (id) => { const r = await reader.get(id); return r ? (await group([r]))[0] : r; } };
+}
+const photos = (metas) => ({ hasPhotos: metas.some((m) => /^image\//.test(m.mime)) });
+readers.tickets = withFiles(readers.tickets, 'maintenance.ticket', 'attachments', photos);
+readers.ticketComments = withFiles(readers.ticketComments, 'maintenance.comment', 'attachments');
+readers.quotations = withFiles(readers.quotations, 'maintenance.quotation', 'attachments');
+readers.amenities = withFiles(readers.amenities, 'amenity.booking', 'depositPhotos');
+readers.files = {
+  list: async () => (await call('/files?ownerType=upload')).map((f) => fileRowOf(f)),
+  get: async (id) => {
+    if (!isUuid(id)) return null;
+    const f = await call(`/files/${id}`); if (!f) return null;
+    const res = await apiFetch(`/v1/files/${id}/content`);
+    return fileRowOf(f, res.ok ? bytesDataUrl(await res.arrayBuffer(), f.mimeType) : '');
+  },
+};
+readers.documents = { list: async () => (await call('/documents')).map(documentOf), get: async (id) => { if (!isUuid(id)) return null; const d = await call(`/documents/${id}`); return d && documentOf(d); } };
 // task types also say which ones this person may raise (the ticket form offers only those)
 const taskTypeList = readers.taskTypes.list;
 readers.taskTypes.list = async () => {
@@ -182,7 +210,6 @@ async function assigneeId(ticketId, name) {
 
 async function putTicket(rec) {
   const before = rec.id ? await readers.tickets.get(rec.id) : null;
-  if ((rec.attachments || []).length) throw new NotOnV2Error('photos and files on tickets');
   const { idByNo, noById } = await unitIndex();
   const map = (t) => ticketOf(t, noById);
   if (!before) {
@@ -218,7 +245,6 @@ async function putTicket(rec) {
 
 async function putComment(rec) {
   if (rec.id && (await readers.ticketComments.get(rec.id))) throw new Error('Comments cannot be edited.');
-  if ((rec.attachments || []).length) throw new NotOnV2Error('files on comments');
   return commentOf(await call(`/tickets/${encodeURIComponent(rec.ticketId)}/comments`, json('POST', { body: rec.body, visibility: rec.visibility || 'Public' })));
 }
 
@@ -281,7 +307,6 @@ async function putDue(rec) {
 
 async function putQuotation(rec) {
   const before = isUuid(rec.id) ? await readers.quotations.get(rec.id) : null;
-  if ((rec.attachments || []).length) throw new NotOnV2Error('files on quotations and invoices');
   if (!before) {
     if (!rec.ticketId) throw new Error('A quotation belongs to a task.');
     let q = await call(`/tickets/${encodeURIComponent(rec.ticketId)}/quotations`, json('POST', addDocumentBody(rec)));
@@ -394,6 +419,32 @@ async function putPost(rec) {
   if (rec.hidden !== undefined && !!rec.hidden !== before.hidden) out = await call(`/comms/forum/posts/${rec.id}/hide`, json('POST', { hidden: !!rec.hidden, reason: rec.hiddenReason || null }, ifMatch(out?.version ?? before.version)));
   return out ? postOf(out) : before;
 }
+async function putFile(rec) {
+  if (isUuid(rec.id) && (await call(`/files/${rec.id}`))) throw new Error('An uploaded file is not changed - upload a new one.');
+  const { bytes, mime } = dataUrlBytes(rec.dataUrl);
+  const res = await apiFetch(`/v1/files?name=${encodeURIComponent(rec.name || 'file')}${rec.visibility ? `&visibility=${rec.visibility}` : ''}`,
+    { method: 'POST', body: new Blob([bytes], { type: rec.mime || mime }), headers: { 'Content-Type': rec.mime || mime } });
+  if (!res.ok) { let b = null; try { b = await res.json(); } catch { /* not JSON */ } throw new Error(b?.detail || `Upload failed (${res.status})`); }
+  return fileRowOf(await res.json(), rec.dataUrl);
+}
+async function putDocument(rec) {
+  const before = isUuid(rec.id) ? await readers.documents.get(rec.id) : null;
+  const { idByNo } = await unitIndex();
+  const body = documentBody(rec, idByNo);
+  if (!before) {
+    if (!isUuid(rec.fileId)) throw new Error('Upload the document\'s file first.');
+    return documentOf(await call('/documents', json('POST', { fileId: rec.fileId, ...body })));
+  }
+  return documentOf(await call(`/documents/${rec.id}`, json('PUT', body, ifMatch(before.rowVersion))));
+}
+/** After a record is written: attach the files it lists that are not attached yet (they were uploaded first, unattached). */
+const attaching = (put, ownerType, field) => async (rec) => {
+  const wanted = (rec[field] || []).map((m) => m.fileId).filter(isUuid);
+  const out = await put(rec);
+  if (!wanted.length || !out?.id) return out;
+  for (const id of wanted) await call(`/files/${id}/attach`, json('POST', { ownerType, ownerId: out.id }));
+  return { ...out, [field]: await filesOf(ownerType, out.id) };
+};
 const deskOnly = () => { throw new Error('Visits and patrol scans are recorded by the gate desk (the gate screens), not edited.'); };
 
 async function putBooking(rec) {
@@ -410,7 +461,11 @@ async function putBooking(rec) {
   return bookingOf(await call(`/amenities/bookings/${encodeURIComponent(rec.id)}/${cmd.path}`, json('POST', cmd.body, ifMatch(before.version))));
 }
 
-const WRITERS = { notificationOutbox: async (r) => r /* the server queues channel messages itself, from the event */, notifications: putNotification, broadcasts: putBroadcast, pollVotes: putPollVote, forum: putTopic, forumPosts: putPost, gatePasses: putPass, gateApprovals: putApproval, gateFlags: putFlag, gateVisits: deskOnly, gateScans: deskOnly, gatePulse: async (r) => r, amenities: putBooking, properties: putProperty, users: putUser, dues: putDue, tickets: putTicket, ticketComments: putComment, handymen: putFieldStaff, quotations: putQuotation };
+const WRITERS = { files: putFile, documents: putDocument, notificationOutbox: async (r) => r /* the server queues channel messages itself, from the event */, notifications: putNotification, broadcasts: putBroadcast, pollVotes: putPollVote, forum: putTopic, forumPosts: putPost, gatePasses: putPass, gateApprovals: putApproval, gateFlags: putFlag, gateVisits: deskOnly, gateScans: deskOnly, gatePulse: async (r) => r, amenities: putBooking, properties: putProperty, users: putUser, dues: putDue, tickets: putTicket, ticketComments: putComment, handymen: putFieldStaff, quotations: putQuotation };
+WRITERS.tickets = attaching(WRITERS.tickets, 'maintenance.ticket', 'attachments');
+WRITERS.ticketComments = attaching(WRITERS.ticketComments, 'maintenance.comment', 'attachments');
+WRITERS.quotations = attaching(WRITERS.quotations, 'maintenance.quotation', 'attachments');
+WRITERS.amenities = attaching(WRITERS.amenities, 'amenity.booking', 'depositPhotos');
 for (const c of Object.keys(RESOURCES)) if (!WRITERS[c]) WRITERS[c] = (rec) => putResource(c, rec);
 const warned = new Set();
 const notYet = (c) => { if (!warned.has(c)) { warned.add(c); console.info(`[v2] "${c}" is not on the v2 back end yet; showing it empty.`); } };
@@ -441,6 +496,8 @@ export const V2ApiAdapter = {
   async remove(c, id) {
     if (LOCAL_COLLECTIONS.includes(c)) return SessionStorageAdapter.remove(c, id);
     if (RESOURCES[c]) return removeResource(c, id);
+    if (c === 'files') { if (isUuid(id)) await call(`/files/${id}`, { method: 'DELETE' }); return; }
+    if (c === 'documents') { const d = isUuid(id) ? await readers.documents.get(id) : null; if (d) await call(`/documents/${id}`, { method: 'DELETE', headers: ifMatch(d.rowVersion) }); return; }
     if (c === 'forum' || c === 'forumPosts' || c === 'broadcasts') {
       const path = c === 'forum' ? `/comms/forum/topics/${id}` : c === 'forumPosts' ? `/comms/forum/posts/${id}` : `/comms/broadcasts/${id}`;
       const before = isUuid(id) ? await readers[c].get(id) : null;

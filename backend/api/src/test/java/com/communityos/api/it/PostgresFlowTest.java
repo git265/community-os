@@ -573,6 +573,51 @@ class PostgresFlowTest {
             assertTrue(pinned.pinned); assertEquals("Closed", pinned.status);
             assertThrows(DomainException.RuleViolated.class, () -> as(treasurer, () -> forum.reply(treasurer, topic.id, null, "late")), "closed");
 
+            // ---- 6h. files and documents: a photo on a ticket, documents by group, a folder limited to a role, refusals -----------------------------------
+            var fileRepo = new com.communityos.api.docs.adapter.JdbcFileRepository(app);
+            var disk = new com.communityos.api.docs.adapter.LocalDiskStorage(java.nio.file.Files.createTempDirectory("cos-flow-files"));
+            var fileSvc = new com.communityos.api.docs.application.FileService(fileRepo, disk, com.communityos.api.docs.application.port.VirusScanner.NONE, audit, app, clock);
+            var docSvc = new com.communityos.api.docs.application.DocumentService(new com.communityos.api.docs.adapter.JdbcDocumentRepository(app), fileSvc, audit, app);
+            com.communityos.api.config.FileKinds.register(fileSvc, fileRepo, ticketSvc, docsSvc, bookingSvc, docSvc);
+            byte[] png = {(byte) 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52};
+            byte[] pdfBytes = "%PDF-1.7\n1 0 obj << /Type /Catalog >> endobj\n%%EOF".getBytes(java.nio.charset.StandardCharsets.ISO_8859_1);
+            var photo = as(ownerC, () -> fileSvc.upload(ownerC, new com.communityos.api.docs.application.FileService.Upload("../leak.png", png, null)));
+            assertEquals("leak.png", photo.fileName()); assertEquals("image/png", photo.mimeType()); assertEquals(64, photo.sha256().length()); assertEquals("Member owner", photo.uploadedBy());
+            assertThrows(AccessDenied.NotVisible.class, () -> as(treasurer, () -> fileSvc.get(treasurer, photo.id())), "not attached yet: only its uploader");
+            assertThrows(AccessDenied.class, () -> as(ownerC, () -> fileSvc.attach(ownerC, photo.id(), "amenity.booking", booked.id())), "deposit photos are the amenities staff's");
+            as(ownerC, () -> fileSvc.attach(ownerC, photo.id(), "maintenance.ticket", leak.id()));
+            assertTrue(java.util.Arrays.equals(png, as(treasurer, () -> fileSvc.content(treasurer, photo.id())).bytes()), "now whoever sees the ticket opens it");
+            assertEquals(1, as(admin, () -> fileSvc.list(admin, "maintenance.ticket", leak.id())).size());
+            assertEquals(List.of(photo.id()), as(ownerC, () -> fileSvc.list(ownerC, "maintenance.ticket", null)).stream().map((f) -> f.id()).toList());
+            assertThrows(DomainException.RuleViolated.class, () -> as(ownerC, () -> fileSvc.upload(ownerC, new com.communityos.api.docs.application.FileService.Upload("x.txt",
+                "X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*".getBytes(), null))), "the test virus");
+            assertThrows(DomainException.RuleViolated.class, () -> as(ownerC, () -> fileSvc.upload(ownerC, new com.communityos.api.docs.application.FileService.Upload("x.jpg", pdfBytes, null))), "not what it says");
+            var pdf1 = as(admin, () -> fileSvc.upload(admin, new com.communityos.api.docs.application.FileService.Upload("bye-laws.pdf", pdfBytes, null)));
+            var fields = new com.communityos.api.docs.application.DocumentService.Fields("Bye-laws", "Association", "v3", "All owners", null, null, null);
+            assertThrows(AccessDenied.class, () -> as(ownerC, () -> docSvc.file(ownerC, pdf1.id(), fields)));
+            var byelaws = as(admin, () -> docSvc.file(admin, pdf1.id(), fields));
+            assertEquals("bye-laws.pdf", byelaws.fileName); assertEquals("v3", byelaws.edition); assertEquals("docs.document", as(admin, () -> fileSvc.get(admin, pdf1.id())).ownerType());
+            assertEquals(List.of("Bye-laws"), as(ownerC, () -> docSvc.list(ownerC, new com.communityos.api.docs.application.port.DocumentRepository.Filter(null, null, null))).stream().map((d) -> d.title).toList());
+            assertTrue(java.util.Arrays.equals(pdfBytes, as(ownerC, () -> fileSvc.content(ownerC, pdf1.id())).bytes()), "an owner opens an owners' document");
+            var pdf2 = as(admin, () -> fileSvc.upload(admin, new com.communityos.api.docs.application.FileService.Upload("deed.pdf", pdfBytes, null)));
+            var deed = as(admin, () -> docSvc.file(admin, pdf2.id(), new com.communityos.api.docs.application.DocumentService.Fields("Sale deed", "Villa document", null, "Villa owner / resident", unitB, null, null)));
+            assertThrows(AccessDenied.NotVisible.class, () -> as(ownerC, () -> docSvc.get(ownerC, deed.id)), "another villa's papers");
+            assertThrows(AccessDenied.NotVisible.class, () -> as(ownerC, () -> fileSvc.content(ownerC, pdf2.id())), "and their file");
+            var folderRepo = new com.communityos.api.shared.resource.JdbcResourceRepository<>(com.communityos.api.docs.DocsResources.FOLDERS.table(), app, json);
+            var treasury = as(admin, () -> kit.create(admin, com.communityos.api.docs.DocsResources.FOLDERS, folderRepo, new com.communityos.api.docs.DocsResources.FolderFields("Treasury", null, List.of("treasurer"))));
+            var inner = as(admin, () -> kit.create(admin, com.communityos.api.docs.DocsResources.FOLDERS, folderRepo, new com.communityos.api.docs.DocsResources.FolderFields("2026", treasury.id(), List.of())));
+            var pdf3 = as(admin, () -> fileSvc.upload(admin, new com.communityos.api.docs.application.FileService.Upload("budget.pdf", pdfBytes, null)));
+            var budget = as(admin, () -> docSvc.file(admin, pdf3.id(), new com.communityos.api.docs.application.DocumentService.Fields("Budget", null, null, "Everyone", null, null, inner.id())));
+            assertTrue(as(ownerC, () -> kit.list(ownerC, com.communityos.api.docs.DocsResources.FOLDERS, folderRepo)).isEmpty(), "the limit holds below the folder");
+            assertThrows(AccessDenied.NotVisible.class, () -> as(ownerC, () -> docSvc.get(ownerC, budget.id)), "even an 'Everyone' document in it");
+            assertEquals("Budget", as(treasurer, () -> docSvc.get(treasurer, budget.id)).title);
+            var hidden2 = as(admin, () -> docSvc.change(admin, byelaws.id, byelaws.version, new com.communityos.api.docs.application.DocumentService.Fields("Bye-laws", "Association", "v4", "Executive Committee", null, null, null)));
+            assertEquals("v4", hidden2.edition);
+            assertTrue(as(ownerC, () -> docSvc.list(ownerC, new com.communityos.api.docs.application.port.DocumentRepository.Filter(null, null, null))).isEmpty());
+            var scrap = as(ownerC, () -> fileSvc.upload(ownerC, new com.communityos.api.docs.application.FileService.Upload("scrap.pdf", pdfBytes, null)));
+            as(ownerC, () -> { fileSvc.delete(ownerC, scrap.id()); return null; });
+            assertThrows(AccessDenied.class, () -> as(ownerC, () -> { fileSvc.delete(ownerC, photo.id()); return null; }), "attached: a manager removes it");
+
             // ---- 7. audit, outbox ----------------------------------------------------------------------------------------------------------------
             assertTrue(Integer.parseInt((String) owner.sql("SELECT count(*)::text AS n FROM audit.audit_event WHERE community_id = '" + cid + "'").get(0).get("n")) >= 7);
             OutboxRelay relay = new OutboxRelay(new JdbcOutboxStore(platform), new WebhookFanout(platform), 10, clock);

@@ -219,6 +219,7 @@ export const RESOURCES = {
   gateRounds: { path: 'gate/rounds' },
   incidents: { path: 'gate/incidents' },
   gateSettings: { path: 'gate/settings', singleton: true, json: ['durations', 'events'] },
+  docFolders: { path: 'documents/folders' },
   financeSettings: { path: 'finance/settings', rename: { finalCanDecideEC: 'finalCanDecideEc' }, singleton: true },
   importantNumbers: { path: 'comms/important-numbers' },
   numberSections: { path: 'comms/number-sections' },
@@ -452,4 +453,36 @@ export function postOf(p) {
     id: p.id, shortId: p.shortId, topicId: p.topicId, parentId: p.parentId || '', author: p.author || '', authorRoleId: p.authorRole || '', body: p.hidden && !p.body ? '' : p.body,
     hidden: !!p.hidden, hiddenReason: p.hiddenReason || '', reactions: p.reactions || 0, createdAt: p.createdAt, editedAt: p.editedAt || '', version: p.version,
   };
+}
+
+// ---- files and documents ------------------------------------------------------------------------------------------------------------------------
+/** A file as the app's attachment list shows it. 'Pending' = passed the server's checks, not virus-scanned (no scanner configured). */
+export const fileMeta = (f) => ({ fileId: f.id, name: f.fileName, size: f.sizeBytes, mime: f.mimeType, scanStatus: f.scanStatus === 'Clean' ? 'Clean' : f.scanStatus === 'Pending' ? 'Checked' : f.scanStatus });
+/** The app's FILES row (bytes as a data URL). */
+export const fileRowOf = (f, dataUrl = '') => ({ id: f.id, shortId: f.shortId, name: f.fileName, mime: f.mimeType, size: f.sizeBytes, scanStatus: f.scanStatus, ownerType: f.ownerType, ownerId: f.ownerId || '', dataUrl, hasContent: true, version: f.version });
+/** data: URL -> its bytes and type (no network). */
+export function dataUrlBytes(url) {
+  const m = /^data:([^;,]*)(;base64)?,(.*)$/s.exec(String(url || ''));
+  if (!m) throw new Error('The file has no content.');
+  const raw = m[2] ? atob(m[3]) : decodeURIComponent(m[3]);
+  const bytes = new Uint8Array(raw.length); for (let i = 0; i < raw.length; i += 1) bytes[i] = raw.charCodeAt(i);
+  return { bytes, mime: m[1] || 'application/octet-stream' };
+}
+export function bytesDataUrl(buf, mime) {
+  const b = new Uint8Array(buf); let s = '';
+  for (let i = 0; i < b.length; i += 8192) s += String.fromCharCode(...b.subarray(i, i + 8192));
+  return `data:${mime};base64,${btoa(s)}`;
+}
+/** A document as the app shows it. The app's "version" is the document's own label (edition); the record's version is kept as rowVersion. */
+export function documentOf(d) {
+  return {
+    id: d.id, shortId: d.shortId, title: d.title, category: d.category || '', version: d.edition || '', access: d.access, unit: d.unitNo || '', unitId: d.unitId || '',
+    expiry: d.expiry || '', folderId: d.folderId || '', fileId: d.fileId || '', fileName: d.fileName || '', fileSize: d.fileSize ? Math.ceil(d.fileSize / 1024) : 0, mime: d.mimeType || '',
+    scanStatus: d.scanStatus === 'Clean' ? 'Clean (server scan)' : 'Passed server checks', uploadedBy: d.uploadedBy || '', recordCreatedAt: d.createdAt, lastUpdatedAt: d.updatedAt, rowVersion: d.version,
+  };
+}
+export function documentBody(rec, unitIdByNo = {}) {
+  const unitId = rec.unitId || (rec.unit ? unitIdByNo[rec.unit] : null) || null;
+  if (rec.unit && !unitId) throw new Error(`Unit ${rec.unit} is not known to the back end.`);
+  return { title: rec.title, category: rec.category || null, edition: rec.version ? String(rec.version) : null, access: rec.access || 'Everyone', unitId, expiry: rec.expiry || null, folderId: isUuid(rec.folderId) ? rec.folderId : null };
 }

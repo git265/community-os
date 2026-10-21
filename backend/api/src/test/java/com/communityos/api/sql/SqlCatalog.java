@@ -31,7 +31,8 @@ public final class SqlCatalog {
                 "billing.adapter.JdbcBillingLookups", "billing.adapter.JdbcPaymentOrderRepository", "billing.adapter.JdbcPaymentRepository", "billing.adapter.JdbcJournalWriter",
                 "maintenance.adapter.JdbcTicketRepository", "maintenance.adapter.JdbcMaintenanceDirectory", "maintenance.adapter.JdbcQuotationRepository",
                 "maintenance.application.WishVotes", "approval.adapter.JdbcApprovalSettings", "amenity.adapter.JdbcBookingRepository", "amenity.adapter.JdbcAmenityCatalog",
-                "gate.adapter.JdbcGateStore", "gate.adapter.JdbcGateDirectory", "comms.adapter.JdbcInbox", "comms.adapter.JdbcCommsStore"))
+                "gate.adapter.JdbcGateStore", "gate.adapter.JdbcGateDirectory", "comms.adapter.JdbcInbox", "comms.adapter.JdbcCommsStore", "docs.adapter.JdbcFileRepository",
+                "docs.adapter.JdbcDocumentRepository"))
             CLASSES.put(c, "cos_app");
         for (String c : List.of("shared.jdbc.JdbcOutboxStore", "identity.adapter.JdbcOtpStore", "identity.adapter.JdbcRefreshTokenStore", "identity.adapter.JdbcPersonDirectory",
                 "identity.adapter.JdbcRateLimiter", "identity.adapter.JdbcCallerLoader", "identity.adapter.JdbcCommunityDirectory", "billing.adapter.JdbcPlatformPayments", "shared.integration.WebhookFanout",
@@ -45,7 +46,7 @@ public final class SqlCatalog {
         "JdbcQuotationRepository.COLUMNS", "JdbcQuotationRepository.LIVE", "JdbcBookingRepository.COLUMNS", "JdbcBookingRepository.FROM", "JdbcBookingRepository.FILTER",
         "JdbcAmenityCatalog.TYPE_COLUMNS", "JdbcGateStore.PASS_COLUMNS", "JdbcGateStore.VISIT_COLUMNS", "JdbcGateStore.VISIT_FILTER", "JdbcGateStore.APPROVAL_COLUMNS",
         "JdbcGateStore.FLAG_COLUMNS", "JdbcCommsStore.BROADCAST_COLUMNS", "JdbcCommsStore.AUDIENCE", "JdbcCommsStore.VOTE_COLUMNS", "JdbcCommsStore.TOPIC_COLUMNS",
-        "JdbcCommsStore.POST_COLUMNS");
+        "JdbcCommsStore.POST_COLUMNS", "JdbcFileRepository.COLUMNS", "JdbcDocumentRepository.COLUMNS", "JdbcDocumentRepository.FILTER");
 
     public static void main(String[] a) throws Exception {
         List<Stmt> out = new ArrayList<>();
@@ -90,6 +91,9 @@ public final class SqlCatalog {
             Spec<?> nb = com.communityos.api.comms.application.BroadcastService.scope(c);
             out.add(new Stmt("cos_app", "broadcasts.list." + i, com.communityos.api.comms.adapter.JdbcCommsStore.broadcastsSql(nb.sql())));
             out.add(new Stmt("cos_app", "broadcasts.get." + i, com.communityos.api.comms.adapter.JdbcCommsStore.broadcastSql(nb.sql())));
+            Spec<?> dd = com.communityos.api.docs.application.DocsPolicy.documents(c);
+            out.add(new Stmt("cos_app", "documents.list." + i, com.communityos.api.docs.adapter.JdbcDocumentRepository.listSql(dd.sql())));
+            out.add(new Stmt("cos_app", "documents.get." + i, com.communityos.api.docs.adapter.JdbcDocumentRepository.getSql(dd.sql())));
             out.add(new Stmt("cos_app", "quotations.all." + i, com.communityos.api.maintenance.adapter.JdbcQuotationRepository.allSql(ts.sql())));
             // every resource of the kit: its list / detail with this caller's scope, a filtered list
             for (com.communityos.api.shared.resource.Resource<?> r : com.communityos.api.config.ResourcesConfig.all()) {

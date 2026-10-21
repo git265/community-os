@@ -234,6 +234,16 @@ DO $$ DECLARE b uuid; t uuid; BEGIN
   PERFORM test.expect_error($q$INSERT INTO comms.notification (community_id, to_membership_id, event, title, body, link) VALUES ('00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-0000000000e1', 'bill', 'x', 'y', 'https://x')$q$, '23514');
   PERFORM test.pass('comms: a poll has answers, a sent notice a time, one vote per unit, a hidden post a reason, a notification links inside the app');
 END $$;
+DO $$ DECLARE f uuid; BEGIN
+  PERFORM set_config('app.community_id', '00000000-0000-0000-0000-00000000000a', true);
+  INSERT INTO docs.file_object (community_id, file_name, mime_type, size_bytes, sha256, storage_key)
+    VALUES ('00000000-0000-0000-0000-00000000000a', 'a.pdf', 'application/pdf', 10, decode(repeat('ab', 32), 'hex'), 'k/' || gen_random_uuid()) RETURNING id INTO f;
+  PERFORM test.expect_error(format($q$UPDATE docs.file_object SET owner_type = 'maintenance.ticket' WHERE id = %L$q$, f), '23514');
+  PERFORM test.expect_error(format($q$UPDATE docs.file_object SET owner_type = 'gate.visit', owner_id = gen_random_uuid() WHERE id = %L$q$, f), '23514');
+  PERFORM test.expect_error($q$INSERT INTO docs.document (community_id, title, access) VALUES ('00000000-0000-0000-0000-00000000000a', 'Deed', 'Villa owner / resident')$q$, '23514');
+  PERFORM test.expect_error($q$INSERT INTO docs.folder (community_id, id, name, parent_id) VALUES ('00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000f001', 'Loop', '00000000-0000-0000-0000-00000000f001')$q$, '23514');
+  PERFORM test.pass('files: attached to something real or to nothing; a villa document has its unit; a folder is not its own parent');
+END $$;
 RESET ROLE;
 
 SELECT format('%s schema tests passed', count(*)) AS result FROM test.result WHERE ok;

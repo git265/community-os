@@ -8,7 +8,7 @@ RUN mvn -q -B -DskipTests package
 
 FROM eclipse-temurin:25-jre
 WORKDIR /app
-RUN useradd --system --uid 10001 app
+RUN useradd --system --uid 10001 app && mkdir -p /data/files && chown app /data/files   # the files volume is owned by the app user
 COPY --from=build /build/target/communityos-api-*.jar app.jar
 USER app
 ENV JAVA_OPTS="-XX:MaxRAMPercentage=75"

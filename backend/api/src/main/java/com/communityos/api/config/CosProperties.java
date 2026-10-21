@@ -8,7 +8,7 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
 
 /** Everything configurable, bound from application.yml / environment (secrets come from the environment or a secret manager, never the repo). */
 @ConfigurationProperties("cos")
-public record CosProperties(Db db, Auth auth, Payments payments, Web web) {
+public record CosProperties(Db db, Auth auth, Payments payments, Web web, @DefaultValue Files files) {
 
     /** Two pools: the API role (row-level security applies) and the platform role (sign-in, webhooks, cross-community jobs). */
     public record Db(Pool app, Pool platform) {}
@@ -33,4 +33,6 @@ public record CosProperties(Db db, Auth auth, Payments payments, Web web) {
     public record Razorpay(@DefaultValue("false") boolean enabled, @DefaultValue("https://api.razorpay.com") String baseUrl, String keyId, String keySecret, String webhookSecret) {}
 
     public record Web(List<String> allowedOrigins, @DefaultValue("Asia/Kolkata") String timeZone) {}
+    /** Where uploaded files' bytes are kept (a folder on this server; an object store adapter replaces it in production). */
+    public record Files(@DefaultValue("./var/files") String dir) {}
 }

@@ -104,6 +104,21 @@ public class ModulesConfig {
         return new com.communityos.api.comms.application.ForumService(store, inbox, events, audit, tx, clock);
     }
 
+    // ---- documents and files ----------------------------------------------------------------------------------------------------------------------
+    /** Files and documents need each other (a document's file is read by the document's rules), so they are made together. */
+    public record Docs(com.communityos.api.docs.application.FileService files, com.communityos.api.docs.application.DocumentService documents) {}
+    @Bean Docs docs(NamedParameterJdbcTemplate jdbc, AuditWriter audit, Tx tx, Clock clock, CosProperties p, TicketService tickets, QuotationService quotations,
+                    com.communityos.api.amenity.application.BookingService bookings) {
+        var repo = new com.communityos.api.docs.adapter.JdbcFileRepository(jdbc);
+        var files = new com.communityos.api.docs.application.FileService(repo, new com.communityos.api.docs.adapter.LocalDiskStorage(java.nio.file.Path.of(p.files().dir())),
+            com.communityos.api.docs.application.port.VirusScanner.NONE, audit, tx, clock);
+        var documents = new com.communityos.api.docs.application.DocumentService(new com.communityos.api.docs.adapter.JdbcDocumentRepository(jdbc), files, audit, tx);
+        FileKinds.register(files, repo, tickets, quotations, bookings, documents);
+        return new Docs(files, documents);
+    }
+    @Bean com.communityos.api.docs.application.FileService fileService(Docs d) { return d.files(); }
+    @Bean com.communityos.api.docs.application.DocumentService documentService(Docs d) { return d.documents(); }
+
     // ---- billing ------------------------------------------------------------------------------------------------------------------------------
     @Bean JdbcDueRepository dueRepository(NamedParameterJdbcTemplate jdbc) { return new JdbcDueRepository(jdbc); }
     @Bean JdbcBillingLookups billingLookups(NamedParameterJdbcTemplate jdbc) { return new JdbcBillingLookups(jdbc); }

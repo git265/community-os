@@ -39,6 +39,8 @@ cos:
     order-ttl: 30m
     currency: INR
     razorpay: { enabled: "${COS_RAZORPAY_ENABLED:false}", key-id: "${COS_RAZORPAY_KEY_ID:}", key-secret: "${COS_RAZORPAY_KEY_SECRET:}", webhook-secret: "${COS_RAZORPAY_WEBHOOK_SECRET:}" }
+  files:
+    dir: ${COS_FILES_DIR:./var/files}        # uploaded files' bytes (a mounted volume in a container)
   web:
     allowed-origins: ${COS_ALLOWED_ORIGINS:https://app.communityos.app}
     time-zone: Asia/Kolkata

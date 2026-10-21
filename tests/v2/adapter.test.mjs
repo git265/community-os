@@ -20,7 +20,7 @@ const state = {
     { id: B, shortId: 'UNIT-2', unitNo: 'Villa 202', blockId: null, blockName: 'Block 2', unitType: 'Villa', occupancy: 'Vacant', areaSqft: null, maintenancePlan: null, sanctionedKw: null, status: 'Active', custom: {}, updatedAt: '2026-10-20T06:00:00Z', version: 1 },
   ],
   dues: [], members: [{ id: M1, displayName: 'Asha', phone: '+919800000001', status: 'Active', roles: [{ code: 'owner', name: 'Owner', primary: true }], units: [A], createdAt: null, updatedAt: null, version: 2 }],
-  orders: [], tickets: [], comments: [], quotes: [], bookings: [], broadcasts: [], votes: {}, topics: [], posts: [],
+  files: [], documents: [], orders: [], tickets: [], comments: [], quotes: [], bookings: [], broadcasts: [], votes: {}, topics: [], posts: [],
   notes: [{ id: '00000000-0000-4000-8000-0000000ee001', createdAt: '2026-10-20T06:00:00Z', event: 'bill', kind: 'bill', title: 'New bill · ₹3,540', body: 'Due 15 Oct', link: '#/billing', refId: null, sender: 'Treasurer', readAt: null }],
   passes: [], approvals: [{ id: '00000000-0000-4000-8000-0000000aa001', shortId: 'GAP-1', name: 'Ravi Uncle', unit: A, unitNo: 'Villa 101', status: 'Pending', kind: 'Guest', version: 1 }], kit: {
     'amenities/types': [{ id: HALL, shortId: 'AMN-1', name: 'Party Hall', rate: '5000.00', capacity: 1, bookingMode: 'Full day', version: 1 }],
@@ -51,7 +51,7 @@ const problem = (status, code, detail) => ok({ status, code, detail }, status);
 let seq = 0;
 globalThis.fetch = async (url, init = {}) => {
   const u = new URL(url); const path = u.pathname.replace(/^\/api\/v1/, ''); const method = (init.method || 'GET').toUpperCase();
-  const h = init.headers || {}; const body = init.body ? JSON.parse(init.body) : null;
+  const h = init.headers || {}; const body = init.body instanceof Blob ? init.body : init.body ? JSON.parse(init.body) : null;
   calls.push({ method, path: path + u.search, headers: h, body });
   if (!path.startsWith('/public') && !path.startsWith('/auth') && h.Authorization !== 'Bearer tok-1') return problem(401, 'unauthenticated', 'Sign in');
   if (/^\/public\/communities\/[a-z0-9-]+$/.test(path)) return ok({ id: 'c0ffee00-0000-4000-8000-000000000001', slug: 'palm-meadows', name: 'Palm Meadows', status: 'Active' });
@@ -200,6 +200,33 @@ globalThis.fetch = async (url, init = {}) => {
     if (verb === '/status') { t.status = body.status; t.cancelReason = body.reason; }
     t.version++; return ok(t);
   }
+  // ---- files and documents
+  if (path === '/files' && method === 'POST') {
+    const bytes = new Uint8Array(await body.arrayBuffer());
+    const f = { id: uuid(), shortId: `FIL-${state.files.length + 1}`, fileName: u.searchParams.get('name'), mimeType: h['Content-Type'], sizeBytes: bytes.length, ownerType: 'upload', ownerId: null, scanStatus: 'Pending', visibility: 'Owner', bytes, version: 1 };
+    state.files.push(f); return ok(f, 201);
+  }
+  if (path === '/files' && method === 'GET') return ok(state.files.filter((f) => f.ownerType === u.searchParams.get('ownerType') && (!u.searchParams.get('ownerId') || f.ownerId === u.searchParams.get('ownerId'))));
+  if ((m = /^\/files\/([^/]+)(\/content|\/attach)?$/.exec(path))) {
+    const f = state.files.find((x) => x.id === m[1]); if (!f) return problem(404, 'not-found', 'Not found');
+    if (m[2] === '/content') return new Response(f.bytes, { status: 200, headers: { 'Content-Type': f.mimeType } });
+    if (m[2] === '/attach') { f.ownerType = body.ownerType; f.ownerId = body.ownerId; f.version++; return ok(f); }
+    if (method === 'DELETE') { state.files = state.files.filter((x) => x !== f); return ok(null, 204); }
+    return ok(f);
+  }
+  if (path === '/documents' && method === 'GET') return ok(state.documents);
+  if (path === '/documents' && method === 'POST') {
+    const f = state.files.find((x) => x.id === body.fileId); f.ownerType = 'docs.document';
+    const d = { ...body, id: uuid(), shortId: 'DOC-1', fileName: f.fileName, fileSize: f.sizeBytes, mimeType: f.mimeType, scanStatus: 'Pending', version: 1 }; f.ownerId = d.id;
+    state.documents.push(d); return ok(d, 201);
+  }
+  if ((m = /^\/documents\/([^/]+)$/.exec(path))) {
+    const d = state.documents.find((x) => x.id === m[1]); if (!d) return problem(404, 'not-found', 'Not found');
+    if (method === 'GET') return ok(d);
+    if (h['If-Match'] !== `"${d.version}"`) return problem(409, 'conflict', 'changed');
+    if (method === 'DELETE') { state.documents = state.documents.filter((x) => x !== d); return ok(null, 204); }
+    Object.assign(d, body); d.version++; return ok(d);
+  }
   // ---- comms
   if (path === '/notifications') return ok(state.notes);
   if ((m = /^\/notifications\/([^/]+)\/read$/.exec(path))) { const n = state.notes.find((x) => x.id === m[1]); n.readAt = '2026-10-20T07:00:00Z'; return ok({ changed: 1 }); }
@@ -334,7 +361,6 @@ test('tickets: raise (no SLA from a resident), accept, work, close, rate; commen
   const before = calls.filter((x) => x.method !== 'GET').length;
   await storage.put('tickets', { ...rated, quotationStatus: 'Requested', approvedAmount: 99 });
   assert.equal(calls.filter((x) => x.method !== 'GET').length, before, 'the money side of a ticket is never written on the ticket');
-  await assert.rejects(storage.put('tickets', { id: 'x', title: 'With photo', category: 'Plumbing', attachments: [{ id: 'f1' }] }), /photos and files/);
   await assert.rejects(storage.remove('tickets', t.id), /cancel or close/);
   await storage.put('ticketComments', { ticketId: t.id, body: 'Coming at 4', visibility: 'Public', author: 'Asha', createdAt: new Date().toISOString() });
   assert.equal(last('POST', /\/comments$/).body.body, 'Coming at 4');
@@ -459,4 +485,26 @@ test('comms: the inbox is the server\'s; a notice goes as a draft the server sen
   assert.equal(reacted.reactions, 1);
   await storage.remove('forumPosts', post1.id);
   assert.equal(last('DELETE', /^\/comms\/forum\/posts\//).headers['If-Match'], '"2"');
+});
+
+test('files and documents: bytes go up as the body; a ticket\'s photo is attached after the ticket is saved; a document is filed with its file', async () => {
+  const png = 'data:image/png;base64,' + Buffer.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]).toString('base64');
+  const f = await storage.put('files', { name: 'leak.png', mime: 'image/png', size: 7, dataUrl: png, ownerType: 'ticket', ownerId: 'local-1' });
+  const up = last('POST', /^\/files\?/);
+  assert.equal(up.path, '/files?name=leak.png'); assert.equal(up.headers['Content-Type'], 'image/png'); assert.ok(up.body instanceof Blob, 'the bytes, not JSON');
+  assert.equal(f.ownerType, 'upload', 'unattached until its record is saved');
+  assert.equal((await storage.get('files', f.id)).dataUrl, png, 'read back as the same data URL');
+  const t = await storage.put('tickets', { title: 'Leak with photo', category: 'Plumbing', description: 'see photo', unit: 'Villa 101', taskType: 'Resident Maintenance', attachments: [{ fileId: f.id, name: 'leak.png', mime: 'image/png' }] });
+  assert.deepEqual(last('POST', /\/attach$/).body, { ownerType: 'maintenance.ticket', ownerId: t.id });
+  assert.equal(t.attachments[0].fileId, f.id);
+  const listed = (await storage.list('tickets')).find((x) => x.id === t.id);
+  assert.equal(listed.attachments.length, 1); assert.equal(listed.hasPhotos, true);
+  const pdf = await storage.put('files', { name: 'bye-laws.pdf', mime: 'application/pdf', size: 4, dataUrl: 'data:application/pdf;base64,' + Buffer.from('%PDF').toString('base64') });
+  const d = await storage.put('documents', { title: 'Bye-laws', category: 'Association', version: 'v3', access: 'All owners', fileId: pdf.id, fileName: 'x', scanStatus: 'Clean (server scan)' });
+  assert.deepEqual(last('POST', /^\/documents$/).body, { fileId: pdf.id, title: 'Bye-laws', category: 'Association', edition: 'v3', access: 'All owners', unitId: null, expiry: null, folderId: null });
+  assert.equal(d.version, 'v3', 'the document\'s own label'); assert.equal(d.fileName, 'bye-laws.pdf');
+  const d2 = await storage.put('documents', { ...d, access: 'Villa owner / resident', unit: 'Villa 101' });
+  assert.equal(last('PUT', /^\/documents\//).headers['If-Match'], '"1"'); assert.equal(last('PUT', /^\/documents\//).body.unitId, A); assert.equal(d2.unit, '');
+  await storage.remove('documents', d.id);
+  assert.equal(last('DELETE', /^\/documents\//).headers['If-Match'], '"2"');
 });
