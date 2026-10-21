@@ -295,6 +295,21 @@ To use it, pick **Back end v2** in the Data source panel, or set `VITE_USE_API=v
 
 ## 11. Running it
 
+**Everything in Docker (quickest):** from `backend/`, run `docker compose up -d --build`, then open http://localhost:8081.
+
+| Service | What it is |
+|---|---|
+| `postgres` | PostgreSQL 18. On first start, `api/docker/initdb/01-roles.sh` creates the `cos_app` and `cos_platform` login roles. |
+| `api` | `backend/api` on Java 25, dev profile. Flyway builds the 156 tables at start-up, connecting as the owner `cos_owner`. |
+| `seed` | Runs once, after `api` is healthy. `api/docker/seed.sql` creates the community `la-paloma`, Villa 1 to Villa 212, and a Super Admin on `SEED_ADMIN_PHONE` (default `+919800000000`). It is safe to run again. |
+| `web` | The app built with `VITE_USE_API=v2`, served by nginx. `/api` is forwarded to `api`, so the app and the API share one origin. |
+
+To sign in, request a code for the Super Admin's phone. In the dev profile the code is printed in the API log: `docker compose logs -f api | grep "sign-in code"`.
+
+Open the app at `http://localhost:8081`, not at a LAN address. The refresh cookie is marked `Secure`, and browsers accept that over plain http only on `localhost`.
+
+**By hand:**
+
 ```sh
 # 1. database: migrations run as the owner; give the two runtime roles a login
 #    (use the roles themselves: BYPASSRLS is not inherited by a member role)
