@@ -47,6 +47,26 @@ export async function v2Renew() {
 }
 export const v2Logout = () => post('/auth/logout', {}).catch(() => {});
 
+// ---- the demo (a development server with cos.demo.enabled only; a production server answers 404 and none of this shows) ----------------------
+let roster = null;
+/** The sign-in settings, with the demo roster when the server offers one. */
+export async function v2LoadAuthConfig() {
+  const cfg = v2AuthConfig();
+  try { roster = await send(`/demo/roster/${encodeURIComponent(resolveSlug())}`, {}, false); cfg.demoRoster = true; } catch { roster = null; }
+  return cfg;
+}
+export async function v2DemoRoster() {
+  const r = roster || await send(`/demo/roster/${encodeURIComponent(resolveSlug())}`, {}, false);
+  return { roles: r.roles, units: r.units, people: r.people.map((p) => ({ ...p, units: p.units || [], extraRoleIds: p.extraRoleIds || [] })) };
+}
+/** Sign in as someone on the roster (by id), or as the first member with the role (and unit) picked on "Demo roles". */
+export async function v2DemoSignIn(body) {
+  if (!communityId) await v2PublicCommunity();
+  const isId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.userId || '');
+  const r = await post('/demo/sign-in', { communityId, membershipId: isId ? body.userId : null, roleCode: isId ? null : body.roleId, unit: isId ? null : (body.unit || null), client: 'web' });
+  return signedIn(r);
+}
+
 export async function v2WhoAmI() {
   const me = await send('/me', {}, true);
   const noById = {};

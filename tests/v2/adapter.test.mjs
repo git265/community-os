@@ -62,6 +62,11 @@ globalThis.fetch = async (url, init = {}) => {
   const u = new URL(url); const path = u.pathname.replace(/^\/api\/v1/, ''); const method = (init.method || 'GET').toUpperCase();
   const h = init.headers || {}; const body = init.body instanceof Blob ? init.body : init.body ? JSON.parse(init.body) : null;
   calls.push({ method, path: path + u.search, headers: h, body });
+  if (path.startsWith('/demo/')) {
+    if (!globalThis.DEMO_ON) return problem(404, 'not-found', 'Not found');
+    if (path.startsWith('/demo/roster/')) return ok({ roles: [{ id: 'owner', name: 'Owner', category: 'Resident' }], units: [{ unit: 'Villa 1', owner: 'Arjun' }], people: [{ id: '0a000000-0000-4000-8000-000000000001', name: 'Arjun', roleId: 'owner', extraRoleIds: null, units: ['Villa 1'], unit: 'Villa 1', status: 'Active' }] });
+    if (path === '/demo/sign-in') return ok({ status: 'signed-in', accessToken: 'tok-1', tokenType: 'Bearer', expiresAt: new Date(Date.now() + 600e3).toISOString() });
+  }
   if (!path.startsWith('/public') && !path.startsWith('/auth') && h.Authorization !== 'Bearer tok-1') return problem(401, 'unauthenticated', 'Sign in');
   if (/^\/public\/communities\/[a-z0-9-]+$/.test(path)) return ok({ id: 'c0ffee00-0000-4000-8000-000000000001', slug: 'palm-meadows', name: 'Palm Meadows', status: 'Active' });
   if (path === '/auth/otp') return ok({ challengeId: 'ch-1', expiresInSeconds: 300 }, 202);
@@ -458,6 +463,26 @@ test('sign-in: the community from the page, a code, then who I am', async () => 
   assert.equal(r.user.roleId, 'owner'); assert.deepEqual(r.user.units, ['Villa 101'], 'unit numbers, not ids');
   assert.equal(authApi.verifyInfo().roles[0].category, 'Resident');
   assert.equal(last('GET', /^\/me/).headers.Authorization, 'Bearer tok-1');
+});
+
+test('demo: the roster only when the server offers one; signing in by id or by role and unit', async () => {
+  const { setAuthConfig } = await import('../../src/lib/auth/session.js');
+  const keep = await authApi.loadAuthConfig();
+  assert.notEqual(keep.demoRoster, true, 'a production server has no demo');
+  globalThis.DEMO_ON = true; setAuthConfig(null);
+  try {
+    assert.equal((await authApi.loadAuthConfig()).demoRoster, true);
+    const r = await authApi.demoRoster();
+    assert.equal(r.people[0].name, 'Arjun'); assert.deepEqual(r.people[0].extraRoleIds, []);
+    await authApi.demoSignIn({ userId: '0a000000-0000-4000-8000-000000000001', roleId: 'owner' });
+    let b = last('POST', /^\/demo\/sign-in/).body;
+    assert.equal(b.membershipId, '0a000000-0000-4000-8000-000000000001'); assert.equal(b.roleCode, null);
+    assert.equal(b.communityId, 'c0ffee00-0000-4000-8000-000000000001');
+    const s = await authApi.demoSignIn({ roleId: 'treasurer', unit: 'Villa 145' });
+    b = last('POST', /^\/demo\/sign-in/).body;
+    assert.equal(b.membershipId, null); assert.equal(b.roleCode, 'treasurer'); assert.equal(b.unit, 'Villa 145');
+    assert.equal(s.user.displayName || s.user.name, 'Asha');
+  } finally { globalThis.DEMO_ON = false; setAuthConfig(keep); }
 });
 
 test('units: list mapped; a change sends only the changed, allowed fields with If-Match', async () => {

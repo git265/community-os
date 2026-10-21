@@ -138,6 +138,19 @@ public final class AuthService {
             .ifPresent((t) -> refreshTokens.revokeFamily(t.familyId(), "logout", clock.instant())));
     }
 
+    /**
+     * Development and demos only (DemoConfig, which refuses to start in prod): tokens for a member without a code, so a demo can be shown as
+     * anyone on its roster. The membership must be active, like any other sign-in.
+     */
+    public Tokens demoSignIn(com.communityos.api.shared.domain.Ids.PersonId person, CommunityId community, com.communityos.api.shared.domain.Ids.MembershipId membership, Client client) {
+        Tokens t = platformTx.inTx(() -> {
+            MembershipRef m = people.activeMemberships(person).stream().filter((x) -> x.community().equals(community) && x.membership().equals(membership)).findFirst().orElse(null);
+            return m == null ? null : issue(person, m, UUID.randomUUID(), client, clock.instant());
+        });
+        if (t == null) throw new Unauthenticated();
+        return t;
+    }
+
     private Tokens issue(com.communityos.api.shared.domain.Ids.PersonId person, MembershipRef m, UUID family, Client client, Instant now) {
         TokenIssuer.AccessToken access = issuer.issue(person, m.community(), m.membership());
         String refresh = Crypto.randomToken(32);

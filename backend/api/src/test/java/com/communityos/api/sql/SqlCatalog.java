@@ -38,7 +38,7 @@ public final class SqlCatalog {
             CLASSES.put(c, "cos_app");
         for (String c : List.of("shared.jdbc.JdbcOutboxStore", "identity.adapter.JdbcOtpStore", "identity.adapter.JdbcRefreshTokenStore", "identity.adapter.JdbcPersonDirectory",
                 "identity.adapter.JdbcRateLimiter", "identity.adapter.JdbcCallerLoader", "identity.adapter.JdbcCommunityDirectory", "billing.adapter.JdbcPlatformPayments", "shared.integration.WebhookFanout",
-                "shared.integration.WebhookDeliveryWorker", "config.Jobs"))
+                "shared.integration.WebhookDeliveryWorker", "config.Jobs", "demo.DemoController"))
             CLASSES.put(c, "cos_platform");
     }
     /** fragments that are only valid once composed */

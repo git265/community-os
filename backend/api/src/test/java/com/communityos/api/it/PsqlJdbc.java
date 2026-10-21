@@ -134,11 +134,15 @@ public final class PsqlJdbc extends NamedParameterJdbcTemplate implements Tx, Au
         statements++;
         synchronized (err) { err.setLength(0); }
         try {
-            in.write(sql); in.write(";\n\\echo __END__\n"); in.flush();
+            in.write(sql); in.write(";\n\\echo __END__\n\\warn __END__\n"); in.flush();
             StringBuilder b = new StringBuilder();
             for (String l; (l = out.readLine()) != null && !l.equals("__END__"); ) b.append(l).append('\n');
-            Thread.sleep(2);
-            String e; synchronized (err) { e = err.toString(); }
+            // the errors of this statement are on stderr before its end marker (read by another thread): wait for the marker, not for a guess
+            String e;
+            for (long until = System.currentTimeMillis() + 10_000; ; Thread.sleep(1)) {
+                synchronized (err) { e = err.toString(); }
+                if (e.contains("__END__") || System.currentTimeMillis() > until) break;
+            }
             if (e.contains("ERROR")) {
                 Matcher m = Pattern.compile("ERROR:\\s+([0-9A-Z]{5}):\\s*(.*)").matcher(e);
                 String state = m.find() ? m.group(1) : "?????", msg = m.group(0);

@@ -23,7 +23,7 @@ async function get(path) {
 /** What the back end requires: { mode: 'open' | 'enforce', provider: 'local' | 'oidc', demoRoster, otpEcho, oidc }. Cached. */
 export async function loadAuthConfig() {
   if (getAuthConfig()) return getAuthConfig();
-  if (isV2()) { setAuthConfig(v2.v2AuthConfig()); return getAuthConfig(); }
+  if (isV2()) { setAuthConfig(await v2.v2LoadAuthConfig()); return getAuthConfig(); }
   let cfg;
   try { cfg = await get('/auth/config'); } catch { cfg = { mode: 'open', provider: 'local' }; }   // an older back end has no sign-in: it behaves as before
   setAuthConfig(cfg);
@@ -31,12 +31,12 @@ export async function loadAuthConfig() {
 }
 export const publicCommunity = () => (isV2() ? v2.v2PublicCommunity() : get('/auth/community'));
 export const inviteInfo = (token) => (isV2() ? notOnV2('Sign-in links') : get(`/auth/invite/${encodeURIComponent(token)}`));
-export const demoRoster = () => (isV2() ? notOnV2('The demo roster') : get('/auth/roster'));
+export const demoRoster = () => (isV2() ? v2.v2DemoRoster() : get('/auth/roster'));
 export const requestCode = (target) => (isV2() ? v2.v2RequestCode(target) : post('/auth/request-code', target));                 // { phone } | { invite }
 let lastVerify = {};
 export const verifyInfo = () => (isV2() ? v2.v2VerifyInfo() : lastVerify);
 export const verifyCode = async (target, code, extra = {}) => { if (isV2()) return v2.v2Verify(target, code); const r = await post('/auth/verify', { ...target, code, ...extra }); lastVerify = r; setSession(r); return r; };
-export const demoSignIn = async (body) => { if (isV2()) return notOnV2('Demo sign-in'); const r = await post('/auth/demo', body); setSession(r); return r; };
+export const demoSignIn = async (body) => { if (isV2()) return v2.v2DemoSignIn(body); const r = await post('/auth/demo', body); setSession(r); return r; };
 export const switchRole = async (body) => { if (isV2()) return notOnV2('Switching role'); const r = await post('/auth/switch-role', body, { auth: true }); setSession(r); return r; };
 export const whoAmI = async () => {
   if (isV2()) return v2.v2WhoAmI();

@@ -994,6 +994,37 @@ class PostgresFlowTest {
             assertThrows(RuntimeException.class, () -> as(stranger, () -> dueService.raise(stranger, new DueService.RaiseDue(new UnitId(unitA), "Maintenance", null, null, Money.of("1"), today))),
                 "cannot bill another community's unit");
             assertEquals(otherUnit, as(stranger, () -> units.get(stranger, new UnitId(otherUnit))).id().value());
+            // ---- 9. the La Paloma demo: loaded through the services into a fresh community, once ---------------------------------------------------------
+            UUID demoC = UUID.fromString((String) owner.sql("INSERT INTO platform.community (slug, name) VALUES ('demo-" + tag + "', 'La Paloma " + tag + "') RETURNING id").get(0).get("id"));
+            owner.sql("SELECT platform.provision_community('" + demoC + "')");
+            owner.sql("SELECT set_config('app.community_id', '" + demoC + "', false)");
+            owner.sql("INSERT INTO property.unit (community_id, unit_no, unit_type) SELECT '" + demoC + "', 'Villa ' || g, 'Villa' FROM generate_series(1, 212) g RETURNING 1");
+            UUID demoAdminP = id(owner, "INSERT INTO identity.person (phone_e164, full_name) VALUES ('+9193" + String.format("%08d", Long.parseLong(tag) % 100_000_000L) + "', 'Demo Admin') RETURNING id");
+            UUID demoAdminM = id(owner, "INSERT INTO identity.membership (community_id, person_id, display_name) VALUES ('" + demoC + "', '" + demoAdminP + "', 'Super Admin') RETURNING id");
+            owner.sql("INSERT INTO identity.membership_role (community_id, membership_id, role_id, is_primary) SELECT '" + demoC + "', '" + demoAdminM + "', id, true FROM identity.role WHERE community_id = '" + demoC + "' AND code = 'super_admin' RETURNING 1");
+            Caller demoAdmin = callers.load(new PersonId(demoAdminP), new CommunityId(demoC), new MembershipId(demoAdminM)).orElseThrow();
+            var demoServices = new com.communityos.api.demo.DemoData.Services(app, json, callers, memberService, staffSvc, dueService, counter, ticketSvc, docsSvc, kit, bookingSvc, gateSvc, notices, forum,
+                fileSvc, docSvc, donSvc, expSvc, cashSvc, meetSvc, ballotSvc, dir, assetSvc, attSvc, clock, ZoneId.of("Asia/Kolkata"));
+            var demo = new com.communityos.api.demo.DemoData(demoServices).load(new CommunityId(demoC), demoAdmin);
+            assertTrue(demo.loaded(), demo.message()); assertEquals(102, demo.bills());
+            Map<String, Object> demoBooks = owner.sql("SELECT sum(debit)::text AS d, sum(credit)::text AS c FROM finance.account_balance WHERE community_id = '" + demoC + "'").get(0);
+            assertEquals(demoBooks.get("d"), demoBooks.get("c"), "the demo's books balance");
+            for (String t : List.of("identity.membership:43", "maintenance.ticket:5", "amenity.booking:4", "gate.pass:3", "comms.broadcast:3", "docs.document:3", "cultural.donation:7",
+                    "finance.cash_book_entry:4", "governance.meeting:2", "governance.ballot:1", "vendor.vendor:4", "vendor.contact_review:3", "assets.equipment:8", "assets.inventory_movement:9",
+                    "assets.plant_log:7", "workforce.shift:28", "workforce.attendance_session:2", "reports.schedule:3")) {
+                String[] x = t.split(":");
+                assertEquals(x[1], owner.sql("SELECT count(*)::text AS n FROM " + x[0] + " WHERE community_id = '" + demoC + "'").get(0).get("n"), x[0]);
+            }
+            assertFalse(new com.communityos.api.demo.DemoData(demoServices).load(new CommunityId(demoC), demoAdmin).loaded(), "once per community");
+            // the demo sign-in: tokens for a member of the roster without a code (dev only), as from a real sign-in
+            Map<String, Object> arjun = owner.sql("SELECT m.id, m.person_id FROM identity.membership m WHERE m.community_id = '" + demoC + "' AND m.display_name = 'Arjun Reddy'").get(0);
+            var demoTokens = auth.demoSignIn(new PersonId(UUID.fromString((String) arjun.get("person_id"))), new CommunityId(demoC), new MembershipId(UUID.fromString((String) arjun.get("id"))),
+                new AuthService.Client("it", "10.1.2.3"));
+            Map<String, Object> demoClaims = codec.verify(demoTokens.accessToken());
+            assertEquals(arjun.get("id"), demoClaims.get("mid"));
+            assertThrows(com.communityos.api.shared.security.Unauthenticated.class, () -> auth.demoSignIn(new PersonId(UUID.fromString((String) arjun.get("person_id"))), new CommunityId(cid),
+                new MembershipId(UUID.fromString((String) arjun.get("id"))), new AuthService.Client("it", "10.1.2.3")), "only a membership the person has");
+
             System.out.println("flow: " + (app.statements + platform.statements) + " statements through cos_app / cos_platform");
         }
     }

@@ -2,9 +2,10 @@
 #   postgres  PostgreSQL 18, the 156-table v2 schema (Flyway migrates it when api starts)   localhost:5432
 #   api       backend/api, Spring Boot on Java 25, /api/v1                                  localhost:8080
 #   seed      one-shot: the first community, its Super Admin and Villa 1..212 (idempotent)
+#   demo      one-shot: loads the demo data into that community (dev profile only; idempotent; skip with  --scale demo=0)
 #   web       the app built for the v2 API, served by nginx; /api is forwarded to api        http://localhost:8081
 #
-# Sign in at http://localhost:8081 with SEED_ADMIN_PHONE. The dev profile prints the one-time code in the api log:
+# Sign in at http://localhost:8081 with SEED_ADMIN_PHONE, or pick anyone from the demo roster on the sign-in page. The dev profile prints the one-time code in the api log:
 #   docker compose logs -f api | grep "sign-in code"
 # Payments use the simulated provider. For anything real, set the COS_* secrets and SPRING_PROFILES_ACTIVE=prod
 # (see docs/REDESIGN.md section 11).
@@ -62,6 +63,13 @@ services:
       -v slug=${SEED_COMMUNITY_SLUG:-la-paloma} -v name="${SEED_COMMUNITY_NAME:-La Paloma}"
       -v phone=${SEED_ADMIN_PHONE:-+919800000000} -v admin="${SEED_ADMIN_NAME:-Super Admin}" -v villas=${SEED_VILLAS:-212}
       -f /seed.sql
+    restart: "no"
+
+  demo:
+    image: curlimages/curl:8.10.1
+    depends_on: { seed: { condition: service_completed_successfully } }
+    command: >
+      sh -c "curl -sS -X POST http://api:8080/api/v1/demo/load/${SEED_COMMUNITY_SLUG:-la-paloma}; echo"
     restart: "no"
 
   web:
