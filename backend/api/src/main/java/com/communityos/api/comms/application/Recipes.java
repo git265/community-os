@@ -58,6 +58,10 @@ public final class Recipes {
                     f.number() + (f.extra() == null ? "" : " · " + f.extra()) + " · " + b.status() + (b.paymentStatus() == null ? "" : ", " + b.paymentStatus()), "#/amenities", b.aggregateId(),
                     To.unit(f.unitId()))));
             case GateEvent g -> gate(g, facts).ifPresent(out::add);
+            case com.communityos.api.cultural.application.DonationService.DonationEvent d when d.topic().endsWith(".received") && d.unitId() != null ->
+                out.add(new Message("cultural", "donation", "Receipt " + d.receiptNo(), "Thank you! " + rupees(d.amount()) + " was received - receipt " + d.receiptNo() + ".", "#/cultural",
+                    d.aggregateId(), To.unit(d.unitId())));
+            case com.communityos.api.cultural.application.ExpenseService.ExpenseEvent x -> expense(x).ifPresent(out::add);
             default -> { }
         }
         return out;
@@ -87,6 +91,19 @@ public final class Recipes {
                 "The gate was opened by hand" + (f.extra() == null ? "" : " · " + f.extra()) + ".", "#/security", g.aggregateId(), To.roles("committee_security")));
             default -> Optional.empty();
         };
+    }
+    static Optional<Message> expense(com.communityos.api.cultural.application.ExpenseService.ExpenseEvent x) {
+        String what = rupees(x.amount()) + " for " + x.item();
+        if ("ec".equals(x.waitingFor()) && (x.topic().endsWith(".raised") || x.topic().endsWith(".resubmitted")))
+            return Optional.of(new Message("approval", "expense", "Expense to approve · " + x.item(), what + " waits for the EC's approval.", "#/cultural", x.aggregateId(),
+                To.roles("president", "general_secretary", "treasurer", "committee_cultural")));
+        if ("final".equals(x.waitingFor()) && x.topic().endsWith(".decided"))
+            return Optional.of(new Message("approval", "expense", "Final approval needed · " + x.item(), what + " is approved by the EC and needs the final approval.", "#/cultural", x.aggregateId(),
+                To.roles("treasurer", "president")));
+        if (x.topic().endsWith(".decided") && List.of("Approved", "Rejected").contains(x.status()))
+            return Optional.of(new Message("cultural", "expense", "Expense " + x.status().toLowerCase(Locale.ROOT) + " · " + x.item(), what + " was " + x.status().toLowerCase(Locale.ROOT) + ".",
+                "#/cultural", x.aggregateId(), To.member(x.raisedBy())));
+        return Optional.empty();
     }
     static String flagEvent(String type) {
         if (type == null) return "gate_ghost";

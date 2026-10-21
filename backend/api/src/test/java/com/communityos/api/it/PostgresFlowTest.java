@@ -618,6 +618,97 @@ class PostgresFlowTest {
             as(ownerC, () -> { fileSvc.delete(ownerC, scrap.id()); return null; });
             assertThrows(AccessDenied.class, () -> as(ownerC, () -> { fileSvc.delete(ownerC, photo.id()); return null; }), "attached: a manager removes it");
 
+            // ---- 6i. cultural: an event through the kit, pledges and receipts in the books, an online donation, a fixed offering, seva sign-ups, expenses -------
+            var cstore = new com.communityos.api.cultural.adapter.JdbcCulturalStore(app, new com.communityos.api.approval.application.PlanCodec(json), json);
+            var cdesk = new com.communityos.api.billing.application.BillingDesk(payments, new com.communityos.api.billing.application.TargetSettlement(dues, payments, events, audit, app, clock),
+                new JdbcJournalWriter(app), events, clock);
+            var donSvc = new com.communityos.api.cultural.application.DonationService(cstore, cdesk, events, audit, app, clock, ZoneId.of("Asia/Kolkata"));
+            var expSvc = new com.communityos.api.cultural.application.ExpenseService(cstore, new com.communityos.api.approval.adapter.JdbcApprovalSettings(app, json), cdesk, events, audit, app, clock, ZoneId.of("Asia/Kolkata"));
+            var signSvc = new com.communityos.api.cultural.application.SignupService(cstore, audit, app);
+            var evRepo = new com.communityos.api.shared.resource.JdbcResourceRepository<>(com.communityos.api.cultural.CulturalResources.EVENTS.table(), app, json);
+            java.util.function.Function<String, com.communityos.api.cultural.CulturalResources.EventFields> evf = (status) -> new com.communityos.api.cultural.CulturalResources.EventFields(
+                "Diwali Festival", "Festival", LocalDate.of(2026, 11, 8), LocalDate.of(2026, 11, 9), null, null, null, null, "Clubhouse", status, "Published", null, null, new java.math.BigDecimal("50000"),
+                null, null, null, "Cultural", new java.math.BigDecimal("5000"), null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+            assertThrows(AccessDenied.class, () -> as(ownerC, () -> kit.create(ownerC, com.communityos.api.cultural.CulturalResources.EVENTS, evRepo, evf.apply("Open"))));
+            var diwali = as(admin, () -> kit.create(admin, com.communityos.api.cultural.CulturalResources.EVENTS, evRepo, evf.apply("Open")));
+            com.communityos.api.cultural.application.DonationService.Pledge base = new com.communityos.api.cultural.application.DonationService.Pledge(diwali.id(), null, null, null, null,
+                new java.math.BigDecimal("1001"), null, null, null, false, null, null, null, null, null);
+            var p1 = as(ownerC, () -> donSvc.pledge(ownerC, base));
+            assertEquals("Pledged", p1.status); assertEquals(unitA, p1.unitId); assertEquals("Member owner", p1.donor); assertNull(p1.receiptNo);
+            assertThrows(AccessDenied.class, () -> as(ownerC, () -> donSvc.pledge(ownerC, new com.communityos.api.cultural.application.DonationService.Pledge(diwali.id(), null, unitB, null, null,
+                java.math.BigDecimal.TEN, null, null, null, false, null, null, null, null, null))), "only for their own unit");
+            assertThrows(AccessDenied.class, () -> as(ownerC, () -> donSvc.receive(ownerC, p1.id, p1.version, "Cash", null)), "the committee confirms receipt");
+            var dr1 = as(admin, () -> donSvc.receive(admin, p1.id, p1.version, "Cash", null));
+            assertEquals("DF26-0001", dr1.receiptNo); assertEquals("Received", dr1.status); assertNotNull(dr1.paymentId);
+            assertThrows(DomainException.RuleViolated.class, () -> as(ownerC, () -> { donSvc.withdraw(ownerC, dr1.id, dr1.version); return null; }), "a receipt is final");
+            assertTrue(as(ownerC, () -> inboxSvc.mine(ownerC, true, 20)).stream().anyMatch((n) -> n.title().equals("Receipt DF26-0001")));
+            // online: a prepayment for a donation, claimed by the pledge
+            var p2 = as(ownerC, () -> donSvc.pledge(ownerC, new com.communityos.api.cultural.application.DonationService.Pledge(diwali.id(), null, null, "Donation", "Charity",
+                new java.math.BigDecimal("2500"), null, null, null, true, null, null, null, null, null)));
+            PaymentService.OrderView dpre = as(ownerC, () -> pay.createOrder(ownerC, new PaymentService.CreateOrder(List.of(), "donation", new UnitId(unitA), Money.of("2500")), "it-don-" + tag));
+            Map<String, String> dPaid = sim.simulatePay(dpre.order().providerOrderRef(), true);
+            PaymentRepository.Receipt dR = as(ownerC, () -> pay.confirm(ownerC, dpre.order().id(), dPaid.get("providerPaymentRef"), dPaid.get("signature")));
+            var dr2 = as(ownerC, () -> donSvc.paidOnline(ownerC, p2.id, p2.version, dR.id().value()));
+            assertEquals("DF26-0002", dr2.receiptNo); assertEquals("Online", dr2.mode);
+            var p2b = as(ownerC, () -> donSvc.pledge(ownerC, base));
+            assertThrows(DomainException.RuleViolated.class, () -> as(ownerC, () -> donSvc.paidOnline(ownerC, p2b.id, p2b.version, dR.id().value())), "a prepayment is used once");
+            as(ownerC, () -> { donSvc.withdraw(ownerC, p2b.id, p2b.version); return null; });
+            var visitor = as(admin, () -> donSvc.record(admin, new com.communityos.api.cultural.application.DonationService.Pledge(diwali.id(), "A visitor", null, null, null,
+                new java.math.BigDecimal("500"), null, "Cash", null, false, null, null, null, null, null), true));
+            assertEquals("DF26-0003", visitor.receiptNo);
+            assertEquals("4001.00", owner.sql("SELECT coalesce(sum(l.credit), 0)::text AS c FROM finance.journal_line l JOIN finance.account a ON a.id = l.account_id WHERE l.community_id = '" + cid + "' AND a.code = '4400'").get(0).get("c"),
+                "1001 + 2500 + 500 in Donations");
+            assertEquals(2, as(ownerC, () -> donSvc.list(ownerC, diwali.id())).size(), "the owner sees their unit's donations, not the visitor's");
+            // a fixed offering slot: one pledge holds it
+            var offRepo = new com.communityos.api.shared.resource.JdbcResourceRepository<>(com.communityos.api.cultural.CulturalResources.OFFERINGS.table(), app, json);
+            var abhi = as(admin, () -> kit.create(admin, com.communityos.api.cultural.CulturalResources.OFFERINGS, offRepo, new com.communityos.api.cultural.CulturalResources.OfferingFields(
+                diwali.id(), "Abhishekam", "Day 1", "Fixed slot", new java.math.BigDecimal("5001"), null)));
+            var held = as(ownerC, () -> donSvc.pledge(ownerC, new com.communityos.api.cultural.application.DonationService.Pledge(diwali.id(), null, null, null, null, new java.math.BigDecimal("5001"),
+                null, null, null, false, null, null, null, null, abhi.id())));
+            assertEquals("Seva offering", held.towards);
+            assertEquals(String.valueOf(held.id), String.valueOf(as(admin, () -> kit.get(admin, com.communityos.api.cultural.CulturalResources.OFFERINGS, offRepo, abhi.id())).server("donationId")));
+            assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> donSvc.record(admin, new com.communityos.api.cultural.application.DonationService.Pledge(diwali.id(), "Someone", null, null, null,
+                new java.math.BigDecimal("5001"), null, "Cash", null, false, null, null, null, null, abhi.id()), true)), "already reserved");
+            as(ownerC, () -> { donSvc.withdraw(ownerC, held.id, held.version); return null; });
+            assertNull(as(admin, () -> kit.get(admin, com.communityos.api.cultural.CulturalResources.OFFERINGS, offRepo, abhi.id())).server("donationId"), "free again");
+            // seva: one volunteer needed
+            var sevaRepo = new com.communityos.api.shared.resource.JdbcResourceRepository<>(com.communityos.api.cultural.CulturalResources.SEVAS.table(), app, json);
+            var stall = as(admin, () -> kit.create(admin, com.communityos.api.cultural.CulturalResources.SEVAS, sevaRepo, new com.communityos.api.cultural.CulturalResources.SevaFields(diwali.id(),
+                "Prasadam stall", LocalDate.of(2026, 11, 8), null, null, 1, null)));
+            var seva1 = as(ownerC, () -> signSvc.signUp(ownerC, com.communityos.api.cultural.application.port.CulturalStore.List_.SEVA, stall.id(), null));
+            assertEquals(1, seva1.list().size()); assertEquals("Villa 101", seva1.list().get(0).unit());
+            assertEquals("full", assertThrows(DomainException.RuleViolated.class, () -> as(treasurer, () -> signSvc.signUp(treasurer, com.communityos.api.cultural.application.port.CulturalStore.List_.SEVA, stall.id(), null))).code());
+            assertThrows(AccessDenied.class, () -> as(treasurer, () -> signSvc.withdraw(treasurer, com.communityos.api.cultural.application.port.CulturalStore.List_.SEVA, stall.id(), members[0])), "not theirs to remove");
+            as(ownerC, () -> signSvc.withdraw(ownerC, com.communityos.api.cultural.application.port.CulturalStore.List_.SEVA, stall.id(), null));
+            assertEquals(1, as(treasurer, () -> signSvc.signUp(treasurer, com.communityos.api.cultural.application.port.CulturalStore.List_.SEVA, stall.id(), null)).list().size());
+            // expenses: under the event's limit the EC's approval is the last step; over it, a final approver too; paid, it is in the books
+            assertThrows(AccessDenied.class, () -> as(ownerC, () -> expSvc.raise(ownerC, diwali.id(), new com.communityos.api.cultural.application.ExpenseService.Fields("Flowers", null, null, null, java.math.BigDecimal.TEN, null, null, null))));
+            var flowers = as(admin, () -> expSvc.raise(admin, diwali.id(), new com.communityos.api.cultural.application.ExpenseService.Fields("Flowers", "Decoration", "Ganesh Florist", new java.math.BigDecimal("3000"), null, today, "Cultural", null)));
+            assertEquals("Pending approval", flowers.status); assertEquals(Boolean.FALSE, flowers.finalRequired == null ? Boolean.FALSE : flowers.finalRequired);
+            var fOk = as(treasurer, () -> expSvc.decide(treasurer, flowers.id, flowers.version, "Approved", null, false));
+            assertEquals("Approved", fOk.status, "under the limit: the EC is the last step"); assertEquals("Member treasurer", fOk.ecApprovedBy);
+            var paidX = as(treasurer, () -> expSvc.pay(treasurer, fOk.id, fOk.version, "Bank transfer"));
+            assertEquals("Paid", paidX.status);
+            assertEquals("3000.00", owner.sql("SELECT coalesce(sum(l.debit), 0)::text AS d FROM finance.journal_line l JOIN finance.account a ON a.id = l.account_id WHERE l.community_id = '" + cid + "' AND a.code = '5100'").get(0).get("d"));
+            var sound = as(admin, () -> expSvc.raise(admin, diwali.id(), new com.communityos.api.cultural.application.ExpenseService.Fields("Sound system", null, null, new java.math.BigDecimal("8000"), null, today, null, null)));
+            var sEc = as(treasurer, () -> expSvc.decide(treasurer, sound.id, sound.version, "Approved", null, false));
+            assertEquals("Pending approval", sEc.status); assertEquals("Approved", sEc.ecApproval); assertEquals(Boolean.TRUE, sEc.finalRequired, "over the limit: a final approver too");
+            assertThrows(AccessDenied.class, () -> as(ownerC, () -> expSvc.decide(ownerC, sound.id, sEc.version, "Approved", null, false)));
+            assertThrows(DomainException.RuleViolated.class, () -> as(treasurer, () -> expSvc.pay(treasurer, sound.id, sEc.version, null)), "not approved yet");
+            // the event's totals are worked out from the rows
+            var after = as(ownerC, () -> kit.get(ownerC, com.communityos.api.cultural.CulturalResources.EVENTS, evRepo, diwali.id()));
+            assertEquals(0, new java.math.BigDecimal("4001").compareTo(new java.math.BigDecimal(String.valueOf(after.server("collected")))), "collected: " + after.server("collected"));
+            assertEquals(0, new java.math.BigDecimal("3000").compareTo(new java.math.BigDecimal(String.valueOf(after.server("spent")))), "spent counts approved and paid");
+            // the unused budget is credited back once the event is completed
+            var cur = as(admin, () -> kit.get(admin, com.communityos.api.cultural.CulturalResources.EVENTS, evRepo, diwali.id()));
+            assertThrows(DomainException.RuleViolated.class, () -> as(treasurer, () -> expSvc.credit(treasurer, diwali.id(), cur.version(), new java.math.BigDecimal("1000"), null)), "not completed yet");
+            var evDone = as(admin, () -> kit.replace(admin, com.communityos.api.cultural.CulturalResources.EVENTS, evRepo, diwali.id(), cur.version(), evf.apply("Completed")));
+            assertThrows(DomainException.RuleViolated.class, () -> as(treasurer, () -> expSvc.credit(treasurer, diwali.id(), evDone.version(), new java.math.BigDecimal("60000"), null)), "more than unused");
+            assertThrows(AccessDenied.class, () -> as(ownerC, () -> expSvc.credit(ownerC, diwali.id(), evDone.version(), new java.math.BigDecimal("1000"), null)));
+            var credited = as(treasurer, () -> expSvc.credit(treasurer, diwali.id(), evDone.version(), new java.math.BigDecimal("47000"), "back to the Cultural fund"));
+            assertEquals(0, new java.math.BigDecimal("47000").compareTo(credited.creditedAmount()));
+            assertThrows(DomainException.RuleViolated.class, () -> as(ownerC, () -> donSvc.pledge(ownerC, base)), "a completed event takes no pledges");
+
             // ---- 7. audit, outbox ----------------------------------------------------------------------------------------------------------------
             assertTrue(Integer.parseInt((String) owner.sql("SELECT count(*)::text AS n FROM audit.audit_event WHERE community_id = '" + cid + "'").get(0).get("n")) >= 7);
             OutboxRelay relay = new OutboxRelay(new JdbcOutboxStore(platform), new WebhookFanout(platform), 10, clock);

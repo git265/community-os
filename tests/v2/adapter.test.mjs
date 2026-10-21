@@ -20,7 +20,7 @@ const state = {
     { id: B, shortId: 'UNIT-2', unitNo: 'Villa 202', blockId: null, blockName: 'Block 2', unitType: 'Villa', occupancy: 'Vacant', areaSqft: null, maintenancePlan: null, sanctionedKw: null, status: 'Active', custom: {}, updatedAt: '2026-10-20T06:00:00Z', version: 1 },
   ],
   dues: [], members: [{ id: M1, displayName: 'Asha', phone: '+919800000001', status: 'Active', roles: [{ code: 'owner', name: 'Owner', primary: true }], units: [A], createdAt: null, updatedAt: null, version: 2 }],
-  files: [], documents: [], orders: [], tickets: [], comments: [], quotes: [], bookings: [], broadcasts: [], votes: {}, topics: [], posts: [],
+  files: [], cdonations: [], expenses: [], documents: [], orders: [], tickets: [], comments: [], quotes: [], bookings: [], broadcasts: [], votes: {}, topics: [], posts: [],
   notes: [{ id: '00000000-0000-4000-8000-0000000ee001', createdAt: '2026-10-20T06:00:00Z', event: 'bill', kind: 'bill', title: 'New bill · ₹3,540', body: 'Due 15 Oct', link: '#/billing', refId: null, sender: 'Treasurer', readAt: null }],
   passes: [], approvals: [{ id: '00000000-0000-4000-8000-0000000aa001', shortId: 'GAP-1', name: 'Ravi Uncle', unit: A, unitNo: 'Villa 101', status: 'Pending', kind: 'Guest', version: 1 }], kit: {
     'amenities/types': [{ id: HALL, shortId: 'AMN-1', name: 'Party Hall', rate: '5000.00', capacity: 1, bookingMode: 'Full day', version: 1 }],
@@ -42,8 +42,11 @@ const KIT_FIELDS = {
   'finance/settings': ['approvalSeparate', 'finalCanDecideEc', 'invoiceTolerancePct', 'invoiceSkipWithinQuote'],
   'amenities/types': ['name', 'rate', 'capacity', 'bookingMode'],
   'amenities/items': ['name', 'amenityTypeId', 'stock', 'price', 'perLabel', 'maxPerBooking', 'active'],
+  'cultural/events': ['name', 'status', 'visibility', 'budget', 'finalOver'],
+  'cultural/seva': ['eventId', 'title', 'needed'],
+  'cultural/offerings': ['eventId', 'title', 'kind', 'pledgeValue'],
 };
-const KIT_COLLECTION = { 'amenities/types': 'amenityTypes', 'amenities/items': 'amenityItems', 'maintenance/task-types': 'taskTypes', 'maintenance/categories': 'categoryMap', 'maintenance/quick-phrases': 'quickPhrases', 'maintenance/wishes': 'wishes', 'finance/settings': 'financeSettings' };
+const KIT_COLLECTION = { 'amenities/types': 'amenityTypes', 'amenities/items': 'amenityItems', 'maintenance/task-types': 'taskTypes', 'maintenance/categories': 'categoryMap', 'maintenance/quick-phrases': 'quickPhrases', 'maintenance/wishes': 'wishes', 'finance/settings': 'financeSettings', 'cultural/events': 'culturalEvents', 'cultural/seva': 'culturalSevas', 'cultural/offerings': 'culturalOfferings' };
 const TT = [{ id: 'tt-res', name: 'Resident Maintenance', icon: '🔧', creatorScope: 'Resident', assignmentMode: 'Role queue (staff accepts)', residentVisible: true, residentDefault: true, canRaise: true }];
 const page = (items) => ({ items, total: items.length, limit: 200, offset: 0 });
 const ok = (body, status = 200, headers = {}) => new Response(body == null ? null : JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...headers } });
@@ -157,7 +160,7 @@ globalThis.fetch = async (url, init = {}) => {
     if (m[2] === '/send-back') q.correctionNote = body.note;
     q.version++; return ok(q);
   }
-  if ((m = /^\/(maintenance|finance|amenities)\/([a-z-]+)(?:\/([^/]+))?$/.exec(path)) && KIT_FIELDS[`${m[1]}/${m[2]}`]) {
+  if ((m = /^\/(maintenance|finance|amenities|cultural)\/([a-z-]+)(?:\/([^/]+))?$/.exec(path)) && KIT_FIELDS[`${m[1]}/${m[2]}`]) {
     const key = `${m[1]}/${m[2]}`; const rows = (state.kit[key] ||= []);
     if (!m[3] && method === 'GET') return ok(rows);
     if (!m[3] && method === 'POST') {
@@ -226,6 +229,38 @@ globalThis.fetch = async (url, init = {}) => {
     if (h['If-Match'] !== `"${d.version}"`) return problem(409, 'conflict', 'changed');
     if (method === 'DELETE') { state.documents = state.documents.filter((x) => x !== d); return ok(null, 204); }
     Object.assign(d, body); d.version++; return ok(d);
+  }
+  // ---- cultural
+  if (path === '/cultural/donations' && method === 'GET') return ok(state.cdonations);
+  if (path === '/cultural/donations' && method === 'POST') { const d = { ...body, id: uuid(), shortId: 'DON-1', status: body.received ? 'Received' : 'Pledged', receiptNo: null, unitNo: 'Villa 101', version: 1 }; delete d.received; state.cdonations.push(d); return ok(d, 201); }
+  if ((m = /^\/cultural\/donations\/([^/]+)(\/[a-z-]+)?$/.exec(path))) {
+    const d = state.cdonations.find((x) => x.id === m[1]); if (!d) return problem(404, 'not-found', 'Not found');
+    if (method === 'GET') return ok(d);
+    if (h['If-Match'] !== `"${d.version}"`) return problem(409, 'conflict', 'changed');
+    if (method === 'DELETE') { state.cdonations = state.cdonations.filter((x) => x !== d); return ok(null, 204); }
+    if (m[2] === '/receive') Object.assign(d, { status: 'Received', receiptNo: 'DF26-0001', mode: body.mode });
+    else if (m[2] === '/paid-online') Object.assign(d, { status: 'Received', receiptNo: 'DF26-0002', mode: 'Online', paymentId: body.prepaymentId });
+    else Object.assign(d, body);
+    d.version++; return ok(d);
+  }
+  if ((m = /^\/cultural\/events\/([^/]+)\/(expenses|credit)$/.exec(path))) {
+    if (m[2] === 'credit') { const e = state.kit['cultural/events'].find((x) => x.id === m[1]); e.creditedAmount = String(body.amount); e.version++; return ok(e); }
+    const x = { ...body, id: uuid(), shortId: 'EXP-1', eventId: m[1], status: 'Pending approval', ecApproval: 'Pending', plan: null, version: 1 }; state.expenses.push(x); return ok(x, 201);
+  }
+  if (path === '/cultural/expenses') return ok(state.expenses);
+  if ((m = /^\/cultural\/expenses\/([^/]+)(\/[a-z]+)?$/.exec(path))) {
+    const x = state.expenses.find((e) => e.id === m[1]); if (!x) return problem(404, 'not-found', 'Not found');
+    if (method === 'GET') return ok(x);
+    if (h['If-Match'] !== `"${x.version}"`) return problem(409, 'conflict', 'changed');
+    if (m[2] === '/decision') Object.assign(x, { ecApproval: body.value, status: body.value });
+    else if (m[2] === '/pay') x.status = 'Paid';
+    else Object.assign(x, body);
+    x.version++; return ok(x);
+  }
+  if ((m = /^\/cultural\/(seva|programme)\/([^/]+)\/signup$/.exec(path))) {
+    const r = state.kit['cultural/seva'].find((x) => x.id === m[2]); r.volunteers ||= [];
+    if (method === 'POST') r.volunteers.push({ membershipId: M1, name: 'Asha', unit: 'Villa 101' }); else r.volunteers = r.volunteers.filter((v) => v.membershipId !== (u.searchParams.get('membershipId') || M1));
+    r.version++; return ok({ id: r.id, list: r.volunteers });
   }
   // ---- comms
   if (path === '/notifications') return ok(state.notes);
@@ -507,4 +542,37 @@ test('files and documents: bytes go up as the body; a ticket\'s photo is attache
   assert.equal(last('PUT', /^\/documents\//).headers['If-Match'], '"1"'); assert.equal(last('PUT', /^\/documents\//).body.unitId, A); assert.equal(d2.unit, '');
   await storage.remove('documents', d.id);
   assert.equal(last('DELETE', /^\/documents\//).headers['If-Match'], '"2"');
+});
+
+test('cultural: a pledge is POSTed (status and receipt are the server\'s), received or paid online by command; reservations and totals are not written; sign-ups are commands', async () => {
+  const ev = await storage.put('culturalEvents', { name: 'Diwali', status: 'Open', visibility: 'Published', budget: 50000, finalOver: 5000 });
+  const p = await storage.put('culturalDonations', { eventId: ev.id, donor: 'Asha', unit: 'Villa 101', kind: 'Donation', towards: 'General', amount: 1001, status: 'Pledged', receiptNo: 'FAKE-1', mode: 'UPI' });
+  const post = last('POST', /^\/cultural\/donations$/).body;
+  assert.equal(post.unitId, A); assert.equal(post.received, false); assert.equal('receiptNo' in post, false); assert.equal('status' in post, false);
+  const r = await storage.put('culturalDonations', { ...p, status: 'Received', mode: 'Cash', receiptNo: 'X' });
+  assert.deepEqual(last('POST', /\/receive$/).body, { mode: 'Cash', reference: null }); assert.equal(r.receiptNo, 'DF26-0001', 'the server numbers receipts');
+  const p2 = await storage.put('culturalDonations', { eventId: ev.id, donor: 'Asha', unit: 'Villa 101', amount: 2500, status: 'Pledged' });
+  const pre = '00000000-0000-4000-8000-0000000fee01';
+  await storage.put('culturalDonations', { ...p2, status: 'Received', gatewayRef: pre });
+  assert.deepEqual(last('POST', /\/paid-online$/).body, { prepaymentId: pre });
+  const off = await storage.put('culturalOfferings', { eventId: ev.id, title: 'Abhishekam', kind: 'Fixed slot', pledgeValue: 5001 });
+  const writes = calls.filter((x) => x.method !== 'GET').length;
+  await storage.put('culturalOfferings', { ...off, reservedBy: 'Asha', reservedUnit: 'Villa 101' });
+  const evNow = await storage.get('culturalEvents', ev.id);
+  await storage.put('culturalEvents', { ...evNow, collected: 123, pledged: 9, donors: 1 });
+  assert.equal(calls.filter((x) => x.method !== 'GET').length, writes, 'a reservation is made by pledging, and the totals are the server\'s');
+  await storage.put('culturalEvents', { ...evNow, creditedAmount: 47000, creditNote: 'to the fund' });
+  assert.deepEqual(last('POST', /\/credit$/).body, { amount: 47000, note: 'to the fund' });
+  const seva = await storage.put('culturalSevas', { eventId: ev.id, title: 'Stall', needed: 2, volunteers: [] });
+  await storage.put('culturalSevas', { ...seva, volunteers: [{ name: 'Asha', unit: 'Villa 101' }] });
+  assert.equal(last('POST', /\/signup$/).path, `/cultural/seva/${seva.id}/signup`);
+  const s2 = await storage.get('culturalSevas', seva.id);
+  await storage.put('culturalSevas', { ...s2, volunteers: [] });
+  assert.equal(last('DELETE', /\/signup/).path, `/cultural/seva/${seva.id}/signup`, 'leaving as myself');
+  const x = await storage.put('culturalExpenses', { eventId: ev.id, item: 'Flowers', amount: 3000, status: 'Pending approval', ecApproval: 'Pending' });
+  assert.deepEqual(last('POST', /\/expenses$/).body, { item: 'Flowers', category: null, vendor: null, amount: 3000, estimate: null, date: null, fund: null, note: null });
+  const xa = await storage.put('culturalExpenses', { ...x, ecApproval: 'Approved', ecNote: 'ok', finalRequired: false, status: 'Approved' });
+  assert.deepEqual(last('POST', /\/decision$/).body, { value: 'Approved', comment: 'ok', finish: true });
+  await storage.put('culturalExpenses', { ...xa, status: 'Paid' });
+  assert.equal(last('POST', /\/pay$/).headers['If-Match'], '"2"');
 });

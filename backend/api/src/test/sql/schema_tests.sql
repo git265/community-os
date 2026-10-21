@@ -244,6 +244,17 @@ DO $$ DECLARE f uuid; BEGIN
   PERFORM test.expect_error($q$INSERT INTO docs.folder (community_id, id, name, parent_id) VALUES ('00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000f001', 'Loop', '00000000-0000-0000-0000-00000000f001')$q$, '23514');
   PERFORM test.pass('files: attached to something real or to nothing; a villa document has its unit; a folder is not its own parent');
 END $$;
+DO $$ DECLARE e uuid; BEGIN
+  PERFORM set_config('app.community_id', '00000000-0000-0000-0000-00000000000a', true);
+  IF NOT EXISTS (SELECT 1 FROM finance.account WHERE code = '4400') THEN RAISE EXCEPTION 'Donations account not provisioned'; END IF;
+  INSERT INTO cultural.event (community_id, name) VALUES ('00000000-0000-0000-0000-00000000000a', 'Holi') RETURNING id INTO e;
+  PERFORM test.expect_error(format($q$INSERT INTO cultural.donation (community_id, event_id, donor, amount, status) VALUES ('00000000-0000-0000-0000-00000000000a', %L, 'x', 10, 'Received')$q$, e), '23514');
+  PERFORM test.expect_error(format($q$INSERT INTO cultural.donation (community_id, event_id, donor, amount) VALUES ('00000000-0000-0000-0000-00000000000a', %L, 'x', 0)$q$, e), '23514');
+  PERFORM test.expect_error(format($q$INSERT INTO cultural.expense (community_id, event_id, item, status) VALUES ('00000000-0000-0000-0000-00000000000a', %L, 'Flowers', 'Approved')$q$, e), '23514');
+  PERFORM test.expect_error(format($q$UPDATE cultural.event SET credited_amount = 100, credited_at = now() WHERE id = %L$q$, e), '23514');
+  PERFORM test.expect_error(format($q$INSERT INTO cultural.seva (community_id, event_id, title, volunteers) VALUES ('00000000-0000-0000-0000-00000000000a', %L, 'Stall', '{"a":1}')$q$, e), '23514');
+  PERFORM test.pass('cultural: a receipt only for money received, amounts above zero, approved expenses have an amount, credit only once completed, sign-ups are lists');
+END $$;
 RESET ROLE;
 
 SELECT format('%s schema tests passed', count(*)) AS result FROM test.result WHERE ok;

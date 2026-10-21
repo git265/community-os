@@ -36,7 +36,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @Tag(name = "Documents and files")
 public class DocumentController {
-    public record AttachRequest(@NotNull @Pattern(regexp = "maintenance\\.ticket|maintenance\\.comment|maintenance\\.quotation|amenity\\.booking|docs\\.document") String ownerType,
+    public record AttachRequest(@NotNull @Pattern(regexp = "maintenance\\.ticket|maintenance\\.comment|maintenance\\.quotation|amenity\\.booking|docs\\.document|cultural\\.photo|cultural\\.brochure") String ownerType,
                                 @NotNull UUID ownerId) {}
     /** A document as a manager files it; its file was uploaded first. */
     public record DocumentRequest(@NotNull UUID fileId, @NotBlank @Size(max = 200) String title, @Size(max = 60) String category, @Size(max = 40) String edition,

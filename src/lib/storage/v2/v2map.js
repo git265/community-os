@@ -220,6 +220,12 @@ export const RESOURCES = {
   incidents: { path: 'gate/incidents' },
   gateSettings: { path: 'gate/settings', singleton: true, json: ['durations', 'events'] },
   docFolders: { path: 'documents/folders' },
+  culturalEvents: { path: 'cultural/events' },
+  culturalPrograms: { path: 'cultural/programme' },
+  culturalSevas: { path: 'cultural/seva' },
+  culturalOfferings: { path: 'cultural/offerings' },
+  culturalBrochure: { path: 'cultural/brochure' },
+  culturalPhotos: { path: 'cultural/photos' },
   financeSettings: { path: 'finance/settings', rename: { finalCanDecideEC: 'finalCanDecideEc' }, singleton: true },
   importantNumbers: { path: 'comms/important-numbers' },
   numberSections: { path: 'comms/number-sections' },
@@ -486,3 +492,58 @@ export function documentBody(rec, unitIdByNo = {}) {
   if (rec.unit && !unitId) throw new Error(`Unit ${rec.unit} is not known to the back end.`);
   return { title: rec.title, category: rec.category || null, edition: rec.version ? String(rec.version) : null, access: rec.access || 'Everyone', unitId, expiry: rec.expiry || null, folderId: isUuid(rec.folderId) ? rec.folderId : null };
 }
+
+// ---- cultural: donations, expenses, sign-ups ----------------------------------------------------------------------------------------------------
+export function donationOf(d) {
+  return {
+    id: d.id, shortId: d.shortId, eventId: d.eventId, donor: d.donor, unit: d.unitNo || '', unitId: d.unitId || '', kind: d.kind, towards: d.towards || 'General', amount: num(d.amount),
+    date: d.date || '', mode: d.mode || '', reference: d.reference || '', status: d.status, receiptNo: d.receiptNo || '', offeringId: d.offeringId || '', phone: d.phone || '',
+    members: d.members || '', sankalpam: d.sankalpam || '', anonymous: !!d.anonymous, note: d.note || '', receivedBy: d.receivedBy || '', gatewayRef: d.mode === 'Online' ? (d.paymentId || '') : '',
+    recordCreatedAt: d.createdAt, version: d.version,
+  };
+}
+export function donationBody(rec, unitIdByNo = {}) {
+  const unitId = rec.unitId || (rec.unit ? unitIdByNo[rec.unit] : null) || null;
+  if (rec.unit && !unitId && rec.unit !== '—') throw new Error(`Unit ${rec.unit} is not known to the back end.`);
+  const n = (x) => (x === '' || x == null ? null : Number(x));
+  return {
+    eventId: rec.eventId, donor: rec.donor || null, unitId, kind: rec.kind || 'Donation', towards: rec.towards || 'General', amount: n(rec.amount), date: rec.date || null, mode: rec.mode || null,
+    reference: rec.reference || null, anonymous: !!rec.anonymous, note: rec.note || null, phone: rec.phone || null, members: rec.members || null, sankalpam: rec.sankalpam || null,
+    offeringId: isUuid(rec.offeringId) ? rec.offeringId : null,
+  };
+}
+const day10 = (t) => (t ? String(t).slice(0, 10) : '');
+export function expenseOf(x) {
+  let plan = '';
+  try { plan = x.plan ? JSON.stringify(legacyPlan(typeof x.plan === 'string' ? JSON.parse(x.plan) : x.plan)) : ''; } catch { plan = ''; }
+  return {
+    id: x.id, shortId: x.shortId, eventId: x.eventId, item: x.item, category: x.category || '', vendor: x.vendor || '', amount: num(x.amount) ?? '', estimate: num(x.estimate) ?? '',
+    date: x.date || '', status: x.status, fund: x.fund || '', plan, note: x.note || '', ecApproval: x.ecApproval || 'Pending', ecApprovedBy: x.ecApprovedBy || '', ecApprovedAt: day10(x.ecApprovedAt),
+    ecNote: x.ecNote || '', finalRequired: x.finalRequired ?? null, approvedBy: x.approvedBy || '', approvedAt: day10(x.approvedAt), approvalNote: x.approvalNote || '', paidBy: x.paidBy || '',
+    recordCreatedBy: x.raisedBy || '', canDecide: !x.whyNotMe, whyNotMe: x.whyNotMe || '', attachments: [], version: x.version,
+  };
+}
+export const expenseBody = (r) => ({ item: r.item, category: r.category || null, vendor: r.vendor || null, amount: r.amount === '' || r.amount == null ? null : Number(r.amount),
+  estimate: r.estimate === '' || r.estimate == null ? null : Number(r.estimate), date: r.date || null, fund: r.fund || null, note: r.note || null });
+/** A change to an expense: its fields (a PUT - also how a rejected one is sent again), a decision found on the plan or the slots, paying. */
+export function expenseCommands(before, after) {
+  const out = [];
+  const keys = ['item', 'category', 'vendor', 'amount', 'estimate', 'date', 'fund', 'note'];
+  const edited = keys.some((k) => String(after[k] ?? '') !== String(before[k] ?? ''));
+  const resubmit = before.status === 'Rejected' && after.status === 'Pending approval';
+  if (edited || resubmit) out.push({ path: '', put: true });
+  if (!resubmit) {
+    const was = decisions(before.plan); const now = decisions(after.plan);
+    if (now.length > was.length) { const d = now[now.length - 1]; out.push({ path: 'decision', body: { value: d.value, comment: d.comment || null, finish: skipped(after.plan) > skipped(before.plan) } }); }
+    else if (now.length < was.length) out.push({ path: 'decision', body: { value: 'Pending' } });
+    else if (now.length === was.length && (after.ecApproval || 'Pending') !== (before.ecApproval || 'Pending') && ['Approved', 'Rejected'].includes(after.ecApproval)) {
+      out.push({ path: 'decision', body: { value: after.ecApproval, comment: after.ecNote || null, finish: after.finalRequired === false } });
+    } else if (now.length === was.length && after.status !== before.status && ['Approved', 'Rejected'].includes(after.status) && before.status === 'Pending approval') {
+      out.push({ path: 'decision', body: { value: after.status, comment: after.approvalNote || null } });
+    }
+  }
+  if (after.status === 'Paid' && before.status !== 'Paid') out.push({ path: 'pay', body: { mode: after.paidMode || null } });
+  return out;
+}
+/** A sign-up list as the app keeps it (name, unit, people), keeping the member id for removing someone. */
+export const signupsOf = (list) => (list || []).map((x) => ({ name: x.name, unit: x.unit || '', phone: '', membershipId: x.membershipId, ...(x.people ? { people: x.people } : {}) }));

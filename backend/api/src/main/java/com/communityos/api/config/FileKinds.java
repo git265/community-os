@@ -29,4 +29,14 @@ public final class FileKinds {
         files.register(new OwnerKind("amenity.booking", (c, id) -> bookings.get(c, id) != null, (c, id) -> BookingPolicy.staff(c) && bookings.get(c, id) != null));
         files.register(new OwnerKind("docs.document", documents::visible, (c, id) -> DocsPolicy.manager(c)));
     }
+    /** photo  read: members, a resident only a published event's · attach: whoever added the photo row, or the committee
+     *  brochure  read: the same · attach: the cultural committee */
+    public static void registerCultural(FileService files, com.communityos.api.cultural.application.port.CulturalStore store) {
+        java.util.function.BiPredicate<com.communityos.api.shared.security.Caller, com.communityos.api.cultural.application.port.CulturalStore.Owner> reads =
+            (c, o) -> com.communityos.api.cultural.application.CulturalPolicy.member(c) && (!c.isResident() || o.published());
+        files.register(new OwnerKind("cultural.photo", (c, id) -> store.photo(id).filter((o) -> reads.test(c, o)).isPresent(),
+            (c, id) -> store.photo(id).filter((o) -> com.communityos.api.cultural.application.CulturalPolicy.manager(c) || (c.membership() != null && c.membership().value().equals(o.addedBy()))).isPresent()));
+        files.register(new OwnerKind("cultural.brochure", (c, id) -> store.brochure(id).filter((o) -> reads.test(c, o)).isPresent(),
+            (c, id) -> com.communityos.api.cultural.application.CulturalPolicy.manager(c) && store.brochure(id).isPresent()));
+    }
 }

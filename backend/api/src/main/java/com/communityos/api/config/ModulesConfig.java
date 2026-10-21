@@ -108,16 +108,33 @@ public class ModulesConfig {
     /** Files and documents need each other (a document's file is read by the document's rules), so they are made together. */
     public record Docs(com.communityos.api.docs.application.FileService files, com.communityos.api.docs.application.DocumentService documents) {}
     @Bean Docs docs(NamedParameterJdbcTemplate jdbc, AuditWriter audit, Tx tx, Clock clock, CosProperties p, TicketService tickets, QuotationService quotations,
-                    com.communityos.api.amenity.application.BookingService bookings) {
+                    com.communityos.api.amenity.application.BookingService bookings, com.communityos.api.cultural.adapter.JdbcCulturalStore cultural) {
         var repo = new com.communityos.api.docs.adapter.JdbcFileRepository(jdbc);
         var files = new com.communityos.api.docs.application.FileService(repo, new com.communityos.api.docs.adapter.LocalDiskStorage(java.nio.file.Path.of(p.files().dir())),
             com.communityos.api.docs.application.port.VirusScanner.NONE, audit, tx, clock);
         var documents = new com.communityos.api.docs.application.DocumentService(new com.communityos.api.docs.adapter.JdbcDocumentRepository(jdbc), files, audit, tx);
         FileKinds.register(files, repo, tickets, quotations, bookings, documents);
+        FileKinds.registerCultural(files, cultural);
         return new Docs(files, documents);
     }
     @Bean com.communityos.api.docs.application.FileService fileService(Docs d) { return d.files(); }
     @Bean com.communityos.api.docs.application.DocumentService documentService(Docs d) { return d.documents(); }
+
+    // ---- cultural events and donations ---------------------------------------------------------------------------------------------------------
+    @Bean com.communityos.api.cultural.adapter.JdbcCulturalStore culturalStore(NamedParameterJdbcTemplate jdbc, PlanCodec plans, ObjectMapper json) {
+        return new com.communityos.api.cultural.adapter.JdbcCulturalStore(jdbc, plans, json);
+    }
+    @Bean com.communityos.api.cultural.application.DonationService donationService(com.communityos.api.cultural.adapter.JdbcCulturalStore store,
+                                                                                 com.communityos.api.billing.application.BillingDesk desk, DomainEvents events, AuditWriter audit, Tx tx, Clock clock, CosProperties p) {
+        return new com.communityos.api.cultural.application.DonationService(store, desk, events, audit, tx, clock, ZoneId.of(p.web().timeZone()));
+    }
+    @Bean com.communityos.api.cultural.application.ExpenseService culturalExpenseService(com.communityos.api.cultural.adapter.JdbcCulturalStore store, JdbcApprovalSettings approvals,
+                                                                                       com.communityos.api.billing.application.BillingDesk desk, DomainEvents events, AuditWriter audit, Tx tx, Clock clock, CosProperties p) {
+        return new com.communityos.api.cultural.application.ExpenseService(store, approvals, desk, events, audit, tx, clock, ZoneId.of(p.web().timeZone()));
+    }
+    @Bean com.communityos.api.cultural.application.SignupService signupService(com.communityos.api.cultural.adapter.JdbcCulturalStore store, AuditWriter audit, Tx tx) {
+        return new com.communityos.api.cultural.application.SignupService(store, audit, tx);
+    }
 
     // ---- billing ------------------------------------------------------------------------------------------------------------------------------
     @Bean JdbcDueRepository dueRepository(NamedParameterJdbcTemplate jdbc) { return new JdbcDueRepository(jdbc); }

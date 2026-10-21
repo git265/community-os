@@ -23,12 +23,12 @@ import { AuthzError, ConflictError } from '../../security/errors.js';
 import { SessionStorageAdapter } from '../SessionStorageAdapter.js';
 import { propertyOf, unitPatch, userOf, dueOf, raiseBody, roleOf, ticketOf, ticketPatch, raiseTicketBody, commentOf, fieldStaffOf, quotationOf, addDocumentBody,
   quotationCommands, RESOURCES, resourceOf, resourceBody, isUuid, bookingOf, busyOf, bookBody, bookingCommand, gatePassOf, gateVisitOf, gateApprovalOf, gateFlagOf, gateScanOf,
-  passBody, fileMeta, fileRowOf, dataUrlBytes, bytesDataUrl, documentOf, documentBody, notificationOf, broadcastOf, broadcastDraft, broadcastCommands, pollVoteRows, topicOf, postOf } from './v2map.js';
+  passBody, donationOf, donationBody, expenseOf, expenseBody, expenseCommands, fileMeta, fileRowOf, dataUrlBytes, bytesDataUrl, documentOf, documentBody, notificationOf, broadcastOf, broadcastDraft, broadcastCommands, pollVoteRows, topicOf, postOf } from './v2map.js';
 import { getAuthUser } from '../../auth/session.js';
 import { getPrincipal } from '../../security/principal.js';
 
 const GATE_DESK = ['gatePasses', 'gateVisits', 'gateApprovals', 'gateFlags', 'gateScans', 'gatePulse'];
-const DOCS = ['files', 'documents'];
+const DOCS = ['files', 'documents', 'culturalDonations', 'culturalExpenses'];
 const COMMS = ['notifications', 'broadcasts', 'pollVotes', 'forum', 'forumPosts'];
 export const V2_COLLECTIONS = ['properties', 'users', 'dues', 'roles', 'tickets', 'ticketComments', 'handymen', 'quotations', 'amenities', ...GATE_DESK, ...COMMS, ...DOCS, ...Object.keys(RESOURCES)];
 export const LOCAL_COLLECTIONS = ['schema', 'communityConfig', 'roleGroups'];
@@ -181,6 +181,12 @@ readers.files = {
   },
 };
 readers.documents = { list: async () => (await call('/documents')).map(documentOf), get: async (id) => { if (!isUuid(id)) return null; const d = await call(`/documents/${id}`); return d && documentOf(d); } };
+// cultural: donations (a unit's own, or all for the committee), expenses (the committee and the accounts)
+readers.culturalDonations = { list: async () => (await call('/cultural/donations')).map(donationOf), get: async (id) => { if (!isUuid(id)) return null; const d = await call(`/cultural/donations/${id}`); return d && donationOf(d); } };
+readers.culturalExpenses = {
+  list: async () => { try { return (await call('/cultural/expenses')).map(expenseOf); } catch (e) { if (e instanceof AuthzError) return []; throw e; } },
+  get: async (id) => { if (!isUuid(id)) return null; const x = await call(`/cultural/expenses/${id}`); return x && expenseOf(x); },
+};
 // task types also say which ones this person may raise (the ticket form offers only those)
 const taskTypeList = readers.taskTypes.list;
 readers.taskTypes.list = async () => {
@@ -445,6 +451,77 @@ const attaching = (put, ownerType, field) => async (rec) => {
   for (const id of wanted) await call(`/files/${id}/attach`, json('POST', { ownerType, ownerId: out.id }));
   return { ...out, [field]: await filesOf(ownerType, out.id) };
 };
+async function putDonation(rec) {
+  const before = isUuid(rec.id) ? await readers.culturalDonations.get(rec.id) : null;
+  const { idByNo } = await unitIndex();
+  if (!before) return donationOf(await call('/cultural/donations', json('POST', { ...donationBody(rec, idByNo), received: rec.status === 'Received' })));
+  let out = null; let version = before.version;
+  const fields = ['donor', 'kind', 'towards', 'amount', 'date', 'anonymous', 'note', 'phone', 'members', 'sankalpam', ...(rec.status === 'Received' ? [] : ['mode', 'reference'])];
+  if (before.status === 'Pledged' && fields.some((k) => String(rec[k] ?? '') !== String(before[k] ?? ''))) {
+    out = await call(`/cultural/donations/${rec.id}`, json('PUT', donationBody({ ...before, ...rec }, idByNo), ifMatch(version))); version = out.version;
+  }
+  if (rec.status === 'Received' && before.status !== 'Received') {
+    out = isUuid(rec.gatewayRef)
+      ? await call(`/cultural/donations/${rec.id}/paid-online`, json('POST', { prepaymentId: rec.gatewayRef }, ifMatch(version)))
+      : await call(`/cultural/donations/${rec.id}/receive`, json('POST', { mode: rec.mode || 'Cash', reference: rec.reference || null }, ifMatch(version)));
+  }
+  return out ? donationOf(out) : before;
+}
+async function putExpense(rec) {
+  const before = isUuid(rec.id) ? await readers.culturalExpenses.get(rec.id) : null;
+  if (!before) return expenseOf(await call(`/cultural/events/${encodeURIComponent(rec.eventId)}/expenses`, json('POST', expenseBody(rec))));
+  let version = before.version; let out = null;
+  for (const cmd of expenseCommands(before, rec)) {
+    out = cmd.put ? await call(`/cultural/expenses/${rec.id}`, json('PUT', expenseBody({ ...before, ...rec }), ifMatch(version)))
+      : await call(`/cultural/expenses/${rec.id}/${cmd.path}`, json('POST', cmd.body || {}, ifMatch(version)));
+    version = out.version;
+  }
+  return out ? expenseOf(out) : before;
+}
+/** Seva / programme rows: the register's fields through the kit; joining or leaving the list is a sign-up command. */
+const signing = (c, list, key) => async (rec) => {
+  const before = isUuid(rec.id) ? await readers[c].get(rec.id) : null;
+  if (!before) return putResource(c, rec);
+  const names = (xs) => (xs || []).map((x) => x.name);
+  const was = before[key] || []; const now = rec[key] || [];
+  const me = myName();
+  if (JSON.stringify(names(now)) !== JSON.stringify(names(was))) {
+    const added = now.filter((x) => !names(was).includes(x.name)); const gone = was.filter((x) => !names(now).includes(x.name));
+    for (const x of added) { if (x.name !== me) throw new Error('Sign up as yourself.'); await call(`/cultural/${list}/${rec.id}/signup`, json('POST', { people: x.people || null })); }
+    for (const x of gone) await call(`/cultural/${list}/${rec.id}/signup${x.name === me ? '' : `?membershipId=${x.membershipId}`}`, { method: 'DELETE' });
+  }
+  const rest = { ...rec }; delete rest[key];
+  const fields = Object.keys(rest).filter((k) => !['id', 'version', 'shortId', 'createdAt', 'updatedAt'].includes(k));
+  if (fields.some((k) => JSON.stringify(rest[k] ?? '') !== JSON.stringify(before[k] ?? ''))) return putResource(c, { ...rest, version: undefined });
+  return readers[c].get(rec.id);
+};
+const RESERVE_KEYS = ['reservedBy', 'reservedUnit', 'reservedAt', 'donationId'];
+const TOTAL_KEYS = ['collected', 'pledged', 'families', 'donors', 'spent', 'lastUpdatedBy', 'recordUpdatedAt'];
+const CREDIT_KEYS = ['creditedAmount', 'creditedAt', 'creditedBy', 'creditNote'];
+const changedBut = (before, rec, ignore) => Object.keys(rec).filter((k) => !ignore.includes(k) && !['id', 'version', 'shortId', 'createdAt', 'updatedAt'].includes(k) && JSON.stringify(rec[k] ?? '') !== JSON.stringify(before[k] ?? ''));
+/** An offering's reservation is made by pledging for it (and freed by withdrawing the pledge): those fields are never written here. */
+async function putOffering(rec) {
+  const before = isUuid(rec.id) ? await readers.culturalOfferings.get(rec.id) : null;
+  if (before && !changedBut(before, rec, RESERVE_KEYS).length) return before;
+  return putResource('culturalOfferings', rec);
+}
+/** An event: its totals are the server's (worked out from the rows); crediting unused budget is its own command. */
+async function putEvent(rec) {
+  const before = isUuid(rec.id) ? await readers.culturalEvents.get(rec.id) : null;
+  if (!before) return putResource('culturalEvents', rec);
+  let out = before;
+  if (Number(rec.creditedAmount || 0) !== Number(before.creditedAmount || 0)) {
+    await call(`/cultural/events/${rec.id}/credit`, json('POST', { amount: Number(rec.creditedAmount), note: rec.creditNote || null }, ifMatch(before.version)));
+    out = await readers.culturalEvents.get(rec.id);
+  }
+  if (changedBut(before, rec, [...TOTAL_KEYS, ...CREDIT_KEYS]).length) out = await putResource('culturalEvents', { ...rec, version: out.version });
+  return out;
+}
+async function putPhoto(rec) {
+  const out = await putResource('culturalPhotos', rec);
+  if (isUuid(rec.fileId)) await call(`/files/${rec.fileId}/attach`, json('POST', { ownerType: 'cultural.photo', ownerId: out.id }));
+  return out;
+}
 const deskOnly = () => { throw new Error('Visits and patrol scans are recorded by the gate desk (the gate screens), not edited.'); };
 
 async function putBooking(rec) {
@@ -461,7 +538,7 @@ async function putBooking(rec) {
   return bookingOf(await call(`/amenities/bookings/${encodeURIComponent(rec.id)}/${cmd.path}`, json('POST', cmd.body, ifMatch(before.version))));
 }
 
-const WRITERS = { files: putFile, documents: putDocument, notificationOutbox: async (r) => r /* the server queues channel messages itself, from the event */, notifications: putNotification, broadcasts: putBroadcast, pollVotes: putPollVote, forum: putTopic, forumPosts: putPost, gatePasses: putPass, gateApprovals: putApproval, gateFlags: putFlag, gateVisits: deskOnly, gateScans: deskOnly, gatePulse: async (r) => r, amenities: putBooking, properties: putProperty, users: putUser, dues: putDue, tickets: putTicket, ticketComments: putComment, handymen: putFieldStaff, quotations: putQuotation };
+const WRITERS = { culturalDonations: putDonation, culturalExpenses: putExpense, culturalOfferings: putOffering, culturalEvents: putEvent, culturalPhotos: putPhoto, culturalSevas: signing('culturalSevas', 'seva', 'volunteers'), culturalPrograms: signing('culturalPrograms', 'programme', 'participants'), files: putFile, documents: putDocument, notificationOutbox: async (r) => r /* the server queues channel messages itself, from the event */, notifications: putNotification, broadcasts: putBroadcast, pollVotes: putPollVote, forum: putTopic, forumPosts: putPost, gatePasses: putPass, gateApprovals: putApproval, gateFlags: putFlag, gateVisits: deskOnly, gateScans: deskOnly, gatePulse: async (r) => r, amenities: putBooking, properties: putProperty, users: putUser, dues: putDue, tickets: putTicket, ticketComments: putComment, handymen: putFieldStaff, quotations: putQuotation };
 WRITERS.tickets = attaching(WRITERS.tickets, 'maintenance.ticket', 'attachments');
 WRITERS.ticketComments = attaching(WRITERS.ticketComments, 'maintenance.comment', 'attachments');
 WRITERS.quotations = attaching(WRITERS.quotations, 'maintenance.quotation', 'attachments');
@@ -496,6 +573,11 @@ export const V2ApiAdapter = {
   async remove(c, id) {
     if (LOCAL_COLLECTIONS.includes(c)) return SessionStorageAdapter.remove(c, id);
     if (RESOURCES[c]) return removeResource(c, id);
+    if (c === 'culturalDonations' || c === 'culturalExpenses') {
+      const before = isUuid(id) ? await readers[c].get(id) : null;
+      if (before) await call(`/cultural/${c === 'culturalDonations' ? 'donations' : 'expenses'}/${id}`, { method: 'DELETE', headers: ifMatch(before.version) });
+      return;
+    }
     if (c === 'files') { if (isUuid(id)) await call(`/files/${id}`, { method: 'DELETE' }); return; }
     if (c === 'documents') { const d = isUuid(id) ? await readers.documents.get(id) : null; if (d) await call(`/documents/${id}`, { method: 'DELETE', headers: ifMatch(d.rowVersion) }); return; }
     if (c === 'forum' || c === 'forumPosts' || c === 'broadcasts') {
