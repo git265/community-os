@@ -20,7 +20,7 @@ const state = {
     { id: B, shortId: 'UNIT-2', unitNo: 'Villa 202', blockId: null, blockName: 'Block 2', unitType: 'Villa', occupancy: 'Vacant', areaSqft: null, maintenancePlan: null, sanctionedKw: null, status: 'Active', custom: {}, updatedAt: '2026-10-20T06:00:00Z', version: 1 },
   ],
   dues: [], members: [{ id: M1, displayName: 'Asha', phone: '+919800000001', status: 'Active', roles: [{ code: 'owner', name: 'Owner', primary: true }], units: [A], createdAt: null, updatedAt: null, version: 2 }],
-  files: [], cdonations: [], expenses: [], documents: [], orders: [], tickets: [], comments: [], quotes: [], bookings: [], broadcasts: [], votes: {}, topics: [], posts: [],
+  files: [], cbook: [], releases: [], payreqs: [], blines: [], cdonations: [], expenses: [], documents: [], orders: [], tickets: [], comments: [], quotes: [], bookings: [], broadcasts: [], votes: {}, topics: [], posts: [],
   notes: [{ id: '00000000-0000-4000-8000-0000000ee001', createdAt: '2026-10-20T06:00:00Z', event: 'bill', kind: 'bill', title: 'New bill · ₹3,540', body: 'Due 15 Oct', link: '#/billing', refId: null, sender: 'Treasurer', readAt: null }],
   passes: [], approvals: [{ id: '00000000-0000-4000-8000-0000000aa001', shortId: 'GAP-1', name: 'Ravi Uncle', unit: A, unitNo: 'Villa 101', status: 'Pending', kind: 'Guest', version: 1 }], kit: {
     'amenities/types': [{ id: HALL, shortId: 'AMN-1', name: 'Party Hall', rate: '5000.00', capacity: 1, bookingMode: 'Full day', version: 1 }],
@@ -229,6 +229,47 @@ globalThis.fetch = async (url, init = {}) => {
     if (h['If-Match'] !== `"${d.version}"`) return problem(409, 'conflict', 'changed');
     if (method === 'DELETE') { state.documents = state.documents.filter((x) => x !== d); return ok(null, 204); }
     Object.assign(d, body); d.version++; return ok(d);
+  }
+  // ---- finance
+  if (path === '/finance/cash-book' && method === 'GET') return ok(state.cbook);
+  if (path === '/finance/cash-book' && method === 'POST') {
+    if (body.type === 'Debit' && Number(body.amount) > 50000) return problem(422, 'needs-second-approver', 'Payments above 50000 need a second approver');
+    const amount = body.baseAmount ? body.baseAmount * (1 + (body.gstRate || 0) / 100) - body.baseAmount * (body.tdsRate || 0) / 100 : body.amount;
+    const e = { ...body, id: uuid(), shortId: `CB-${state.cbook.length + 1}`, amount: String(amount), reconStatus: 'Unreconciled', version: 1 }; state.cbook.push(e); return ok(e, 201);
+  }
+  if ((m = /^\/finance\/cash-book\/([^/]+)(\/[a-z]+)?$/.exec(path))) {
+    const e = state.cbook.find((x) => x.id === m[1]); if (!e) return problem(404, 'not-found', 'Not found');
+    if (method === 'GET') return ok(e);
+    if (m[2] === '/reverse') { if (h['If-Match'] !== `"${e.version}"`) return problem(409, 'conflict', 'changed'); const r = { ...e, id: uuid(), shortId: 'CB-R', type: e.type === 'Debit' ? 'Credit' : 'Debit', reversalOf: e.shortId, reason: body.reason, version: 1 }; state.cbook.push(r); return ok(r, 201); }
+    if (m[2] === '/statement') { e.reconStatus = body.notApplicable ? 'Not applicable' : 'Unreconciled'; e.version++; return ok(e); }
+    if (h['If-Match'] !== `"${e.version}"`) return problem(409, 'conflict', 'changed');
+    Object.assign(e, body); e.version++; return ok(e);
+  }
+  if (path === '/finance/releases' && method === 'GET') return ok(state.releases);
+  if (path === '/finance/releases' && method === 'POST') { const r = { ...body, id: uuid(), shortId: 'REL-1', status: 'Waiting approval', plan: null, version: 1 }; state.releases.push(r); return ok(r, 201); }
+  if ((m = /^\/finance\/releases\/([^/]+)(\/[a-z]+)?$/.exec(path))) {
+    const r = state.releases.find((x) => x.id === m[1]); if (!r) return problem(404, 'not-found', 'Not found');
+    if (method === 'GET') return ok(r);
+    if (h['If-Match'] !== `"${r.version}"`) return problem(409, 'conflict', 'changed');
+    if (m[2] === '/pay') { const e = { id: uuid(), shortId: 'CB-P', type: 'Debit', amount: r.amount, sourceType: 'release', sourceId: r.id, reconStatus: 'Unreconciled', version: 1 }; state.cbook.push(e); Object.assign(r, { status: 'Paid', paidEntryId: e.id }); }
+    else if (m[2] === '/cancel') Object.assign(r, { status: 'Cancelled', cancelReason: body.reason });
+    else if (m[2] === '/decision') r.status = body.value;
+    else Object.assign(r, body);
+    r.version++; return ok(r);
+  }
+  if (path === '/finance/pay-requests' && method === 'GET') return ok(state.payreqs);
+  if (path === '/finance/pay-requests' && method === 'POST') { const p = { id: uuid(), shortId: 'PR-1', description: body.description, amount: String(body.amount), status: 'Waiting', payload: JSON.stringify(body), version: 1 }; state.payreqs.push(p); return ok(p, 201); }
+  if ((m = /^\/finance\/pay-requests\/([^/]+)\/decision$/.exec(path))) { const p = state.payreqs.find((x) => x.id === m[1]); p.status = body.approve ? 'Approved' : 'Rejected'; p.version++; return ok(p); }
+  if (path === '/finance/bank-lines' && method === 'GET') return ok(state.blines);
+  if (path === '/finance/bank-lines/import') {
+    let added = 0;
+    for (const l of body.lines) { const key = `${body.account}|${l.date}|${l.narration}|${l.debit}|${l.credit}`; if (state.blines.some((x) => x.key === key)) continue; state.blines.push({ ...l, key, account: body.account, id: uuid(), shortId: 'BT', matchedEntryId: null, version: 1 }); added++; }
+    return ok({ added, skipped: body.lines.length - added });
+  }
+  if ((m = /^\/finance\/bank-lines\/([^/]+)\/(match|unmatch)$/.exec(path))) {
+    const l = state.blines.find((x) => x.id === m[1]); const e = state.cbook.find((x) => x.id === (m[2] === 'match' ? body.entryId : l.matchedEntryId));
+    if (m[2] === 'match') { l.matchedEntryId = e.id; Object.assign(e, { reconStatus: 'Matched', bankTxnId: l.id }); } else { l.matchedEntryId = null; Object.assign(e, { reconStatus: 'Unreconciled', bankTxnId: null }); }
+    return ok(l);
   }
   // ---- cultural
   if (path === '/cultural/donations' && method === 'GET') return ok(state.cdonations);
@@ -575,4 +616,38 @@ test('cultural: a pledge is POSTed (status and receipt are the server\'s), recei
   assert.deepEqual(last('POST', /\/decision$/).body, { value: 'Approved', comment: 'ok', finish: true });
   await storage.put('culturalExpenses', { ...xa, status: 'Paid' });
   assert.equal(last('POST', /\/pay$/).headers['If-Match'], '"2"');
+});
+
+test('finance: a payment is POSTed (taxes are the server\'s), corrected by reversal, matched to a statement line; bill lines are not booked twice; releases are paid by command', async () => {
+  const e = await storage.put('ledger', { date: '2026-10-20', type: 'Debit', description: 'Pipes', amount: 99, baseAmount: 10000, gstRate: 18, tdsRate: 2, account: 'HDFC Main', mode: 'Bank transfer', sourceId: 'manual:1', reconStatus: 'Unreconciled' });
+  const post = last('POST', /^\/finance\/cash-book$/).body;
+  assert.equal(post.baseAmount, 10000); assert.equal(post.sourceId, null, 'only real ids go to the server'); assert.equal('reconStatus' in post, false);
+  assert.equal(e.amount, 11600);
+  const writes = calls.filter((x) => x.method !== 'GET').length;
+  await storage.put('ledger', { date: '2026-10-20', type: 'Credit', description: 'Maintenance Oct', amount: 3540, sourceId: 'due:abc', sourceType: 'duePayment' });
+  assert.equal(calls.filter((x) => x.method !== 'GET').length, writes, 'a bill\'s payment is already in the server\'s books');
+  await assert.rejects(storage.put('ledger', { ...e, amount: 5 }), /reverse it/);
+  const e2 = await storage.put('ledger', { ...e, category: 'Repairs' });
+  assert.deepEqual(last('PATCH', /^\/finance\/cash-book\//).body.category, 'Repairs'); assert.equal(e2.category, 'Repairs');
+  await storage.putMany('bankTxns', [{ date: '2026-10-20', account: 'HDFC Main', narration: 'NEFT AQUA', debit: 11600, credit: 0, balance: 1000 }, { date: '2026-10-20', account: 'HDFC Main', narration: 'INT', debit: 0, credit: 5, balance: 1005 }]);
+  assert.equal(last('POST', /\/bank-lines\/import$/).body.lines.length, 2, 'one import for the statement');
+  const [line] = (await storage.list('bankTxns')).filter((l) => l.debit > 0);
+  await storage.put('ledger', { ...e2, reconStatus: 'Matched', bankTxnId: line.id });
+  assert.deepEqual(last('POST', /\/match$/).body, { entryId: e.id });
+  const m = await storage.get('ledger', e.id);
+  await storage.put('ledger', { ...m, reconStatus: 'Unreconciled', bankTxnId: '' });
+  assert.equal(last('POST', /\/unmatch$/).path, `/finance/bank-lines/${line.id}/unmatch`);
+  const rv = await storage.put('ledger', { date: '2026-10-21', type: 'Credit', amount: 11600, description: 'Reversal', reversalOf: e.id, reason: 'twice', sourceType: 'reversal' });
+  assert.deepEqual(last('POST', /\/reverse$/).body, { reason: 'twice' }); assert.equal(rv.reversalOf, 'CB-1');
+  await assert.rejects(storage.remove('ledger', e.id), /reverse it/);
+  const rel = await storage.put('releases', { ticketId: '00000000-0000-4000-8000-00000000aaaa', kind: 'Against invoice', amount: 3000, vendor: 'Aqua', status: 'Waiting approval', plan: '' });
+  assert.deepEqual(last('POST', /^\/finance\/releases$/).body, { ticketId: '00000000-0000-4000-8000-00000000aaaa', expenseId: null, kind: 'Against invoice', amount: 3000, vendor: 'Aqua', note: null });
+  state.releases[0].status = 'Approved';
+  const paidLine = await storage.put('ledger', { date: '2026-10-21', type: 'Debit', amount: 3000, description: 'Release', sourceType: 'release', sourceId: rel.id, mode: 'UPI', ref: 'U1' });
+  assert.deepEqual(last('POST', /\/releases\/[^/]+\/pay$/).body, { mode: 'UPI', ref: 'U1', date: '2026-10-21' }); assert.equal(paidLine.sourceType, 'release');
+  await assert.rejects(storage.put('ledger', { date: '2026-10-21', type: 'Debit', amount: 60000, description: 'Lift AMC' }), /second approver/);
+  const pr = await storage.put('payRequests', { description: 'Lift AMC', amount: 60000, status: 'Waiting', payload: JSON.stringify({ date: '2026-10-21', type: 'Debit', amount: 60000, description: 'Lift AMC', vendor: 'Otis' }) });
+  assert.equal(last('POST', /^\/finance\/pay-requests$/).body.vendor, 'Otis');
+  await storage.put('payRequests', { ...pr, status: 'Approved' });
+  assert.deepEqual(last('POST', /\/pay-requests\/[^/]+\/decision$/).body, { approve: true, note: null });
 });

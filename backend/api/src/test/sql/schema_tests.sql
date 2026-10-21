@@ -255,6 +255,16 @@ DO $$ DECLARE e uuid; BEGIN
   PERFORM test.expect_error(format($q$INSERT INTO cultural.seva (community_id, event_id, title, volunteers) VALUES ('00000000-0000-0000-0000-00000000000a', %L, 'Stall', '{"a":1}')$q$, e), '23514');
   PERFORM test.pass('cultural: a receipt only for money received, amounts above zero, approved expenses have an amount, credit only once completed, sign-ups are lists');
 END $$;
+DO $$ BEGIN
+  PERFORM set_config('app.community_id', '00000000-0000-0000-0000-00000000000a', true);
+  PERFORM test.expect_error($q$INSERT INTO finance.cash_book_entry (community_id, date, type, amount, description) VALUES ('00000000-0000-0000-0000-00000000000a', current_date, 'Debit', 0, 'x')$q$, '23514');
+  PERFORM test.expect_error($q$INSERT INTO finance.cash_book_entry (community_id, date, type, amount, description, recon_status) VALUES ('00000000-0000-0000-0000-00000000000a', current_date, 'Debit', 10, 'x', 'Matched')$q$, '23514');
+  PERFORM test.expect_error($q$INSERT INTO finance.cash_book_entry (community_id, date, type, amount, description, reversal_of) VALUES ('00000000-0000-0000-0000-00000000000a', current_date, 'Credit', 10, 'x', 'CB-1')$q$, '23514');
+  PERFORM test.expect_error($q$INSERT INTO finance.release (community_id, amount, status) VALUES ('00000000-0000-0000-0000-00000000000a', 10, 'Waiting approval')$q$, '23514');
+  PERFORM test.expect_error($q$INSERT INTO finance.bank_txn (community_id, date, debit, credit, line_hash) VALUES ('00000000-0000-0000-0000-00000000000a', current_date, 5, 5, 'h1')$q$, '23514');
+  PERFORM test.expect_error($q$INSERT INTO finance.pay_request (community_id, amount, status, requested_by_id, decided_by_id, decided_at) VALUES ('00000000-0000-0000-0000-00000000000a', 10, 'Approved', '00000000-0000-0000-0000-0000000000e1', '00000000-0000-0000-0000-0000000000e1', now())$q$, '23514');
+  PERFORM test.pass('finance: cash book amounts above zero, matched means a bank line, a reversal has a reason, a release is on something, a bank line goes one way, no approving your own payment');
+END $$;
 RESET ROLE;
 
 SELECT format('%s schema tests passed', count(*)) AS result FROM test.result WHERE ok;

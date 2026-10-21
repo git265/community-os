@@ -62,6 +62,14 @@ public final class Recipes {
                 out.add(new Message("cultural", "donation", "Receipt " + d.receiptNo(), "Thank you! " + rupees(d.amount()) + " was received - receipt " + d.receiptNo() + ".", "#/cultural",
                     d.aggregateId(), To.unit(d.unitId())));
             case com.communityos.api.cultural.application.ExpenseService.ExpenseEvent x -> expense(x).ifPresent(out::add);
+            case com.communityos.api.finance.application.ReleaseService.ReleaseEvent r when r.topic().endsWith(".raised") || r.topic().endsWith(".resubmitted") ->
+                out.add(new Message("approval", "release", "Release to approve · " + rupees(r.amount()), "A release of " + rupees(r.amount()) + " waits for approval.", "#/billing", r.aggregateId(),
+                    To.roles("president", "general_secretary", "treasurer")));
+            case com.communityos.api.finance.application.ReleaseService.ReleaseEvent r when r.topic().endsWith(".decided") && List.of("Approved", "Rejected").contains(r.status()) ->
+                out.add(new Message("payment_made", "release", "Release " + r.status().toLowerCase(Locale.ROOT) + " · " + rupees(r.amount()), "Your release of " + rupees(r.amount()) + " was "
+                    + r.status().toLowerCase(Locale.ROOT) + ".", "#/billing", r.aggregateId(), To.member(r.raisedBy())));
+            case com.communityos.api.finance.application.ReleaseService.ReleaseEvent r when r.topic().endsWith(".paid") ->
+                out.add(new Message("payment_made", "release", "Release paid · " + rupees(r.amount()), "The release of " + rupees(r.amount()) + " was paid.", "#/billing", r.aggregateId(), To.member(r.raisedBy())));
             default -> { }
         }
         return out;

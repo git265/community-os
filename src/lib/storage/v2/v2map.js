@@ -226,6 +226,15 @@ export const RESOURCES = {
   culturalOfferings: { path: 'cultural/offerings' },
   culturalBrochure: { path: 'cultural/brochure' },
   culturalPhotos: { path: 'cultural/photos' },
+  funds: { path: 'finance/funds' },
+  bankAccounts: { path: 'finance/bank-accounts' },
+  budgetLines: { path: 'finance/budget-lines' },
+  fixedExpenses: { path: 'finance/fixed-expenses' },
+  deposits: { path: 'finance/deposits' },
+  cashCounts: { path: 'finance/cash-counts' },
+  importProfiles: { path: 'finance/import-profiles' },
+  ledgerSkips: { path: 'finance/ledger-skips' },
+  assocBills: { path: 'finance/association-bills', json: ['billFile'] },
   financeSettings: { path: 'finance/settings', rename: { finalCanDecideEC: 'finalCanDecideEc' }, singleton: true },
   importantNumbers: { path: 'comms/important-numbers' },
   numberSections: { path: 'comms/number-sections' },
@@ -547,3 +556,55 @@ export function expenseCommands(before, after) {
 }
 /** A sign-up list as the app keeps it (name, unit, people), keeping the member id for removing someone. */
 export const signupsOf = (list) => (list || []).map((x) => ({ name: x.name, unit: x.unit || '', phone: '', membershipId: x.membershipId, ...(x.people ? { people: x.people } : {}) }));
+
+// ---- finance: the cash book, releases, pay requests, bank lines ---------------------------------------------------------------------------------
+const n2 = (x) => (x === '' || x == null ? null : Number(x));
+export function ledgerOf(e) {
+  return {
+    id: e.id, shortId: e.shortId, date: e.date, account: e.account || '', description: e.description, category: e.category || '', subCategory: e.subCategory || '', type: e.type,
+    amount: num(e.amount), vendor: e.vendor || '', taskRef: e.taskRef || '', noTask: e.noTask || '', module: e.module || '', sourceType: e.sourceType || '', sourceLabel: e.sourceLabel || '',
+    sourceId: e.sourceId || '', mode: e.mode || '', ref: e.ref || '', unit: e.unitNo || '', unitId: e.unitId || '', bookingNo: e.bookingNo || '', invoiceNo: e.invoiceNo || '', billNo: e.billNo || '',
+    baseAmount: num(e.baseAmount) ?? '', gstRate: num(e.gstRate) ?? '', gstAmount: num(e.gstAmount) || 0, tdsSection: e.tdsSection || '', tdsRate: num(e.tdsRate) ?? '', tdsAmount: num(e.tdsAmount) || 0,
+    fund: e.fund || '', itcStatus: e.itcStatus || '', itcNote: e.itcNote || '', internal: !!e.internal, reversalOf: e.reversalOf || '', reason: e.reason || '', reconStatus: e.reconStatus,
+    bankTxnId: e.bankTxnId || '', recordCreatedBy: e.enteredBy || '', recordCreatedAt: e.createdAt, attachments: [], version: e.version,
+  };
+}
+/** The cash book entry the server takes (taxes and the bank amount are worked out there when a base is given). */
+export function ledgerBody(r, unitIdByNo = {}) {
+  const unitId = r.unitId || (r.unit ? unitIdByNo[r.unit] : null) || null;
+  return {
+    date: r.date, account: r.account || null, description: r.description, category: r.category || null, subCategory: r.subCategory || null, type: r.type || 'Debit', amount: n2(r.amount),
+    vendor: r.vendor || null, taskRef: r.taskRef || null, noTask: r.noTask || null, module: r.module || null, sourceType: r.sourceType || null, sourceLabel: r.sourceLabel || null,
+    sourceId: isUuid(r.sourceId) ? r.sourceId : null, mode: r.mode || null, ref: r.ref || null, unitId, bookingNo: r.bookingNo || null, invoiceNo: r.invoiceNo || null, billNo: r.billNo || null,
+    baseAmount: n2(r.baseAmount), gstRate: n2(r.gstRate), tdsSection: r.tdsSection || null, tdsRate: n2(r.tdsRate), fund: r.fund || null, itcStatus: r.itcStatus || null, itcNote: r.itcNote || null,
+  };
+}
+/** Lines the server books itself (bill payments, bookings, donations): the app writing them again on v2 would count the money twice. */
+export const bookedByServer = (r) => /^(due|amenity|booking|donation|payment):/.test(String(r.sourceId || '')) || ['duePayment', 'booking', 'donation'].includes(r.sourceType);
+export function releaseOf(r) {
+  let plan = '';
+  try { plan = r.plan ? JSON.stringify(legacyPlan(typeof r.plan === 'string' ? JSON.parse(r.plan) : r.plan)) : ''; } catch { plan = ''; }
+  return {
+    id: r.id, shortId: r.shortId, ticketId: r.ticketId || '', ticketShortId: r.ticketShortId || '', expenseId: r.expenseId || '', kind: r.kind, amount: num(r.amount), vendor: r.vendor || '',
+    note: r.note || '', status: r.status, cancelReason: r.cancelReason || '', requestedBy: r.raisedBy || '', recordCreatedBy: r.raisedBy || '', settled: r.status === 'Paid', plan,
+    paidEntryId: r.paidEntryId || '', canDecide: !r.whyNotMe, whyNotMe: r.whyNotMe || '', recordCreatedAt: r.createdAt, version: r.version,
+  };
+}
+export function releaseCommands(before, after) {
+  const out = [];
+  if (after.status === 'Cancelled' && before.status !== 'Cancelled') return [{ path: 'cancel', body: { reason: after.cancelReason || after.reason || '' } }];
+  const resubmit = before.status === 'Rejected' && after.status === 'Waiting approval';
+  const edited = ['kind', 'amount', 'vendor', 'note'].some((k) => String(after[k] ?? '') !== String(before[k] ?? ''));
+  if (resubmit || edited) out.push({ put: true });
+  if (!resubmit) {
+    const was = decisions(before.plan); const now = decisions(after.plan);
+    if (now.length > was.length) { const d = now[now.length - 1]; out.push({ path: 'decision', body: { value: d.value, comment: d.comment || null, finish: skipped(after.plan) > skipped(before.plan) } }); }
+    else if (now.length < was.length) out.push({ path: 'decision', body: { value: 'Pending' } });
+  }
+  if (after.status === 'Paid' && before.status === 'Approved') out.push({ path: 'pay', body: { mode: after.mode || null, ref: after.ref || null } });
+  return out;
+}
+export const payRequestOf = (p) => ({ id: p.id, shortId: p.shortId, description: p.description, amount: num(p.amount), vendor: p.vendor || '', requestedBy: p.requestedBy || '', status: p.status,
+  decidedBy: p.decidedBy || '', decisionNote: p.decisionNote || '', payload: p.payload || '', entryId: p.entryId || '', recordCreatedAt: p.createdAt, version: p.version });
+export const bankTxnOf = (l) => ({ id: l.id, shortId: l.shortId, date: l.date, account: l.account, narration: l.narration || '', head: l.head || '', debit: num(l.debit) || 0, credit: num(l.credit) || 0,
+  balance: num(l.balance) ?? '', party: l.party || '', remarks: l.remarks || '', matchedLedgerId: l.matchedEntryId || '', version: l.version });

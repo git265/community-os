@@ -23,12 +23,12 @@ import { AuthzError, ConflictError } from '../../security/errors.js';
 import { SessionStorageAdapter } from '../SessionStorageAdapter.js';
 import { propertyOf, unitPatch, userOf, dueOf, raiseBody, roleOf, ticketOf, ticketPatch, raiseTicketBody, commentOf, fieldStaffOf, quotationOf, addDocumentBody,
   quotationCommands, RESOURCES, resourceOf, resourceBody, isUuid, bookingOf, busyOf, bookBody, bookingCommand, gatePassOf, gateVisitOf, gateApprovalOf, gateFlagOf, gateScanOf,
-  passBody, donationOf, donationBody, expenseOf, expenseBody, expenseCommands, fileMeta, fileRowOf, dataUrlBytes, bytesDataUrl, documentOf, documentBody, notificationOf, broadcastOf, broadcastDraft, broadcastCommands, pollVoteRows, topicOf, postOf } from './v2map.js';
+  passBody, ledgerOf, ledgerBody, bookedByServer, releaseOf, releaseCommands, payRequestOf, bankTxnOf, donationOf, donationBody, expenseOf, expenseBody, expenseCommands, fileMeta, fileRowOf, dataUrlBytes, bytesDataUrl, documentOf, documentBody, notificationOf, broadcastOf, broadcastDraft, broadcastCommands, pollVoteRows, topicOf, postOf } from './v2map.js';
 import { getAuthUser } from '../../auth/session.js';
 import { getPrincipal } from '../../security/principal.js';
 
 const GATE_DESK = ['gatePasses', 'gateVisits', 'gateApprovals', 'gateFlags', 'gateScans', 'gatePulse'];
-const DOCS = ['files', 'documents', 'culturalDonations', 'culturalExpenses'];
+const DOCS = ['files', 'documents', 'culturalDonations', 'culturalExpenses', 'ledger', 'releases', 'payRequests', 'bankTxns'];
 const COMMS = ['notifications', 'broadcasts', 'pollVotes', 'forum', 'forumPosts'];
 export const V2_COLLECTIONS = ['properties', 'users', 'dues', 'roles', 'tickets', 'ticketComments', 'handymen', 'quotations', 'amenities', ...GATE_DESK, ...COMMS, ...DOCS, ...Object.keys(RESOURCES)];
 export const LOCAL_COLLECTIONS = ['schema', 'communityConfig', 'roleGroups'];
@@ -187,6 +187,12 @@ readers.culturalExpenses = {
   list: async () => { try { return (await call('/cultural/expenses')).map(expenseOf); } catch (e) { if (e instanceof AuthzError) return []; throw e; } },
   get: async (id) => { if (!isUuid(id)) return null; const x = await call(`/cultural/expenses/${id}`); return x && expenseOf(x); },
 };
+// finance: the cash book, releases, pay requests, bank lines (each read only by who may)
+const orEmpty = (f) => async (...a) => { try { return await f(...a); } catch (e) { if (e instanceof AuthzError) return []; throw e; } };
+readers.ledger = { list: orEmpty(async () => (await call('/finance/cash-book')).map(ledgerOf)), get: async (id) => { if (!isUuid(id)) return null; const e = await call(`/finance/cash-book/${id}`); return e && ledgerOf(e); } };
+readers.releases = { list: orEmpty(async () => (await call('/finance/releases')).map(releaseOf)), get: async (id) => { if (!isUuid(id)) return null; const r = await call(`/finance/releases/${id}`); return r && releaseOf(r); } };
+readers.payRequests = { list: orEmpty(async () => (await call('/finance/pay-requests')).map(payRequestOf)) }; readers.payRequests.get = byId(readers.payRequests.list);
+readers.bankTxns = { list: orEmpty(async () => (await call('/finance/bank-lines')).map(bankTxnOf)) }; readers.bankTxns.get = byId(readers.bankTxns.list);
 // task types also say which ones this person may raise (the ticket form offers only those)
 const taskTypeList = readers.taskTypes.list;
 readers.taskTypes.list = async () => {
@@ -522,6 +528,70 @@ async function putPhoto(rec) {
   if (isUuid(rec.fileId)) await call(`/files/${rec.fileId}/attach`, json('POST', { ownerType: 'cultural.photo', ownerId: out.id }));
   return out;
 }
+async function putLedger(rec) {
+  const before = isUuid(rec.id) ? await readers.ledger.get(rec.id) : null;
+  if (!before) {
+    if (isUuid(rec.reversalOf)) {
+      const orig = await readers.ledger.get(rec.reversalOf);
+      return ledgerOf(await call(`/finance/cash-book/${rec.reversalOf}/reverse`, json('POST', { reason: rec.reason || 'Reversed' }, ifMatch(orig.version))));
+    }
+    if (bookedByServer(rec)) return { ...rec, id: rec.id || '', bookedByServer: true };   // the server already has this money in its books
+    if (rec.sourceType === 'release' && isUuid(rec.sourceId)) {
+      const rel = await readers.releases.get(rec.sourceId);
+      const paid = rel.status === 'Paid' ? rel : releaseOf(await call(`/finance/releases/${rec.sourceId}/pay`, json('POST', { mode: rec.mode || null, ref: rec.ref || null, date: rec.date || null }, ifMatch(rel.version))));
+      return readers.ledger.get(paid.paidEntryId);
+    }
+    const { idByNo } = await unitIndex();
+    return ledgerOf(await call('/finance/cash-book', json('POST', ledgerBody(rec, idByNo))));
+  }
+  let out = before;
+  if ((rec.reconStatus || before.reconStatus) !== before.reconStatus) {
+    if (rec.reconStatus === 'Matched' && isUuid(rec.bankTxnId)) await call(`/finance/bank-lines/${rec.bankTxnId}/match`, json('POST', { entryId: rec.id }));
+    else if (before.reconStatus === 'Matched') await call(`/finance/bank-lines/${before.bankTxnId}/unmatch`, { method: 'POST' });
+    if (rec.reconStatus === 'Not applicable' || (rec.reconStatus === 'Unreconciled' && before.reconStatus === 'Not applicable')) await call(`/finance/cash-book/${rec.id}/statement`, json('POST', { notApplicable: rec.reconStatus === 'Not applicable' }));
+    out = await readers.ledger.get(rec.id);
+  }
+  const words = ['description', 'category', 'subCategory', 'itcStatus', 'itcNote'];
+  if (words.some((k) => k in rec && String(rec[k] ?? '') !== String(out[k] ?? ''))) {
+    out = ledgerOf(await call(`/finance/cash-book/${rec.id}`, json('PATCH', Object.fromEntries(words.map((k) => [k, (k in rec ? rec[k] : out[k]) || null])), ifMatch(out.version))));
+  }
+  const money = ['date', 'type', 'amount', 'account', 'vendor', 'baseAmount', 'gstRate', 'tdsRate', 'mode', 'ref'];
+  if (money.some((k) => k in rec && String(rec[k] ?? '') !== String(before[k] ?? ''))) throw new Error('A payment is not edited - reverse it and record it again.');
+  return out;
+}
+async function putRelease(rec) {
+  const before = isUuid(rec.id) ? await readers.releases.get(rec.id) : null;
+  if (!before) return releaseOf(await call('/finance/releases', json('POST', { ticketId: isUuid(rec.ticketId) ? rec.ticketId : null, expenseId: isUuid(rec.expenseId) ? rec.expenseId : null,
+    kind: rec.kind || 'Release', amount: Number(rec.amount), vendor: rec.vendor || null, note: rec.note || null })));
+  let version = before.version; let out = null;
+  for (const cmd of releaseCommands(before, rec)) {
+    out = cmd.put ? await call(`/finance/releases/${rec.id}`, json('PUT', { kind: rec.kind || null, amount: n2v(rec.amount), vendor: rec.vendor || null, note: rec.note || null }, ifMatch(version)))
+      : await call(`/finance/releases/${rec.id}/${cmd.path}`, json('POST', cmd.body || {}, ifMatch(version)));
+    version = out.version;
+  }
+  return out ? releaseOf(out) : before;
+}
+const n2v = (x) => (x === '' || x == null ? null : Number(x));
+async function putPayRequest(rec) {
+  const before = isUuid(rec.id) ? await readers.payRequests.get(rec.id) : null;
+  if (!before) {
+    let p = {}; try { p = typeof rec.payload === 'string' ? JSON.parse(rec.payload || '{}') : (rec.payload || {}); } catch { p = {}; }
+    const { idByNo } = await unitIndex();
+    return payRequestOf(await call('/finance/pay-requests', json('POST', ledgerBody({ type: 'Debit', date: new Date().toISOString().slice(0, 10), ...p, description: p.description || rec.description, amount: p.amount ?? rec.amount, vendor: p.vendor || rec.vendor }, idByNo))));
+  }
+  if (rec.status !== before.status && ['Approved', 'Rejected'].includes(rec.status)) {
+    return payRequestOf(await call(`/finance/pay-requests/${rec.id}/decision`, json('POST', { approve: rec.status === 'Approved', note: rec.decisionNote || rec.note || null }, ifMatch(before.version))));
+  }
+  return before;
+}
+/** New statement lines are imported (the same line twice is skipped); a line's match is made from its cash book entry. */
+async function putBankTxn(rec) {
+  const before = isUuid(rec.id) ? await readers.bankTxns.get(rec.id) : null;
+  if (before) return before;
+  await call('/finance/bank-lines/import', json('POST', { account: rec.account, lines: [bankLineBody(rec)] }));
+  return (await readers.bankTxns.list()).find((l) => l.account === rec.account && l.date === rec.date && l.narration === (rec.narration || '') && Number(l.debit) === Number(rec.debit || 0) && Number(l.credit) === Number(rec.credit || 0)) || rec;
+}
+const bankLineBody = (r) => ({ date: r.date, narration: r.narration || null, head: r.head || null, debit: n2v(r.debit), credit: n2v(r.credit), balance: n2v(r.balance), party: r.party || null, remarks: r.remarks || null });
 const deskOnly = () => { throw new Error('Visits and patrol scans are recorded by the gate desk (the gate screens), not edited.'); };
 
 async function putBooking(rec) {
@@ -538,7 +608,7 @@ async function putBooking(rec) {
   return bookingOf(await call(`/amenities/bookings/${encodeURIComponent(rec.id)}/${cmd.path}`, json('POST', cmd.body, ifMatch(before.version))));
 }
 
-const WRITERS = { culturalDonations: putDonation, culturalExpenses: putExpense, culturalOfferings: putOffering, culturalEvents: putEvent, culturalPhotos: putPhoto, culturalSevas: signing('culturalSevas', 'seva', 'volunteers'), culturalPrograms: signing('culturalPrograms', 'programme', 'participants'), files: putFile, documents: putDocument, notificationOutbox: async (r) => r /* the server queues channel messages itself, from the event */, notifications: putNotification, broadcasts: putBroadcast, pollVotes: putPollVote, forum: putTopic, forumPosts: putPost, gatePasses: putPass, gateApprovals: putApproval, gateFlags: putFlag, gateVisits: deskOnly, gateScans: deskOnly, gatePulse: async (r) => r, amenities: putBooking, properties: putProperty, users: putUser, dues: putDue, tickets: putTicket, ticketComments: putComment, handymen: putFieldStaff, quotations: putQuotation };
+const WRITERS = { ledger: putLedger, releases: putRelease, payRequests: putPayRequest, bankTxns: putBankTxn, culturalDonations: putDonation, culturalExpenses: putExpense, culturalOfferings: putOffering, culturalEvents: putEvent, culturalPhotos: putPhoto, culturalSevas: signing('culturalSevas', 'seva', 'volunteers'), culturalPrograms: signing('culturalPrograms', 'programme', 'participants'), files: putFile, documents: putDocument, notificationOutbox: async (r) => r /* the server queues channel messages itself, from the event */, notifications: putNotification, broadcasts: putBroadcast, pollVotes: putPollVote, forum: putTopic, forumPosts: putPost, gatePasses: putPass, gateApprovals: putApproval, gateFlags: putFlag, gateVisits: deskOnly, gateScans: deskOnly, gatePulse: async (r) => r, amenities: putBooking, properties: putProperty, users: putUser, dues: putDue, tickets: putTicket, ticketComments: putComment, handymen: putFieldStaff, quotations: putQuotation };
 WRITERS.tickets = attaching(WRITERS.tickets, 'maintenance.ticket', 'attachments');
 WRITERS.ticketComments = attaching(WRITERS.ticketComments, 'maintenance.comment', 'attachments');
 WRITERS.quotations = attaching(WRITERS.quotations, 'maintenance.quotation', 'attachments');
@@ -569,10 +639,20 @@ export const V2ApiAdapter = {
     if (LOCAL_COLLECTIONS.includes(c)) return SessionStorageAdapter.put(c, rec);
     throw new NotOnV2Error(c);
   },
-  async putMany(c, list) { const out = []; for (const r of list) out.push(await this.put(c, r)); return out; },
+  async putMany(c, list) {
+    if (c === 'bankTxns' && list.length > 1 && list.every((r) => !isUuid(r.id))) {           // a whole statement in one import
+      const byAccount = {};
+      for (const r of list) (byAccount[r.account] ||= []).push(bankLineBody(r));
+      for (const [account, lines] of Object.entries(byAccount)) await call('/finance/bank-lines/import', json('POST', { account, lines }));
+      return readers.bankTxns.list();
+    }
+    const out = []; for (const r of list) out.push(await this.put(c, r)); return out;
+  },
   async remove(c, id) {
     if (LOCAL_COLLECTIONS.includes(c)) return SessionStorageAdapter.remove(c, id);
     if (RESOURCES[c]) return removeResource(c, id);
+    if (c === 'ledger') throw new Error('A payment is not deleted - reverse it.');
+    if (c === 'releases') { const r = isUuid(id) ? await readers.releases.get(id) : null; if (r) await call(`/finance/releases/${id}/cancel`, json('POST', { reason: 'Removed' }, ifMatch(r.version))); return; }
     if (c === 'culturalDonations' || c === 'culturalExpenses') {
       const before = isUuid(id) ? await readers[c].get(id) : null;
       if (before) await call(`/cultural/${c === 'culturalDonations' ? 'donations' : 'expenses'}/${id}`, { method: 'DELETE', headers: ifMatch(before.version) });

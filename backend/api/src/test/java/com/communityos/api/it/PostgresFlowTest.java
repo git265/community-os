@@ -709,6 +709,78 @@ class PostgresFlowTest {
             assertEquals(0, new java.math.BigDecimal("47000").compareTo(credited.creditedAmount()));
             assertThrows(DomainException.RuleViolated.class, () -> as(ownerC, () -> donSvc.pledge(ownerC, base)), "a completed event takes no pledges");
 
+            // ---- 6j. finance beyond bills: the cash book with taxes, a second approver above the limit, closed books, reversal, bank matching, releases ----
+            var fstore = new com.communityos.api.finance.adapter.JdbcFinanceStore(app, new com.communityos.api.approval.application.PlanCodec(json));
+            var cashSvc = new com.communityos.api.finance.application.CashBookService(fstore, cdesk, audit, app, clock, ZoneId.of("Asia/Kolkata"));
+            var fapprovals = new com.communityos.api.approval.adapter.JdbcApprovalSettings(app, json);
+            var payReqSvc = new com.communityos.api.finance.application.PayRequestService(fstore, cashSvc, fapprovals, json, audit, app);
+            var bankSvc = new com.communityos.api.finance.application.BankService(fstore, audit, app);
+            var relSvc = new com.communityos.api.finance.application.ReleaseService(fstore, qrepo, fapprovals, cashSvc, events, audit, app, clock, ZoneId.of("Asia/Kolkata"));
+            java.util.function.Supplier<com.communityos.api.finance.domain.Books.Entry> plumbing = () -> {
+                var e = new com.communityos.api.finance.domain.Books.Entry();
+                e.date = today; e.type = "Debit"; e.description = "Pipe repairs"; e.vendor = "Aqua Pumps"; e.baseAmount = new java.math.BigDecimal("10000"); e.gstRate = new java.math.BigDecimal("18");
+                e.tdsRate = new java.math.BigDecimal("2"); e.tdsSection = "194C"; e.mode = "Bank transfer"; e.module = "Maintenance";
+                return e;
+            };
+            assertThrows(AccessDenied.class, () -> as(ownerC, () -> cashSvc.record(ownerC, plumbing.get())));
+            var pipe = as(admin, () -> cashSvc.record(admin, plumbing.get()));
+            assertEquals(0, new java.math.BigDecimal("11600").compareTo(pipe.amount), "10000 + 1800 GST - 200 TDS"); assertEquals(0, new java.math.BigDecimal("200").compareTo(pipe.tdsAmount));
+            assertEquals("200.00", owner.sql("SELECT coalesce(sum(l.credit), 0)::text AS c FROM finance.journal_line l JOIN finance.account a ON a.id = l.account_id WHERE l.community_id = '" + cid + "' AND a.code = '2150'").get(0).get("c"), "TDS owed");
+            owner.sql("UPDATE finance.finance_setting SET approval_limit = 50000 WHERE community_id = '" + cid + "' RETURNING 1");
+            java.util.function.Supplier<com.communityos.api.finance.domain.Books.Entry> big = () -> { var e = new com.communityos.api.finance.domain.Books.Entry(); e.date = today; e.type = "Debit"; e.description = "Lift AMC"; e.amount = new java.math.BigDecimal("60000"); e.vendor = "Otis"; return e; };
+            assertEquals("needs-second-approver", assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> cashSvc.record(admin, big.get()))).code());
+            var payReq = as(admin, () -> payReqSvc.submit(admin, big.get()));
+            assertEquals("Waiting", payReq.status);
+            assertThrows(AccessDenied.class, () -> as(admin, () -> payReqSvc.decide(admin, payReq.id, payReq.version, true, null)), "a second person approves");
+            var okReq = as(treasurer, () -> payReqSvc.decide(treasurer, payReq.id, payReq.version, true, "AMC renewal"));
+            assertEquals("Approved", okReq.status); assertNotNull(okReq.entryId);
+            var liftE = as(admin, () -> cashSvc.get(admin, okReq.entryId));
+            assertEquals(0, new java.math.BigDecimal("60000").compareTo(liftE.amount)); assertEquals("Lift AMC", liftE.description);
+            // the bank statement: imported once, matched to the entry, a matched entry is not reversed
+            var stmt = List.of(new com.communityos.api.finance.domain.Books.BankLine(null, null, today, null, "NEFT OTIS ELEVATOR", null, new java.math.BigDecimal("60000"), null, new java.math.BigDecimal("140000"), "Otis", null, null, 0),
+                new com.communityos.api.finance.domain.Books.BankLine(null, null, today, null, "INTEREST", null, null, new java.math.BigDecimal("812"), new java.math.BigDecimal("140812"), null, null, null, 0));
+            assertEquals(2, as(admin, () -> bankSvc.importLines(admin, "HDFC Main", stmt)).added());
+            assertEquals(0, as(admin, () -> bankSvc.importLines(admin, "HDFC Main", stmt)).added(), "the same statement twice adds nothing");
+            var otis = as(admin, () -> bankSvc.lines(admin, new com.communityos.api.finance.application.port.FinanceStore.LineFilter("HDFC Main", null, null, true))).stream().filter((l) -> l.out()).findFirst().orElseThrow();
+            assertEquals("wrong-way", assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> bankSvc.match(admin, as(admin, () -> bankSvc.lines(admin,
+                new com.communityos.api.finance.application.port.FinanceStore.LineFilter("HDFC Main", null, null, true))).stream().filter((l) -> !l.out()).findFirst().orElseThrow().id(), liftE.id))).code());
+            as(admin, () -> bankSvc.match(admin, otis.id(), liftE.id));
+            var liftM = as(admin, () -> cashSvc.get(admin, liftE.id));
+            assertEquals("Matched", liftM.reconStatus);
+            assertEquals("matched", assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> cashSvc.reverse(admin, liftM.id, liftM.version, "duplicate"))).code());
+            // reversal: once, with a reason, and the books still balance
+            var rev = as(admin, () -> cashSvc.reverse(admin, pipe.id, pipe.version, "entered twice"));
+            assertEquals("Credit", rev.type); assertEquals(pipe.shortId, rev.reversalOf);
+            assertEquals("reversed", assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> cashSvc.reverse(admin, pipe.id, as(admin, () -> cashSvc.get(admin, pipe.id)).version, "again"))).code());
+            assertEquals("0.00", owner.sql("SELECT coalesce(sum(l.credit) - sum(l.debit), 0)::text AS n FROM finance.journal_line l JOIN finance.account a ON a.id = l.account_id WHERE l.community_id = '" + cid + "' AND a.code = '2150'").get(0).get("n"), "the TDS is reversed too");
+            // closed books
+            as(admin, () -> cashSvc.lock(admin, today.minusDays(1), null));
+            var old = plumbing.get(); old.date = today.minusDays(3);
+            assertEquals("books-closed", assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> cashSvc.record(admin, old))).code());
+            assertEquals("reason-required", assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> cashSvc.lock(admin, null, null))).code(), "reopening needs a reason");
+            as(admin, () -> cashSvc.lock(admin, null, "correction for the AGM"));
+            // a release on the pump task: within what is open, its own approval, paid into the cash book
+            var openBefore = as(admin, () -> qrepo.position(pump.id())).remaining();
+            assertEquals("over-approved", assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> relSvc.raise(admin, new com.communityos.api.finance.application.ReleaseService.NewRelease(pump.id(), null,
+                "Against invoice", openBefore.amount().add(new java.math.BigDecimal("100")), "Aqua Pumps", null)))).code());
+            var rel = as(admin, () -> relSvc.raise(admin, new com.communityos.api.finance.application.ReleaseService.NewRelease(pump.id(), null, "Against invoice", new java.math.BigDecimal("3000"), "Aqua Pumps", "first part")));
+            assertEquals("Waiting approval", rel.status);
+            assertEquals("not-approved", assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> relSvc.pay(admin, rel.id, rel.version, null, null, null))).code());
+            var relEc = as(treasurer, () -> relSvc.decide(treasurer, rel.id, rel.version, "Approved", null, false));
+            var relOk = as(admin, () -> relSvc.decide(admin, rel.id, relEc.version, "Approved", null, false));
+            assertEquals("Approved", relOk.status);
+            var relPaid = as(admin, () -> relSvc.pay(admin, rel.id, relOk.version, "Bank transfer", "UTR1", null));
+            assertEquals("Paid", relPaid.status); assertNotNull(relPaid.paidEntryId);
+            assertEquals(0, openBefore.amount().subtract(new java.math.BigDecimal("3000")).compareTo(as(admin, () -> qrepo.position(pump.id())).remaining().amount()), "released money is committed on the task");
+            var relEntry = as(admin, () -> cashSvc.get(admin, relPaid.paidEntryId));
+            assertEquals("release", relEntry.sourceType); assertEquals(pump.shortId(), relEntry.taskRef);
+            as(admin, () -> cashSvc.reverse(admin, relEntry.id, relEntry.version, "paid to the wrong account"));
+            assertEquals("Approved", as(admin, () -> relSvc.get(admin, rel.id)).status, "its payment reversed: approved, not paid, again");
+            assertTrue(as(admin, () -> fstore.accounts()).stream().anyMatch((x) -> x.code().equals("1300")));
+            assertFalse(as(admin, () -> fstore.journal(today, today, "2150")).isEmpty());
+            Map<String, Object> bal3 = owner.sql("SELECT sum(debit)::text AS d, sum(credit)::text AS c FROM finance.account_balance WHERE community_id = '" + cid + "'").get(0);
+            assertEquals(bal3.get("d"), bal3.get("c"), "double entry still balances");
+
             // ---- 7. audit, outbox ----------------------------------------------------------------------------------------------------------------
             assertTrue(Integer.parseInt((String) owner.sql("SELECT count(*)::text AS n FROM audit.audit_event WHERE community_id = '" + cid + "'").get(0).get("n")) >= 7);
             OutboxRelay relay = new OutboxRelay(new JdbcOutboxStore(platform), new WebhookFanout(platform), 10, clock);

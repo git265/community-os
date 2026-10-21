@@ -136,6 +136,24 @@ public class ModulesConfig {
         return new com.communityos.api.cultural.application.SignupService(store, audit, tx);
     }
 
+    // ---- finance beyond bills --------------------------------------------------------------------------------------------------------------------
+    @Bean com.communityos.api.finance.adapter.JdbcFinanceStore financeStore(NamedParameterJdbcTemplate jdbc, PlanCodec plans) { return new com.communityos.api.finance.adapter.JdbcFinanceStore(jdbc, plans); }
+    @Bean com.communityos.api.finance.application.CashBookService cashBookService(com.communityos.api.finance.adapter.JdbcFinanceStore store, com.communityos.api.billing.application.BillingDesk desk,
+                                                                                 AuditWriter audit, Tx tx, Clock clock, CosProperties p) {
+        return new com.communityos.api.finance.application.CashBookService(store, desk, audit, tx, clock, ZoneId.of(p.web().timeZone()));
+    }
+    @Bean com.communityos.api.finance.application.ReleaseService releaseService(com.communityos.api.finance.adapter.JdbcFinanceStore store, JdbcQuotationRepository money, JdbcApprovalSettings approvals,
+                                                                               com.communityos.api.finance.application.CashBookService cash, DomainEvents events, AuditWriter audit, Tx tx, Clock clock, CosProperties p) {
+        return new com.communityos.api.finance.application.ReleaseService(store, money, approvals, cash, events, audit, tx, clock, ZoneId.of(p.web().timeZone()));
+    }
+    @Bean com.communityos.api.finance.application.PayRequestService payRequestService(com.communityos.api.finance.adapter.JdbcFinanceStore store, com.communityos.api.finance.application.CashBookService cash,
+                                                                                     JdbcApprovalSettings approvals, ObjectMapper json, AuditWriter audit, Tx tx) {
+        return new com.communityos.api.finance.application.PayRequestService(store, cash, approvals, json, audit, tx);
+    }
+    @Bean com.communityos.api.finance.application.BankService bankService(com.communityos.api.finance.adapter.JdbcFinanceStore store, AuditWriter audit, Tx tx) {
+        return new com.communityos.api.finance.application.BankService(store, audit, tx);
+    }
+
     // ---- billing ------------------------------------------------------------------------------------------------------------------------------
     @Bean JdbcDueRepository dueRepository(NamedParameterJdbcTemplate jdbc) { return new JdbcDueRepository(jdbc); }
     @Bean JdbcBillingLookups billingLookups(NamedParameterJdbcTemplate jdbc) { return new JdbcBillingLookups(jdbc); }
