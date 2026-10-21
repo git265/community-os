@@ -61,18 +61,20 @@ public class DemoController {
         FROM identity.membership m WHERE m.community_id = CAST(:c AS uuid) AND m.status = 'Active' ORDER BY m.display_name LIMIT 500""";
 
     private final NamedParameterJdbcTemplate platform; private final CallerLoader callers; private final DemoData demo; private final AuthService auth;
-    public DemoController(@org.springframework.beans.factory.annotation.Qualifier("platform") NamedParameterJdbcTemplate platform, CallerLoader callers, DemoData demo, AuthService auth) { this.platform = platform; this.callers = callers; this.demo = demo; this.auth = auth; }
+    private final com.fasterxml.jackson.databind.ObjectMapper json;
+    public DemoController(@org.springframework.beans.factory.annotation.Qualifier("platform") NamedParameterJdbcTemplate platform, CallerLoader callers, DemoData demo, AuthService auth,
+                          com.fasterxml.jackson.databind.ObjectMapper json) { this.platform = platform; this.callers = callers; this.demo = demo; this.auth = auth; this.json = json; }
 
     UUID community(String slug) { return platform.query(COMMUNITY, Map.of("slug", slug), (rs, i) -> rs.getObject("id", UUID.class)).stream().findFirst().orElseThrow(() -> new DomainException.NotFound("Community")); }
 
-    /** Load the demo into the community (as its first Super Admin); a second call says it is already there. */
+    /** Load the browser's sample data into the community (as its first Super Admin and the people in it); a second call says it is already there. */
     @PostMapping("/api/v1/demo/load/{slug}")
     public DemoData.Result load(@PathVariable String slug) {
         UUID c = community(slug);
         UUID[] admin = platform.query(SUPER_ADMIN, Map.of("c", c.toString()), (rs, i) -> new UUID[] {rs.getObject("id", UUID.class), rs.getObject("person_id", UUID.class)}).stream().findFirst()
             .orElseThrow(() -> new DomainException.RuleViolated("no-admin", "The community has no Super Admin to load the demo as - run the seed first"));
         Caller caller = callers.load(new PersonId(admin[1]), new CommunityId(c), new MembershipId(admin[0])).orElseThrow();
-        return demo.load(new CommunityId(c), caller);
+        return demo.load(new CommunityId(c), caller, DemoData.bundled(json), new PlatformSetup(platform));
     }
 
     @GetMapping("/api/v1/demo/roster/{slug}")

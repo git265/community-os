@@ -31,7 +31,11 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 /** The shared kernel's beans: clock, JSON, events (Observer + outbox), audit, idempotency, custom fields, outbound HTTP, webhooks. */
 @Configuration
 public class CoreConfig {
-    @Bean Clock clock(CosProperties p) { return Clock.system(ZoneId.of(p.web().timeZone())); }
+    /** The system clock; with the demo on (development only) the demo loader may set it back for its own thread (demo.ReplayClock). */
+    @Bean Clock clock(CosProperties p) {
+        Clock system = Clock.system(ZoneId.of(p.web().timeZone()));
+        return p.demo().enabled() ? new com.communityos.api.demo.ReplayClock(system) : system;
+    }
     @Bean @Primary ObjectMapper objectMapper() { return Json.mapper(); }
 
     /** All in-process handlers (the ledger poster's, and any module's) are collected by type. */

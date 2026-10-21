@@ -297,7 +297,7 @@ Spring Boot notes: add `category_map`, `quotations` tables/collections; `files.o
 
 - **Category** (`EC` / `Staff` / `Resident`) is a property of a **role**, set when the role is created and changeable in *Roles & Permissions → click role → Category* (audited, with a confirmation because it changes data access for everyone holding the role). The three categories are fixed in code (`lib/access/roles.js`) because row/field rules key off them.
 - **User** (*Administration → Users*): name, phone, email, status, one primary role, optional additional roles and the villa(s) owned. A user's category always comes from their role.
-- **Sign-in**: the login screen lists active users (*People*); someone with several roles picks which to sign in as. *Demo roles* is kept for previews. Spring Boot replaces this screen with real authentication and a `users` table. On the v2 API the same screen appears only when the server has the demo loaded (dev profile, `cos.demo.enabled`); it lists the server's members and signs in through `/api/v1/demo/sign-in`.
+- **Sign-in**: the login screen lists active users (*People*); someone with several roles picks which to sign in as. *Demo roles* is kept for previews. Spring Boot replaces this screen with real authentication and a `users` table. On the v2 API the same screen appears only when the server has the demo loaded (dev profile, `cos.demo.enabled`); it lists the server's members and signs in through `/api/v1/demo/sign-in`. The server's demo is this same sample data (`src/lib/seed`), exported by `node tools/export-demo-seed.mjs` and loaded through the v2 services.
 
 ## Oct 8 (later) — approvals, vendors, utilities, inventory
 

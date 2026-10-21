@@ -3,7 +3,11 @@ package com.communityos.api.demo;
 import com.communityos.api.amenity.application.BookingService;
 import com.communityos.api.assets.application.AssetService;
 import com.communityos.api.billing.application.CounterSettlement;
+import com.communityos.api.billing.adapter.gateway.SimulatedGateway;
 import com.communityos.api.billing.application.DueService;
+import com.communityos.api.billing.application.PaymentService;
+import com.communityos.api.finance.application.BankService;
+import com.communityos.api.property.application.UnitService;
 import com.communityos.api.comms.application.BroadcastService;
 import com.communityos.api.comms.application.ForumService;
 import com.communityos.api.config.CosProperties;
@@ -19,6 +23,7 @@ import com.communityos.api.identity.application.MemberService;
 import com.communityos.api.maintenance.application.FieldStaffService;
 import com.communityos.api.maintenance.application.QuotationService;
 import com.communityos.api.maintenance.application.TicketService;
+import com.communityos.api.shared.resource.ResourceRegistry;
 import com.communityos.api.shared.resource.ResourceService;
 import com.communityos.api.shared.security.CallerLoader;
 import com.communityos.api.vendor.application.DirectoryService;
@@ -26,6 +31,7 @@ import com.communityos.api.workforce.application.AttendanceService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Clock;
 import java.time.ZoneId;
+import java.util.Optional;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -37,11 +43,12 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 @ConditionalOnProperty(name = "cos.demo.enabled", havingValue = "true")
 public class DemoConfig {
     @Bean DemoData demoData(Environment env, CosProperties p, NamedParameterJdbcTemplate jdbc, ObjectMapper json, CallerLoader callers, MemberService members, FieldStaffService staff,
-                            DueService dues, CounterSettlement counter, TicketService tickets, QuotationService quotations, ResourceService kit, BookingService bookings, GateService gate,
-                            BroadcastService notices, ForumService forum, FileService files, DocumentService documents, DonationService donations, ExpenseService expenses,
-                            CashBookService cash, MeetingService meetings, BallotService ballots, DirectoryService directory, AssetService assets, AttendanceService attendance, Clock clock) {
+                            UnitService units, DueService dues, CounterSettlement counter, PaymentService payments, Optional<SimulatedGateway> gateway, TicketService tickets,
+                            QuotationService quotations, ResourceService kit, ResourceRegistry registry, BookingService bookings, GateService gate, BroadcastService notices,
+                            ForumService forum, FileService files, DocumentService documents, DonationService donations, ExpenseService expenses, CashBookService cash, BankService bank,
+                            MeetingService meetings, BallotService ballots, DirectoryService directory, AssetService assets, AttendanceService attendance, Clock clock) {
         if (env.matchesProfiles("prod")) throw new IllegalStateException("cos.demo.enabled is not allowed in prod: it signs people in without a code");
-        return new DemoData(new DemoData.Services(jdbc, json, callers, members, staff, dues, counter, tickets, quotations, kit, bookings, gate, notices, forum, files, documents, donations,
-            expenses, cash, meetings, ballots, directory, assets, attendance, clock, ZoneId.of(p.web().timeZone())));
+        return new DemoData(new DemoData.Services(jdbc, json, callers, members, staff, units, dues, counter, payments, gateway, tickets, quotations, kit, registry, bookings, gate, notices,
+            forum, files, documents, donations, expenses, cash, bank, meetings, ballots, directory, assets, attendance, clock, ZoneId.of(p.web().timeZone())));
     }
 }

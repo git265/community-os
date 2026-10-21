@@ -117,7 +117,7 @@ class PostgresFlowTest {
             UUID otherUnit = id(owner, "INSERT INTO property.unit (community_id, unit_no, unit_type) VALUES ('" + other + "', 'Villa 101', 'Villa') RETURNING id");
 
             // ---- wiring: the real adapters and services --------------------------------------------------------------------------------------
-            Clock clock = Clock.system(ZoneId.of("Asia/Kolkata"));
+            Clock clock = new com.communityos.api.demo.ReplayClock(Clock.system(ZoneId.of("Asia/Kolkata")));   // as with the demo on: the loader replays the sample data at its own times
             ObjectMapper json = Json.mapper();
             json.registerModule(new SimpleModule().addSerializer(Instant.class, ToStringSerializer.instance).addSerializer(LocalDate.class, ToStringSerializer.instance)); // jsr310 is on the real classpath
             KeyPairGenerator g = KeyPairGenerator.getInstance("EC"); g.initialize(new ECGenParameterSpec("secp256r1")); KeyPair kp = g.generateKeyPair();
@@ -1003,21 +1003,29 @@ class PostgresFlowTest {
             UUID demoAdminM = id(owner, "INSERT INTO identity.membership (community_id, person_id, display_name) VALUES ('" + demoC + "', '" + demoAdminP + "', 'Super Admin') RETURNING id");
             owner.sql("INSERT INTO identity.membership_role (community_id, membership_id, role_id, is_primary) SELECT '" + demoC + "', '" + demoAdminM + "', id, true FROM identity.role WHERE community_id = '" + demoC + "' AND code = 'super_admin' RETURNING 1");
             Caller demoAdmin = callers.load(new PersonId(demoAdminP), new CommunityId(demoC), new MembershipId(demoAdminM)).orElseThrow();
-            var demoServices = new com.communityos.api.demo.DemoData.Services(app, json, callers, memberService, staffSvc, dueService, counter, ticketSvc, docsSvc, kit, bookingSvc, gateSvc, notices, forum,
-                fileSvc, docSvc, donSvc, expSvc, cashSvc, meetSvc, ballotSvc, dir, assetSvc, attSvc, clock, ZoneId.of("Asia/Kolkata"));
-            var demo = new com.communityos.api.demo.DemoData(demoServices).load(new CommunityId(demoC), demoAdmin);
-            assertTrue(demo.loaded(), demo.message()); assertEquals(102, demo.bills());
+            var demoRegistry = new com.communityos.api.shared.resource.ResourceRegistry(app, json);
+            for (var rr : com.communityos.api.config.ResourcesConfig.all()) demoRegistry.add(rr);
+            var demoServices = new com.communityos.api.demo.DemoData.Services(app, json, callers, memberService, staffSvc, units, dueService, counter, pay, java.util.Optional.of(sim), ticketSvc,
+                docsSvc, kit, demoRegistry, bookingSvc, gateSvc, notices, forum, fileSvc, docSvc, donSvc, expSvc, cashSvc, bankSvc, meetSvc, ballotSvc, dir, assetSvc, attSvc, clock, ZoneId.of("Asia/Kolkata"));
+            var sample = json.readTree(new java.io.File("src/main/resources/demo/la-paloma.json"));
+            var setup = new com.communityos.api.demo.PlatformSetup(platform);
+            var demo = new com.communityos.api.demo.DemoData(demoServices).load(new CommunityId(demoC), demoAdmin, sample, setup);
+            System.out.println("demo: " + demo.message() + "\n  rows " + demo.rows() + "\n  skipped " + demo.skipped());
+            demo.problems().forEach((x) -> System.out.println("  refused " + x));
+            assertTrue(demo.loaded(), demo.message());
+            assertEquals(List.of(), demo.problems(), "every sample record the v2 server keeps is loaded");
             Map<String, Object> demoBooks = owner.sql("SELECT sum(debit)::text AS d, sum(credit)::text AS c FROM finance.account_balance WHERE community_id = '" + demoC + "'").get(0);
             assertEquals(demoBooks.get("d"), demoBooks.get("c"), "the demo's books balance");
-            for (String t : List.of("identity.membership:43", "maintenance.ticket:5", "amenity.booking:4", "gate.pass:3", "comms.broadcast:3", "docs.document:3", "cultural.donation:7",
-                    "finance.cash_book_entry:4", "governance.meeting:2", "governance.ballot:1", "vendor.vendor:4", "vendor.contact_review:3", "assets.equipment:8", "assets.inventory_movement:9",
-                    "assets.plant_log:7", "workforce.shift:28", "workforce.attendance_session:2", "reports.schedule:3")) {
+            for (String t : List.of("identity.membership:21", "property.unit:214", "billing.due:13", "maintenance.ticket:8", "maintenance.quotation:7", "amenity.booking:8", "gate.pass:4",
+                    "comms.broadcast:1", "comms.forum_topic:3", "docs.document:4", "cultural.donation:10", "cultural.expense:5", "finance.bank_txn:3835", "governance.meeting:2",
+                    "vendor.service_contact:4", "vendor.contact_review:4", "assets.equipment:97", "assets.inventory_item:59", "assets.plant_log:60", "workforce.attendance_session:20",
+                    "reports.schedule:4", "cultural.event:27")) {
                 String[] x = t.split(":");
                 assertEquals(x[1], owner.sql("SELECT count(*)::text AS n FROM " + x[0] + " WHERE community_id = '" + demoC + "'").get(0).get("n"), x[0]);
             }
-            assertFalse(new com.communityos.api.demo.DemoData(demoServices).load(new CommunityId(demoC), demoAdmin).loaded(), "once per community");
+            assertFalse(new com.communityos.api.demo.DemoData(demoServices).load(new CommunityId(demoC), demoAdmin, sample, setup).loaded(), "once per community");
             // the demo sign-in: tokens for a member of the roster without a code (dev only), as from a real sign-in
-            Map<String, Object> arjun = owner.sql("SELECT m.id, m.person_id FROM identity.membership m WHERE m.community_id = '" + demoC + "' AND m.display_name = 'Arjun Reddy'").get(0);
+            Map<String, Object> arjun = owner.sql("SELECT m.id, m.person_id FROM identity.membership m WHERE m.community_id = '" + demoC + "' AND m.display_name = 'Ananya Mehta'").get(0);
             var demoTokens = auth.demoSignIn(new PersonId(UUID.fromString((String) arjun.get("person_id"))), new CommunityId(demoC), new MembershipId(UUID.fromString((String) arjun.get("id"))),
                 new AuthService.Client("it", "10.1.2.3"));
             Map<String, Object> demoClaims = codec.verify(demoTokens.accessToken());
