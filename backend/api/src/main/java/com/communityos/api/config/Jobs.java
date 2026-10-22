@@ -26,6 +26,7 @@ public class Jobs {
     private final java.util.Optional<com.communityos.api.billing.application.RefundService> refunds;
     private final com.communityos.api.comms.adapter.LiveHub live;
     private final com.communityos.api.billing.application.PaymentReconciler recon;
+    private final com.communityos.api.billing.application.LateFeeService lateFees;
     private final java.util.Optional<com.communityos.api.comms.adapter.PushDelivery> pushes;
 
     public Jobs(OutboxRelay outbox, WebhookDeliveryWorker webhooks, PaymentService payments, @Qualifier("platform") NamedParameterJdbcTemplate platformJdbc,
@@ -34,8 +35,9 @@ public class Jobs {
                 java.util.Optional<com.communityos.api.comms.adapter.ChannelDelivery> channels,
                 java.util.Optional<com.communityos.api.billing.adapter.gateway.SimulatedGateway> simulatedBank,
                 java.util.Optional<com.communityos.api.billing.application.RefundService> refunds, com.communityos.api.comms.adapter.LiveHub live,
-                java.util.Optional<com.communityos.api.comms.adapter.PushDelivery> pushes, com.communityos.api.billing.application.PaymentReconciler recon) {
-        this.recon = recon;
+                java.util.Optional<com.communityos.api.comms.adapter.PushDelivery> pushes, com.communityos.api.billing.application.PaymentReconciler recon,
+                com.communityos.api.billing.application.LateFeeService lateFees) {
+        this.recon = recon; this.lateFees = lateFees;
         this.channels = channels; this.simulatedBank = simulatedBank; this.refunds = refunds; this.live = live; this.pushes = pushes;
         this.outbox = outbox; this.webhooks = webhooks; this.payments = payments; this.platformJdbc = platformJdbc; this.gate = gate; this.notices = notices; this.attendance = attendance; this.reports = reports;
     }
@@ -109,6 +111,10 @@ public class Jobs {
         run("reconcile", () -> payments.reconcile(100)); refunds.ifPresent((r) -> run("refunds", () -> r.reconcile(100)));
         perCommunity("money checks", RECON_DUE, "reconciliation", recon::run);
     }
+    /** Communities that asked for late fees to be added automatically: once a day, after midnight. */
+    static final String LATE_FEES_DUE = "SELECT community_id FROM finance.finance_setting WHERE late_fee_enabled AND late_fee_auto";
+    @Scheduled(cron = "${cos.jobs.late-fees-cron:0 20 0 * * *}", zone = "${cos.web.time-zone:Asia/Kolkata}")
+    public void lateFees() { perCommunity("late fees", LATE_FEES_DUE, "late fees", (system) -> lateFees.apply(system, true), com.communityos.api.shared.security.Permission.MANAGE_DUES); }
     /** Communities with money records in the last 90 days (the checks are cheap; quiet communities are skipped). */
     static final String RECON_DUE = """
         SELECT DISTINCT community_id FROM billing.payment WHERE created_at > now() - interval '90 days'
@@ -127,10 +133,11 @@ public class Jobs {
     }
 
     /** Each community the query names, as the system, one at a time; one community's failure is logged and the others still run. */
-    private void perCommunity(String job, String sql, String who, java.util.function.Function<com.communityos.api.shared.security.Caller, ?> work) {
+    private void perCommunity(String job, String sql, String who, java.util.function.Function<com.communityos.api.shared.security.Caller, ?> work,
+                              com.communityos.api.shared.security.Permission... permissions) {
         run(job, () -> {
             for (java.util.UUID c : platformJdbc.query(sql, Map.of(), (rs, i) -> rs.getObject("community_id", java.util.UUID.class))) {
-                var system = com.communityos.api.shared.security.SystemCaller.of(new com.communityos.api.shared.domain.Ids.CommunityId(c), who);
+                var system = com.communityos.api.shared.security.SystemCaller.of(new com.communityos.api.shared.domain.Ids.CommunityId(c), who, permissions);
                 try { com.communityos.api.shared.tenancy.CallerHolder.runAs(system, () -> work.apply(system)); }
                 catch (RuntimeException e) { log.warn("{} of {} failed: {}", job, c, e.toString()); }
             }

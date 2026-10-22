@@ -224,6 +224,12 @@ public class ModulesConfig {
     @Bean DueService dueService(JdbcDueRepository dues, JdbcBillingLookups lookups, DomainEvents events, AuditWriter audit, Tx tx, Clock clock) {
         return new DueService(dues, lookups, lookups, events, audit, tx, clock);
     }
+    @Bean com.communityos.api.billing.application.LateFeeService lateFeeService(NamedParameterJdbcTemplate jdbc, ObjectMapper json, DueService dues, Tx tx, Clock clock) {
+        return new com.communityos.api.billing.application.LateFeeService(new com.communityos.api.billing.adapter.JdbcLateFeeStore(jdbc, json), dues, tx, clock);
+    }
+    @Bean com.communityos.api.billing.application.ReadingPublisher readingPublisher(NamedParameterJdbcTemplate jdbc, DueService dues, AuditWriter audit, Tx tx, Clock clock) {
+        return new com.communityos.api.billing.application.ReadingPublisher(new com.communityos.api.billing.adapter.JdbcReadingStore(jdbc), dues, audit, tx, clock);
+    }
 
     @Bean com.communityos.api.auditlog.AuditLog auditLog(NamedParameterJdbcTemplate jdbc, ObjectMapper json) { return new com.communityos.api.auditlog.AuditLog(jdbc, json); }
 

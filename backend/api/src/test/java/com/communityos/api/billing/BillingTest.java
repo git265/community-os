@@ -97,6 +97,26 @@ class BillingTest {
         assertNull(declined.get("utr"), "a declined payment has no UTR");
     }
 
+    @Test void lateFeesFollowTheRuleForTheBillOncePerMonth() {
+        var json = new com.fasterxml.jackson.databind.ObjectMapper();
+        var s = com.communityos.api.billing.domain.LateFees.settings(true, true, null, null, null, null,
+            "[{\"appliesTo\":\"Water\",\"kind\":\"Fixed per month\",\"value\":50,\"grace\":5,\"maxMonths\":2},{\"appliesTo\":\"*\",\"kind\":\"Percent per month\",\"value\":2,\"grace\":0}]", json);
+        java.time.LocalDate due = java.time.LocalDate.of(2026, 6, 10), asOf = java.time.LocalDate.of(2026, 10, 20);
+        java.util.UUID unit = java.util.UUID.randomUUID();
+        var water = new com.communityos.api.billing.domain.LateFees.Bill(java.util.UUID.randomUUID(), "D-1", unit, "Water", "Unpaid", new java.math.BigDecimal("800.00"), due, null);
+        var maint = new com.communityos.api.billing.domain.LateFees.Bill(java.util.UUID.randomUUID(), "D-2", unit, "Maintenance", "Partly paid", new java.math.BigDecimal("3540.00"), due, null);
+        var waived = new com.communityos.api.billing.domain.LateFees.Bill(java.util.UUID.randomUUID(), "D-3", unit, "Maintenance", "Waived", new java.math.BigDecimal("3540.00"), due, null);
+        var fee = new com.communityos.api.billing.domain.LateFees.Bill(java.util.UUID.randomUUID(), "D-4", unit, "Late fee", "Unpaid", new java.math.BigDecimal("70.80"), due, null);
+        var plan = com.communityos.api.billing.domain.LateFees.plan(java.util.List.of(water, maint, waived, fee), java.util.Set.of(maint.id() + "#1"), s, asOf);
+        assertEquals(2, plan.stream().filter((f) -> f.bill() == water).count(), "the water rule caps at 2 months");
+        assertTrue(plan.stream().filter((f) -> f.bill() == water).allMatch((f) -> f.amount().compareTo(new java.math.BigDecimal("50.00")) == 0));
+        assertEquals(java.util.List.of(2, 3, 4, 5), plan.stream().filter((f) -> f.bill() == maint).map((f) -> f.no()).toList(), "month 1 was charged; 10 Jun -> 20 Oct is five months begun");
+        assertEquals(new java.math.BigDecimal("70.80"), plan.stream().filter((f) -> f.bill() == maint).findFirst().orElseThrow().amount(), "2% of the bill");
+        assertTrue(plan.stream().noneMatch((f) -> f.bill() == waived || f.bill() == fee), "waived bills and fees earn none");
+        assertTrue(com.communityos.api.billing.domain.LateFees.plan(java.util.List.of(water), java.util.Set.of(), s, due.plusDays(5)).isEmpty(), "inside the grace days");
+        var old = com.communityos.api.billing.domain.LateFees.settings(true, false, "Fixed per month", new java.math.BigDecimal("100"), new java.math.BigDecimal("0"), null, null, json);
+        assertEquals(1, old.rules().size(), "a community with the single older rule keeps it for every bill");
+    }
     @Test void staleVersionIsAConflict() {
         Due d = dues.add(due(UNIT_A, BLOCK_1, MAINTENANCE, "100", LocalDate.of(2026, 10, 10)));
         assertThrows(DomainException.Conflict.class, () -> dueService.cancel(treasurer(), d.id(), "duplicate", d.version() + 7));

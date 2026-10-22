@@ -103,6 +103,15 @@ public final class GateResources {
                 days(f.days()); times(f.fromTime(), f.toTime());
                 return new LinkFields(f.personId(), f.personName(), f.unitId(), Checks.list(f.days()), f.fromTime(), f.toTime(), f.status() == null ? "Active" : Checks.oneOf(f.status(), "Status", List.of("Active", "Ended")));
             }
+            /** A unit links someone it invited, or a worker the gate team has cleared (Active) - never a blocked, suspended or unvetted stranger.
+             *  The gate team and the FM link anyone. */
+            @Override public void verify(Caller c, LinkFields f, LinkFields old, Facts db) {
+                if (GatePolicy.gateOrFm(c) || (old != null && old.personId().equals(f.personId()))) return;
+                List<String> units = c.units().stream().map((u) -> u.value().toString()).toList();
+                if (!db.exists("SELECT 1 FROM gate.person p WHERE p.id = CAST(:p AS uuid) AND (p.invited_by_unit_id = ANY (CAST(:u AS uuid[])) OR p.status = 'Active')",
+                        Map.of("p", f.personId().toString(), "u", com.communityos.api.shared.jdbc.Rows.pgArray(units))))
+                    throw new AccessDenied("This person is not cleared by the gate team - invite them from your unit, or ask the gate team");
+            }
             @Override public String label(LinkFields f) { return f.personName(); }
         });
 
@@ -138,7 +147,7 @@ public final class GateResources {
                 if (!GatePolicy.gateStaff(c)) if (!(mine(c, f.unitId()) && (old == null || Objects.equals(old.unitId(), f.unitId())))) throw new AccessDenied("A unit keeps only its own pass templates");
                 Checks.oneOf(f.passType(), "Pass type", Gate.PASS_TYPES); days(f.days()); times(f.fromTime(), f.toTime());
                 return new TemplateFields(Checks.required(f.name(), "Name"), f.unitId(), f.passType(), f.visitorName(), f.phone(), Checks.nonNegative(f.validityDays(), "Validity"), f.fromTime(),
-                    f.toTime(), Checks.list(f.days()), f.guestCap(), f.vehicle(), f.goodsKind(), f.peopleCount(), f.material(), f.carryingOut());
+                    f.toTime(), Checks.list(f.days()), Checks.nonNegative(f.guestCap(), "Guest limit"), f.vehicle(), f.goodsKind(), Checks.nonNegative(f.peopleCount(), "People"), f.material(), f.carryingOut());
             }
             @Override public String label(TemplateFields f) { return f.name(); }
         });
@@ -213,6 +222,8 @@ public final class GateResources {
             @Override public IncidentFields validate(Caller c, IncidentFields f, IncidentFields old) {
                 String status = f.status() == null ? "Open" : Checks.oneOf(f.status(), "Status", List.of("Open", "EC review", "Resolved"));
                 Checks.rule(!"Resolved".equals(status) || c.isCommittee() || c.isSuperAdmin(), "committee", "The committee closes an incident");
+                Checks.rule(f.reportedAt() == null || !f.reportedAt().isAfter(Instant.now().plusSeconds(300)), "future", "An incident is not reported in the future");
+                Checks.rule(old == null || f.reportedAt() == null || old.reportedAt() == null || f.reportedAt().equals(old.reportedAt()), "reported-at", "When it was reported is kept as recorded");
                 return new IncidentFields(Checks.required(f.title(), "Title"), f.gate(), Checks.text(f.description(), "Description", 8000), f.reportedAt() == null ? Instant.now() : f.reportedAt(),
                     f.assignedCommittee(), status);
             }
@@ -234,6 +245,9 @@ public final class GateResources {
                 Checks.rule(f.waitSeconds() == null || (f.waitSeconds() >= 10 && f.waitSeconds() <= 600), "bad-wait", "Wait 10 to 600 seconds for an answer");
                 Checks.oneOf(f.fallback(), "When nobody answers", List.of("Hold at gate", "Deny")); Checks.oneOf(f.quietFallback(), "In quiet hours", List.of("Hold at gate", "Deny"));
                 Checks.oneOf(f.goodsExtraPeople(), "Extra people in a goods vehicle", List.of("Block until the guard confirms", "Let in and flag"));
+                Checks.rule(f.graceSeconds() == null || (f.graceSeconds() >= 0 && f.graceSeconds() <= 600), "bad-grace", "Grace is 0 to 600 seconds");
+                Checks.between(f.overstayGraceMinutes(), "Overstay grace", 0, 1440); Checks.between(f.autoCloseHours(), "Auto-close", 0, 72);
+                Checks.between(f.guardSilenceMinutes(), "Guard silence", 0, 1440); Checks.between(f.photoRetentionDays(), "Photo retention", 1, 3650);
                 if (f.durations() != null) for (var e : f.durations().entrySet()) {
                     Checks.rule(Gate.KINDS.contains(e.getKey()), "bad-kind", "Unknown kind of visit: " + e.getKey());
                     Checks.rule(e.getValue() != null && e.getValue() >= 0 && e.getValue() <= 1440, "bad-minutes", "A visit lasts 0 to 1440 minutes");

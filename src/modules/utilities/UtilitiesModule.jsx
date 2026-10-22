@@ -17,6 +17,7 @@ import { canWriteCollection } from '../../lib/security/authz.js';
 import { getPrincipal } from '../../lib/security/principal.js';
 import { monthLabel, recentMonths, renderNotice, todayIso } from '../../lib/notice.js';
 import { uuid } from '../../lib/uuid.js';
+import { publishOnServer, publishReadings } from '../../lib/readingsPublish.js';
 import { DEFAULT_UTILITY_TYPES, addUtilityToSchemas } from '../../lib/utilityTypes.js';
 import { money } from '../../lib/locale.js';
 
@@ -181,6 +182,13 @@ function PublishForm({ utility, month, list, template, noticeTemplates, mergeFie
     setBusy(true);
     let done = 0;
     try {
+      if (publishOnServer()) {   // the server prices, bills and tells the owners; each reading on its own
+        const res = await publishReadings(ready.map((r) => r.id), dueDate);
+        done = res.filter((x) => x.published).length;
+        const refused = res.filter((x) => !x.published);
+        if (refused.length) setError(`${refused.length} not published: ${[...new Set(refused.map((x) => x.reason))].join(' · ')}`);
+        setBusy(false); setResult({ done, skipped: noPhoto.length }); onDone(); return;
+      }
       // one batch for the whole run: all bills, all reading updates and all notices are written in single operations
       const created = await secureStorage.createMany(COLLECTIONS.DUES, ready.map((r) => ({
         unit: r.unit, category: utility, amount: calcAmount(r.unitsConsumed, template), billedMonth: monthLabel(month), dueDate, status: 'Unpaid', paymentMode: '',

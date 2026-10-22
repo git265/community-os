@@ -70,11 +70,36 @@ public final class FinanceResources {
                 Checks.rule(old != null, "one-per-community", "The finance settings already exist - change them instead");
                 Checks.rule(f.invoiceTolerancePct() == null || (f.invoiceTolerancePct().signum() >= 0 && f.invoiceTolerancePct().compareTo(BigDecimal.valueOf(100)) <= 0), "bad-tolerance", "The tolerance is between 0 and 100%");
                 Checks.oneOf(f.lateFeeKind(), "Late fee kind", List.of("Percent per month", "Fixed per month"));
+                // every number has its range: a negative approval limit would switch the second approver off, a 900% late fee is a typo
+                Checks.between(f.lateFeeValue(), "Late fee", 0, "Fixed per month".equals(f.lateFeeKind()) ? 100_000 : 100);
+                Checks.between(f.lateFeeGraceDays(), "Grace days", 0, 365); Checks.between(f.lateFeeMaxMonths(), "Late fee months", 0, 120);
+                Checks.between(f.reminderEveryDays(), "Remind every (days)", 0, 365); Checks.between(f.reminderLeadDays(), "Remind before (days)", 0, 365); Checks.between(f.reminderMax(), "Reminders", 0, 50);
+                Checks.between(f.blockOverdueDays(), "Overdue days", 0, 3650); Checks.between(f.blockOverdueAmount(), "Overdue amount", 0, 100_000_000);
+                Checks.between(f.approvalLimit(), "Approval limit", 0, 1_000_000_000);
+                lateFeeRules(f.lateFeeRules());
                 Checks.rule(old.lockedUntil() == null || (f.lockedUntil() != null && !f.lockedUntil().isBefore(old.lockedUntil())) || c.isSuperAdmin(), "lock-back", "Only the Super Admin moves the books lock back");
                 return f;
             }
             @Override public boolean deletable(SettingsFields f) { return false; }
         });
+
+    /** The per-category late-fee rules (JSON): up to 20, each a known kind and an amount in range. */
+    static void lateFeeRules(String json) {
+        if (json == null || json.isBlank()) return;
+        Checks.rule(json.length() <= 8000, "rules-too-long", "Too many late-fee rules");
+        com.fasterxml.jackson.databind.JsonNode n;
+        try { n = new com.fasterxml.jackson.databind.ObjectMapper().readTree(json); } catch (java.io.IOException e) { throw new com.communityos.api.shared.domain.DomainException.RuleViolated("bad-rules", "The late-fee rules are not valid"); }
+        Checks.rule(n.isArray() && n.size() <= 20, "bad-rules", "Up to 20 late-fee rules");
+        for (com.fasterxml.jackson.databind.JsonNode r : n) {
+            String kind = r.path("kind").asText("Percent per month");
+            Checks.rule(List.of("Percent per month", "Fixed per month").contains(kind), "bad-rules", "A late-fee rule is a percent or a fixed amount per month");
+            BigDecimal v;
+            try { v = new BigDecimal(r.path("value").asText("0").isBlank() ? "0" : r.path("value").asText("0")); }
+            catch (NumberFormatException e) { throw new com.communityos.api.shared.domain.DomainException.RuleViolated("bad-rules", "A late-fee amount is a number"); }
+            Checks.between(v, "Late fee", 0, "Fixed per month".equals(kind) ? 100_000 : 100);
+            Checks.rule(r.path("grace").asInt(0) >= 0 && r.path("grace").asInt(0) <= 365 && r.path("maxMonths").asInt(0) >= 0 && r.path("maxMonths").asInt(0) <= 120, "bad-rules", "Grace is 0-365 days and months 0-120");
+        }
+    }
 
     // ---- the community's own money: funds, bank accounts, budgets, commitments, deposits, cash counts, statement layouts, skips, own bills --------
     static boolean reads(Caller c) { return com.communityos.api.finance.application.FinancePolicy.reader(c); }

@@ -15,4 +15,6 @@ public interface ResourceRepository<F extends Record> {
     /** The new version, or -1 when the version no longer matches. */
     long update(UUID id, long version, F f);
     boolean delete(UUID id, long version);
+    /** Does this row exist (a check a rule needs from another table: `sql` is a SELECT 1 ... with named parameters)? In the caller's community. */
+    default boolean exists(String sql, java.util.Map<String, Object> params) { return false; }
 }

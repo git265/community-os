@@ -17,8 +17,8 @@ import java.util.UUID;
 
 /**
  * Metered utilities (water, DG, gas ...): the utilities a community meters, the rate card of each, and each unit's monthly meter reading.
- * A reading is a draft until it is published: the app then raises the unit's bill (POST /dues) and the reading points at it, and it is kept as
- * it was billed. Meter photos are files attached to the reading (owner type billing.reading).
+ * A reading is a draft until it is published (POST /billing/readings/publish, ReadingPublisher): the server prices and raises the unit's bill and
+ * the reading points at it, and it is kept as it was billed. Status, bill and publish date are the server's: the app cannot set them here. Meter photos are files attached to the reading (owner type billing.reading).
  */
 public final class UtilityResources {
     private UtilityResources() {}
@@ -80,11 +80,12 @@ public final class UtilityResources {
                 Checks.rule(f.previousReading() != null && f.currentReading() != null, "reading-required", "Enter the previous and the current reading");
                 Checks.rule(f.previousReading().signum() >= 0, "bad-reading", "A meter reading is 0 or more");
                 Checks.rule(f.currentReading().compareTo(f.previousReading()) >= 0, "reading-lower", "The current reading cannot be lower than the previous reading");
-                String status = f.status() == null ? "Draft" : Checks.oneOf(f.status(), "Status", List.of("Draft", "Published"));
-                if ("Published".equals(status)) Checks.rule(f.dueId() != null, "bill-required", "A reading is published with the bill it raised");
+                Checks.rule(f.readingDate() == null || !f.readingDate().isAfter(LocalDate.now().plusDays(1)), "future-reading", "A reading is not dated in the future");
+                Checks.rule(f.extras() == null || f.extras().size() <= 12, "too-many-extras", "At most 12 extra values with a reading");
+                // publishing is the server's command: whatever the request says, a reading keeps its status, bill and publish date here
                 return new ReadingFields(f.unitId(), utility, month, f.readingDate(), f.previousReading(), f.currentReading(),
-                    f.currentReading().subtract(f.previousReading()), Checks.text(f.notes(), "Notes", 500), f.extras(), status,
-                    "Published".equals(status) ? (f.publishedAt() == null ? LocalDate.now() : f.publishedAt()) : null, "Published".equals(status) ? f.dueId() : null);
+                    f.currentReading().subtract(f.previousReading()), Checks.text(f.notes(), "Notes", 500), f.extras(),
+                    old == null ? "Draft" : old.status(), old == null ? null : old.publishedAt(), old == null ? null : old.dueId());
             }
             @Override public boolean deletable(ReadingFields f) { return !"Published".equals(f.status()); }
             @Override public String label(ReadingFields f) { return f.utility() + " " + f.month(); }

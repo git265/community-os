@@ -547,6 +547,10 @@ class PostgresFlowTest {
             assertEquals("Invited", invited.data().status(), "a resident only invites"); assertFalse(invited.data().idChecked()); assertEquals(unitA, invited.data().invitedByUnitId());
             var links = new com.communityos.api.shared.resource.JdbcResourceRepository<>(com.communityos.api.gate.GateResources.LINKS.table(), app, json);
             as(ownerC, () -> kit.create(ownerC, com.communityos.api.gate.GateResources.LINKS, links, new com.communityos.api.gate.GateResources.LinkFields(maid.id(), "Lakshmi", unitA, List.of(), null, null, null)));
+            var unvetted = as(admin, () -> kit.create(admin, com.communityos.api.gate.GateResources.PEOPLE, people, new com.communityos.api.gate.GateResources.PersonFields(
+                "Unvetted", "Maid / cook", null, null, null, null, null, null, null, true, null, null, null, false, false, false, null, false, false, null, null, null, null)));
+            assertThrows(AccessDenied.class, () -> as(ownerC, () -> kit.create(ownerC, com.communityos.api.gate.GateResources.LINKS, links, new com.communityos.api.gate.GateResources.LinkFields(unvetted.id(), "Unvetted", unitA, List.of(), null, null, null))),
+                "a unit cannot link someone nobody cleared and it did not invite");
             var maidIn = as(admin, () -> gateSvc.admitPerson(admin, maid.id(), "Main gate", "Face", null));
             assertTrue(maidIn.ok(), maidIn.reason()); assertEquals(new UnitId(unitA), maidIn.visit().unit);
             assertEquals("already-inside", as(admin, () -> gateSvc.admitPerson(admin, maid.id(), "Main gate", "Face", null)).outcome());
@@ -1115,6 +1119,40 @@ class PostgresFlowTest {
             assertEquals("Villa 101", ue.server("unit"));
             assertThrows(RuntimeException.class, () -> as(admin, () -> kit.create(admin, com.communityos.api.assets.AssetResources.UNIT_ELECTRICITY, ueRepo, new com.communityos.api.assets.AssetResources.UnitElectricityFields(unitA,
                 "2026-09", null, null, null, null, null, null, null, null))), "one row per unit and month");
+
+            // ---- 6m'. meter readings: the app cannot publish by writing a status; the server prices from the rate card and bills in one step ------------
+            var rcRepo = new com.communityos.api.shared.resource.JdbcResourceRepository<>(com.communityos.api.billing.UtilityResources.RATE_CARDS.table(), app, json);
+            var rdRepo = new com.communityos.api.shared.resource.JdbcResourceRepository<>(com.communityos.api.billing.UtilityResources.READINGS.table(), app, json);
+            as(admin, () -> kit.create(admin, com.communityos.api.billing.UtilityResources.RATE_CARDS, rcRepo, new com.communityos.api.billing.UtilityResources.RateCardFields("Water",
+                new java.math.BigDecimal("12.5"), new java.math.BigDecimal("100"), new java.math.BigDecimal("18"))));
+            var rd = as(admin, () -> kit.create(admin, com.communityos.api.billing.UtilityResources.READINGS, rdRepo, new com.communityos.api.billing.UtilityResources.ReadingFields(unitA, "Water", "2026-09",
+                today, new java.math.BigDecimal("100"), new java.math.BigDecimal("131"), null, null, null, "Published", today, java.util.UUID.randomUUID())));
+            assertEquals("Draft", rd.data().status(), "a status in the request is ignored"); assertNull(rd.data().dueId());
+            var publisher = new com.communityos.api.billing.application.ReadingPublisher(new com.communityos.api.billing.adapter.JdbcReadingStore(app), dueService, audit, app, clock);
+            var noPhoto = as(admin, () -> publisher.publish(admin, List.of(rd.id()), today.plusDays(15))).get(0);
+            assertFalse(noPhoto.published()); assertTrue(noPhoto.reason().contains("meter photo"), noPhoto.reason());
+            owner.sql("INSERT INTO docs.file_object (community_id, owner_type, owner_id, file_name, mime_type, size_bytes, sha256, storage_key, scan_status) VALUES ('" + cid + "', 'billing.reading', '"
+                + rd.id() + "', 'meter.jpg', 'image/jpeg', 10, decode(repeat('ab', 32), 'hex'), 'it/meter-" + tag + "', 'Clean') RETURNING 1");
+            assertThrows(AccessDenied.class, () -> as(ownerC, () -> publisher.publish(ownerC, List.of(rd.id()), today.plusDays(15))));
+            var pub = as(admin, () -> publisher.publish(admin, List.of(rd.id()), today.plusDays(15))).get(0);
+            assertTrue(pub.published(), String.valueOf(pub.reason())); assertEquals(new java.math.BigDecimal("506.00"), pub.amount(), "31 x 12.50 + 100 + 18, to the rupee");
+            assertEquals("Published", owner.sql("SELECT status FROM billing.meter_reading WHERE id = '" + rd.id() + "'").get(0).get("status"));
+            assertEquals(rd.id().toString(), owner.sql("SELECT reading_id::text AS r FROM billing.due WHERE short_id = '" + pub.billShortId() + "' AND community_id = '" + cid + "'").get(0).get("r"), "the bill knows its reading");
+            assertFalse(as(admin, () -> publisher.publish(admin, List.of(rd.id()), today.plusDays(15))).get(0).published(), "published once");
+
+            // ---- 6m''. late fees on the server: once per overdue bill per month, never on fees, refused when switched off ---------------------------------
+            var lateSvc = new com.communityos.api.billing.application.LateFeeService(new com.communityos.api.billing.adapter.JdbcLateFeeStore(app, json), dueService, app, clock);
+            owner.sql("UPDATE finance.finance_setting SET late_fee_enabled = false WHERE community_id = '" + cid + "' RETURNING 1");
+            assertEquals("late-fees-off", assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> lateSvc.apply(admin, false))).code());
+            owner.sql("UPDATE finance.finance_setting SET late_fee_enabled = true, late_fee_kind = 'Percent per month', late_fee_value = 2, late_fee_grace_days = 0, late_fee_rules = NULL WHERE community_id = '" + cid + "' RETURNING 1");
+            var overdueBill = as(admin, () -> dueService.raise(admin, new DueService.RaiseDue(new UnitId(unitA), "Maintenance", null, "Old maintenance", Money.of("1000"), today.minusDays(40))));
+            assertThrows(AccessDenied.class, () -> as(ownerC, () -> lateSvc.apply(ownerC, false)));
+            var feeRun = as(admin, () -> lateSvc.apply(admin, false));
+            assertTrue(feeRun.fees().stream().anyMatch((f) -> f.billShortId().equals(overdueBill.shortId()) && f.month() == 2), "40 days late: two months begun");
+            assertEquals(0, as(admin, () -> lateSvc.apply(admin, false)).charged(), "the same months are not charged again");
+            assertEquals(0, as(admin, () -> lateSvc.apply(admin, true)).charged(), "the job adds them only when the community asked for it (and there is nothing left)");
+            assertThrows(RuntimeException.class, () -> owner.sql("UPDATE billing.due SET late_fee_for = (SELECT late_fee_for FROM billing.due WHERE late_fee_for = '" + overdueBill.id().value() + "' AND late_fee_no = 1), late_fee_no = 1 "
+                + "WHERE id = (SELECT id FROM billing.due WHERE late_fee_for = '" + overdueBill.id().value() + "' AND late_fee_no = 2) RETURNING 1"), "one fee per bill and month (the database)");
 
             // ---- 6n. workforce: the site's setting through the kit, clock in and out at the server's time, one open session, a correction, planned shifts ----
             var attSvc = new com.communityos.api.workforce.application.AttendanceService(new com.communityos.api.workforce.adapter.JdbcAttendanceStore(app, json), audit, app, clock);

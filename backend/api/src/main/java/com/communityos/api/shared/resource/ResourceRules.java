@@ -15,6 +15,10 @@ public interface ResourceRules<F extends Record> {
     boolean mayWrite(Caller c);
     /** Check and normalise a create (existing == null) or an update. Throw DomainException.RuleViolated to refuse. */
     default F validate(Caller c, F incoming, F existing) { return incoming; }
+    /** What the record says that only other tables can confirm (who invited a person, that a referenced row is the caller's ...), after validate,
+     *  in the write's transaction. `db.exists(sql, params)` runs a SELECT in the caller's community. */
+    default void verify(Caller c, F checked, F existing, Facts db) {}
+    interface Facts { boolean exists(String sql, java.util.Map<String, Object> params); }
     default boolean deletable(F existing) { return true; }
     /** Why this row cannot be deleted (null: it can). Rows that know their use from a server count (bookings on an amenity ...) say so here. */
     default String whyNotDeletable(Item<F> existing) { return deletable(existing.data()) ? null : "This record is in use and cannot be deleted - archive it instead"; }

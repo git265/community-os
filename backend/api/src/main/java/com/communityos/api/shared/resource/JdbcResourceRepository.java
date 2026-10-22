@@ -74,6 +74,7 @@ public final class JdbcResourceRepository<F extends Record> implements ResourceR
             default -> v;
         };
     }
+    @Override public boolean exists(String sql, java.util.Map<String, Object> params) { return !jdbc.query(sql, params, (rs, i) -> 1).isEmpty(); }
     static String pgArray(List<?> list) { return com.communityos.api.shared.jdbc.Rows.pgArray(list); }
 
     private Item<F> map(ResultSet rs) throws SQLException {

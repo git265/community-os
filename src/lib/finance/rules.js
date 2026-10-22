@@ -2,6 +2,7 @@
 // payment plans, defaulters + notices, the amenity block for defaulters, approval limit and recurring bills.
 // These are the pieces a Spring Boot service would own; they read and write below the permission layer (like amenityServer.js),
 // so every caller is a screen that already checked the person may manage billing.
+import { getDataSource } from '../storage/dataSource.js';
 import { storage, COLLECTIONS as C } from '../storage/index.js';
 import { nextShortId } from '../storage/secureStorage.js';
 import { uuid } from '../uuid.js';
@@ -129,7 +130,7 @@ export function planLateFees(dues, s, asOf = todayIso()) {
   const have = new Set(dues.filter((d) => d.lateFeeFor).map((d) => `${d.lateFeeFor}#${d.lateFeeNo}`));
   const out = [];
   for (const d of dues) {
-    if (d.status === 'Paid' || d.category === 'Late fee' || !d.dueDate || !(Number(d.amount) > 0) || !d.unit) continue;
+    if (['Paid', 'Cancelled', 'Waived'].includes(d.status) || d.category === 'Late fee' || !d.dueDate || !(Number(d.amount) > 0) || !d.unit) continue;
     const rule = ruleFor(s, d.category);
     if (!rule) continue;
     const start = addDaysIso(d.dueDate, rule.grace);
@@ -146,14 +147,24 @@ export function planLateFees(dues, s, asOf = todayIso()) {
 /** What a bill really costs today: the bill, late fees already added as their own bills (unpaid), and late fees accrued but not yet added. */
 export function finalDue(due, allDues, s, today = todayIso()) {
   const base = r2(Number(due.amount) || 0);
-  if (!due || due.status === 'Paid' || due.category === 'Late fee') return { base, charged: 0, pending: 0, total: base, months: 0, per: 0 };
+  if (!due || ['Paid', 'Cancelled', 'Waived'].includes(due.status) || due.category === 'Late fee' || lateFeesOnServer()) return { base, charged: 0, pending: 0, total: base, months: 0, per: 0 };   // on the back end fees are bills the server raised
   const charged = r2(allDues.filter((x) => x.lateFeeFor === due.id && !['Paid', 'Cancelled'].includes(x.status)).reduce((n, x) => n + (Number(x.amount) || 0), 0));
   const rule = ruleFor(s, due.category);
   const planned = rule && s?.enabled !== false ? planLateFees([{ ...due, id: due.id }].concat(allDues.filter((x) => x.lateFeeFor === due.id)), s, today).filter((p) => p.due.id === due.id) : [];
   const pending = r2(planned.reduce((n, p) => n + p.amount, 0));
   return { base, charged, pending, total: r2(base + charged + pending), months: planned.length, per: planned[0]?.amount || 0 };
 }
+/** On the back end the server charges late fees (Apply now, and its daily job when "add automatically" is on): once per bill and month. */
+const lateFeesOnServer = () => getDataSource().mode === 'v2';
 export async function applyLateFees({ asOf = todayIso(), actor = 'Billing', auto = false, only = null } = {}) {
+  if (lateFeesOnServer()) {
+    if (only) return { created: 0, total: 0, rows: [] };   // paying one bill does not charge fees on the back end: the server's run does
+    const { apiFetch, failureOf } = await import('../net/request.js');
+    const res = await apiFetch('/v1/dues/late-fees', { method: 'POST' });
+    if (!res.ok) throw await failureOf(res, 'late fees');
+    const r = await res.json(); changed(C.DUES);
+    return { created: r.charged, total: Number(r.total) || 0, rows: r.fees || [] };
+  }
   const s = await lateFeeSettings();
   const dues = await storage.list(C.DUES);
   const plan = planLateFees(dues, s, asOf).filter((p) => !only || p.due.id === only);

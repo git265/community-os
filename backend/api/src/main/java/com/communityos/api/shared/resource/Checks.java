@@ -36,6 +36,12 @@ public final class Checks {
         if (v != null && v < 0) throw new DomainException.RuleViolated("negative", label + " cannot be negative");
         return v;
     }
+    /** Empty, or a number from `min` to `max` (inclusive). */
+    public static BigDecimal between(BigDecimal v, String label, long min, long max) {
+        if (v != null && (v.compareTo(BigDecimal.valueOf(min)) < 0 || v.compareTo(BigDecimal.valueOf(max)) > 0))
+            throw new DomainException.RuleViolated("out-of-range", label + " is from " + min + " to " + max);
+        return v;
+    }
     public static <T> List<T> list(List<T> v) { return v == null ? List.of() : v; }
     public static void rule(boolean ok, String code, String message) { if (!ok) throw new DomainException.RuleViolated(code, message); }
 }

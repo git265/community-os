@@ -31,8 +31,15 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/dues")
 @Tag(name = "Bills")
 public class DueController {
-    private final DueService dues;
-    public DueController(DueService dues) { this.dues = dues; }
+    private final DueService dues; private final com.communityos.api.billing.application.LateFeeService lateFees;
+    public DueController(DueService dues, com.communityos.api.billing.application.LateFeeService lateFees) { this.dues = dues; this.lateFees = lateFees; }
+
+    /** Late fees due today and not yet charged (nothing is charged). */
+    @GetMapping("/api/v1/dues/late-fees")
+    public com.communityos.api.billing.application.LateFeeService.Run lateFeePreview() { return lateFees.preview(CallerHolder.require()); }
+    /** Charge them: one fee bill per overdue bill per month, never twice. */
+    @PostMapping("/api/v1/dues/late-fees")
+    public com.communityos.api.billing.application.LateFeeService.Run applyLateFees() { return lateFees.apply(CallerHolder.require(), false); }
 
     @GetMapping
     public PageResponse<DueResponse> list(@RequestParam(required = false) UUID unit, @RequestParam(required = false) String status, @RequestParam(defaultValue = "false") boolean open,
