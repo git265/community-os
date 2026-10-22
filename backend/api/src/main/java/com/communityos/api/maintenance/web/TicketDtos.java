@@ -27,7 +27,7 @@ public final class TicketDtos {
 
     public record RaiseRequest(UUID taskTypeId, @NotBlank @Size(min = 3, max = 200) String title, @Size(max = 10000) String description, UUID unitId,
                                @Size(max = 20) String scope, @Size(max = 200) String location, @NotBlank @Size(max = 40) String category, @Size(max = 80) String subCategory,
-                               @Size(max = 20) String priority, @Size(max = 120) String preferredTime, LocalDate slaDueAt) {}
+                               @Size(max = 20) String priority, @Size(max = 120) String preferredTime, LocalDate slaDueAt, UUID assetId) {}
     public record EditRequest(@Size(min = 3, max = 200) String title, @Size(max = 10000) String description, @Size(max = 40) String category, @Size(max = 80) String subCategory,
                               @Size(max = 20) String priority, @Size(max = 200) String location, @Size(max = 120) String preferredTime, LocalDate slaDueAt, Boolean awaitingParts,
                               Money materialsCost, Boolean financial, LocalDate workDone) {}
@@ -45,7 +45,7 @@ public final class TicketDtos {
                                  boolean awaitingParts, Money materialsCost, boolean financial, LocalDate workDone, Instant assignedAt, Instant startedAt, Instant completedAt,
                                  Instant closedAt, Instant cancelledAt, String cancelReason, int reopenCount, Instant createdAt, Instant updatedAt, long version,
                                  String quotationStatus, String invoiceStatus, Money approvedAmount, UUID selectedQuotationId, UUID selectedInvoiceId, String ecApproval,
-                                 String treasurerApproval, Boolean finalRequired) {
+                                 String treasurerApproval, Boolean finalRequired, UUID assetId, String assetName) {
         static TicketResponse of(Ticket t) {
             Ticket.State s = t.state();
             return new TicketResponse(s.id, s.shortId, s.taskType == null ? null : s.taskType.id(), s.taskType == null ? null : s.taskType.name(), s.title, s.description,
@@ -54,7 +54,7 @@ public final class TicketDtos {
                 s.residentRating, s.raisedBy.value(), s.raisedByName, s.raisedByRole, s.awaitingParts, s.materialsCost, s.financial, s.workDone, s.assignedAt, s.startedAt,
                 s.completedAt, s.closedAt, s.cancelledAt, s.cancelReason, s.reopenCount, s.createdAt, s.updatedAt, t.version(),
                 s.approval.quotationStatus(), s.approval.invoiceStatus(), s.approval.approvedAmount(), s.approval.selectedQuotationId(), s.approval.selectedInvoiceId(),
-                s.approval.ecApproval(), s.approval.treasurerApproval(), s.approval.finalRequired());
+                s.approval.ecApproval(), s.approval.treasurerApproval(), s.approval.finalRequired(), s.asset, s.assetName);
         }
     }
     public record TaskTypeResponse(UUID id, String name, String icon, String creatorScope, String assignmentMode, String quotationStage, String ecApprovalStage,

@@ -113,7 +113,7 @@ export default function SettleDues({ unit, dues, credit, resident, onClose }) {
         </div>
       )}
       {err && <div className="field-error" role="alert">{err}</div>}
-      {attempt && <PaymentResult result={attempt} onRetry={confirm} onDone={() => setDone({ ids: sel.map((d) => d.id), count: sel.length, adv, paid: toPay, mode: attempt.order?.method || 'Online', reference: attempt.paymentId })} />}
+      {attempt && <PaymentResult result={attempt} onRetry={confirm} onDone={(paid) => setDone({ ids: sel.map((d) => d.id), count: sel.length, adv, paid: toPay, mode: paid?.order?.method || attempt.order?.method || 'Online', reference: paid?.utr ? `UTR ${paid.utr}${paid.payerVpa ? ` · ${paid.payerVpa}` : ''}` : paid?.paymentId || attempt.paymentId })} />}
       {gw.node}
       <div className="form-actions">
         <button className="btn" data-testid="settle-confirm" disabled={busy || !sel.length} onClick={confirm}>{busy ? 'Processing…' : toPay > 0 ? (resident ? `Pay ${money(toPay)}` : 'Record payment') : 'Settle from advance'}</button>

@@ -33,8 +33,12 @@ import java.util.function.Consumer;
 public final class TicketService {
     public static final Duration EDIT_WINDOW = Duration.ofMinutes(30);
 
+    /** assetId: the equipment the task is about (raised from the asset or the site map) - the asset shows "under repair" while it is open. */
     public record RaiseTicket(UUID taskTypeId, String title, String description, UnitId unitId, String scope, String location, String category, String subCategory,
-                              String priority, String preferredTime, LocalDate slaDueAt) {}
+                              String priority, String preferredTime, LocalDate slaDueAt, UUID assetId) {
+        public RaiseTicket(UUID taskTypeId, String title, String description, UnitId unitId, String scope, String location, String category, String subCategory,
+                           String priority, String preferredTime, LocalDate slaDueAt) { this(taskTypeId, title, description, unitId, scope, location, category, subCategory, priority, preferredTime, slaDueAt, null); }
+    }
 
     private final TicketRepository tickets; private final CommentRepository comments; private final MaintenanceDirectory directory; private final DomainEvents events;
     private final AuditWriter audit; private final Tx tx; private final Clock clock; private final com.communityos.api.maintenance.application.port.TaskMoney money;
@@ -69,6 +73,10 @@ public final class TicketService {
         s.community = c.community(); s.taskType = type; s.title = cmd.title(); s.description = blankToNull(cmd.description()); s.category = cmd.category();
         s.subCategory = blankToNull(cmd.subCategory()); s.priority = cmd.priority() == null ? "Medium" : cmd.priority(); s.scope = cmd.scope() == null ? "Unit" : cmd.scope();
         s.location = blankToNull(cmd.location()); s.preferredTime = blankToNull(cmd.preferredTime());
+        if (cmd.assetId() != null) {
+            if (c.isResident()) throw new AccessDenied("Residents raise requests for their unit; the committee links tasks to equipment");
+            s.asset = cmd.assetId();   // the database checks it is this community's equipment
+        }
         s.raisedBy = c.membership(); s.raisedByName = c.displayName(); s.raisedByRole = c.roleCodes().stream().findFirst().orElse(null);
 
         UnitId unit = cmd.unitId();

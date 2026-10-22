@@ -175,7 +175,12 @@ export function PayDueModal({ due, onClose }) {
         )}
       </div>
       {resident && <p className="muted" style={{ fontSize: 12 }}>You will be taken to the payment page. This demo uses a simulated provider - no real money moves.</p>}
-      {attempt && <PaymentResult result={attempt} onRetry={payOnlineNow} onDone={() => { setAttempt(null); storage.get(COLLECTIONS.DUES, due.id).then((f) => f && setReceipt(f)); }} />}
+      {attempt && <PaymentResult result={attempt} onRetry={payOnlineNow} onDone={async (paid) => {
+        // the bill is paid: show its receipt (as the server recorded it; until that read is back, from the payment itself) - never the Pay form again
+        const fallback = { ...due, status: 'Paid', paymentMode: paid?.order?.method || 'Online', paymentRef: paid?.utr ? `UTR ${paid.utr}` : paid?.paymentId || '—', paidAt: todayIso(), receiptNo: due.receiptNo || '(being issued)' };
+        setReceipt(fallback); setAttempt(null);
+        try { const f = await storage.get(COLLECTIONS.DUES, due.id); if (f && f.status === 'Paid') setReceipt(f); } catch { /* keep the payment's own receipt */ }
+      }} />}
       {gw.node}
       <div className="form-actions">
         <button className="btn" disabled={busy} onClick={confirm}>{busy ? 'Processing…' : resident ? `Pay ${inr(payable)}` : `Record payment${fd && fd.total !== fd.base ? ` · ${inr(payable)}` : ''}`}</button>

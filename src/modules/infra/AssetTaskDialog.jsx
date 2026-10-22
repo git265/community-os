@@ -76,7 +76,7 @@ export default function AssetTaskDialog({ asset, source = '', onClose, onDone, i
         attachments: metas, hasPhotos: metas.some((m) => /^image\//.test(m.type || m.mimeType || '')), awaitingParts: false, materialsCost: 0, paymentStatus: 'Not Paid', residentRating: 0,
         createdBy: me, createdByRole: roleId, createdAt: label(), ...(asset.id ? { assetId: asset.id, assetName: asset.name, assetRef: asset.shortId || '' } : {}), source,
       });
-      if (!saved) { setBusy(false); setErr('The task could not be saved. You may not be allowed to raise tasks.'); return; }
+      if (!saved) { setBusy(false); setErr('The task was not saved - the reason is in the message at the top of the screen. Nothing was changed.'); return; }
       if (asset.id) await saveLog({ assetId: asset.id, assetName: asset.name, date: todayIso(), condition: 'Under repair', source: 'Task opened', note: `${asset.name}: ${title.trim()}`, by: me, ticketId: saved.id });
       setBusy(false);
       onDone?.(saved);

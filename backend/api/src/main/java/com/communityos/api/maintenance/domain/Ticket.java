@@ -36,7 +36,7 @@ public final class Ticket extends AggregateRoot {
         public LocalDate slaDueAt; public String preferredTime; public Set<UnitId> affectedUnits = new LinkedHashSet<>(); public Integer residentRating;
         public MembershipId raisedBy; public String raisedByName; public String raisedByRole; public boolean awaitingParts; public Money materialsCost;
         public boolean financial; public LocalDate workDone; public Instant assignedAt, startedAt, completedAt, closedAt, cancelledAt; public String cancelReason;
-        public int reopenCount; public Map<String, Object> custom = Map.of(); public Instant createdAt, updatedAt; public long version;
+        public int reopenCount; public UUID asset; public String assetName; public Map<String, Object> custom = Map.of(); public Instant createdAt, updatedAt; public long version;
         /** Where the money side stands (written by the quotation workflow, read-only here). */
         public Approval approval = Approval.NONE;
     }

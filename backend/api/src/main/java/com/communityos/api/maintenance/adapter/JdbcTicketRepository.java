@@ -30,7 +30,8 @@ public final class JdbcTicketRepository implements TicketRepository {
         SELECT t.id, t.community_id, t.short_id, t.title, t.description, t.unit_id, u.unit_no, u.block_id, t.scope, t.location, t.category, t.sub_category, t.priority,
                t.status, t.assignee_id, a.display_name AS assignee_name, t.sla_due_at::date AS sla_due_at, t.preferred_time, t.affected_unit_ids, t.resident_rating,
                t.raised_by_id, r.display_name AS raised_by_name, rr.code AS raised_by_role, t.awaiting_parts, t.materials_cost, t.financial, t.work_done,
-               t.assigned_at, t.started_at, t.completed_at, t.closed_at, t.cancelled_at, t.cancel_reason, t.reopen_count, t.custom::text AS custom,
+               t.assigned_at, t.started_at, t.completed_at, t.closed_at, t.cancelled_at, t.cancel_reason, t.reopen_count, t.custom::text AS custom, t.asset_id,
+               (SELECT e.name FROM assets.equipment e WHERE e.community_id = t.community_id AND e.id = t.asset_id) AS asset_name,
                t.created_at, t.updated_at, t.version, t.quotation_status, t.invoice_status, t.approved_amount, t.selected_quotation_id, t.selected_invoice_id,
                t.ec_approval, t.treasurer_approval, t.final_required,
                tt.id AS tt_id, tt.name AS tt_name, tt.icon AS tt_icon, tt.creator_scope, tt.assignment_mode, tt.quotation_stage, tt.ec_approval_stage, tt.treasurer_stage,
@@ -60,10 +61,10 @@ public final class JdbcTicketRepository implements TicketRepository {
         "status", "t.status, t.created_at DESC, t.id");
     static final String INSERT = """
         INSERT INTO maintenance.ticket (community_id, id, task_type_id, title, description, unit_id, scope, location, category, sub_category, priority, status,
-                                        assignee_id, assigned_at, sla_due_at, preferred_time, raised_by_id, raised_by_role_id, custom)
+                                        assignee_id, assigned_at, sla_due_at, preferred_time, raised_by_id, raised_by_role_id, custom, asset_id)
         VALUES (CAST(:community AS uuid), CAST(:id AS uuid), CAST(:taskType AS uuid), :title, :description, CAST(:unit AS uuid), :scope, :location, :category, :subCategory,
                 :priority, :status, CAST(:assignee AS uuid), CAST(:assignedAt AS timestamptz), CAST(:sla AS date), :preferredTime, CAST(:raisedBy AS uuid),
-                (SELECT ro.id FROM identity.role ro WHERE ro.code = CAST(:raisedByRole AS text)), CAST(:custom AS jsonb))
+                (SELECT ro.id FROM identity.role ro WHERE ro.code = CAST(:raisedByRole AS text)), CAST(:custom AS jsonb), CAST(:asset AS uuid))
         RETURNING short_id, version""";
     static final String UPDATE = """
         UPDATE maintenance.ticket SET title = :title, description = :description, location = :location, category = :category, sub_category = :subCategory,
@@ -112,7 +113,7 @@ public final class JdbcTicketRepository implements TicketRepository {
         p.put("title", s.title); p.put("description", s.description); p.put("unit", s.unit == null ? null : s.unit.toString()); p.put("scope", s.scope); p.put("location", s.location);
         p.put("category", s.category); p.put("subCategory", s.subCategory); p.put("priority", s.priority); p.put("status", s.status.label());
         p.put("assignee", s.assignee == null ? null : s.assignee.toString()); p.put("assignedAt", Rows.ts(s.assignedAt)); p.put("sla", Rows.sqlDate(s.slaDueAt));
-        p.put("preferredTime", s.preferredTime); p.put("raisedBy", s.raisedBy.toString()); p.put("raisedByRole", s.raisedByRole); p.put("custom", write(s.custom));
+        p.put("preferredTime", s.preferredTime); p.put("raisedBy", s.raisedBy.toString()); p.put("raisedByRole", s.raisedByRole); p.put("custom", write(s.custom)); p.put("asset", s.asset == null ? null : s.asset.toString());
         jdbc.query(INSERT, p, (rs, i) -> { t.numbered(rs.getString("short_id")); t.stored(rs.getLong("version")); s.version = t.version(); return null; });
     }
     @Override public boolean save(Ticket t) {
@@ -146,6 +147,7 @@ public final class JdbcTicketRepository implements TicketRepository {
         s.financial = rs.getBoolean("financial"); s.workDone = Rows.date(rs, "work_done");
         s.assignedAt = Rows.instant(rs, "assigned_at"); s.startedAt = Rows.instant(rs, "started_at"); s.completedAt = Rows.instant(rs, "completed_at");
         s.closedAt = Rows.instant(rs, "closed_at"); s.cancelledAt = Rows.instant(rs, "cancelled_at"); s.cancelReason = rs.getString("cancel_reason"); s.reopenCount = rs.getInt("reopen_count");
+        s.asset = rs.getObject("asset_id", UUID.class); s.assetName = rs.getString("asset_name");
         try { s.custom = json.readValue(rs.getString("custom"), new TypeReference<Map<String, Object>>() {}); } catch (java.io.IOException e) { throw new SQLException(e); }
         s.createdAt = Rows.instant(rs, "created_at"); s.updatedAt = Rows.instant(rs, "updated_at"); s.version = rs.getLong("version");
         s.approval = new Ticket.Approval(rs.getString("quotation_status"), rs.getString("invoice_status"), Rows.money(rs, "approved_amount"), Rows.uuid(rs, "selected_quotation_id"),

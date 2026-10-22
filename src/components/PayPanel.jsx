@@ -79,7 +79,13 @@ export default function PayPanel({ ev, donation, amount, note, onClaim, onPaid, 
           )}
         </>
       )}
-      {attempt && <PaymentResult result={attempt} onRetry={online} onDone={() => { setAttempt(null); onPaid?.(); }} />}
+      {attempt && <PaymentResult result={attempt} onRetry={online} onDone={async (paid) => {
+        setAttempt(null);
+        // a slow bank confirmed it: record the donation against that payment (once - payOnline does nothing for a pledge already received)
+        const don = donation || pledged.current;
+        if (paid?.status === 'Paid' && don) { try { await payOnline(don.id, ev, { gatewayRef: paid.paymentId || '' }); setMsg('Payment successful. Your receipt is ready.'); } catch (e) { setMsg(e.message); } }
+        onPaid?.();
+      }} />}
       {gw.node}
       {msg && <div className="notice" style={{ marginTop: 8 }} data-testid="pay-msg">{msg}</div>}
     </div>

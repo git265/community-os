@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { useApp, useCollection } from '../../context/AppContext.jsx';
 import { COLLECTIONS } from '../../lib/storage/index.js';
-import { makeCode, passMessage, passQrText, shareLinks } from '../../lib/gate/engine.js';
+import { makeCode, passLink, passMessage, passQrText, shareLinks } from '../../lib/gate/engine.js';
+import { qrDataUrl } from '../../lib/payments.js';
 import { DAYS, GOODS_KINDS } from '../../lib/gate/constants.js';
 import { Chips, PhotoCapture, StateTag } from './gateUi.jsx';
 import { QrImage } from './QrImage.jsx';
@@ -14,13 +15,18 @@ const blank = (goods = false) => ({ kind: goods ? 'Goods' : 'Guest', visitorName
 
 /** The pass, ready to hand over: QR, PIN and one tap to send it by WhatsApp or SMS. */
 export function PassShare({ pass, template, community, host }) {
-  const text = passMessage(template, pass, { community, host });
+  const link = passLink(pass, { community, host });
+  const text = passMessage(template, pass, { community, host, link });
   const links = shareLinks(pass.phone, text);
   const [copied, setCopied] = useState(false);
+  // the phone's share sheet takes the QR as a picture with the message (WhatsApp, SMS/MMS, mail ...); where it cannot, the message (with the QR link) is shared or copied
   async function nativeShare() {
     try {
+      const png = await qrDataUrl(passQrText(pass)).then((u) => fetch(u)).then((r) => r.blob()).catch(() => null);
+      const file = png ? new File([png], `gate-pass-${pass.code}.png`, { type: 'image/png' }) : null;
+      if (file && navigator.canShare?.({ files: [file] })) { await navigator.share({ title: 'Gate pass', text, files: [file] }); return; }
       if (navigator.share) { await navigator.share({ title: 'Gate pass', text }); return; }
-    } catch { return; }
+    } catch (e) { if (e?.name === 'AbortError') return; }
     copy();
   }
   async function copy() { try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch { /* ignore */ } }
@@ -30,12 +36,13 @@ export function PassShare({ pass, template, community, host }) {
       <div>
         <div className="muted">PIN</div>
         <div style={{ fontSize: 30, letterSpacing: 6, fontWeight: 700 }} data-testid="pass-pin">{pass.code}</div>
-        <div className="gg-actions" style={{ flexWrap: 'wrap' }}>
+        <div className="pass-share-actions">
           <a className="btn" data-testid="share-wa" href={links.whatsapp} target="_blank" rel="noreferrer">WhatsApp</a>
           <a className="btn secondary" data-testid="share-sms" href={links.sms}>SMS</a>
-          <button type="button" className="btn secondary" data-testid="share-native" onClick={nativeShare}>Share…</button>
+          <button type="button" className="btn secondary" data-testid="share-native" onClick={nativeShare}>Share QR…</button>
           <button type="button" className="btn secondary" data-testid="share-copy" onClick={copy}>{copied ? 'Copied' : 'Copy text'}</button>
         </div>
+        <small className="muted">The message carries a link that opens the QR and the code. “Share QR…” also attaches the QR picture where the phone allows it.</small>
         {!pass.phone && <small className="muted">Add the guest's mobile number and WhatsApp opens straight to them.</small>}
       </div>
     </div>

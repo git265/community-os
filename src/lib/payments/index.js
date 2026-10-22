@@ -62,21 +62,33 @@ export async function receiveWebhook(gw, raw, signature) {
  */
 // What a payment changes, by its purpose: the screens showing these lists reload when it is paid (or is being confirmed).
 const CHANGES = { due: [COLLECTIONS.DUES, COLLECTIONS.LEDGER], booking: [COLLECTIONS.AMENITIES, COLLECTIONS.LEDGER], donation: [COLLECTIONS.CULTURAL_DONATIONS, COLLECTIONS.LEDGER] };
-export async function pay(req, ui) {
-  const r = await payOnce(req, ui);
-  if (r.status === 'Paid' || r.status === 'Pending') announce(req.purpose);
-  return r;
+/**
+ * `stage(s)` (optional) hears what the payment is waiting on, so the screen can say so while a bank is slow:
+ *   'order'    asking the server for the order (priced from what is owed now)
+ *   null       the payer is on the checkout page (nothing to show over it)
+ *   'confirm'  the checkout answered: confirming the payment with the bank / provider
+ *   'bank'     waiting for the bank's confirmation to reach the server (seconds, sometimes longer)
+ */
+export async function pay(req, ui, stage = () => {}) {
+  try {
+    const r = await payOnce(req, ui, stage);
+    if (r.status === 'Paid' || r.status === 'Pending') announce(req.purpose);
+    return r;
+  } finally { stage(null); }
 }
-async function payOnce(req, ui) {
+async function payOnce(req, ui, stage) {
   const gw = activeGateway();
   let order;
+  stage('order');
   try { order = await gw.createOrder({ currency: region().currency.code, idempotencyKey: `${req.purpose}:${[...(req.refs || [])].sort().join(',')}:${req.amount}`, ...req }); }
   catch (e) { return { status: 'Failed', order: null, message: `${e.message} You were not charged.` }; }   // could not even start: nothing has been charged
   if (gw.live && order.status === 'Paid') return { status: 'Paid', order, paymentId: order.paymentId, message: 'Payment received.' };   // already paid earlier (a retry after a closed page)
   let res;
+  stage(null);
   try { res = await gw.checkout(order, ui); }
   catch (e) { return { status: 'Pending', order, checking: true, message: 'We could not confirm the payment with the bank yet.' }; }   // may have been charged: never say "failed" here
   if (!res || !res.outcome) return { status: 'Cancelled', order, message: 'Payment cancelled - nothing was charged.' };
+  stage('bank');
   if (gw.live) return waitForServer(gw, order);
   if (gw.buildWebhook) { // simulator: play the provider's server call. Real providers deliver the webhook to Spring Boot on their own.
     const ev = await gw.buildWebhook(order, res.outcome, res.method, res.upi);

@@ -157,15 +157,27 @@ export default function AmenitiesModule() {
     if (itemsOnly && !ex.lines.length) return setError(`Choose how many of each item you need from ${amenity.name}`);
     setBusy(true);
     try {
-      let gwRef = ''; let gwMode = paymentMode;
       const ownBooking = !isStaff || (!!myUnit && bookUnit === myUnit);   // an owner (a committee member too) booking for their own unit pays online
       if (payNow && ownBooking && toPay > 0 && !waivedNow) { // the owner pays through the payment gateway first; the booking is saved with its payment id
         setPayAttempt(null);
         const res = await gw.start({ purpose: 'booking', refs: [], amount: toPay, unit: bookUnit, payer: currentUser?.name || '', description: `${selected} · ${pickedDate}` });
         if (res.status !== 'Paid') { setBusy(false); setPayAttempt(res); return; }
-        gwRef = res.utr ? `UTR ${res.utr}${res.payerVpa ? ` · ${res.payerVpa}` : ''}` : res.paymentId;   // UPI: the bank's UTR (browser demo); the back end keeps its own payment id
-        gwMode = res.order?.method || paymentMode;
+        return await saveBookingPaid(res);
       }
+      return await saveBookingPaid(null);
+    } catch (e) { setError(e.message); } finally { setBusy(false); }
+  }
+
+  /**
+   * Save the booking - with the payment it was paid by (`res`, a Paid result), or none (office / credit / free). Also what "Done" does after
+   * a slow bank confirmed the payment: the money is in, so the booking is made with it - the payment is never started a second time.
+   */
+  async function saveBookingPaid(res) {
+    setBusy(true);
+    try {
+      const gwRef = res ? (res.utr ? `UTR ${res.utr}${res.payerVpa ? ` · ${res.payerVpa}` : ''}` : res.paymentId || '') : '';   // UPI: the bank's UTR (browser demo); the back end keeps its own payment id
+      const gwMode = res ? (res.order?.method || paymentMode) : paymentMode;
+      if (res && !gwRef) { setError('The payment is confirmed but its reference has not reached this screen yet. Your booking is not lost - the money is kept as your unit\'s credit; open Billing to see it, or ask the office.'); return; }
       const saved = await saveBooking({ ...custom, ...(ex.lines.length ? { extras: JSON.stringify(Object.fromEntries(ex.lines.map((l) => [l.itemId, l.qty]))) } : {}), amenity: selected, unit: bookUnit, date: pickedDate, slot: dayBased ? 'Full day' : slot, paymentMode: gwMode, ...(gwRef ? { paymentRef: gwRef } : {}), useCredit: creditCover > 0 && !waivedNow, ...(isAssoc ? { bookedFor: 'Association', association: assoc.trim() } : {}), ...(waivedNow ? { freeOfCharge: true, waiveReason: freeWhy.trim() } : {}) });
       setBusy(false);
       if (!saved) return; // a rule said no: the toast shows why
@@ -385,7 +397,7 @@ export default function AmenitiesModule() {
                   ) : null}
                   {fe.ack && <div className="field invalid"><div className="field-error">{fe.ack}</div></div>}
                   {error && <div className="notice error" style={{ marginTop: 10 }}>{error}</div>}
-                  {payAttempt && <PaymentResult result={payAttempt} onRetry={confirmBooking} onDone={() => { setPayAttempt(null); confirmBooking(); }} />}
+                  {payAttempt && <PaymentResult result={payAttempt} onRetry={confirmBooking} onDone={(paid) => { setPayAttempt(null); if (paid?.status === 'Paid') saveBookingPaid(paid); }} />}
                   {gw.node}
                   <div style={{ marginTop: 12 }}>
                     <button className="btn" disabled={busy || !q || payAttempt?.status === 'Pending'} onClick={confirmBooking} data-testid="book-btn">{cta || 'Choose a time'}</button>

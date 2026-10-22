@@ -595,6 +595,14 @@ test('paying: the server prices, the simulator pays, confirm settles', async () 
   assert.equal(declined.status, 'Failed');
 });
 
+test('tickets: a community task (site map, an asset) is about a place: its "Common area" label is not a unit', async () => {
+  await storage.put('tickets', { taskType: 'Resident Maintenance', title: 'Pump noise', unit: 'Common area', scope: 'Community', location: 'Pump room', category: 'Plumbing', priority: 'Medium', status: 'Open', assetId: '00000000-0000-4000-8000-0000000e0001' });
+  const raise = last('POST', /^\/tickets$/).body;
+  assert.equal(raise.unitId, null); assert.equal(raise.location, 'Pump room');
+  assert.equal(raise.assetId, null, 'a resident does not link equipment');
+  await assert.rejects(storage.put('tickets', { taskType: 'Resident Maintenance', title: 'Tap', unit: 'Villa 999', scope: 'Unit', category: 'Plumbing', status: 'Open' }), /not known to the back end/);
+});
+
 test('tickets: raise (no SLA from a resident), accept, work, close, rate; comments; field staff clock', async () => {
   const types = await storage.list('taskTypes');
   assert.equal(types[0].name, 'Resident Maintenance');

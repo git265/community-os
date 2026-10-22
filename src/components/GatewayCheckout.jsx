@@ -15,17 +15,44 @@ import { upiLink, qrDataUrl } from '../lib/payments.js';
 export function useGatewayPay() {
   const [open, setOpen] = useState(null); // { order, resolve }
   const ref = useRef(null);
+  // what the payment is waiting on (see pay() in lib/payments): shown over the screen so a slow bank never looks like nothing is happening
+  const [stage, setStage] = useState(null);
   const ui = (order, gw) => new Promise((resolve) => { ref.current = { order, gw, resolve }; setOpen({ order, gw }); });
-  const close = (v) => { const r = ref.current; ref.current = null; setOpen(null); r?.resolve(v); };
+  const close = (v) => { const r = ref.current; ref.current = null; setOpen(null); if (v?.outcome) setStage({ step: 'confirm', since: Date.now() }); r?.resolve(v); };
   // one payment at a time: a second tap (or a second screen) while one is in flight gets the same answer instead of starting another order
   const flight = useRef(null);
   const [paying, setPaying] = useState(false);
+  const onStage = (step) => setStage((s) => (step ? (s?.step === step ? s : { step, since: s?.since || Date.now() }) : null));
   const start = (req) => {
-    if (!flight.current) { setPaying(true); flight.current = payService(req, ui).finally(() => { flight.current = null; setPaying(false); }); }
+    if (!flight.current) { setPaying(true); flight.current = payService(req, ui, onStage).finally(() => { flight.current = null; setPaying(false); setStage(null); }); }
     return flight.current;
   };
-  const node = open ? <CheckoutPage order={open.order} gw={open.gw} onDone={close} /> : null;
+  const node = open ? <CheckoutPage order={open.order} gw={open.gw} onDone={close} /> : stage ? <PaymentProgress step={stage.step} since={stage.since} /> : null;
   return { start, node, paying };
+}
+
+const STEPS = {
+  order: ['Preparing your payment…', 'Getting the exact amount from the server.'],
+  confirm: ['Confirming with the bank…', 'Your bank has answered the checkout; the payment is being confirmed.'],
+  bank: ['Waiting for the bank…', 'The bank is confirming the payment. This usually takes a few seconds.'],
+};
+/** A payment in progress: what it is waiting on, for how long, and - once it is slow - that it is still going and must not be repeated. */
+export function PaymentProgress({ step, since }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
+  const secs = Math.max(0, Math.round((now - (since || now)) / 1000));
+  const slow = secs >= 8;
+  const [title, text] = STEPS[step] || STEPS.bank;
+  return (
+    <div className="pay-progress" role="status" aria-live="polite" data-testid="pay-progress" data-step={step}>
+      <div className="pay-progress-card">
+        <span className="pay-spinner" aria-hidden="true" />
+        <b>{slow && step !== 'order' ? 'The bank is slow to answer…' : title}</b>
+        <p>{slow ? 'Still working on it in the background. Please keep this page open and do not pay again - you will not be charged twice.' : text}</p>
+        <small className="muted" data-testid="pay-progress-time">{secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}m ${secs % 60}s`}</small>
+      </div>
+    </div>
+  );
 }
 
 function CheckoutPage({ order, gw, onDone }) {
@@ -152,6 +179,7 @@ function UpiApp({ app, order, busy, onBack, onPaid }) {
  * for up to 10 minutes, tells the payer NOT to pay twice, and finishes by itself when the server settles the payment.
  */
 export function PaymentResult({ result, onRetry, onDone }) {
+  // Done hands back the payment as it ended (a slow bank's payment has its id only once it is confirmed): never start it again from Done
   const [msg, setMsg] = useState(result.message);
   const [status, setStatus] = useState(result.status);
   const [order, setOrder] = useState(result.order);
@@ -175,19 +203,24 @@ export function PaymentResult({ result, onRetry, onDone }) {
     return () => { stop = true; clearTimeout(timer); };
   }, [watching, order?.orderId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function confirm() { const r = await confirmPending(result.order.orderId); if (r.ok) { setStatus('Paid'); setMsg('Payment received.'); } }
+  async function confirm() { const r = await confirmPending(result.order.orderId); if (r.ok) { const o = await checkOrder(result.order.orderId).catch(() => null); if (o?.order) setOrder(o.order); setStatus('Paid'); setMsg('Payment received.'); } }
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => { if (!watching) return undefined; const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, [watching]);
+  const waited = Math.round((now - since) / 1000);
+  const final = () => ({ status, order, message: msg, paymentId: order?.paymentId || result.paymentId || null, utr: order?.utr || result.utr || '', payerVpa: order?.payerVpa || result.payerVpa || '' });
   const title = status === 'Paid' ? '✅ Payment received' : status === 'Failed' ? '⚠ Payment failed' : status === 'Expired' ? '⌛ Payment not completed' : status === 'Pending' ? (watching ? "⏳ We're checking your payment" : '⏳ Waiting for the bank') : 'Cancelled';
   return (
     <div className={`notice ${status === 'Paid' ? '' : 'warn'}`} data-testid="pay-result" style={{ marginTop: 8 }}>
       <b data-testid="pay-result-title">{title}</b>
       <div>{watching ? 'This usually takes under a minute. Please do not pay again - if the money has left your account, it is confirmed here automatically.' : msg}</div>
+      {watching && <div className="pay-watch" data-testid="pay-watching"><span className="pay-spinner sm" aria-hidden="true" /><span>Checking with the bank in the background · {waited < 60 ? `${waited}s` : `${Math.floor(waited / 60)}m ${waited % 60}s`}</span></div>}
       {watching && <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>Order {order.orderId}{checkedAt ? ` · last checked ${checkedAt.toLocaleTimeString()}` : ''}</div>}
       {status === 'Expired' && order?.orderId && <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>Order {order.orderId}</div>}
       <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
         {(status === 'Failed' || status === 'Cancelled' || status === 'Expired') && <button type="button" className="btn" data-testid="pay-retry" onClick={onRetry}>Try again</button>}
         {watching && <button type="button" className="btn secondary" data-testid="pay-check-now" onClick={checkNow}>Check now</button>}
         {status === 'Pending' && !serverDecides() && <button type="button" className="btn secondary" data-testid="pay-confirm-pending" onClick={confirm}>Simulate: bank confirmed</button>}
-        {status === 'Paid' && <button type="button" className="btn" data-testid="pay-done" onClick={onDone}>Done</button>}
+        {status === 'Paid' && <button type="button" className="btn" data-testid="pay-done" onClick={() => onDone?.(final())}>Done</button>}
       </div>
     </div>
   );

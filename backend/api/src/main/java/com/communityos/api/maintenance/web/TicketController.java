@@ -70,7 +70,7 @@ public class TicketController {
         Caller c = CallerHolder.require();
         TicketResponse r = TicketResponse.of(tickets.raise(c,
             new TicketService.RaiseTicket(b.taskTypeId(), b.title(), b.description(), b.unitId() == null ? null : new UnitId(b.unitId()), b.scope(), b.location(), b.category(),
-                b.subCategory(), b.priority(), b.preferredTime(), b.slaDueAt())));
+                b.subCategory(), b.priority(), b.preferredTime(), b.slaDueAt(), b.assetId())));
         return ResponseEntity.status(201).header("ETag", ETags.of(r.version())).body(r);
     }
     @PatchMapping("/api/v1/tickets/{id}")

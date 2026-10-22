@@ -545,12 +545,36 @@ async function recurringGoods(veh, { gate, direction, people, visits }) {
 // Passes: QR text and the message a resident shares
 // ======================================================================================================================
 export const passQrText = (p) => `GGP|${p.code}`;
-export function passMessage(template, p, { community = 'the community', host = '' } = {}) {
-  const t = template || DEFAULT_SETTINGS.passMessage;
+/**
+ * A link that opens the pass's QR and code for the guest, without signing in (the pass page, PublicPass.jsx). Everything it shows is in the
+ * link's # part, which browsers never send to a server - it carries only what the message itself already says.
+ */
+export function passLink(p, { community = '', host = '', base } = {}) {
+  const here = base || (typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}` : '');
+  const q = new URLSearchParams();
+  const put = (k, v) => { if (v) q.set(k, String(v)); };
+  put('c', p.code); put('g', p.visitorName); put('h', host || p.hostName); put('u', p.unit); put('s', community);
+  put('f', p.validFrom); put('t', p.validTo && p.validTo !== p.validFrom ? p.validTo : ''); put('ft', p.fromTime); put('tt', p.toTime); put('v', p.vehicle); put('k', p.type);
+  return `${here}#/pass?${q.toString()}`;
+}
+/** What a pass link says (for the pass page): null when it is not a pass link. */
+export function readPassLink(hash) {
+  const m = /^#\/pass\?(.*)$/.exec(hash || '');
+  if (!m) return null;
+  const q = new URLSearchParams(m[1]);
+  const code = (q.get('c') || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 12);
+  if (!code) return null;
+  const g = (k) => (q.get(k) || '').slice(0, 120);
+  return { code, visitorName: g('g'), hostName: g('h'), unit: g('u'), community: g('s'), validFrom: g('f'), validTo: g('t') || g('f'), fromTime: g('ft'), toTime: g('tt'), vehicle: g('v'), type: g('k') };
+}
+export function passMessage(template, p, { community = 'the community', host = '', link = '' } = {}) {
+  const base = template || DEFAULT_SETTINGS.passMessage;
+  // the QR travels as a link (WhatsApp and SMS carry text only): where the template does not place it, it goes at the end
+  const t = link && !base.includes('{qr}') ? `${base}\nQR: {qr}` : base;
   const time = p.fromTime ? ` ${p.fromTime}${p.toTime ? `-${p.toTime}` : ''}` : '';
   const date = p.validTo && p.validTo !== p.validFrom ? `${p.validFrom} to ${p.validTo}` : p.validFrom || '';
   const veh = p.vehicle ? `Vehicle: ${p.vehicle}\n` : '';
-  return t.replace(/\{guest\}/g, p.visitorName || 'there').replace(/\{host\}/g, host || p.hostName || '').replace(/\{unit\}/g, p.unit || '').replace(/\{community\}/g, community).replace(/\{pin\}/g, p.code || '').replace(/\{date\}/g, date).replace(/\{time\}/g, time).replace(/\{vehicle\}/g, veh).replace(/\{gate\}/g, 'the main gate');
+  return t.replace(/\{guest\}/g, p.visitorName || 'there').replace(/\{host\}/g, host || p.hostName || '').replace(/\{unit\}/g, p.unit || '').replace(/\{community\}/g, community).replace(/\{pin\}/g, p.code || '').replace(/\{date\}/g, date).replace(/\{time\}/g, time).replace(/\{vehicle\}/g, veh).replace(/\{gate\}/g, 'the main gate').replace(/\{qr\}/g, link);
 }
 export const shareLinks = (phone, text) => {
   const d = String(phone || '').replace(/\D/g, ''); const num = d.length === 10 ? `91${d}` : d;

@@ -1122,6 +1122,13 @@ class PostgresFlowTest {
                 "Plumbing", List.of("Electrical"), "STP room", 2, Map.of("Power (kW)", "7.5"), null, null, "Kirloskar", "KDS", null, null, null, null, null, null, null, null, null, "Working", 0,
                 List.of(), null, null, null, null, null, null, null)));
             assertEquals("7.5", ((Map<?, ?>) stpPump.data().specs()).get("Power (kW)"));
+            // a task raised from the asset (or the site map): a place, no unit, linked to the equipment
+            var onPump = as(admin, () -> ticketSvc.raise(admin, new com.communityos.api.maintenance.application.TicketService.RaiseTicket(null, "STP pump A: bearing noise", null, null, "Community",
+                "STP room", "Plumbing", null, "Medium", null, today.plusDays(2), stpPump.id())));
+            assertEquals(stpPump.id(), onPump.state().asset); assertNull(onPump.state().unit);
+            assertEquals("STP pump A", as(admin, () -> ticketSvc.get(admin, onPump.id())).state().assetName, "read back with the asset's name");
+            assertThrows(AccessDenied.class, () -> as(ownerC, () -> ticketSvc.raise(ownerC, new com.communityos.api.maintenance.application.TicketService.RaiseTicket(null, "Pump", null, null, "Unit",
+                null, "Plumbing", null, null, null, null, stpPump.id()))), "a resident does not link equipment");
             assertTrue(as(ownerC, () -> kit.list(ownerC, com.communityos.api.assets.AssetResources.EQUIPMENT, eqRepo)).isEmpty(), "residents do not see the register");
             var cond = as(admin, () -> assetSvc.condition(admin, stpPump.id(), today, "Needs attention", "Inspection", "Noisy bearing", leak.id()));
             assertEquals("STP pump A", cond.assetName()); assertEquals(members[2], cond.byId());

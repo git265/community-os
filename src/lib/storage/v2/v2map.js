@@ -127,6 +127,7 @@ export function ticketOf(t, unitNoById = {}) {
     id: t.id, shortId: t.shortId, ticketNumber: t.shortId, taskTypeId: t.taskTypeId, taskType: t.taskType || '', title: t.title, description: t.description || '',
     unit: t.unitNo || '', unitId: t.unitId, scope: t.scope, location: t.location || '', category: t.category, subCategory: t.subCategory || '', priority: t.priority,
     status: t.status, assignedTo: t.assigneeName || '', assigneeId: t.assigneeId, slaDueAt: t.slaDueAt || '', preferredTime: t.preferredTime || '',
+    ...(t.assetId ? { assetId: t.assetId, assetName: t.assetName || '' } : {}),
     affectedUnits: (t.affectedUnitIds || []).map((id) => unitNoById[id] || id), affectedUnitIds: t.affectedUnitIds || [], residentRating: t.residentRating || 0,
     createdBy: t.raisedByName || '', createdByRole: t.raisedByRole || '', raisedById: t.raisedById, awaitingParts: !!t.awaitingParts, materialsCost: num(t.materialsCost) || 0,
     financial: !!t.financial, workDone: t.workDone || '', cancelReason: t.cancelReason || '', reopenCount: t.reopenCount || 0,
@@ -152,11 +153,13 @@ export function ticketPatch(before, after) {
 }
 export function raiseTicketBody(rec, { taskTypeIdByName, unitIdByNo, resident }) {
   const unitId = rec.unitId || (rec.unit ? unitIdByNo[rec.unit] : null) || null;
-  if (rec.unit && !unitId) throw new Error(`Unit ${rec.unit} is not known to the back end.`);
+  // a community task (common area, an asset, a spot on the site map) is about a place, not a unit: its "unit" label is not sent
+  if (rec.unit && !unitId && rec.scope !== 'Community') throw new Error(`Unit ${rec.unit} is not known to the back end.`);
   return {
     taskTypeId: rec.taskTypeId || taskTypeIdByName[rec.taskType] || null, title: rec.title, description: rec.description || null, unitId,
     scope: rec.scope || 'Unit', location: rec.location || null, category: rec.category, subCategory: rec.subCategory || null, priority: rec.priority || 'Medium',
     preferredTime: rec.preferredTime || null, slaDueAt: resident ? null : (rec.slaDueAt || null),   // a resident's SLA is the committee's to set
+    assetId: !resident && isUuid(rec.assetId) ? rec.assetId : null,
   };
 }
 export const commentOf = (c) => ({ id: c.id, shortId: c.shortId, ticketId: c.ticketId, author: c.authorName, authorId: c.authorId, visibility: c.visibility, body: c.body, createdAt: c.createdAt, attachments: [] });
