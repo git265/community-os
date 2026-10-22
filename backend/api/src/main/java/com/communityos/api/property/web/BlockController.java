@@ -24,7 +24,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @Tag(name = "Units")
 public class BlockController {
-    public record BlockRequest(@NotBlank @Size(max = 80) String name, @Size(max = 6) String code, @Size(max = 10) String kind, Integer sortOrder, @Size(max = 60) String unitPattern,
+    public record BlockRequest(@NotBlank @Size(max = 80) String name, @Size(max = 6) String code, @Size(max = 10) String kind, Integer sortOrder, @Size(max = 120) String unitPattern,
                                java.util.Map<String, Object> custom) {
         PropertySetup.BlockFields fields() { return new PropertySetup.BlockFields(name, code, kind, sortOrder, unitPattern, custom); }
     }

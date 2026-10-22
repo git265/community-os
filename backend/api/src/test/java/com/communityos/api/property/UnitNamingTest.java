@@ -48,4 +48,20 @@ class UnitNamingTest {
         assertNull(UnitNaming.make("{block}-{floor}{n:2}", "T2", null, 4), "a floor is needed");
         assertNull(UnitNaming.make("{n}{letter}", null, null, 4), "a letter cannot be made up");
     }
+
+    @Test void villasAndTowersTogether() {
+        String p = "Villa {n} or {block}-{floor}{n:2}";
+        assertEquals(p, UnitNaming.checkPattern("  " + p + " "));
+        assertEquals(java.util.List.of("Villa {n}", "{block}-{floor}{n:2}"), UnitNaming.alternatives("Villa {n} | {block}-{floor}{n:2}"));
+        assertNull(UnitNaming.problem("Villa 135", p, null), "a villa without a block");
+        assertNull(UnitNaming.problem("A-1204", p, "A"), "a flat in block A");
+        assertNull(UnitNaming.problem("Villa 7", p, "A"), "either alternative, whatever the block");
+        String why = UnitNaming.problem("Flat 9", p, "A");
+        assertTrue(why.contains("Villa 1 or A-101"), why);
+        assertNotNull(UnitNaming.problem("-101", p, null), "{block} is not matched by nothing");
+        assertEquals("Villa 3", UnitNaming.make(p, null, null, 3), "the first alternative that can be made");
+        assertEquals("bad-pattern", assertThrows(com.communityos.api.shared.domain.DomainException.RuleViolated.class, () -> UnitNaming.checkPattern("Villa {n} or villa {n}")).code());
+        assertTrue(assertThrows(com.communityos.api.shared.domain.DomainException.RuleViolated.class, () -> UnitNaming.checkPattern("Villa {n} or {num}")).getMessage().startsWith("“{num}”"));
+        assertTrue(assertThrows(com.communityos.api.shared.domain.DomainException.RuleViolated.class, () -> UnitNaming.checkPattern("A-{n}, B-{n}")).getMessage().contains("“or”"), "a comma is not a separator");
+    }
 }

@@ -9,7 +9,7 @@ import SectionPage from '../../components/SectionPage.jsx';
 import DynamicForm from '../../components/DynamicForm.jsx';
 import Modal from '../../components/Modal.jsx';
 import UnitImport from './UnitImport.jsx';
-import { loadCommunityPattern, saveCommunityPattern, patternProblem, ruleFor, make, example, usesFloor, unitProblem, key as unitKey } from '../../lib/unitNaming.js';
+import { loadCommunityPattern, saveCommunityPattern, patternProblem, ruleFor, make, example, usesFloor, unitProblem, alternatives, usableAlternatives, key as unitKey } from '../../lib/unitNaming.js';
 import { propertyTypes, getCommunityConfig } from '../../lib/locale.js';
 import { letterheadFrom } from '../../lib/documents/letterhead.js';
 import { receiptHtml, statementHtml } from '../../lib/documents/templates.js';
@@ -110,7 +110,7 @@ function UnitNamingCard({ canEdit, onSaved }) {
   const [cur, setCur] = useState(null); const [draft, setDraft] = useState(''); const [err, setErr] = useState(''); const [busy, setBusy] = useState(false);
   React.useEffect(() => { loadCommunityPattern().then((x) => { setCur(x); setDraft(x.pattern || ''); }).catch(() => setCur({ pattern: '', version: 0 })); }, []);
   if (!cur) return null;
-  const why = patternProblem(draft); const ex = draft && !why ? example(draft.trim(), 'A') : '';
+  const why = patternProblem(draft); const ex = draft && !why ? alternatives(draft).map((a) => example(a, 'A')).filter(Boolean).join(' or ') : '';
   async function save() {
     setBusy(true); setErr('');
     try { const x = await saveCommunityPattern(draft, cur.version); setCur(x); setDraft(x.pattern || ''); onSaved?.(x.pattern ? `Unit numbers now follow “${x.pattern}”.` : 'Unit numbers no longer follow a pattern.'); }
@@ -123,7 +123,7 @@ function UnitNamingCard({ canEdit, onSaved }) {
       <p className="muted" style={{ margin: '4px 0 8px' }}>
         Every unit number uses letters, digits, space, “.”, “/” and “-”, and two numbers that differ only in case are the same unit. A pattern adds a shape for new and renamed units:
         {' '}<code>{'{n}'}</code> a number, <code>{'{n:3}'}</code> exactly 3 digits, <code>{'{floor}'}</code> a floor, <code>{'{letter}'}</code> one letter, <code>{'{block}'}</code> the block&apos;s code.
-        {' '}For example <code>{'Villa {n}'}</code> or <code>{'{block}-{floor}{n:2}'}</code> (A-1204). A block can have its own pattern (edit the block).
+        {' '}For example <code>{'Villa {n}'}</code>, or <code>{'{block}-{floor}{n:2}'}</code> (A-1204). Villas and towers together: join them with “or”, e.g. <code>{'Villa {n} or {block}-{floor}{n:2}'}</code> - a number may follow either. A block can also have its own pattern (edit the block).
       </p>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
         <input aria-label="Unit naming pattern" data-testid="unit-pattern" value={draft} disabled={!canEdit} onChange={(e) => setDraft(e.target.value)} placeholder="No pattern: any number that follows the rules" style={{ minWidth: 260, flex: 1 }} />
@@ -140,14 +140,17 @@ function BulkUnits({ draft, setDraft, blocks, existing, onDone }) {
   const [community, setCommunity] = useState('');
   React.useEffect(() => { loadCommunityPattern().then((x) => setCommunity(x.pattern || '')).catch(() => {}); }, []);
   const rule = ruleFor(draft.block, blocks, community);          // the block's pattern, else the community's
-  const floors = usesFloor(rule.pattern);
+  // a pattern with alternatives ("Villa {n} or {block}-{floor}{n:2}"): the new units follow the one chosen here
+  const alts = usableAlternatives(rule.pattern, rule.block);
+  const chosen = alts[Math.min(Number(draft.alt) || 0, Math.max(0, alts.length - 1))] || rule.pattern;
+  const floors = usesFloor(chosen);
   const from = Number(draft.from) || 0; const to = Number(draft.to) || 0;
   const fFrom = Number(draft.floorFrom) || 0; const fTo = floors ? Number(draft.floorTo) || 0 : 0;
-  const label = (floor, n) => (rule.pattern ? make(rule.pattern, rule.block, floor, n) : `${draft.prefix}${draft.pad ? String(n).padStart(Number(draft.pad), '0') : n}`);
+  const label = (floor, n) => (rule.pattern ? make(chosen, rule.block, floor, n) : `${draft.prefix}${draft.pad ? String(n).padStart(Number(draft.pad), '0') : n}`);
   const have = useMemo(() => new Set(existing.map((p) => unitKey(p.unit))), [existing]);
   const names = []; let cannot = '';
   for (let fl = floors ? fFrom : 0; fl <= (floors ? fTo : 0) && names.length <= BULK_MAX; fl += 1) {
-    for (let n = from; n <= to && names.length <= BULK_MAX; n += 1) { const x = label(floors ? fl : null, n); if (x == null) { cannot = `The pattern “${rule.pattern}” has a part that cannot be numbered here ({letter}, or {block} without a block code): add these units one by one or import them.`; break; } names.push(x); }
+    for (let n = from; n <= to && names.length <= BULK_MAX; n += 1) { const x = label(floors ? fl : null, n); if (x == null) { cannot = `The pattern “${chosen}” has a part that cannot be numbered here ({letter}, or {block} without a block code): add these units one by one or import them.`; break; } names.push(x); }
     if (cannot) break;
   }
   const problem = !cannot && names.map((u) => unitProblem(u, rule.pattern, rule.block)).find(Boolean);
@@ -168,7 +171,8 @@ function BulkUnits({ draft, setDraft, blocks, existing, onDone }) {
         <div className="field"><label>Block *</label><select aria-label="Block" value={draft.block} onChange={(e) => set('block', e.target.value)}><option value="">Select…</option>{blocks.map((b) => <option key={b.id}>{b.name}</option>)}</select></div>
         <div className="field"><label>Property type</label><select aria-label="Property type" value={draft.type} onChange={(e) => set('type', e.target.value)}>{propertyTypes().map((t) => <option key={t}>{t}</option>)}</select></div>
         {rule.pattern ? (
-          <div className="field" style={{ gridColumn: '1 / -1' }}><label>Naming pattern</label><div data-testid="bulk-pattern"><code>{rule.pattern}</code> <span className="muted">({blocks.some((b) => b.name === draft.block && b.unitPattern) ? "this block's" : "the community's"}; numbers are made from it)</span></div></div>
+          <div className="field" style={{ gridColumn: '1 / -1' }}><label>Naming pattern</label><div data-testid="bulk-pattern"><code>{rule.pattern}</code> <span className="muted">({blocks.some((b) => b.name === draft.block && b.unitPattern) ? "this block's" : "the community's"}; numbers are made from it)</span></div>
+            {alts.length > 1 && <div style={{ marginTop: 6 }}><select aria-label="Number these units as" data-testid="bulk-alt" value={alts.indexOf(chosen)} onChange={(e) => set('alt', e.target.value)}>{alts.map((a, i) => <option key={a} value={i}>{a} (e.g. {example(a, rule.block)})</option>)}</select></div>}</div>
         ) : (<>
           <div className="field"><label>Unit prefix</label><input aria-label="Prefix" value={draft.prefix} onChange={(e) => set('prefix', e.target.value)} placeholder="e.g. A-  or  Villa " /></div>
           <div className="field"><label>Zero-pad to</label><input aria-label="Pad" type="number" min="0" max="6" value={draft.pad} onChange={(e) => set('pad', e.target.value)} /></div>

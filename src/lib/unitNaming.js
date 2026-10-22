@@ -8,6 +8,8 @@
 //   {n}  a number of any length      {n:3}  exactly 3 digits, zero-padded      {floor} / {floor:2}  a floor number
 //   {letter}  one letter             {block}  the block's code (or its name)
 // e.g. "Villa {n}" -> Villa 7, Villa 135;  "{block}-{floor}{n:2}" -> A-1204 (block A, floor 12, flat 04).
+// A community with villas and towers can allow both: "Villa {n} or {block}-{floor}{n:2}" (alternatives joined by "or" or "|"); a number
+// follows the pattern when it fits any of them. A block's own pattern still wins for the units in that block.
 import { getDataSource } from './storage/dataSource.js';
 
 export const MAX = 40;
@@ -21,11 +23,23 @@ export const normalize = (s) => String(s ?? '').trim().replace(/\s+/g, ' ');
 export const key = (s) => normalize(s).toLowerCase();
 export const sameName = (a, b) => key(a) === key(b);
 
+/** The alternatives of a pattern: "Villa {n} or {block}-{floor}{n:2}" -> ['Villa {n}', '{block}-{floor}{n:2}']. */
+export const alternatives = (pattern) => String(pattern ?? '').split(/\s+or\s+|\s*\|\s*/i).map((x) => x.trim()).filter(Boolean);
 /** What is wrong with a pattern someone wants to save, or '' (a blank pattern is fine: only the character rules then). */
 export function patternProblem(pattern) {
-  const p = String(pattern ?? '').trim();
-  if (!p) return '';
+  const all = String(pattern ?? '').trim();
+  if (!all) return '';
+  if (all.length > 120) return 'A naming pattern is at most 120 characters';
+  const alts = alternatives(all);
+  if (alts.length > 4) return 'Up to 4 alternatives in a naming pattern';
+  if (new Set(alts.map((a) => a.toLowerCase())).size !== alts.length) return 'The same alternative appears twice in the naming pattern';
+  for (const a of alts) { const why = onePatternProblem(a); if (why) return alts.length > 1 ? `“${a}”: ${why}` : why; }
+  return '';
+}
+function onePatternProblem(p) {
   if (p.length > 60) return 'A naming pattern is at most 60 characters';
+  // alternatives written with a comma or "and" ("A-{n}, B-{n}"): they are joined with "or"
+  if (/\}[^{}]*(\sand\s|[,;])[^{}]*\{/i.test(p)) return 'Join alternative patterns with “or”, e.g. Villa {n} or {block}-{floor}{n:2}';
   const rest = p.replace(TOKEN, '');
   if (/[{}]/.test(rest)) return 'Use only {n}, {n:3}, {floor}, {floor:2}, {letter} and {block} in a naming pattern';
   if (rest && !/^[A-Za-z0-9 ./-]*$/.test(rest)) return "A naming pattern may contain letters, digits, space, '.', '/' and '-' around its parts";
@@ -37,6 +51,8 @@ export function patternProblem(pattern) {
   if (!varies) return 'A naming pattern needs {n}, {floor} or {letter} - otherwise every unit would have the same number';
   return '';
 }
+/** The alternatives of a pattern that can be used in this block ({block} needs a block code). */
+export const usableAlternatives = (pattern, block) => alternatives(pattern).filter((a) => !a.includes('{block}') || !!block);
 
 function regex(pattern, block) {
   let out = ''; let at = 0;
@@ -51,6 +67,9 @@ function regex(pattern, block) {
 
 /** The number for {n} = n (and {floor} = floor); null when the pattern needs a part that is not given ({letter}, or {block} without a block). */
 export function make(pattern, block, floor, n) {
+  const alts = alternatives(pattern);
+  if (alts.length > 1) { for (const a of alts) { const x = make(a, block, floor, n); if (x != null) return x; } return null; }
+  pattern = alts[0] || '';
   let out = ''; let at = 0;
   const pad = (v, w) => (w ? String(v).padStart(Number(w), '0') : String(v));
   for (const m of pattern.matchAll(TOKEN)) {
@@ -64,7 +83,7 @@ export function make(pattern, block, floor, n) {
   return normalize(out + pattern.slice(at));
 }
 export const example = (pattern, block) => make(pattern, block || 'A', 1, 1) || make(String(pattern).replace('{letter}', 'B'), block || 'A', 1, 1);
-export const usesFloor = (pattern) => /\{floor(:\d)?\}/.test(pattern || '');
+export const usesFloor = (pattern) => /\{floor(:\d)?\}/.test(alternatives(pattern)[0] || '');
 
 /** What is wrong with a number, or ''. `pattern` may be blank; `block` is the block's code (or name) for {block}. */
 export function unitProblem(unitNo, pattern, block) {
@@ -74,8 +93,11 @@ export function unitProblem(unitNo, pattern, block) {
   if (!CHARS.test(u)) return "Use letters, digits, space, '.', '/' and '-' in a unit number, starting and ending with a letter or digit";
   const p = String(pattern ?? '').trim();
   if (p) {
-    if (p.includes('{block}') && !block) return 'This naming pattern uses {block}: put the unit in a block first';
-    if (!regex(p, block).test(u)) { const e = example(p, block); return `“${u}” does not follow the naming pattern “${p}”${e ? ` (for example ${e})` : ''}`; }
+    const alts = alternatives(p);
+    if (alts.some((a) => regex(a, block).test(u) && (!a.includes('{block}') || block))) return '';
+    if (alts.every((a) => a.includes('{block}')) && !block) return 'This naming pattern uses {block}: put the unit in a block first';
+    const ex = alts.map((a) => example(a, block)).filter(Boolean);
+    return `“${u}” does not follow the naming pattern “${p}”${ex.length ? ` (for example ${ex.join(' or ')})` : ''}`;
   }
   return '';
 }

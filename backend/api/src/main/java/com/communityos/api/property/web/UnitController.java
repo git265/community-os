@@ -72,7 +72,7 @@ public class UnitController {
         com.communityos.api.property.application.port.PropertySetup.NewUnit row() { return new com.communityos.api.property.application.port.PropertySetup.NewUnit(unitNo, blockId, unitType, occupancy, areaSqft); }
     }
     public record BatchRequest(@jakarta.validation.constraints.NotNull @Size(min = 1, max = UnitService.BATCH_MAX) java.util.List<@Valid NewUnitRequest> units) {}
-    public record NamingRequest(@Size(max = 60) String unitPattern) {}
+    public record NamingRequest(@Size(max = 120) String unitPattern) {}
 
     /** One new unit: its number follows the community's rules (or 422 with what is wrong); a number already in use (any case) is 422 duplicate-unit. */
     @PostMapping

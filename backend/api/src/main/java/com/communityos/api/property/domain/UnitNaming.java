@@ -21,6 +21,8 @@ import java.util.regex.Pattern;
  *   {block}    the unit's block code (or, without a code, its name)
  * The text around the parts is matched ignoring case. A pattern needs at least one of {n}, {floor} or {letter}.
  * Examples: "Villa {n}", "{block}-{floor}{n:2}" (A-1204 = block A, floor 12, flat 04), "T{n}/{n:4}" is not allowed (two {n}).
+ * Villas and towers together: alternatives joined by "or" (or "|"), "Villa {n} or {block}-{floor}{n:2}" - a number follows the pattern when it
+ * fits any of them (up to 4).
  */
 public final class UnitNaming {
     public static final int MAX = 40;
@@ -33,11 +35,32 @@ public final class UnitNaming {
     /** The key two numbers are compared by (case and spacing ignored). */
     public static String key(String s) { return normalize(s).toLowerCase(Locale.ROOT); }
 
+    static final Pattern OR = Pattern.compile("\\s+(?i:or)\\s+|\\s*\\|\\s*");
+    /** "Villa {n} or {block}-{floor}{n:2}" -> its alternatives. */
+    public static List<String> alternatives(String pattern) {
+        List<String> out = new ArrayList<>();
+        if (pattern == null) return out;
+        for (String a : OR.split(pattern.strip())) if (!a.isBlank()) out.add(a.strip());
+        return out;
+    }
     /** A pattern someone wants to save: refuses unknown parts, repeated parts and patterns with nothing that varies. Returns it trimmed (or null). */
     public static String checkPattern(String pattern) {
         if (pattern == null || pattern.isBlank()) return null;
-        String p = pattern.strip();
+        String all = pattern.strip();
+        if (all.length() > 120) throw new DomainException.RuleViolated("bad-pattern", "A naming pattern is at most 120 characters");
+        List<String> alts = alternatives(all);
+        if (alts.size() > 4) throw new DomainException.RuleViolated("bad-pattern", "Up to 4 alternatives in a naming pattern");
+        if (alts.stream().map((a) -> a.toLowerCase(Locale.ROOT)).distinct().count() != alts.size()) throw new DomainException.RuleViolated("bad-pattern", "The same alternative appears twice in the naming pattern");
+        for (String a : alts) {
+            try { checkOne(a); }
+            catch (DomainException.RuleViolated e) { throw alts.size() > 1 ? new DomainException.RuleViolated("bad-pattern", "“" + a + "”: " + e.getMessage()) : e; }
+        }
+        return all;
+    }
+    private static void checkOne(String p) {
         if (p.length() > 60) throw new DomainException.RuleViolated("bad-pattern", "A naming pattern is at most 60 characters");
+        if (Pattern.compile("}[^{}]*(\\sand\\s|[,;])[^{}]*\\{", Pattern.CASE_INSENSITIVE).matcher(p).find())   // "A-{n}, B-{n}": alternatives are joined with "or"
+            throw new DomainException.RuleViolated("bad-pattern", "Join alternative patterns with “or”, e.g. Villa {n} or {block}-{floor}{n:2}");
         String rest = TOKEN.matcher(p).replaceAll("");
         if (rest.contains("{") || rest.contains("}")) throw new DomainException.RuleViolated("bad-pattern", "Use only {n}, {n:3}, {floor}, {floor:2}, {letter} and {block} in a naming pattern");
         if (!rest.isEmpty() && !rest.matches("[A-Za-z0-9 ./-]*")) throw new DomainException.RuleViolated("bad-pattern", "A naming pattern may contain letters, digits, space, '.', '/' and '-' around its parts");
@@ -47,7 +70,6 @@ public final class UnitNaming {
             seen.add(m.group(1)); varies |= !"block".equals(m.group(1));
         }
         if (!varies) throw new DomainException.RuleViolated("bad-pattern", "A naming pattern needs {n}, {floor} or {letter} - otherwise every unit would have the same number");
-        return p;
     }
 
     /** The regular expression a pattern stands for, with the block's code (or name) put in for {block}. */
@@ -74,8 +96,12 @@ public final class UnitNaming {
         if (u.length() > MAX) return "A unit number is at most " + MAX + " characters";
         if (!CHARS.matcher(u).matches()) return "Use letters, digits, space, '.', '/' and '-' in a unit number, starting and ending with a letter or digit";
         if (pattern != null && !pattern.isBlank()) {
-            if (pattern.contains("{block}") && (block == null || block.isBlank())) return "This naming pattern uses {block}: put the unit in a block first";
-            if (!regex(pattern, block).matcher(u).matches()) return "“" + u + "” does not follow the naming pattern “" + pattern + "”" + (example(pattern, block) == null ? "" : " (for example " + example(pattern, block) + ")");
+            boolean noBlock = block == null || block.isBlank();
+            List<String> alts = alternatives(pattern);
+            for (String a : alts) if (!(a.contains("{block}") && noBlock) && regex(a, block).matcher(u).matches()) return null;
+            if (noBlock && alts.stream().allMatch((a) -> a.contains("{block}"))) return "This naming pattern uses {block}: put the unit in a block first";
+            List<String> ex = alts.stream().map((a) -> example(a, block)).filter(java.util.Objects::nonNull).toList();
+            return "“" + u + "” does not follow the naming pattern “" + pattern.strip() + "”" + (ex.isEmpty() ? "" : " (for example " + String.join(" or ", ex) + ")");
         }
         return null;
     }
@@ -88,6 +114,9 @@ public final class UnitNaming {
 
     /** The number for {n} = n (and {floor} = floor) in a pattern, for adding units in bulk. Null when the pattern needs a part not given. */
     public static String make(String pattern, String block, Integer floor, int n) {
+        List<String> alts = alternatives(pattern);
+        if (alts.size() > 1) { for (String a : alts) { String x = make(a, block, floor, n); if (x != null) return x; } return null; }
+        if (!alts.isEmpty()) pattern = alts.get(0);
         StringBuilder out = new StringBuilder(); Matcher m = TOKEN.matcher(pattern); int at = 0;
         while (m.find()) {
             out.append(pattern, at, m.start());

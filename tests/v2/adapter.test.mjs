@@ -1075,6 +1075,11 @@ test('cache: reference lists are kept for a short while on the back end; any wri
 
 test('unit numbers: the same rules as the server; lookups by number, block and task type ignore case', async () => {
   const n = await import('../../src/lib/unitNaming.js');
+  // villas and towers together: alternatives joined by "or"
+  const both = 'Villa {n} or {block}-{floor}{n:2}';
+  assert.equal(n.patternProblem(both), ''); assert.equal(n.unitProblem('Villa 135', both, ''), ''); assert.equal(n.unitProblem('A-1204', both, 'A'), '');
+  assert.match(n.unitProblem('Flat 9', both, 'A'), /Villa 1 or A-101/); assert.notEqual(n.unitProblem('-101', both, ''), '');
+  assert.match(n.patternProblem('Villa {n} or {num}'), /^“\{num\}”/); assert.deepEqual(n.usableAlternatives(both, ''), ['Villa {n}']);
   assert.equal(n.normalize('  Villa   12 '), 'Villa 12'); assert.equal(n.key(' VILLA  12'), 'villa 12');
   assert.equal(n.unitProblem('A-1204'), ''); assert.ok(n.unitProblem('Villa #12')); assert.ok(n.unitProblem('-12')); assert.ok(n.unitProblem('x'.repeat(41)));
   assert.equal(n.unitProblem('villa 135', 'Villa {n}'), '', 'the text ignores case'); assert.ok(n.unitProblem('V7', 'Villa {n}').includes('Villa 1'), 'says an example');
