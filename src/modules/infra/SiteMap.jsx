@@ -79,11 +79,15 @@ function MapTab({ areaFilter, setAreaFilter, startCalibrate, onSetup, onNavigate
   const { roleId } = useApp();
   const isAdmin = roleId === 'super_admin';
   const { records: properties } = useCollection(COLLECTIONS.PROPERTIES, 'Properties & Residents');
-  const [narrow, setNarrow] = useState(() => typeof window !== 'undefined' && !!window.matchMedia?.('(max-width: 720px)').matches);
-  useEffect(() => { const m = window.matchMedia?.('(max-width: 720px)'); if (!m) return undefined; const f = () => setNarrow(m.matches); m.addEventListener?.('change', f); return () => m.removeEventListener?.('change', f); }, []);
+  const [narrow, setNarrow] = useState(() => typeof window !== 'undefined' && !!window.matchMedia?.('(max-width: 900px)').matches);
+  useEffect(() => { const m = window.matchMedia?.('(max-width: 900px)'); if (!m) return undefined; const f = () => setNarrow(m.matches); m.addEventListener?.('change', f); return () => m.removeEventListener?.('change', f); }, []);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [legendOpen, setLegendOpen] = useState(false);
+  // the side panel (desktop) can be hidden to give the map the whole width; on a phone it is a sheet: a summary line, or open
+  const [panelOpen, setPanelOpen] = useState(() => { try { return localStorage.getItem('communityos:smPanel') !== 'off'; } catch { return true; } });
+  const setPanel = (v) => { setPanelOpen(v); try { localStorage.setItem('communityos:smPanel', v ? 'on' : 'off'); } catch { /* not kept */ } };
+  const [sheet, setSheet] = useState('peek');
   const [historyOpen, setHistoryOpen] = useState(false);
   const [showImpact, setShowImpact] = useState(false);
   const [reportAt, setReportAt] = useState(null); // a spot held down or right-clicked on the map
@@ -133,7 +137,7 @@ function MapTab({ areaFilter, setAreaFilter, startCalibrate, onSetup, onNavigate
     setAlignPts(null);
     if (saved) { if (off > 0.25) setNotice({ kind: 'error', text: `Plan placed on the map, but its scale differs from the one you set by ${Math.round(off * 100)}%. Check that you tapped the same two spots.` }); else undoNotice(plan.id, 'Plan placed on the real map. Pins, lines and the boundary now show at their real positions.', savePlan); }
   }
-  const select = (id) => { setSelectedId(id || ''); if (id) setTimeout(() => panelRef.current?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' }), 60); };
+  const select = (id) => { setSelectedId(id || ''); if (id) { setSheet('open'); setPanelOpen(true); setFiltersOpen(false); setToolsOpen(false); } else setSheet('peek'); };
   const jump = (a) => { select(a.id); const s = parseShape(a); if (s) setFocus({ nonce: Date.now(), shape: s }); setQ(''); };
   const startDraw = (type) => { const L = layers.find((l) => l.type === type); if (L) { setSelectedId(''); setDraw({ kind: 'new', layer: L }); } };
   const startPlace = (a, redraw = false) => { setSelectedId(a.id); setDraw({ kind: redraw ? 'redraw' : 'place', layer: layerOf(layers, a.type), assetId: a.id }); };
@@ -215,23 +219,55 @@ function MapTab({ areaFilter, setAreaFilter, startCalibrate, onSetup, onNavigate
 
   return (
     <div>
-      <div className="infra-toolbar sm-toolbar" data-testid="sm-toolbar">
+      <div className={`sm-work${narrow ? ' narrow' : ''}${!narrow && !panelOpen ? ' no-panel' : ''}`} data-testid="sm-work">
+      {/* one toolbar row: find, filters and the view on the left; adding and the tools on the right. Everything else lives in the ⋯ menu. */}
+      <div className="sm-bar infra-toolbar sm-toolbar" data-testid="sm-toolbar">
         {sorted.length > 1 && <select aria-label="Plan" value={plan.id} onChange={(e) => { setPlanId(e.target.value); setSelectedId(''); }}>{sorted.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>}
         <div className="infra-search">
           <input type="search" placeholder="Find an asset…" aria-label="Find an asset" data-testid="lf-find" value={q} onChange={(e) => setQ(e.target.value)} />
           {found.length > 0 && <div className="infra-found" role="listbox">{found.map((a) => <button key={a.id} type="button" role="option" onClick={() => (parseShape(a) ? jump(a) : select(a.id))}><span className="dot" style={{ background: COND_COLOR[effectiveCondition(a, open)] }} />{a.name}<small>{a.area}{parseShape(a) ? '' : ' · not on plan'}</small></button>)}</div>}
         </div>
+        <button type="button" className={`btn secondary sm${filtersOpen ? ' on' : ''}`} data-testid="sm-filters-btn" aria-expanded={filtersOpen} onClick={() => { setFiltersOpen((o) => !o); setToolsOpen(false); }}>⚲ Filters{activeFilters ? <span className="seg-badge">{activeFilters}</span> : null}</button>
+        {!narrow && (
+          <div className="sm-seg" role="group" aria-label="Map background" data-testid="map-bases">
+            {[['plan', 'Plan'], ...BASES.map((b) => [b.id, b.label]), ...(plan.tileUrl ? [['custom', 'Own tiles']] : [])].map(([k, label]) => (
+              <button key={k} type="button" className={`infra-chip${view === k ? ' on' : ''}`} aria-pressed={view === k} data-testid={`base-${k}`} disabled={!!draw} onClick={() => setView(k)}>{label}</button>
+            ))}
+            {view !== 'plan' && canEdit && <button type="button" className="btn secondary sm" data-testid="live-align" disabled={!!draw || !!alignPts} onClick={() => { setSelectedId(''); setView('plan'); setDraw({ kind: 'georef' }); }}>🧭 {geo ? 'Re-align to the map' : 'Align plan to the map'}</button>}
+          </div>
+        )}
+        <span className="sm-spacer" />
+        {!narrow && <button type="button" className={`btn secondary sm${legendOpen ? ' on' : ''}`} data-testid="sm-legend-btn" aria-pressed={legendOpen} onClick={() => setLegendOpen((o) => !o)}>🎨 Legend</button>}
+        {!narrow && (<>
         {canEdit && (
           <select className="infra-add" aria-label="Add on plan" data-testid="lf-add" disabled={view !== 'plan'} value="" onChange={(e) => { if (e.target.value) startDraw(e.target.value); }}>
             <option value="">＋ Add on plan…</option>
             {layers.map((l) => <option key={l.slug} value={l.type}>{l.icon} {l.type} ({l.geometry === 'Line' ? 'line' : l.geometry === 'Zone' ? 'outline' : 'pin'})</option>)}
           </select>
         )}
-        {narrow && <button type="button" className="btn secondary sm" data-testid="sm-filters-btn" aria-expanded={filtersOpen} onClick={() => setFiltersOpen((o) => !o)}>Filters{activeFilters ? ` · ${activeFilters}` : ''}</button>}
-        {narrow && <button type="button" className="btn secondary sm" data-testid="sm-tools-btn" aria-expanded={toolsOpen} onClick={() => setToolsOpen((o) => !o)}>⚙ Tools</button>}
-        <button type="button" className={`btn secondary sm${legendOpen ? ' on' : ''}`} data-testid="sm-legend-btn" aria-pressed={legendOpen} onClick={() => setLegendOpen((o) => !o)}>🎨 Legend</button>
-        {(!narrow || toolsOpen) && (
-          <div className={narrow ? 'sm-tools-panel' : 'sm-tools-inline'} data-testid="sm-tools">
+        </>)}
+        <div className="sm-menu-wrap">
+          <button type="button" className={`btn secondary sm${toolsOpen ? ' on' : ''}`} data-testid="sm-tools-btn" aria-expanded={toolsOpen} aria-label="More tools" onClick={() => { setToolsOpen((o) => !o); setFiltersOpen(false); }}>⋯{narrow ? '' : ' Tools'}</button>
+          {toolsOpen && (
+            <div className="sm-menu" data-testid="sm-tools" role="menu">
+              {narrow && (<>
+                <div className="sm-menu-h">View</div>
+                <div className="sm-seg" role="group" aria-label="Map background" data-testid="map-bases">
+            {[['plan', 'Plan'], ...BASES.map((b) => [b.id, b.label]), ...(plan.tileUrl ? [['custom', 'Own tiles']] : [])].map(([k, label]) => (
+              <button key={k} type="button" className={`infra-chip${view === k ? ' on' : ''}`} aria-pressed={view === k} data-testid={`base-${k}`} disabled={!!draw} onClick={() => setView(k)}>{label}</button>
+            ))}
+            {view !== 'plan' && canEdit && <button type="button" className="btn secondary sm" data-testid="live-align" disabled={!!draw || !!alignPts} onClick={() => { setSelectedId(''); setView('plan'); setDraw({ kind: 'georef' }); }}>🧭 {geo ? 'Re-align to the map' : 'Align plan to the map'}</button>}
+                </div>
+                <button type="button" className="btn secondary sm" data-testid="sm-legend-btn" aria-pressed={legendOpen} onClick={() => { setLegendOpen((o) => !o); setToolsOpen(false); }}>🎨 {legendOpen ? 'Hide legend' : 'Legend'}</button>
+                {canEdit && <div className="sm-menu-h">Add</div>}
+        {canEdit && (
+          <select className="infra-add" aria-label="Add on plan" data-testid="lf-add" disabled={view !== 'plan'} value="" onChange={(e) => { if (e.target.value) startDraw(e.target.value); }}>
+            <option value="">＋ Add on plan…</option>
+            {layers.map((l) => <option key={l.slug} value={l.type}>{l.icon} {l.type} ({l.geometry === 'Line' ? 'line' : l.geometry === 'Zone' ? 'outline' : 'pin'})</option>)}
+          </select>
+        )}
+              </>)}
+              <div className="sm-menu-h">Tools</div>
             {canEdit && <button type="button" className="btn secondary sm" data-testid="lf-calibrate" disabled={!!draw || view !== 'plan'} onClick={() => { setSelectedId(''); setNotice(null); setToolsOpen(false); setDraw({ kind: 'calibrate' }); }}>📐 {plan.metersPerPx ? 'Change scale' : 'Set scale'}</button>}
             {canEdit && <button type="button" className="btn secondary sm" data-testid="lf-boundary" disabled={!!draw || view !== 'plan'} onClick={() => { setSelectedId(''); setNotice(null); setToolsOpen(false); setDraw({ kind: 'boundary' }); }}>⬡ {boundary ? 'Redraw boundary' : 'Draw boundary'}</button>}
             {canEdit && boundary && <button type="button" className="btn secondary sm" data-testid="lf-boundary-remove" disabled={!!draw || view !== 'plan'} onClick={() => { setToolsOpen(false); setBoundaryAsk({ remove: true }); }}>Remove boundary</button>}
@@ -239,18 +275,28 @@ function MapTab({ areaFilter, setAreaFilter, startCalibrate, onSetup, onNavigate
             <button type="button" className="btn secondary sm" data-testid="sm-plan-history" onClick={() => { setToolsOpen(false); setHistoryOpen(true); }}>🕘 Plan history</button>
             <button type="button" className="btn secondary sm" data-testid="sm-share" onClick={() => share('')}>🔗 Share this view</button>
             <label className="lf-fade" title="How strong the plan drawing is"><small className="muted">Plan fade</small><input type="range" min="0.2" max="1" step="0.05" value={fade} aria-label="Plan fade" onChange={(e) => setFade(Number(e.target.value))} /></label>
-          </div>
-        )}
-      </div>
-      {notice && (
-        <div className={`sm-toast${notice.kind === 'error' ? ' error' : ''}`} role="status" data-testid="lf-notice">
-          <span style={{ flex: 1 }}>{notice.text}</span>
-          {notice.undo && <button type="button" data-testid="sm-undo" onClick={() => doUndo(notice)}>Undo</button>}
-          <button type="button" aria-label="Dismiss" onClick={() => setNotice(null)}>✕</button>
+          {view !== 'plan' && canEdit && (
+            <details style={{ marginTop: 6 }} data-testid="live-tiles"><summary className="muted">Map tile source</summary>
+              <p className="muted" style={{ margin: '4px 0' }}>Street uses OpenStreetMap and Satellite uses Esri imagery, both free to try. For daily use by many residents, their usage policies expect you to use a provider account of your own (Mapbox, MapTiler, Google, or your own tile server). Paste its tile address here.</p>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <input aria-label="Own tile address" data-testid="tile-url" style={{ flex: '1 1 220px', minWidth: 0 }} placeholder="https://tiles.example.com/{z}/{x}/{y}.png?key=…" value={tileDraft || plan.tileUrl || ''} onChange={(e) => setTileDraft(e.target.value)} />
+                <button type="button" className="btn secondary sm" data-testid="tile-save" onClick={async () => { const u = (tileDraft || '').trim(); if (u && !/^https:\/\/.+\{z\}.+\{x\}.+\{y\}/.test(u)) { setNotice({ kind: 'error', text: 'The address must start with https:// and contain {z}, {x} and {y}.' }); return; } if (await savePlan({ ...plan, tileUrl: u })) { setTileDraft(''); setNotice({ kind: 'success', text: u ? 'Saved. "Own tiles" now appears next to Street and Satellite.' : 'Removed.' }); if (u) setView('custom'); } }}>Save</button>
+              </div>
+            </details>
+          )}
+          {view === 'plan' && isAdmin && <div className="lf-foot" data-testid="lf-stats">
+            <span>Leaflet · canvas</span>{stats && <span><b data-testid="lf-count">{stats.count.toLocaleString()}</b> shapes drawn in <b data-testid="lf-ms">{stats.ms}</b> ms</span>}
+            <span className="lf-perf">Speed test:{[0, 1000, 5000].map((n) => <button key={n} type="button" className={`lf-perf-btn${perf === n ? ' on' : ''}`} data-testid={`lf-perf-${n}`} onClick={() => { setPerf(n); setSelectedId(''); }}>{n ? `+${n.toLocaleString()}` : 'Off'}</button>)}</span>
+          </div>}
+          {view === 'plan' && isAdmin && perf > 0 && <div className="notice" data-testid="lf-perf-note" style={{ marginTop: 6 }}>{perf.toLocaleString()} sample pins are drawn for testing only. They are not saved and do not touch your real assets.</div>}
+            </div>
+          )}
         </div>
-      )}
-      {(!narrow || filtersOpen) && (
-        <div className={narrow ? 'sm-filter-panel' : ''} data-testid="sm-filters">
+        {!narrow && <button type="button" className="btn secondary sm" data-testid="sm-panel-toggle" aria-pressed={panelOpen} title={panelOpen ? 'Hide the side panel' : 'Show the side panel'} onClick={() => setPanel(!panelOpen)}>{panelOpen ? '⇥' : '⇤'}</button>}
+      </div>
+      {filtersOpen && (
+        <div className="sm-pop" data-testid="sm-filters">
+          <div className="sm-pop-head"><b>Show</b>{activeFilters > 0 && <button type="button" className="link-btn" data-testid="sm-filters-clear" onClick={() => { setCond('All'); setHidden(new Set()); setAreaFilter(''); }}>Clear all</button>}<button type="button" className="btn secondary sm" aria-label="Close filters" onClick={() => setFiltersOpen(false)}>✕</button></div>
           <div className="infra-chips" role="group" aria-label="Condition">
             {areaFilter && <button type="button" className="infra-chip on" data-testid="area-clear" onClick={() => setAreaFilter('')}>Area: {areaFilter} ✕</button>}
             {CONDS.map((c) => <button key={c} type="button" className={`infra-chip${cond === c ? ' on' : ''}`} aria-pressed={cond === c} data-testid={`lf-cond-${c.replace(/\s/g, '-')}`} onClick={() => setCond(c)}>{c !== 'All' && <span className="dot" style={{ background: c === 'Overdue' ? '#fff' : COND_COLOR[c], boxShadow: c === 'Overdue' ? '0 0 0 2px #e8a317 inset' : 'none' }} />}{c}{c !== 'All' && <small>{countOf(c)}</small>}</button>)}
@@ -264,14 +310,15 @@ function MapTab({ areaFilter, setAreaFilter, startCalibrate, onSetup, onNavigate
         </div>
       )}
 
-      <div className="infra-layout">
-        <div>
-          <div className="gg-row" role="group" aria-label="Map background" data-testid="map-bases" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '0 0 8px' }}>
-            {[['plan', 'Plan'], ...BASES.map((b) => [b.id, b.label]), ...(plan.tileUrl ? [['custom', 'Own tiles']] : [])].map(([k, label]) => (
-              <button key={k} type="button" className={`infra-chip${view === k ? ' on' : ''}`} aria-pressed={view === k} data-testid={`base-${k}`} disabled={!!draw} onClick={() => setView(k)}>{label}</button>
-            ))}
-            {view !== 'plan' && canEdit && <button type="button" className="btn secondary sm" data-testid="live-align" disabled={!!draw || !!alignPts} onClick={() => { setSelectedId(''); setView('plan'); setDraw({ kind: 'georef' }); }}>🧭 {geo ? 'Re-align to the map' : 'Align plan to the map'}</button>}
-          </div>
+      <div className="sm-body">
+        <div className="sm-mapcol">
+      {notice && (
+        <div className={`sm-toast${notice.kind === 'error' ? ' error' : ''}`} role="status" data-testid="lf-notice">
+          <span style={{ flex: 1 }}>{notice.text}</span>
+          {notice.undo && <button type="button" data-testid="sm-undo" onClick={() => doUndo(notice)}>Undo</button>}
+          <button type="button" aria-label="Dismiss" onClick={() => setNotice(null)}>✕</button>
+        </div>
+      )}
           {view !== 'plan' && !geo && !alignPts && (
             <div className="card" data-testid="live-needs-align" style={{ marginBottom: 8 }}>
               <b>Place the plan on the real map first</b>
@@ -279,7 +326,6 @@ function MapTab({ areaFilter, setAreaFilter, startCalibrate, onSetup, onNavigate
               {canEdit ? <button type="button" className="btn" data-testid="live-align-start" onClick={() => { setView('plan'); setDraw({ kind: 'georef' }); }}>Start: tap two spots on the plan</button> : <span className="muted">Ask the Facility Manager or the EC to align the plan.</span>}
             </div>
           )}
-          <div style={{ position: 'relative' }}>
           {view === 'plan' ? (
           <Suspense fallback={<div className="infra-map-wrap"><div className="infra-map-err">Loading the map…</div></div>}>
             <LeafletMap key={plan.id} plan={plan} data={data} boundary={boundary} selected={selectedId ? { id: selectedId, shape: selShape } : null} mode={mode} directional={draw?.layer?.slug === 'cctv-camera'}
@@ -304,25 +350,17 @@ function MapTab({ areaFilter, setAreaFilter, startCalibrate, onSetup, onNavigate
               <label className="lf-fade" style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 8 }}><small className="muted">Plan fade</small><input type="range" min="0.2" max="1" step="0.05" value={fade} aria-label="Plan fade" onChange={(e) => setFade(Number(e.target.value))} /></label>
             </div>
           )}
-          </div>
-          {view !== 'plan' && canEdit && (
-            <details style={{ marginTop: 6 }} data-testid="live-tiles"><summary className="muted">Map tile source</summary>
-              <p className="muted" style={{ margin: '4px 0' }}>Street uses OpenStreetMap and Satellite uses Esri imagery, both free to try. For daily use by many residents, their usage policies expect you to use a provider account of your own (Mapbox, MapTiler, Google, or your own tile server). Paste its tile address here.</p>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                <input aria-label="Own tile address" data-testid="tile-url" style={{ flex: '1 1 220px', minWidth: 0 }} placeholder="https://tiles.example.com/{z}/{x}/{y}.png?key=…" value={tileDraft || plan.tileUrl || ''} onChange={(e) => setTileDraft(e.target.value)} />
-                <button type="button" className="btn secondary sm" data-testid="tile-save" onClick={async () => { const u = (tileDraft || '').trim(); if (u && !/^https:\/\/.+\{z\}.+\{x\}.+\{y\}/.test(u)) { setNotice({ kind: 'error', text: 'The address must start with https:// and contain {z}, {x} and {y}.' }); return; } if (await savePlan({ ...plan, tileUrl: u })) { setTileDraft(''); setNotice({ kind: 'success', text: u ? 'Saved. "Own tiles" now appears next to Street and Satellite.' : 'Removed.' }); if (u) setView('custom'); } }}>Save</button>
-              </div>
-            </details>
-          )}
-          {view === 'plan' && isAdmin && <div className="lf-foot" data-testid="lf-stats">
-            <span>Leaflet · canvas</span>{stats && <span><b data-testid="lf-count">{stats.count.toLocaleString()}</b> shapes drawn in <b data-testid="lf-ms">{stats.ms}</b> ms</span>}
-            <span className="lf-perf">Speed test:{[0, 1000, 5000].map((n) => <button key={n} type="button" className={`lf-perf-btn${perf === n ? ' on' : ''}`} data-testid={`lf-perf-${n}`} onClick={() => { setPerf(n); setSelectedId(''); }}>{n ? `+${n.toLocaleString()}` : 'Off'}</button>)}</span>
-          </div>}
-          {view === 'plan' && isAdmin && perf > 0 && <div className="notice" data-testid="lf-perf-note" style={{ marginTop: 6 }}>{perf.toLocaleString()} sample pins are drawn for testing only. They are not saved and do not touch your real assets.</div>}
           {view !== 'plan' && <div className="muted" style={{ fontSize: 13, marginTop: 6 }} data-testid="live-note">To place, move or redraw things, switch back to Plan. The real map shows them at their real positions.</div>}
         </div>
-        <aside className={`infra-panel card${narrow && (selected || selSample) ? ' sm-sheet' : ''}`} ref={panelRef} data-testid="lf-panel">
-          {narrow && (selected || selSample) && <div className="sm-sheet-grab" aria-hidden="true" />}
+        <aside className={`infra-panel card sm-side${narrow ? ` sm-sheet ${sheet}` : ''}`} ref={panelRef} data-testid="lf-panel">
+          {narrow && (
+            <button type="button" className="sm-sheet-head" data-testid="sm-sheet-toggle" aria-expanded={sheet === 'open'} onClick={() => setSheet(sheet === 'open' ? 'peek' : 'open')}>
+              <span className="sm-sheet-grab" aria-hidden="true" />
+              <span className="sm-sheet-sum">{selected ? <><b>{selected.name}</b> · {effectiveCondition(selected, open)}</> : <><b>{real.length}</b> assets · <b>{countOf('Needs attention') + countOf('Out of service')}</b> need attention{unplaced.length ? <> · {unplaced.length} not placed</> : null}</>}</span>
+              <span aria-hidden="true">{sheet === 'open' ? '▾' : '▴'}</span>
+            </button>
+          )}
+          <div className="sm-side-body">
           {selected ? (
             <AssetPanel outside={!!(boundary && selShape && shapeOutside(selShape, boundary))} asset={selected} plan={plan} layers={layers} open={open} tickets={tickets} log={log} canEdit={canEdit} me={me}
               onClose={() => setSelectedId('')} onTask={() => setTaskFor(selected)} onOpenTask={(t) => openTaskInMaintenance(t, onNavigate)} onRedraw={() => startPlace(selected, true)} onBreak={() => setDraw({ kind: 'break', layer: { geometry: 'Point', type: 'Break' }, assetId: selected.id })} onFull={() => setEditing(selected)}
@@ -336,7 +374,9 @@ function MapTab({ areaFilter, setAreaFilter, startCalibrate, onSetup, onNavigate
           ) : (
             <Overview {...{ hereAssets: real, open, countOf, unplaced, canEdit, plan, layers, boundary }} onFilter={setCond} onPlace={(a) => startPlace(a)} onPick={(a) => select(a.id)} />
           )}
+          </div>
         </aside>
+      </div>
       </div>
       {reportAt && !reportFor && (
         <Modal title="Report an issue here" subtitle={`Spot on the plan${plan.metersPerPx ? '' : ''}. Pick what it is about and a task is raised with this location.`} onClose={() => setReportAt(null)}>
@@ -405,12 +445,11 @@ export default function SiteMap({ onNavigate }) {
   const [startCalibrate, setStartCalibrate] = useState(0);
   const planFor = (id) => sortedPlans.find((p) => p.id === id);
   return (
-    <div data-testid="sitemap-page">
-      <div className="page-head">
-        <div>
-          <h2 style={{ margin: 0 }}>Site map</h2>
-          <p style={{ margin: '5px 0 0' }}>Every asset on the site plan, coloured by working condition. Tap one for its history or to raise a task. Snap while drawing, measure along a pipe or road.</p>
-        </div>
+    <div data-testid="sitemap-page" className="sm-page">
+      {/* one slim header: the title and the sections on a line, so the map gets the screen */}
+      <div className="sm-head">
+        <h2>Site map</h2>
+        <span className="sm-intro muted">Every asset on the plan, coloured by condition. Tap one for its history or to raise a task.</span>
       </div>
       <SegTabs tabs={tabs.map(([key, label]) => ({ key, label, count: key === 'board' ? needAttention : undefined }))} value={tab} onChange={setTab} label="Site map sections" />
       {tab === 'map' && <MapTab key="map" {...{ areaFilter, setAreaFilter, startCalibrate, onNavigate }} onSetup={() => setTab('setup')} />}

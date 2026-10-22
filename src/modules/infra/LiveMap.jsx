@@ -94,7 +94,7 @@ export default function LiveMap({ plan, data, boundary, geo, base = 'street', cu
   }
 
   return (
-    <div className="infra-map-wrap" data-testid="live-map" style={{ height: 'auto', minHeight: 0 }}>
+    <div className="infra-map-wrap live-wrap" data-testid="live-map">
       <form onSubmit={search} className="lf-find" style={{ display: 'flex', gap: 6, padding: 6, flexWrap: 'wrap' }}>
         <input type="search" aria-label="Find a place on the map" data-testid="live-find" placeholder="Find a place or address…" value={find} onChange={(e) => setFind(e.target.value)} style={{ flex: '1 1 160px', minWidth: 0 }} />
         <button type="submit" className="btn secondary sm" data-testid="live-find-go">Find</button>
@@ -108,7 +108,7 @@ export default function LiveMap({ plan, data, boundary, geo, base = 'street', cu
         </div>
       )}
       {geo && <button type="button" className="btn secondary sm" data-testid="live-fit" style={{ position: 'absolute', right: 10, top: 52, zIndex: 700 }} onClick={() => { const pts = [...(boundary || []), ...data.points.map((q) => [q.x, q.y])].map(([x, y]) => geo.toLL(x, y)); if (pts.length) S.current.map.fitBounds(L.latLngBounds(pts), { padding: [30, 30], maxZoom: 19 }); }}>⤢ Fit site</button>}
-      <div ref={box} className="lf-box" data-testid="live-canvas" style={{ height: 'min(62vh, 560px)', minHeight: 300, width: '100%' }} />
+      <div ref={box} className="lf-box" data-testid="live-canvas" />
     </div>
   );
 }

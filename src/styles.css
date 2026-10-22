@@ -1985,3 +1985,71 @@ dl.kv dd { margin: 0; }
 .toast.network { background: #78350f; }
 @media (prefers-reduced-motion: reduce) { .is-busy::after { animation: busy-in 0s linear 1s forwards; } .activity-bar { animation: none; background: var(--blue, #2563eb); } }
 .pager { display: flex; gap: 10px; align-items: center; justify-content: center; padding: 10px 0 2px; }
+
+/* ---- Site map: map first. A slim header, one toolbar row, the map filling the screen, the panel beside it (a sheet on a phone) ---- */
+.sm-page { display: flex; flex-direction: column; }
+.sm-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin: 0 0 2px; }
+.sm-head h2 { margin: 0; font-size: 20px; }
+.sm-intro { font-size: 13px; }
+.sm-page > .seg-tabs { margin: 6px 0 8px; position: static; }
+.sm-work { position: relative; display: flex; flex-direction: column; height: calc(100dvh - 236px); min-height: 480px; }
+.sm-bar.infra-toolbar { margin: 0 0 8px; flex-wrap: nowrap; gap: 6px; }
+.sm-bar .infra-search { flex: 1 1 220px; max-width: 360px; }
+.sm-bar select, .sm-bar .btn { flex: none; }
+.sm-bar .infra-add { max-width: 200px; }
+.sm-spacer { flex: 1 1 auto; }
+.sm-bar .btn .seg-badge { margin-left: 4px; }
+.sm-seg { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 999px; background: #fff; flex: none; }
+.sm-seg .infra-chip { border: 0; margin: 0; padding: 4px 10px; }
+.sm-seg .btn { margin-left: 4px; }
+.sm-menu-wrap { position: relative; flex: none; }
+.sm-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 1100; width: min(320px, calc(100vw - 24px)); max-height: min(70vh, 560px); overflow: auto;
+  background: #fff; border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 10px 30px rgba(16, 40, 63, .2); padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+.sm-menu .btn { justify-content: flex-start; text-align: left; width: 100%; }
+.sm-menu .sm-seg { width: 100%; justify-content: space-between; }
+.sm-menu .infra-add { width: 100%; max-width: none; }
+.sm-menu-h { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); margin-top: 4px; }
+.sm-menu .lf-foot { margin: 0; flex-direction: column; align-items: flex-start; gap: 4px; }
+.sm-pop { position: absolute; left: 0; top: 46px; z-index: 1100; width: min(560px, 100%); background: #fff; border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 10px 30px rgba(16, 40, 63, .2); padding: 10px 12px; }
+.sm-pop-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+.sm-pop-head b { flex: 1; }
+.sm-pop .infra-chips.layers { flex-wrap: wrap; overflow: visible; }
+.sm-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 12px; }
+.sm-work.no-panel .sm-body { grid-template-columns: minmax(0, 1fr); }
+.sm-work.no-panel .sm-side { display: none; }
+.sm-mapcol { position: relative; min-height: 0; height: 100%; display: flex; flex-direction: column; }
+.sm-mapcol > .infra-map-wrap, .sm-mapcol .lf-wrap, .sm-mapcol .live-wrap { flex: 1; height: auto; min-height: 0; }
+.sm-mapcol > [data-testid=live-needs-align] { position: absolute; z-index: 800; left: 12px; right: 12px; top: 12px; }
+.sm-mapcol > .sm-toast { position: absolute; z-index: 900; left: 50%; transform: translateX(-50%); top: 10px; width: min(560px, calc(100% - 24px)); margin: 0; }
+.sm-mapcol > [data-testid=live-note] { position: absolute; z-index: 700; left: 10px; bottom: 10px; background: rgba(255, 255, 255, .92); padding: 4px 8px; border-radius: 8px; margin: 0 !important; }
+.sm-mapcol .sm-legend { bottom: 44px; }
+.live-wrap { display: flex; flex-direction: column; height: auto; min-height: 0; }
+.live-wrap .lf-box { height: min(62vh, 560px); min-height: 300px; width: 100%; }
+.sm-mapcol .live-wrap .lf-box { flex: 1; height: auto; min-height: 240px; }
+.sm-side { max-height: none; height: 100%; padding: 0; display: flex; flex-direction: column; overflow: hidden; }
+.sm-side-body { flex: 1; min-height: 0; overflow: auto; padding: 14px; }
+.sm-sheet-head { display: none; }
+
+@media (max-width: 900px) {
+  .sm-intro { display: none; }
+  .sm-head { display: none; }   /* the top bar already says Site map */
+  .sm-page > .seg-tabs.seg-tabs { overflow-x: auto; flex-wrap: nowrap !important; scrollbar-width: none; margin: 0 0 6px; }
+  .sm-page > .seg-tabs.seg-tabs button { flex: 0 0 auto !important; width: auto !important; padding: 8px 12px; }
+  /* the map fills what is left between the top bar, the toolbar, the sheet's summary and the bottom navigation */
+  .sm-work { height: calc(100dvh - 160px - 68px - env(safe-area-inset-bottom)); min-height: 300px; }   /* top bar, tabs, toolbar; the sheet's summary and the bottom navigation */
+  .sm-bar.infra-toolbar { flex-wrap: nowrap; }
+  .sm-bar .infra-search { flex: 1 1 auto; max-width: none; min-width: 0; }
+  .sm-bar select[aria-label="Plan"] { max-width: 34%; }
+  .sm-body { display: block; position: relative; }
+  .sm-mapcol { height: 100%; }
+  .sm-pop { top: 44px; width: 100%; max-height: 60vh; overflow: auto; }
+  .sm-side.sm-sheet { position: fixed; left: 0; right: 0; bottom: calc(64px + env(safe-area-inset-bottom)); z-index: 950; height: auto; max-height: 70vh; border-radius: 16px 16px 0 0;
+    box-shadow: 0 -6px 24px rgba(11, 29, 51, .22); padding: 0; transition: max-height .2s ease; }
+  .sm-side.sm-sheet.peek { max-height: 52px; }
+  .sm-side.sm-sheet.peek .sm-side-body { display: none; }
+  .sm-side.sm-sheet .sm-side-body { max-height: calc(70vh - 52px); padding: 4px 14px 16px; }
+  .sm-sheet-head { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 100%; background: transparent; padding: 6px 14px 8px; font-size: 13.5px; color: var(--ink); }
+  .sm-sheet-head .sm-sheet-sum { display: block; width: 100%; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sm-sheet-head > span:last-child { position: absolute; right: 14px; top: 16px; color: var(--muted); }
+  .sm-sheet-head .sm-sheet-grab { margin: 0 auto 2px; }
+}
