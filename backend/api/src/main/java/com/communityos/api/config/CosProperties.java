@@ -41,8 +41,10 @@ public record CosProperties(Db db, Auth auth, Payments payments, Web web, @Defau
     /** metricsToken: the basic-auth password (user "metrics") a metrics scraper sends for /actuator/prometheus; none = no metrics endpoint. */
     public record Web(List<String> allowedOrigins, @DefaultValue("Asia/Kolkata") String timeZone, String metricsToken) {}
     /** Where uploaded files' bytes are kept (a folder on this server; an object store adapter replaces it in production), and the virus scanner:
-     *  none (files stay "Pending", not scanned) or simulated (development only: finds the EICAR test file, calls the rest clean). */
-    public record Files(@DefaultValue("./var/files") String dir, @DefaultValue("none") String scanner) {}
+     *  clamav (the free ClamAV daemon, clamd, at clamav-host:clamav-port - the default), simulated (development only: finds the EICAR test file,
+     *  calls the rest clean) or none (development only: nothing is scanned, and a file stays Pending - only its uploader opens it). */
+    public record Files(@DefaultValue("./var/files") String dir, @DefaultValue("clamav") String scanner, @DefaultValue("localhost") String clamavHost,
+                        @DefaultValue("3310") int clamavPort, @DefaultValue("30s") Duration clamavTimeout) {}
     /** Who sends the WhatsApp / SMS / e-mail copies of notifications: none (they stay Queued, nothing leaves the server) or simulated
      *  (development only: written to the log and marked Sent). A real provider adapter plugs in behind comms.application.port.ChannelSender. */
     public record Channels(@DefaultValue("none") String provider) {}

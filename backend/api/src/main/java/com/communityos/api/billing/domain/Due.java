@@ -22,7 +22,7 @@ import java.util.UUID;
 public final class Due extends AggregateRoot {
     private final DueId id; private final CommunityId community; private String shortId; private final UnitId unit; private final BlockId block; private final String unitNo;
     private final ChargeCategory category; private final LocalDate billedMonth; private final String description; private final Money amount; private final Money tax;
-    private Money paid; private final Money credit; private final LocalDate dueDate; private DueStatus status; private Instant paidAt; private String cancelReason;
+    private Money paid; private Money credit; private final LocalDate dueDate; private DueStatus status; private Instant paidAt; private String cancelReason;
     private final Instant createdAt;
 
     public Due(DueId id, CommunityId community, String shortId, UnitId unit, BlockId block, String unitNo, ChargeCategory category, LocalDate billedMonth, String description, Money amount,
@@ -56,6 +56,19 @@ public final class Due extends AggregateRoot {
         paid = paid.plus(applied);
         DueStatus to = outstanding().isZero() ? DueStatus.PAID : DueStatus.PARTLY_PAID;
         move(to);
+        paidAt = at;
+        if (to == DueStatus.PAID) raise(new DuePaid(id, community, unit, total(), at));
+        return applied;
+    }
+
+    /** Puts up to `offered` of the unit's credit on this bill; returns what was applied. */
+    public Money applyCredit(Money offered, Instant at) {
+        if (!status.isOpen() || !offered.isPositive()) return Money.ZERO;
+        Money applied = offered.min(outstanding());
+        if (!applied.isPositive()) return Money.ZERO;
+        credit = credit.plus(applied);
+        DueStatus to = outstanding().isZero() ? DueStatus.PAID : DueStatus.PARTLY_PAID;
+        if (to != status) move(to);
         paidAt = at;
         if (to == DueStatus.PAID) raise(new DuePaid(id, community, unit, total(), at));
         return applied;

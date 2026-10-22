@@ -32,7 +32,7 @@ services:
 
   api:
     build: { context: ./api }
-    depends_on: { postgres: { condition: service_healthy } }
+    depends_on: { postgres: { condition: service_healthy }, clamav: { condition: service_started } }
     ports: ["8080:8080"]
     environment:
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev}
@@ -55,7 +55,16 @@ services:
       COS_RAZORPAY_KEY_SECRET: ${COS_RAZORPAY_KEY_SECRET:-}
       COS_RAZORPAY_WEBHOOK_SECRET: ${COS_RAZORPAY_WEBHOOK_SECRET:-}
       COS_FILES_DIR: /data/files                          # uploaded files' bytes
+      COS_FILES_SCANNER: ${COS_FILES_SCANNER:-clamav}     # every upload is scanned by ClamAV (the clamav service) before others can open it
+      COS_FILES_CLAMAV_HOST: clamav
     volumes: ["files:/data/files"]
+
+  # ClamAV (free, open source): clamd on 3310, signatures kept up to date by freshclam inside the image. The first start downloads
+  # the signatures (a few minutes); until then uploads stay "Pending" and the API's rescan job scans them when clamd is up.
+  clamav:
+    image: clamav/clamav:stable
+    volumes: ["clamdb:/var/lib/clamav"]
+    healthcheck: { test: ["CMD", "clamdcheck.sh"], interval: 30s, timeout: 10s, retries: 20, start_period: 300s }
 
   seed:
     image: postgres:18
@@ -81,4 +90,4 @@ services:
     depends_on: { api: { condition: service_healthy } }
     ports: ["8081:80"]
 
-volumes: { pgdata: {}, files: {} }
+volumes: { pgdata: {}, files: {}, clamdb: {} }

@@ -109,10 +109,16 @@ public class ModulesConfig {
     @Bean Docs docs(NamedParameterJdbcTemplate jdbc, AuditWriter audit, Tx tx, Clock clock, CosProperties p, Environment env, TicketService tickets, QuotationService quotations,
                     com.communityos.api.amenity.application.BookingService bookings, com.communityos.api.cultural.adapter.JdbcCulturalStore cultural,
                     com.communityos.api.governance.application.MeetingService meetings) {
-        if ("simulated".equals(p.files().scanner()) && Deployment.strict(env)) throw new IllegalStateException("the simulated virus scanner cannot be used in prod");
+        if (!"clamav".equals(p.files().scanner()) && Deployment.strict(env))
+            throw new IllegalStateException("uploaded files must be virus-scanned: set cos.files.scanner=clamav (COS_FILES_SCANNER) and run ClamAV's clamd (COS_FILES_CLAMAV_HOST / _PORT)");
         var repo = new com.communityos.api.docs.adapter.JdbcFileRepository(jdbc);
         var files = new com.communityos.api.docs.application.FileService(repo, new com.communityos.api.docs.adapter.LocalDiskStorage(java.nio.file.Path.of(p.files().dir())),
-            "simulated".equals(p.files().scanner()) ? new com.communityos.api.docs.adapter.SimulatedVirusScanner() : com.communityos.api.docs.application.port.VirusScanner.NONE,
+            switch (p.files().scanner()) {
+                case "clamav" -> new com.communityos.api.docs.adapter.ClamAvScanner(p.files().clamavHost(), p.files().clamavPort(), p.files().clamavTimeout());
+                case "simulated" -> new com.communityos.api.docs.adapter.SimulatedVirusScanner();
+                case "none" -> com.communityos.api.docs.application.port.VirusScanner.NONE;
+                default -> throw new IllegalStateException("cos.files.scanner is clamav, simulated or none");
+            },
             audit, tx, clock);
         var documents = new com.communityos.api.docs.application.DocumentService(new com.communityos.api.docs.adapter.JdbcDocumentRepository(jdbc), files, audit, tx);
         FileKinds.register(files, repo, tickets, quotations, bookings, documents);
@@ -158,6 +164,11 @@ public class ModulesConfig {
     }
     @Bean com.communityos.api.finance.application.BankService bankService(com.communityos.api.finance.adapter.JdbcFinanceStore store, AuditWriter audit, Tx tx) {
         return new com.communityos.api.finance.application.BankService(store, audit, tx);
+    }
+    @Bean com.communityos.api.finance.application.PayoutService payoutService(NamedParameterJdbcTemplate jdbc, com.communityos.api.finance.adapter.JdbcFinanceStore store,
+                                                                             com.communityos.api.finance.application.CashBookService cash, com.communityos.api.finance.application.BankService bank,
+                                                                             AuditWriter audit, Tx tx) {
+        return new com.communityos.api.finance.application.PayoutService(new com.communityos.api.finance.adapter.JdbcPayoutStore(jdbc), store, cash, bank, audit, tx);
     }
 
     // ---- governance: meetings and e-voting -----------------------------------------------------------------------------------------------------
@@ -221,8 +232,9 @@ public class ModulesConfig {
         return new com.communityos.api.billing.application.BillingDesk(payments, counter, new JdbcJournalWriter(jdbc), events, clock);
     }
 
-    @Bean DueService dueService(JdbcDueRepository dues, JdbcBillingLookups lookups, DomainEvents events, AuditWriter audit, Tx tx, Clock clock) {
-        return new DueService(dues, lookups, lookups, events, audit, tx, clock);
+    @Bean DueService dueService(JdbcDueRepository dues, JdbcBillingLookups lookups, DomainEvents events, AuditWriter audit, Tx tx, Clock clock,
+                                com.communityos.api.billing.application.BillingDesk desk) {
+        return new DueService(dues, lookups, lookups, events, audit, tx, clock).credits(desk);
     }
     @Bean com.communityos.api.billing.application.LateFeeService lateFeeService(NamedParameterJdbcTemplate jdbc, ObjectMapper json, DueService dues, Tx tx, Clock clock) {
         return new com.communityos.api.billing.application.LateFeeService(new com.communityos.api.billing.adapter.JdbcLateFeeStore(jdbc, json), dues, tx, clock);

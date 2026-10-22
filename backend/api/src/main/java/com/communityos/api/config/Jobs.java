@@ -27,6 +27,7 @@ public class Jobs {
     private final com.communityos.api.comms.adapter.LiveHub live;
     private final com.communityos.api.billing.application.PaymentReconciler recon;
     private final com.communityos.api.billing.application.LateFeeService lateFees;
+    private final com.communityos.api.docs.application.FileService files;
     private final java.util.Optional<com.communityos.api.comms.adapter.PushDelivery> pushes;
 
     public Jobs(OutboxRelay outbox, WebhookDeliveryWorker webhooks, PaymentService payments, @Qualifier("platform") NamedParameterJdbcTemplate platformJdbc,
@@ -36,8 +37,8 @@ public class Jobs {
                 java.util.Optional<com.communityos.api.billing.adapter.gateway.SimulatedGateway> simulatedBank,
                 java.util.Optional<com.communityos.api.billing.application.RefundService> refunds, com.communityos.api.comms.adapter.LiveHub live,
                 java.util.Optional<com.communityos.api.comms.adapter.PushDelivery> pushes, com.communityos.api.billing.application.PaymentReconciler recon,
-                com.communityos.api.billing.application.LateFeeService lateFees) {
-        this.recon = recon; this.lateFees = lateFees;
+                com.communityos.api.billing.application.LateFeeService lateFees, com.communityos.api.docs.application.FileService files) {
+        this.recon = recon; this.lateFees = lateFees; this.files = files;
         this.channels = channels; this.simulatedBank = simulatedBank; this.refunds = refunds; this.live = live; this.pushes = pushes;
         this.outbox = outbox; this.webhooks = webhooks; this.payments = payments; this.platformJdbc = platformJdbc; this.gate = gate; this.notices = notices; this.attendance = attendance; this.reports = reports;
     }
@@ -111,6 +112,10 @@ public class Jobs {
         run("reconcile", () -> payments.reconcile(100)); refunds.ifPresent((r) -> run("refunds", () -> r.reconcile(100)));
         perCommunity("money checks", RECON_DUE, "reconciliation", recon::run);
     }
+    /** Communities with files that came in while the virus scanner was down. */
+    static final String UNSCANNED_DUE = "SELECT DISTINCT community_id FROM docs.file_object WHERE scan_status IN ('Pending', 'Error')";
+    @Scheduled(fixedDelayString = "${cos.jobs.rescan-delay:300000}", initialDelay = 60000)
+    public void rescanFiles() { perCommunity("virus rescan", UNSCANNED_DUE, "virus scanner", (system) -> files.rescan(system, 50)); }
     /** Communities that asked for late fees to be added automatically: once a day, after midnight. */
     static final String LATE_FEES_DUE = "SELECT community_id FROM finance.finance_setting WHERE late_fee_enabled AND late_fee_auto";
     @Scheduled(cron = "${cos.jobs.late-fees-cron:0 20 0 * * *}", zone = "${cos.web.time-zone:Asia/Kolkata}")

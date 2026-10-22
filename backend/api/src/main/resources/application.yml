@@ -54,6 +54,9 @@ cos:
     subject: ${COS_PUSH_SUBJECT:mailto:admin@communityos.app}
   files:
     dir: ${COS_FILES_DIR:./var/files}        # uploaded files' bytes (a mounted volume in a container)
+    scanner: ${COS_FILES_SCANNER:clamav}      # ClamAV's clamd (free); a file is served to others only once it is scanned clean
+    clamav-host: ${COS_FILES_CLAMAV_HOST:localhost}
+    clamav-port: ${COS_FILES_CLAMAV_PORT:3310}
   web:
     allowed-origins: ${COS_ALLOWED_ORIGINS:https://app.communityos.app}
     time-zone: Asia/Kolkata

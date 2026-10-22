@@ -50,7 +50,7 @@ public final class JdbcDueRepository implements DueRepository {
         VALUES (CAST(:community AS uuid), CAST(:id AS uuid), CAST(:unit AS uuid), CAST(:category AS uuid), CAST(:month AS date), :description, :amount, :tax, CAST(:dueDate AS date))
         RETURNING short_id, version""";
     static final String UPDATE = """
-        UPDATE billing.due SET paid_amount = :paid, status = :status, paid_at = CAST(:paidAt AS timestamptz), cancel_reason = :reason,
+        UPDATE billing.due SET paid_amount = :paid, credit_applied = :credit, status = :status, paid_at = CAST(:paidAt AS timestamptz), cancel_reason = :reason,
                cancelled_at = CASE WHEN CAST(:status AS text) IN ('Cancelled', 'Waived') THEN now() END
         WHERE id = CAST(:id AS uuid) AND version = :version RETURNING version""";
 
@@ -88,7 +88,7 @@ public final class JdbcDueRepository implements DueRepository {
     }
     @Override public boolean save(Due d) {
         Map<String, Object> p = new HashMap<>();
-        p.put("id", d.id().toString()); p.put("version", d.version()); p.put("paid", d.paid().amount()); p.put("status", d.status().label());
+        p.put("id", d.id().toString()); p.put("version", d.version()); p.put("paid", d.paid().amount()); p.put("credit", d.credit().amount()); p.put("status", d.status().label());
         p.put("paidAt", Rows.ts(d.paidAt())); p.put("reason", d.cancelReason());
         List<Long> v = jdbc.query(UPDATE, p, (rs, i) -> rs.getLong("version"));
         if (v.isEmpty()) return false;

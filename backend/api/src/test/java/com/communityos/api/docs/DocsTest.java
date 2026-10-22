@@ -86,6 +86,9 @@ class DocsTest {
         }
         @Override public boolean delete(UUID id, long v) { return rows.remove(id) != null; }
         @Override public Optional<CommentFacts> comment(UUID id) { return Optional.empty(); }
+        @Override public List<StoredFile> unscanned(int limit) { return rows.values().stream().filter((x) -> "Pending".equals(x.scanStatus())).limit(limit).toList(); }
+        @Override public void scanned(UUID id, String st) { StoredFile x = rows.get(id);
+            rows.put(id, new StoredFile(x.id(), x.shortId(), x.fileName(), x.mimeType(), x.sizeBytes(), x.sha256(), x.ownerType(), x.ownerId(), st, x.visibility(), x.uploadedById(), x.uploadedBy(), x.storageKey(), null, x.version() + 1)); }
         @Override public void put(String k, byte[] b) { bytes.put(k, b); }
         @Override public byte[] get(String k) { return bytes.get(k); }
         @Override public void delete(String k) { bytes.remove(k); }
@@ -107,7 +110,13 @@ class DocsTest {
         assertEquals("bad-owner", assertThrows(DomainException.RuleViolated.class, () -> svc.attach(owner, f.id(), "gate.visit", mine)).code());
         StoredFile on = svc.attach(owner, f.id(), "maintenance.ticket", mine);
         assertEquals(mine, on.ownerId());
-        assertTrue(java.util.Arrays.equals(PNG, svc.content(ec, f.id()).bytes()), "now the ticket's readers open it");
+        assertEquals("not-scanned", assertThrows(DomainException.RuleViolated.class, () -> svc.content(ec, f.id())).code(), "not scanned yet: nobody else opens it");
+        assertTrue(java.util.Arrays.equals(PNG, svc.content(owner, f.id()).bytes()), "its uploader does");
+        FileService down = new FileService(mem, mem, VirusScanner.NONE, new Fixtures.Audit(), Tx.direct(), Fixtures.CLOCK);
+        assertEquals(0, down.rescan(Fixtures.treasurer(), 10), "the scanner still down: nothing changes");
+        FileService up = new FileService(mem, mem, (b) -> new VirusScanner.Verdict(VirusScanner.Result.CLEAN, null), new Fixtures.Audit(), Tx.direct(), Fixtures.CLOCK);
+        assertEquals(1, up.rescan(Fixtures.treasurer(), 10));
+        assertTrue(java.util.Arrays.equals(PNG, svc.content(ec, f.id()).bytes()), "scanned clean: now the ticket's readers open it");
         assertThrows(AccessDenied.NotVisible.class, () -> svc.content(other, f.id()));
         assertEquals(1, svc.list(ec, "maintenance.ticket", null).size()); assertEquals(0, svc.list(other, "maintenance.ticket", null).size());
         assertEquals("already-attached", assertThrows(DomainException.RuleViolated.class, () -> svc.attach(owner, f.id(), "maintenance.ticket", theirs)).code());

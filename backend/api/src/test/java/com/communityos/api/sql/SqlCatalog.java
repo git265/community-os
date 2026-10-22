@@ -34,7 +34,7 @@ public final class SqlCatalog {
                 "gate.adapter.JdbcGateStore", "gate.adapter.JdbcGateDirectory", "comms.adapter.JdbcInbox", "comms.adapter.JdbcCommsStore", "docs.adapter.JdbcFileRepository",
                 "docs.adapter.JdbcDocumentRepository", "cultural.adapter.JdbcCulturalStore", "finance.adapter.JdbcFinanceStore",
                 "governance.adapter.JdbcGovernanceStore", "vendor.adapter.JdbcDirectoryStore", "assets.adapter.JdbcAssetStore",
-                "workforce.adapter.JdbcAttendanceStore", "reports.adapter.JdbcReportData", "billing.adapter.JdbcRefunds", "billing.adapter.JdbcReconStore", "billing.adapter.JdbcReadingStore", "billing.adapter.JdbcLateFeeStore", "comms.application.PushService", "auditlog.AuditLog", "property.adapter.JdbcPropertySetup"))
+                "workforce.adapter.JdbcAttendanceStore", "reports.adapter.JdbcReportData", "billing.adapter.JdbcRefunds", "billing.adapter.JdbcReconStore", "billing.adapter.JdbcReadingStore", "billing.adapter.JdbcLateFeeStore", "finance.adapter.JdbcPayoutStore", "comms.application.PushService", "auditlog.AuditLog", "property.adapter.JdbcPropertySetup"))
             CLASSES.put(c, "cos_app");
         for (String c : List.of("shared.jdbc.JdbcOutboxStore", "identity.adapter.JdbcOtpStore", "identity.adapter.JdbcRefreshTokenStore", "identity.adapter.JdbcPersonDirectory",
                 "identity.adapter.JdbcRateLimiter", "identity.adapter.JdbcCallerLoader", "identity.adapter.JdbcCommunityDirectory", "billing.adapter.JdbcPlatformPayments", "shared.integration.WebhookFanout",

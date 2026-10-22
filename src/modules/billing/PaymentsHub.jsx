@@ -21,6 +21,8 @@ import { AttachmentPicker } from '../../components/Attachments.jsx';
 import { persistPending } from '../../lib/files/attachments.js';
 import { TDS_SECTIONS, submitPayRequest, markReleasePaid, r2 } from '../../lib/finance/rules.js';
 import Reconciliation from './Reconciliation.jsx';
+import PayoutDialog from './PayoutDialog.jsx';
+import { payoutsOnServer } from '../../lib/payouts.js';
 import { IncomeDialog, RecurringDialog, RequestsPanel } from './MoreMoney.jsx';
 import { fmtDate, money } from '../../lib/locale.js';
 
@@ -382,6 +384,7 @@ function Reconcile({ accounts, ledger, txns, onChanged }) {
   async function confirm(list) { let n = 0; for (const m of list) if (await applyMatch(m.ledger, m.txn)) n += 1; setSugg(null); setMsg(`${n} matched.`); onChanged(); }
   async function unmatch(l) { await undoMatch(l, txns.find((t) => t.id === l.bankTxnId)); onChanged(); }
   const matched = L.filter((l) => l.reconStatus === 'Matched');
+  const [payout, setPayout] = useState(null);   // a money-in line being matched to the provider's payout (back end)
   return (
     <div data-testid="reconcile">
       <div className="card" style={{ marginTop: 12 }}>
@@ -421,10 +424,12 @@ function Reconcile({ accounts, ledger, txns, onChanged }) {
           <ul className="list bk-list">{[...xOpen].sort((a, b) => String(b.date).localeCompare(String(a.date))).slice(0, 60).map((t) => (
             <li key={t.id} data-testid="open-txn"><span><b>{t.narration}</b><br /><small className="muted">{dmy(t.date)}{t.head ? ` · ${t.head}` : ''}</small></span>
               <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}><b>{Number(t.debit) > 0 ? '−' + inr(t.debit) : '+' + inr(t.credit)}</b>
-                {canWrite && Number(t.debit) > 0 && <button className="btn sm secondary" onClick={() => setDlg({ title: 'Record this bank payment', amount: t.debit, account: t.account, date: t.date, description: t.narration, vendor: t.party || '' })}>Record</button>}</span></li>
+                {canWrite && Number(t.debit) > 0 && <button className="btn sm secondary" onClick={() => setDlg({ title: 'Record this bank payment', amount: t.debit, account: t.account, date: t.date, description: t.narration, vendor: t.party || '' })}>Record</button>}
+                {canWrite && Number(t.credit) > 0 && payoutsOnServer() && <button className="btn sm secondary" data-testid="payout-open" onClick={() => setPayout(t)}>Payout…</button>}</span></li>
           ))}</ul>
         )}
       </div>
+      {payout && <PayoutDialog line={payout} onClose={() => setPayout(null)} onDone={onChanged} />}
       <div className="card" style={{ marginTop: 12 }}>
         <h3 style={{ marginTop: 0 }}>Matched <span className="tag green">{matched.length}</span></h3>
         {matched.length === 0 ? <div className="empty">Nothing matched yet.</div> : (

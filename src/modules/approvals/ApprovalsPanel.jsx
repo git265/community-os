@@ -50,10 +50,9 @@ export default function ApprovalsPanel({ onNavigate, limit, compact }) {
     const out = await saveExpense({ ...x, ...kit.planFields(res.plan, 'expense'), status: ps === 'pending' ? 'Pending approval' : status, ...(ps === 'pending' ? {} : { approvedBy: currentUser?.name || '', approvedAt: new Date().toISOString().slice(0, 10), approvalNote: note }) });
     if (!out) return;
     await recomputeEventTotals(x.eventId);
-    notify({ event: 'cultural', title: `Expense ${status.toLowerCase()} · ${x.item}`, body: `${currentUser?.name || 'The approver'} ${status.toLowerCase()} ${inr(x.amount)} for “${x.item}”${note ? ` — ${note}` : ''}.`, link: '#/cultural', toRoleIds: ['committee_cultural', 'president', 'general_secretary'], by: currentUser?.name || '' }).catch(() => {});
+    notify({ event: 'cultural', title: `Expense ${status.toLowerCase()} · ${x.item}`, body: `${currentUser?.name || 'The approver'} ${status.toLowerCase()} ${inr(x.amount)} for “${x.item}”${note ? ` — ${note}` : ''}.`, link: `#/cultural/expense/${x.id}`, toRoleIds: ['committee_cultural', 'president', 'general_secretary'], by: currentUser?.name || '' }).catch(() => {});
   }
   function open(it) {
-    if (it.kind === 'Cultural expense') { try { sessionStorage.setItem('communityos:culturalTab', 'expenses'); } catch { /* ignore */ } }
     window.dispatchEvent(new CustomEvent('communityos:openlink', { detail: { link: it.link } }));
   }
 

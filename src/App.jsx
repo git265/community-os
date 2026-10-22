@@ -225,6 +225,8 @@ function Shell() {
     if (fm) { set('communityos:openTab', 'forum'); set('communityos:openTopic', decodeURIComponent(fm[1])); setActive('communications'); setNavKey((k) => k + 1); return; }
     const bm = /#?\/ballot\/([^/?]+)/.exec(link || '');
     if (bm) { set('communityos:openTab', 'evote'); setActive('communications'); setNavKey((k) => k + 1); return; }
+    const cu = /#?\/cultural\/(expense|donation|event)\/([^/?]+)/.exec(link || '');   // an expense, a donation or an event: its event, on the right tab
+    if (cu) { set('communityos:culturalOpen', JSON.stringify({ kind: cu[1], id: decodeURIComponent(cu[2]) })); setActive('cultural'); setNavKey((k) => k + 1); return; }
     const mp = /^#?\/map\b(\?.*)?$/.exec(link || '');
     if (mp) { set('communityos:mapLink', mp[1] || ''); setActive('sitemap'); setNavKey((k) => k + 1); return; }
     const pg = /^#?\/(governance|billing|communications|cultural|shifts|calendar|notifications|inventory|utilities|documents|audits|directory|security|mygate)\b/.exec(link || '');

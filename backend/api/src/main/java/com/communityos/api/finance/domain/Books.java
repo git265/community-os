@@ -31,6 +31,8 @@ public final class Books {
         public UUID bankTxnId; public UUID enteredById; public String enteredBy; public boolean reversed; public Instant createdAt; public long version;
 
         public boolean debit() { return "Debit".equals(type); }
+        public static final String PAYOUT = "settlement";
+        public boolean payout() { return PAYOUT.equals(sourceType); }
         /** Check the entry and work out its taxes: with a base amount, GST and TDS come from their rates and the amount is what the bank moves. */
         public void check() {
             rule(date != null, "date-required", "When was the money paid or received?");
@@ -41,6 +43,11 @@ public final class Books {
             rule(module == null || MODULES.contains(module), "bad-module", "Module: " + String.join(", ", MODULES));
             rule(gstRate == null || (gstRate.signum() >= 0 && gstRate.compareTo(BigDecimal.valueOf(40)) <= 0), "bad-gst", "GST rate 0 to 40 %");
             rule(tdsRate == null || (tdsRate.signum() >= 0 && tdsRate.compareTo(BigDecimal.valueOf(30)) <= 0), "bad-tds", "TDS rate 0 to 30 %");
+            if (payout()) {          // a provider payout: baseAmount is what the payments brought in, amount what reached the bank, the rest the provider's fees
+                rule(!debit() && amount != null && amount.signum() > 0 && baseAmount != null && baseAmount.compareTo(amount) >= 0, "bad-payout", "A payout is money in, at most what its payments brought in");
+                amount = r2(amount); baseAmount = r2(baseAmount); gstAmount = BigDecimal.ZERO; tdsAmount = BigDecimal.ZERO; gstRate = null; tdsRate = null; tdsSection = null;
+                return;
+            }
             if (baseAmount != null && baseAmount.signum() > 0) {
                 gstAmount = r2(baseAmount.multiply(nz(gstRate)).movePointLeft(2));
                 tdsAmount = debit() ? r2(baseAmount.multiply(nz(tdsRate)).movePointLeft(2)) : BigDecimal.ZERO;
@@ -56,6 +63,12 @@ public final class Books {
             Money gross = net.plus(tds), base = gross.minus(gst);
             String expense = "Cultural".equals(module) ? "5100" : "5000";
             List<Journal.Line> l = new ArrayList<>();
+            if (payout()) {
+                Money gross2 = new Money(baseAmount);
+                l.add(Journal.Line.debit("1000", null, net, "Payout received")); l.add(Journal.Line.debit("5000", null, gross2.minus(net), "Payment provider fees"));
+                l.add(Journal.Line.credit("1200", null, gross2, "Gateway clearing"));
+                return l;
+            }
             if (debit()) {
                 l.add(Journal.Line.debit(expense, unitId, base, description)); l.add(Journal.Line.debit("1300", unitId, gst, "Input GST"));
                 l.add(Journal.Line.credit("1000", unitId, net, "Paid" + (mode == null ? "" : " (" + mode + ")"))); l.add(Journal.Line.credit("2150", unitId, tds, "TDS " + (tdsSection == null ? "" : tdsSection)));

@@ -27,6 +27,8 @@ public final class JdbcFileRepository implements FileRepository {
     static final String ATTACH = """
         UPDATE docs.file_object SET owner_type = :type, owner_id = CAST(:owner AS uuid), attached_at = now()
         WHERE id = CAST(:id AS uuid) AND version = :version AND owner_type = 'upload'""";
+    static final String UNSCANNED = COLUMNS + "\nWHERE f.scan_status IN ('Pending', 'Error') ORDER BY f.created_at LIMIT :limit";
+    static final String SCANNED = "UPDATE docs.file_object SET scan_status = :status WHERE id = CAST(:id AS uuid) AND scan_status IN ('Pending', 'Error')";
     static final String DELETE = "DELETE FROM docs.file_object WHERE id = CAST(:id AS uuid) AND version = :version";
     static final String COMMENT = "SELECT c.ticket_id, c.visibility, c.author_id FROM maintenance.ticket_comment c WHERE c.id = CAST(:id AS uuid)";
 
@@ -49,6 +51,8 @@ public final class JdbcFileRepository implements FileRepository {
         return jdbc.update(ATTACH, Map.of("id", id.toString(), "version", version, "type", ownerType, "owner", ownerId.toString())) == 1;
     }
     @Override public boolean delete(UUID id, long version) { return jdbc.update(DELETE, Map.of("id", id.toString(), "version", version)) == 1; }
+    @Override public List<StoredFile> unscanned(int limit) { return jdbc.query(UNSCANNED, Map.of("limit", limit), (rs, i) -> row(rs)); }
+    @Override public void scanned(UUID id, String status) { jdbc.update(SCANNED, Map.of("id", id.toString(), "status", status)); }
     @Override public Optional<CommentFacts> comment(UUID commentId) {
         return jdbc.query(COMMENT, Map.of("id", commentId.toString()), (rs, i) -> new CommentFacts(Rows.uuid(rs, "ticket_id"), rs.getString("visibility"), Rows.uuid(rs, "author_id"))).stream().findFirst();
     }

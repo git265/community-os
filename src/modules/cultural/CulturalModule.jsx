@@ -80,7 +80,7 @@ function DonationForm({ ev, record, manager, onClose, properties }) {
     const saved = await save(row);
     if (!saved) return;
     await recomputeEventTotals(ev.id);
-    if (manager && row.status === 'Received' && !record?.receiptNo && row.unit) notify({ event: 'cultural', title: `Receipt ${row.receiptNo} · ${ev.name}`, body: `Thank you! Your ${row.kind.toLowerCase()} of ${inr(row.amount)} was received. Receipt ${row.receiptNo} is under Cultural → Donations.`, link: '#/cultural', toUnit: row.unit, by: currentUser?.name || '' }).catch(() => {});
+    if (manager && row.status === 'Received' && !record?.receiptNo && row.unit) notify({ event: 'cultural', title: `Receipt ${row.receiptNo} · ${ev.name}`, body: `Thank you! Your ${row.kind.toLowerCase()} of ${inr(row.amount)} was received. Receipt ${row.receiptNo} is under Cultural → Donations.`, link: `#/cultural/donation/${saved.id}`, toUnit: row.unit, by: currentUser?.name || '' }).catch(() => {});
     onClose(true, manager ? null : saved);
   }
   const unitOptions = (properties || []).map((p) => ({ value: p.unit, label: [p.unit, p.owner].filter(Boolean).join(' · ') }));
@@ -155,6 +155,14 @@ export default function CulturalModule() {
   const [evId, setEvId] = useState('');
   const [tab, setTab] = useState(() => { try { return sessionStorage.getItem('communityos:culturalTab') || 'overview'; } catch { return 'overview'; } });
   useEffect(() => { try { sessionStorage.removeItem('communityos:culturalTab'); } catch { /* ignore */ } }, []);
+  // a notification or the Approvals list opened one record (#/cultural/expense|donation|event/<id>): its event, on the tab that shows it
+  const [opened, setOpened] = useState(() => { try { return JSON.parse(sessionStorage.getItem('communityos:culturalOpen') || 'null'); } catch { return null; } });
+  useEffect(() => {
+    try { sessionStorage.removeItem('communityos:culturalOpen'); } catch { /* ignore */ }   // read once (an initialiser may run twice)
+    const t = setTimeout(() => setOpened(null), 5000);   // not found (deleted, or not this person's to see): the usual event instead
+    return () => clearTimeout(t);
+  }, []);
+  const [flash, setFlash] = useState('');
   const [modal, setModal] = useState(null); // {kind, record}
   const { records: properties } = useCollection(C.PROPERTIES, 'Properties', { enabled: modal?.kind === 'donation' });   // the unit list of the donation form only
   const [receipt, setReceipt] = useState(null);
@@ -168,7 +176,17 @@ export default function CulturalModule() {
   const [view, setView] = useState('events');
   const [creditEv, setCreditEv] = useState(null);
   const sorted = useMemo(() => [...events].sort((a, b) => String(b.startDate).localeCompare(String(a.startDate))), [events]);
-  useEffect(() => { if (!evId && sorted.length) setEvId((sorted.find((e) => e.status === 'Open') || sorted[0]).id); }, [sorted, evId]);
+  useEffect(() => {
+    if (!opened) return;
+    const rec = opened.kind === 'expense' ? expenses.find((x) => x.id === opened.id) : opened.kind === 'donation' ? donations.find((d) => d.id === opened.id) : events.find((e) => e.id === opened.id);
+    if (!rec) return;   // not loaded yet (or not visible to this person): wait for the lists
+    setEvId(opened.kind === 'event' ? rec.id : rec.eventId); setView('events');
+    setTab(opened.kind === 'expense' ? 'expenses' : opened.kind === 'donation' ? 'donations' : 'overview');
+    setFlash(rec.id); setOpened(null);
+    setTimeout(() => { document.querySelector(`[data-rec="${rec.id}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }); }, 300);
+    setTimeout(() => setFlash(''), 4000);
+  }, [opened, expenses, donations, events]);
+  useEffect(() => { if (!evId && sorted.length && !opened) setEvId((sorted.find((e) => e.status === 'Open') || sorted[0]).id); }, [sorted, evId, opened]);
   const schemas = useApp().schemaFor;
   const ev = events.find((e) => e.id === evId);
   const yearOf = (e) => String(e?.startDate || '').slice(0, 4) || 'No date';
@@ -225,7 +243,7 @@ export default function CulturalModule() {
       ...(ecApproval === 'Rejected' || approvedNow ? { approvedBy: me2, approvedAt: today(), approvalNote: note || (approvedNow ? 'EC approval was the last step' : '') } : {}) });
     if (!out) return;
     await recomputeEventTotals(ev.id);
-    const link = '#/cultural';
+    const link = `#/cultural/expense/${x.id}`;
     if (ecApproval === 'Rejected') notify({ event: 'cultural', title: `EC rejected expense · ${x.item}`, body: `${me2} rejected ${inr(x.amount)} for “${x.item}” (${ev.name})${note ? ` — ${note}` : ''}. You can edit and resubmit it.`, link, ...toRaiser(x), toRoleIds: COMMITTEE, by: me2 }).catch(() => {});
     else if (final) notify({ event: 'approval', title: `Final approval needed · ${x.item}`, body: `EC (${me2}) approved ${inr(x.amount)} for “${x.item}” (${ev.name}, ${x.fund || 'Cultural'} fund). It now needs the Treasurer / President: Cultural → Expenses.`, link, toRoleIds: ['treasurer', 'president'], by: me2 }).catch(() => {});
     else notify({ event: 'cultural', title: `Expense approved · ${x.item}`, body: `${me2} (EC) approved ${inr(x.amount)} for “${x.item}” (${ev.name}). It is under the Treasurer limit, so no further approval is needed.`, link, ...toRaiser(x), toRoleIds: COMMITTEE.concat(['treasurer']), by: me2 }).catch(() => {});
@@ -244,9 +262,9 @@ export default function CulturalModule() {
     const out = await saveExpense({ ...x, ...extra, status, ...(status === 'Pending approval' ? {} : { approvedBy: me2, approvedAt: today(), approvalNote: note }) });
     if (!out) return;
     await recomputeEventTotals(ev.id);
-    if (status !== 'Paid') notify({ event: 'cultural', title: `Expense ${status.toLowerCase()} (final) · ${x.item}`, body: `${me2 || 'The Treasurer'} ${status.toLowerCase()} ${inr(x.amount)} for “${x.item}” (${ev.name})${note ? ` — ${note}` : ''}.`, link: '#/cultural', ...toRaiser(x), toRoleIds: COMMITTEE, by: me2 }).catch(() => {});
+    if (status !== 'Paid') notify({ event: 'cultural', title: `Expense ${status.toLowerCase()} (final) · ${x.item}`, body: `${me2 || 'The Treasurer'} ${status.toLowerCase()} ${inr(x.amount)} for “${x.item}” (${ev.name})${note ? ` — ${note}` : ''}.`, link: `#/cultural/expense/${x.id}`, ...toRaiser(x), toRoleIds: COMMITTEE, by: me2 }).catch(() => {});
   }
-  async function resubmit(x) { const out = await saveExpense({ ...x, plan: '', status: 'Pending approval', approvedBy: '', approvedAt: '', approvalNote: '', ecApproval: 'Pending', ecApprovedBy: '', ecApprovedAt: '', ecNote: '', finalRequired: null }); if (out) { await recomputeEventTotals(ev.id); notify({ event: 'approval', title: `Expense resubmitted · ${x.item}`, body: `${me2} resubmitted ${inr(x.amount)} for “${x.item}” (${ev.name}). EC approval needed.`, link: '#/cultural', toRoleIds: ecRoleIds.length ? ecRoleIds : ['president', 'treasurer'], by: me2 }).catch(() => {}); } }
+  async function resubmit(x) { const out = await saveExpense({ ...x, plan: '', status: 'Pending approval', approvedBy: '', approvedAt: '', approvalNote: '', ecApproval: 'Pending', ecApprovedBy: '', ecApprovedAt: '', ecNote: '', finalRequired: null }); if (out) { await recomputeEventTotals(ev.id); notify({ event: 'approval', title: `Expense resubmitted · ${x.item}`, body: `${me2} resubmitted ${inr(x.amount)} for “${x.item}” (${ev.name}). EC approval needed.`, link: `#/cultural/expense/${x.id}`, toRoleIds: ecRoleIds.length ? ecRoleIds : ['president', 'treasurer'], by: me2 }).catch(() => {}); } }
   /** The actual amount may be left out while an expense is only an estimate; it is needed before anyone approves or pays it. */
   function expenseBefore(draft, old) {
     const hasAmt = Number(draft.amount) > 0;
@@ -256,7 +274,7 @@ export default function CulturalModule() {
   }
   async function expenseSaved(saved, old) {
     await recomputeEventTotals(ev.id);
-    if (!old && saved.status === 'Pending approval') notify({ event: 'approval', title: `Expense to approve · ${saved.item}`, body: `${currentUser?.name || 'The cultural committee'} raised ${inr(saved.amount)} for “${saved.item}” (${ev.name}, from the ${saved.fund || 'Cultural'} fund). EC approval needed first${needsFinal(saved) ? ', then the Treasurer' : ''}: Cultural → Expenses.`, link: '#/cultural', toRoleIds: ecRoleIds.length ? ecRoleIds : ['president', 'treasurer'], by: currentUser?.name || '' }).catch(() => {});
+    if (!old && saved.status === 'Pending approval') notify({ event: 'approval', title: `Expense to approve · ${saved.item}`, body: `${currentUser?.name || 'The cultural committee'} raised ${inr(saved.amount)} for “${saved.item}” (${ev.name}, from the ${saved.fund || 'Cultural'} fund). EC approval needed first${needsFinal(saved) ? ', then the Treasurer' : ''}: Cultural → Expenses.`, link: `#/cultural/expense/${saved.id}`, toRoleIds: ecRoleIds.length ? ecRoleIds : ['president', 'treasurer'], by: currentUser?.name || '' }).catch(() => {});
   }
 
   async function saveEventForm(draft) {
@@ -264,14 +282,14 @@ export default function CulturalModule() {
     const out = await saveEvent(draft);
     if (!out) return;
     if (out.visibility === 'Published' && old?.visibility !== 'Published') {
-      notify({ event: 'cultural', title: `New event · ${out.name}`, body: `${out.name} (${dshort(out.startDate)}${out.venue ? `, ${out.venue}` : ''}) is open on the Cultural page — see the programme, sign up for seva and contribute.`, link: '#/cultural', toRoleIds: ['owner', 'resident'], by: currentUser?.name || '' }).catch(() => {});
+      notify({ event: 'cultural', title: `New event · ${out.name}`, body: `${out.name} (${dshort(out.startDate)}${out.venue ? `, ${out.venue}` : ''}) is open on the Cultural page — see the programme, sign up for seva and contribute.`, link: `#/cultural/event/${out.id}`, toRoleIds: ['owner', 'resident'], by: currentUser?.name || '' }).catch(() => {});
     }
     setEvId(out.id); setModal(null);
   }
   async function markReceived(d) {
     const no = d.receiptNo || await nextReceiptNo(ev);
     const out = await saveDonation({ ...d, status: 'Received', receiptNo: no, date: d.date || new Date().toISOString().slice(0, 10) });
-    if (out) { await recomputeEventTotals(ev.id); if (d.unit) notify({ event: 'cultural', title: `Receipt ${no} · ${ev.name}`, body: `Thank you! Your ${(d.kind || 'donation').toLowerCase()} of ${inr(d.amount)} was received. Receipt ${no}.`, link: '#/cultural', toUnit: d.unit, by: currentUser?.name || '' }).catch(() => {}); }
+    if (out) { await recomputeEventTotals(ev.id); if (d.unit) notify({ event: 'cultural', title: `Receipt ${no} · ${ev.name}`, body: `Thank you! Your ${(d.kind || 'donation').toLowerCase()} of ${inr(d.amount)} was received. Receipt ${no}.`, link: `#/cultural/donation/${out.id}`, toUnit: d.unit, by: currentUser?.name || '' }).catch(() => {}); }
   }
   async function withdraw(d) { if (!window.confirm('Withdraw this pledge?')) return; await removeDonation(d.id); await recomputeEventTotals(ev.id); }
   const closeRec = async (changed, row) => { setModal(null); if (changed && ev) await recomputeEventTotals(ev.id); if (row?.id && row.status === 'Pledged') setPayFor({ id: row.id }); };
@@ -426,7 +444,7 @@ export default function CulturalModule() {
                   {shownDon.length === 0 ? <div className="empty">{resident ? 'You have not contributed to this event yet.' : 'No donations match.'}</div> : (
                     <table className="table"><thead><tr><th>Date</th><th>Donor</th><th>Villa</th><th>Type · towards</th><th>Amount</th><th>Status</th><th>Receipt</th><th /></tr></thead>
                       <tbody>{shownDon.map((d) => (
-                        <tr key={d.id} data-testid="donation-row"><td data-label="Date">{dshort(d.date)} <small className="mono muted" data-testid="rec-id" style={{ display: 'block' }}>{d.shortId}</small></td><td data-label="Donor">{d.donor}{d.anonymous && finance ? ' 🕶' : ''}</td><td data-label="Villa">{d.unit || '—'}</td><td data-label="Type">{d.kind} · {d.towards}{d.offeringId && d.note ? <small className="muted" style={{ display: 'block' }}>{d.note}{d.sankalpam ? ` · “${d.sankalpam}”` : ''}</small> : null}</td><td data-label="Amount"><b>{inr(d.amount)}</b></td><td data-label="Status"><Tag v={d.status} />{d.status === 'Pledged' && d.paymentClaimedAt ? <small className="tag blue" data-testid="claimed-tag" style={{ marginLeft: 4 }}>Paid — verify UTR {d.reference}</small> : null}</td><td data-label="Receipt">{d.receiptNo ? <button type="button" className="link-btn" data-testid="open-receipt" onClick={() => setReceipt(d)}>{d.receiptNo}</button> : '—'}</td>
+                        <tr key={d.id} data-testid="donation-row" data-rec={d.id} className={flash === d.id ? 'row-flash' : ''}><td data-label="Date">{dshort(d.date)} <small className="mono muted" data-testid="rec-id" style={{ display: 'block' }}>{d.shortId}</small></td><td data-label="Donor">{d.donor}{d.anonymous && finance ? ' 🕶' : ''}</td><td data-label="Villa">{d.unit || '—'}</td><td data-label="Type">{d.kind} · {d.towards}{d.offeringId && d.note ? <small className="muted" style={{ display: 'block' }}>{d.note}{d.sankalpam ? ` · “${d.sankalpam}”` : ''}</small> : null}</td><td data-label="Amount"><b>{inr(d.amount)}</b></td><td data-label="Status"><Tag v={d.status} />{d.status === 'Pledged' && d.paymentClaimedAt ? <small className="tag blue" data-testid="claimed-tag" style={{ marginLeft: 4 }}>Paid — verify UTR {d.reference}</small> : null}</td><td data-label="Receipt">{d.receiptNo ? <button type="button" className="link-btn" data-testid="open-receipt" onClick={() => setReceipt(d)}>{d.receiptNo}</button> : '—'}</td>
                           <td style={{ whiteSpace: 'nowrap' }}>
                             {d.status === 'Pledged' && (d.unit === me.unit || finance) && <button type="button" className="btn sm" data-testid="pay-pledge" onClick={() => setPayFor({ id: d.id })}>Pay</button>}{' '}
                             {finance && d.status === 'Pledged' && <button type="button" className="btn good sm" data-testid="mark-received" onClick={() => markReceived(d)}>Mark received</button>}{' '}
@@ -469,7 +487,7 @@ export default function CulturalModule() {
                         ];
                         if (underLimit) [ecActions[0], ecActions[1]] = [ecActions[1], ecActions[0]];
                         return (
-                          <tr key={x.id} style={{ cursor: 'pointer' }} data-testid="expense-row" onClick={() => setModal({ kind: 'expense', record: x })}>
+                          <tr key={x.id} style={{ cursor: 'pointer' }} data-testid="expense-row" data-rec={x.id} className={flash === x.id ? 'row-flash' : ''} onClick={() => setModal({ kind: 'expense', record: x })}>
                             <td data-label="Date">{dshort(x.date)}</td><td data-label="Item"><b>{x.item}</b> <small className="mono muted" data-testid="rec-id">{x.shortId}</small></td><td data-label="Category">{x.category}</td><td data-label="Paid to">{x.vendor || '—'}</td>
                             <td data-label="Fund" data-testid="expense-fund">{x.fund || '—'}</td><td data-label="Amount">{noAmount ? <span className="muted" title="Actual amount not entered yet">{Number(x.estimate) > 0 ? `≈ ${inr(x.estimate)} est.` : '—'}</span> : inr(x.amount)}</td>
                             <td data-label="Status" data-testid="expense-stage"><span className={`tag status-chip ${st.tone}`} title={st.detail}>{st.text}</span></td>

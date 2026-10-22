@@ -33,14 +33,14 @@ export function approvalItems({ tickets = [], quotations = [], expenses = [], ev
   for (const x of expenses) {
     if (x.status !== 'Pending approval') continue;
     const ev = events.find((e) => e.id === x.eventId);
-    out.push(pi(x, { id: `x-${x.id}`, kind: 'Cultural expense', stage: 'Final approval', title: `${x.item}${ev ? ` · ${ev.name}` : ''}`, ref: x.shortId, amount: Number(x.amount) || 0, fund: x.fund, mine: isFinal, link: '#/cultural', expense: x, since: x.lastUpdatedAt }));
+    out.push(pi(x, { id: `x-${x.id}`, kind: 'Cultural expense', stage: 'Final approval', title: `${x.item}${ev ? ` · ${ev.name}` : ''}`, ref: x.shortId, amount: Number(x.amount) || 0, fund: x.fund, mine: isFinal, link: `#/cultural/expense/${x.id}`, expense: x, since: x.lastUpdatedAt }));
   }
   for (const r of releases) {
     if (r.status !== 'Waiting approval') continue;
     if (r.expenseId) {
       const x = expenses.find((e) => e.id === r.expenseId); const ev = events.find((e) => e.id === x?.eventId);
       if (!x || ['Rejected', 'Paid'].includes(x.status)) continue;
-      out.push(pi(r, { id: `r-${r.id}`, kind: 'Fund release', stage: 'Approval', title: `Release · ${r.vendor} · ${x.item}${ev ? ` · ${ev.name}` : ''}`, ref: r.shortId || x.shortId, amount: Number(r.amount) || 0, mine: false, link: '#/cultural', since: r.lastUpdatedAt }));
+      out.push(pi(r, { id: `r-${r.id}`, kind: 'Fund release', stage: 'Approval', title: `Release · ${r.vendor} · ${x.item}${ev ? ` · ${ev.name}` : ''}`, ref: r.shortId || x.shortId, amount: Number(r.amount) || 0, mine: false, link: `#/cultural/expense/${x.id}`, since: r.lastUpdatedAt }));
       continue;
     }
     const t = tickets.find((x) => x.id === r.ticketId);

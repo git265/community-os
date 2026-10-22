@@ -66,7 +66,26 @@ public final class FileService {
     public Content content(Caller c, UUID id) {
         StoredFile f = get(c, id);
         if ("Infected".equals(f.scanStatus())) throw new DomainException.RuleViolated("infected", "This file is blocked");
+        // not scanned yet: only the person who uploaded it opens it (to check their own upload); everyone else waits for the scanner
+        if (!"Clean".equals(f.scanStatus()) && !mine(c, f)) throw new DomainException.RuleViolated("not-scanned", f.fileName() + " is still being checked for viruses - try again in a few minutes");
         return new Content(f, storage.get(f.storageKey()));
+    }
+    /** Files that came in while the scanner was down: scanned now (the job). An infected one is blocked and its uploader can no longer open it. */
+    public int rescan(Caller system, int batch) {
+        int n = 0;
+        for (StoredFile f : files.unscanned(batch)) {
+            VirusScanner.Verdict v = scanner.scan(storage.get(f.storageKey()));
+            if (v.result() == VirusScanner.Result.UNAVAILABLE) break;                     // still down: try again next time
+            String status = v.result() == VirusScanner.Result.INFECTED ? "Infected" : "Clean";
+            tx.run(() -> {
+                files.scanned(f.id(), status);
+                if ("Infected".equals(status)) audit.write(system, AuditWriter.Action.Denied, "docs.file_object", f.id(), f.shortId(), null,
+                    "Blocked after upload: " + (v.signature() == null ? "virus" : v.signature()) + " in " + f.fileName(), List.of());
+            });
+            io.micrometer.core.instrument.Metrics.counter("cos.files.scanned", "result", status).increment();
+            n++;
+        }
+        return n;
     }
     /** The files on things of one kind that the caller may open (on one thing when ownerId is given). */
     public List<StoredFile> list(Caller c, String ownerType, UUID ownerId) {

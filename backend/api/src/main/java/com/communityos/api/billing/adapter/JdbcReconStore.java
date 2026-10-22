@@ -48,6 +48,12 @@ public final class JdbcReconStore implements ReconStore {
         SELECT platform.current_community() AS id, coalesce((SELECT sum(debit) FROM posted), 0) AS debit, coalesce((SELECT sum(credit) FROM posted), 0) AS credit,
                coalesce((SELECT sum(p.credit) - sum(p.debit) FROM posted p JOIN finance.account a ON a.id = p.account_id WHERE a.code = '2000'), 0) AS credit_held,
                coalesce((SELECT sum(c.amount) FROM billing.unit_credit c), 0) AS credit_rows""";
+    /** Online money a week old that no payout has brought to the bank yet (only where statements are imported: without them nothing is matched). */
+    static final String PAYOUTS = """
+        SELECT platform.current_community() AS id, count(*) AS n, coalesce(sum(p.amount - p.refunded_amount), 0) AS amount FROM billing.payment p
+        WHERE p.provider IS NOT NULL AND p.payout_entry_id IS NULL AND p.status IN ('Captured', 'Partly refunded') AND p.received_at < now() - interval '7 days'
+          AND EXISTS (SELECT 1 FROM finance.bank_txn t WHERE t.date > current_date - 60)
+        HAVING count(*) > 0""";
     static final String KEEP = """
         INSERT INTO billing.recon_issue (community_id, kind, ref_type, ref_id, ref_short_id, provider_ref, expected, actual, detail)
         VALUES (platform.current_community(), :kind, :refType, CAST(:refId AS uuid), :refShort, :providerRef, :expected, :actual, :detail)
@@ -94,6 +100,8 @@ public final class JdbcReconStore implements ReconStore {
                     "Units' credit adds up to " + money(rs, "credit_rows") + " but the unit-credit account holds " + money(rs, "credit_held")));
             return null;
         });
+        out.addAll(jdbc.query(PAYOUTS, Map.of(), (rs, i) -> new Recon.Finding(Recon.PAYOUT_MISSING, "ledger", Rows.uuid(rs, "id"), null, null, rs.getBigDecimal("amount"), null,
+            rs.getLong("n") + " online payment" + (rs.getLong("n") == 1 ? "" : "s") + " (" + money(rs, "amount") + ") received over a week ago are not matched to a payout on the bank statement")));
         return out;
     }
     @Override public boolean keep(Recon.Finding f) {

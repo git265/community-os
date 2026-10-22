@@ -50,8 +50,25 @@ public final class DueService {
             events.publish(d.pullEvents());
             audit.write(c, AuditWriter.Action.Create, "billing.due", d.id().value(), d.shortId(), d.unit().value(),
                 "Raised " + cat.name() + " " + d.total() + " on " + unit.unitNo(), List.of(new AuditWriter.Change("total", null, d.total().toString())));
+            useCredit(c, d);
             return d;
         });
+    }
+
+    private BillingDesk desk;
+    /** Where a unit's credit is kept (wired after both exist): a new bill is paid from it first. */
+    public DueService credits(BillingDesk d) { this.desk = d; return this; }
+    /** The unit's credit (an overpayment, a refund kept on account) pays the new bill first, as far as it goes - in the bill's own transaction. */
+    private void useCredit(Caller c, Due d) {
+        if (desk == null || d.unit() == null) return;
+        Money have = desk.credit(d.unit());                                       // locks the unit's credit: two bills at once cannot use it twice
+        Money applied = d.applyCredit(have, clock.instant());
+        if (!applied.isPositive()) return;
+        if (!dues.save(d)) throw new DomainException.Conflict("Bill " + d.shortId());
+        desk.useCredit(c, d.unit(), applied, "due", d.id().value(), "Credit used for bill " + d.shortId());
+        events.publish(d.pullEvents());
+        audit.write(c, AuditWriter.Action.Update, "billing.due", d.id().value(), d.shortId(), d.unit().value(), applied + " of the unit's credit used for bill " + d.shortId(),
+            List.of(new AuditWriter.Change("creditApplied", "0", applied.toString())));
     }
 
     public Due cancel(Caller c, DueId id, String reason, long expectedVersion) { return close(c, id, reason, expectedVersion, true); }

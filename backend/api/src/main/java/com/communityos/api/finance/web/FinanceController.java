@@ -47,7 +47,7 @@ public class FinanceController {
                                @Size(max = 30) String itcStatus, @Size(max = 500) String itcNote) {
         Books.Entry entry() {
             // money the server books itself (bill payments, bookings, donations, releases, reversals) is never typed in: it would count twice or fake its origin
-            if (sourceType != null && List.of("release", "reversal", "due", "duePayment", "booking", "donation", "payment").contains(sourceType))
+            if (sourceType != null && List.of("release", "reversal", "due", "duePayment", "booking", "donation", "payment", Books.Entry.PAYOUT).contains(sourceType))
                 throw new DomainException.RuleViolated("bad-source", "That kind of entry is written by the server");
             Books.Entry e = new Books.Entry();
             e.date = date; e.account = account; e.description = description; e.category = category; e.subCategory = subCategory; e.type = type; e.amount = amount; e.vendor = vendor;

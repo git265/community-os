@@ -2053,3 +2053,5 @@ dl.kv dd { margin: 0; }
   .sm-sheet-head > span:last-child { position: absolute; right: 14px; top: 16px; color: var(--muted); }
   .sm-sheet-head .sm-sheet-grab { margin: 0 auto 2px; }
 }
+.row-flash, .row-flash td { animation: rowflash 4s ease-out; }
+@keyframes rowflash { 0%, 40% { background: #fff4c2; } 100% { background: transparent; } }

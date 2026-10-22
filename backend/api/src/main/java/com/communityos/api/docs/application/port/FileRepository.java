@@ -17,4 +17,8 @@ public interface FileRepository {
     /** A ticket comment's ticket, visibility and author (who may open a file attached to it). */
     record CommentFacts(UUID ticketId, String visibility, UUID authorId) {}
     Optional<CommentFacts> comment(UUID commentId);
+    /** Files not yet scanned (the scanner was down when they came in), oldest first. */
+    List<StoredFile> unscanned(int limit);
+    /** The scanner's verdict on a file kept as Pending. */
+    void scanned(UUID id, String status);
 }

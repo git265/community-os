@@ -13,9 +13,9 @@ public final class Recon {
     private Recon() {}
     public static final String LATE_CAPTURE = "late-capture", DUPLICATE_CAPTURE = "duplicate-capture", AMOUNT_MISMATCH = "amount-mismatch",
         ALLOCATION_MISMATCH = "allocation-mismatch", BILL_PAID_MISMATCH = "bill-paid-mismatch", REFUND_UNANSWERED = "refund-unanswered",
-        LEDGER_UNBALANCED = "ledger-unbalanced", CREDIT_MISMATCH = "credit-mismatch";
+        LEDGER_UNBALANCED = "ledger-unbalanced", CREDIT_MISMATCH = "credit-mismatch", PAYOUT_MISSING = "payout-missing";
     /** Found by comparing the records (each run re-checks them: an open one that is no longer found is cleared). */
-    public static final List<String> RECORD_CHECKS = List.of(DUPLICATE_CAPTURE, AMOUNT_MISMATCH, ALLOCATION_MISMATCH, BILL_PAID_MISMATCH, REFUND_UNANSWERED, LEDGER_UNBALANCED, CREDIT_MISMATCH);
+    public static final List<String> RECORD_CHECKS = List.of(DUPLICATE_CAPTURE, AMOUNT_MISMATCH, ALLOCATION_MISMATCH, BILL_PAID_MISMATCH, REFUND_UNANSWERED, LEDGER_UNBALANCED, CREDIT_MISMATCH, PAYOUT_MISSING);
     public static final List<String> STATUSES = List.of("Open", "Resolved", "Ignored");
 
     /** What a check found. */

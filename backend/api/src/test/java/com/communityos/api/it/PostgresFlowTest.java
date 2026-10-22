@@ -166,7 +166,8 @@ class PostgresFlowTest {
             CounterSettlement counter = new CounterSettlement(dues, payments, events, audit, app, lookups, clock);
             JdbcPlatformPayments pp = new JdbcPlatformPayments(platform);
             PaymentService pay = new PaymentService(dues, payments, orders, new GatewayRegistry(List.of(sim), "simulated"), gs, pp, pp, events, app, clock, Duration.ofMinutes(30), "INR");
-            DueService dueService = new DueService(dues, lookups, lookups, events, audit, app, clock);
+            DueService dueService = new DueService(dues, lookups, lookups, events, audit, app, clock).credits(new com.communityos.api.billing.application.BillingDesk(payments,
+                new com.communityos.api.billing.application.TargetSettlement(dues, payments, events, audit, app, clock), new com.communityos.api.billing.adapter.JdbcJournalWriter(app), events, clock));
             UnitService units = new UnitService(new JdbcUnitRepository(app, json), new CustomFields(new JdbcFieldDefinitions(app)), audit, app, new com.communityos.api.property.adapter.JdbcPropertySetup(app, json));
             MemberService memberService = new MemberService(new JdbcMemberRepository(app, json), new JdbcRoleCatalog(app), new JdbcPersonDirectory(platform), refreshStore,
                 callers, audit, app, clock, "+91");
@@ -225,12 +226,19 @@ class PostgresFlowTest {
             assertEquals(Map.of("ETag", "\"1\""), as(treasurer, () -> idem.run(treasurer, "it-receipt-" + tag, "POST /api/v1/payments", ("{\"unit\":\"" + unitB + "\"}").getBytes(), () -> null)).headers(), "with its headers");
             assertEquals(Money.of("460"), officeReceipt.get().toCredit());
             assertEquals("460.00", owner.sql("SELECT sum(amount)::text AS s FROM billing.unit_credit WHERE community_id = '" + cid + "'").get(0).get("s"));
+            // the credit pays the unit's next bill first, in the bill's own transaction
+            var fromCredit = as(treasurer, () -> dueService.raise(treasurer, new DueService.RaiseDue(new UnitId(unitB), "Maintenance", null, "Paid from credit", Money.of("300"), today.plusDays(10))));
+            assertEquals("Paid", fromCredit.status().label(), "354 (with tax) of the 460 credit"); assertEquals(fromCredit.total(), fromCredit.credit());
+            var partly = as(treasurer, () -> dueService.raise(treasurer, new DueService.RaiseDue(new UnitId(unitB), "Maintenance", null, "Partly from credit", Money.of("500"), today.plusDays(10))));
+            assertEquals("Partly paid", partly.status().label()); assertEquals(Money.of("460").minus(fromCredit.total()), partly.credit(), "the rest of the credit");
+            assertEquals("0.00", owner.sql("SELECT sum(amount)::text AS s FROM billing.unit_credit WHERE community_id = '" + cid + "'").get(0).get("s"), "all of it used");
+            as(treasurer, () -> counter.settle(treasurer, new CounterSettlement.Request(new UnitId(unitB), partly.outstanding(), "Cash", today, List.of(partly.id()), "rest")));
 
             // ---- 5. the books balance; receivables are settled -----------------------------------------------------------------------------------
             Map<String, Object> bal = owner.sql("SELECT sum(debit)::text AS d, sum(credit)::text AS c FROM finance.account_balance WHERE community_id = '" + cid + "'").get(0);
             assertEquals(bal.get("d"), bal.get("c"), "double entry balances");
             assertEquals("0.00", owner.sql("SELECT balance::text AS b FROM finance.account_balance ab JOIN finance.account a ON a.id = ab.account_id WHERE ab.community_id = '" + cid + "' AND a.code = '1100'").get(0).get("b"));
-            assertEquals("5", owner.sql("SELECT count(*)::text AS n FROM finance.journal_entry WHERE community_id = '" + cid + "' AND status = 'Posted'").get(0).get("n"), "3 bills + 2 payments");
+            assertEquals("10", owner.sql("SELECT count(*)::text AS n FROM finance.journal_entry WHERE community_id = '" + cid + "' AND status = 'Posted'").get(0).get("n"), "5 bills + 3 payments + 2 uses of credit");
             // the simulated bank, as a real one behaves: declined (only the webhook says so), slow (charged later), confirmation lost (the webhook settles it)
             List<com.communityos.api.billing.domain.Due> simBills = new java.util.ArrayList<>();
             java.util.function.Function<String, PaymentService.OrderView> billAndOrder = (k) -> {
@@ -599,7 +607,7 @@ class PostgresFlowTest {
             assertTrue(titles.stream().anyMatch((t) -> t.startsWith("New bill")), "bills reach the unit: " + titles);
             assertTrue(titles.stream().anyMatch((t) -> t.equals("At the gate: Ravi Uncle")), "the gate asked the unit: " + titles);
             assertTrue(titles.stream().noneMatch((t) -> t.equals("Payment received · RCP-0001") || t.startsWith("Booked")), "nobody is told about what they did themselves: " + titles);
-            assertTrue(titles.contains("Payment received · RCP-0003"), "but a payment the bank's webhook settled is news to them: " + titles);
+            assertTrue(titles.stream().anyMatch((t) -> t.startsWith("Payment received · RCP-") && !t.endsWith("RCP-0001")), "but a payment the bank's webhook settled is news to them: " + titles);
             assertTrue(as(plumberC, () -> inboxSvc.mine(plumberC, false, 50)).stream().anyMatch((n) -> n.event().equals("ticket_assigned")), "the assignee hears of the task");
             assertTrue(as(treasurer, () -> inboxSvc.mine(treasurer, false, 200)).stream().noneMatch((n) -> n.title().startsWith("New bill")), "not the treasurer's unit (and they raised it)");
             int unread = as(ownerC, () -> inboxSvc.unread(ownerC));
@@ -776,7 +784,7 @@ class PostgresFlowTest {
             // ---- 6h. files and documents: a photo on a ticket, documents by group, a folder limited to a role, refusals -----------------------------------
             var fileRepo = new com.communityos.api.docs.adapter.JdbcFileRepository(app);
             var disk = new com.communityos.api.docs.adapter.LocalDiskStorage(java.nio.file.Files.createTempDirectory("cos-flow-files"));
-            var fileSvc = new com.communityos.api.docs.application.FileService(fileRepo, disk, com.communityos.api.docs.application.port.VirusScanner.NONE, audit, app, clock);
+            var fileSvc = new com.communityos.api.docs.application.FileService(fileRepo, disk, new com.communityos.api.docs.adapter.SimulatedVirusScanner(), audit, app, clock);
             var docSvc = new com.communityos.api.docs.application.DocumentService(new com.communityos.api.docs.adapter.JdbcDocumentRepository(app), fileSvc, audit, app);
             com.communityos.api.config.FileKinds.register(fileSvc, fileRepo, ticketSvc, docsSvc, bookingSvc, docSvc);
             byte[] png = {(byte) 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52};
@@ -952,6 +960,24 @@ class PostgresFlowTest {
             var liftM = as(admin, () -> cashSvc.get(admin, liftE.id));
             assertEquals("Matched", liftM.reconStatus);
             assertEquals("matched", assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> cashSvc.reverse(admin, liftM.id, liftM.version, "duplicate"))).code());
+            // a provider payout: the online payments of the last days, less the provider's fees, arrive as one bank line and are matched to it
+            var payoutSvc = new com.communityos.api.finance.application.PayoutService(new com.communityos.api.finance.adapter.JdbcPayoutStore(app), fstore, cashSvc, bankSvc, audit, app);
+            var online = as(admin, () -> new com.communityos.api.finance.adapter.JdbcPayoutStore(app).unsettled(today));
+            assertFalse(online.isEmpty(), "online payments are waiting for their payout");
+            java.math.BigDecimal gross = online.get(0).amount();
+            java.math.BigDecimal net = gross.subtract(gross.multiply(new java.math.BigDecimal("0.02")).setScale(2, java.math.RoundingMode.HALF_UP));
+            as(admin, () -> bankSvc.importLines(admin, "HDFC Main", List.of(new com.communityos.api.finance.domain.Books.BankLine(null, null, today, null, "RAZORPAY SETTLEMENT", null, null, net, null, null, null, null, 0))));
+            var payLine = as(admin, () -> bankSvc.lines(admin, new com.communityos.api.finance.application.port.FinanceStore.LineFilter("HDFC Main", null, null, true))).stream()
+                .filter((l) -> "RAZORPAY SETTLEMENT".equals(l.narration())).findFirst().orElseThrow();
+            var proposal = as(admin, () -> payoutSvc.propose(admin, payLine.id()));
+            assertTrue(proposal.fits(), "the oldest payment covers it with 2 % fees"); assertEquals(0, gross.subtract(net).compareTo(proposal.fees()));
+            assertThrows(AccessDenied.class, () -> as(ownerC, () -> payoutSvc.match(ownerC, payLine.id(), List.of(online.get(0).id()))));
+            var paidOut = as(admin, () -> payoutSvc.match(admin, payLine.id(), proposal.payments().stream().map((x) -> x.id()).toList()));
+            assertNotNull(paidOut.matchedEntryId(), "the bank line is matched");
+            assertEquals("line-matched", assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> payoutSvc.match(admin, payLine.id(), List.of(online.get(0).id())))).code());
+            assertTrue(as(admin, () -> new com.communityos.api.finance.adapter.JdbcPayoutStore(app).unsettled(today)).stream().noneMatch((x) -> x.id().equals(online.get(0).id())), "paid out once");
+            Map<String, Object> balPayout = owner.sql("SELECT sum(debit)::text AS d, sum(credit)::text AS c FROM finance.account_balance WHERE community_id = '" + cid + "'").get(0);
+            assertEquals(balPayout.get("d"), balPayout.get("c"), "the payout keeps the books balanced");
             // reversal: once, with a reason, and the books still balance
             var rev = as(admin, () -> cashSvc.reverse(admin, pipe.id, pipe.version, "entered twice"));
             assertEquals("Credit", rev.type); assertEquals(pipe.shortId, rev.reversalOf);
