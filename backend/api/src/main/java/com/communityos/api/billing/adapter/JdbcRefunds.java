@@ -27,8 +27,12 @@ public final class JdbcRefunds implements RefundService.Store, RefundService.Loc
     static final String FINISH = """
         UPDATE billing.gateway_refund SET status = :status, failure_reason = :reason, processed_at = CASE WHEN :status = 'Processed' THEN CAST(:at AS timestamptz) END
         WHERE id = CAST(:id AS uuid) AND status = 'Pending'""";
+    static final String REFUNDED = """
+        UPDATE billing.payment SET refunded_amount = refunded_amount + :amount,
+               status = CASE WHEN refunded_amount + :amount >= amount THEN 'Refunded' ELSE 'Partly refunded' END
+        WHERE id = CAST(:id AS uuid) AND refunded_amount + :amount <= amount""";
     static final String BY_REF = "SELECT community_id, id FROM billing.gateway_refund WHERE provider = :provider AND provider_refund_ref = :ref";
-    static final String PENDING = "SELECT community_id, id FROM billing.gateway_refund WHERE status = 'Pending' AND provider_refund_ref IS NOT NULL AND created_at < CAST(:before AS timestamptz) ORDER BY created_at LIMIT :limit";
+    static final String PENDING = "SELECT community_id, id FROM billing.gateway_refund WHERE status = 'Pending' AND created_at < CAST(:before AS timestamptz) ORDER BY created_at LIMIT :limit";
 
     private final NamedParameterJdbcTemplate app; private final NamedParameterJdbcTemplate platform;
     public JdbcRefunds(NamedParameterJdbcTemplate app, NamedParameterJdbcTemplate platform) { this.app = app; this.platform = platform; }
@@ -43,6 +47,9 @@ public final class JdbcRefunds implements RefundService.Store, RefundService.Loc
         return get(id).orElseThrow();
     }
     @Override public Optional<RefundService.Refund> get(UUID id) { return app.query(GET, Map.of("id", id.toString()), (rs, i) -> map(rs)).stream().findFirst(); }
+    @Override public void refunded(UUID paymentId, Money amount) {
+        if (app.update(REFUNDED, Map.of("id", paymentId.toString(), "amount", amount.amount())) != 1) throw new IllegalStateException("refund " + amount + " is more than payment " + paymentId + " has left");
+    }
     @Override public void asked(UUID id, String ref) { app.update(ASKED, Map.of("id", id.toString(), "ref", ref)); }
     @Override public boolean finish(UUID id, String status, String reason, Instant at) {
         Map<String, Object> p = new HashMap<>(); p.put("id", id.toString()); p.put("status", status); p.put("reason", reason); p.put("at", Rows.ts(at));

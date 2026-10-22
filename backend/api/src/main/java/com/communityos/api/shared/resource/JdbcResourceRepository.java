@@ -74,16 +74,7 @@ public final class JdbcResourceRepository<F extends Record> implements ResourceR
             default -> v;
         };
     }
-    /** A PostgreSQL array literal: every element double-quoted, quotes and backslashes escaped. */
-    static String pgArray(List<?> list) {
-        StringBuilder b = new StringBuilder("{");
-        for (int i = 0; i < list.size(); i++) {
-            if (i > 0) b.append(',');
-            Object o = list.get(i);
-            b.append(o == null ? "NULL" : "\"" + o.toString().replace("\\", "\\\\").replace("\"", "\\\"") + "\"");
-        }
-        return b.append('}').toString();
-    }
+    static String pgArray(List<?> list) { return com.communityos.api.shared.jdbc.Rows.pgArray(list); }
 
     private Item<F> map(ResultSet rs) throws SQLException {
         Object[] args = new Object[comps.length];

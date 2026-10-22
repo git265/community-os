@@ -11,4 +11,6 @@ public interface OrderLocator {
     record Located(CommunityId community, OrderId order) {}
     Optional<Located> byProviderRef(String provider, String providerOrderRef);
     List<Located> openOlderThan(Instant before, int limit);
+    /** Orders that expired or failed this week and were not asked about in the last hour: money may still have been captured on them. */
+    List<Located> closedToCheck(int limit);
 }

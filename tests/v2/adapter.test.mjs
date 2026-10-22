@@ -454,6 +454,11 @@ globalThis.fetch = async (url, init = {}) => {
   if (path === '/workforce/attendance' && method === 'GET') return ok(state.sessions);
   if (path.startsWith('/workforce/attendance/report') && method === 'GET') return ok([{ session: state.sessions[0] || null, memberId: 'm1', staffName: 'Ravi', date: '2026-10-20', gateIn: '2026-10-20T03:30:00Z', gateOut: null, gateInside: true, gateHours: '2.50', flags: ['Clocked in before the gate'] },
     { session: null, memberId: 'm2', staffName: 'Arun', date: '2026-10-20', gateIn: '2026-10-20T04:30:00Z', gateOut: '2026-10-20T06:30:00Z', gateInside: false, gateHours: '2.00', flags: ['At the gate, not clocked in'] }]);
+  if (path.startsWith('/billing/recon-issues')) {
+    if (path === '/billing/recon-issues/run') return ok({ found: 1, fresh: 1, cleared: 0 });
+    if (path.endsWith('/resolve')) return body.note ? ok({ id: 'i1', status: body.status, note: body.note, version: 2 }) : ok({ detail: 'Say what was done, or why it is set aside', code: 'note-required' }, 422);
+    return ok([{ id: 'i1', shortId: 'REC-0001', kind: 'credit-mismatch', detail: 'Units credit adds up to 12.34 but the account holds 0', expected: '12.34', actual: '0.00', status: 'Open', version: 1 }]);
+  }
   if (path === '/gate/badge/mine') return ok({ text: 'GGB|m1|1|00112233aabbccdd', secondsLeft: 12 });
   if (path === '/gate/badge/check') return body.code.endsWith('0000000000000000') ? ok({ detail: 'The badge code is not valid', code: 'badge-invalid' }, 422) : ok({ memberId: 'm1', name: 'Ravi', roleName: 'Plumber', direction: 'In' });
   if (path === '/gate/badge') return ok({ ok: true, outcome: 'admitted', visit: { id: 'v9', name: 'Ravi', kind: 'Staff', state: 'Inside', memberId: 'm1', inAt: '2026-10-20T03:30:00Z', version: 1 } });
@@ -1139,4 +1144,14 @@ test('attendance with the gate: the matcher (same rules as the server), the repo
   const v = await g.verifyBadge('GGB|m1|1|00112233aabbccdd'); assert.equal(v.user.name, 'Ravi');
   const e = await g.badgeEntry(v.user, { gate: 'Main gate' });
   assert.deepEqual(last('POST', /^\/gate\/badge$/).body, { code: 'GGB|m1|1|00112233aabbccdd', gate: 'Main gate' }); assert.equal(e.direction, 'In'); assert.equal(e.visit.memberId, 'm1');
+});
+
+test('money checks: the server\'s reconciliation issues, check now, resolve with a note and If-Match; the server\'s refusal text reaches the screen', async () => {
+  const r = await import('../../src/lib/reconIssues.js');
+  const list = await r.listIssues('Open');
+  assert.equal(last('GET', /^\/billing\/recon-issues/).path, '/billing/recon-issues?status=Open'); assert.equal(list[0].kind, 'credit-mismatch');
+  assert.equal((await r.runChecks()).fresh, 1);
+  await assert.rejects(r.resolveIssue(list[0], 'Resolved', ''), /Say what was done/, 'problem+json "detail" is the message');
+  const done = await r.resolveIssue(list[0], 'Ignored', 'Opening balance');
+  assert.equal(last('POST', /resolve$/).headers['If-Match'], '"1"'); assert.equal(done.status, 'Ignored');
 });

@@ -25,6 +25,7 @@ public class Jobs {
     private final java.util.Optional<com.communityos.api.billing.adapter.gateway.SimulatedGateway> simulatedBank;
     private final java.util.Optional<com.communityos.api.billing.application.RefundService> refunds;
     private final com.communityos.api.comms.adapter.LiveHub live;
+    private final com.communityos.api.billing.application.PaymentReconciler recon;
     private final java.util.Optional<com.communityos.api.comms.adapter.PushDelivery> pushes;
 
     public Jobs(OutboxRelay outbox, WebhookDeliveryWorker webhooks, PaymentService payments, @Qualifier("platform") NamedParameterJdbcTemplate platformJdbc,
@@ -33,7 +34,8 @@ public class Jobs {
                 java.util.Optional<com.communityos.api.comms.adapter.ChannelDelivery> channels,
                 java.util.Optional<com.communityos.api.billing.adapter.gateway.SimulatedGateway> simulatedBank,
                 java.util.Optional<com.communityos.api.billing.application.RefundService> refunds, com.communityos.api.comms.adapter.LiveHub live,
-                java.util.Optional<com.communityos.api.comms.adapter.PushDelivery> pushes) {
+                java.util.Optional<com.communityos.api.comms.adapter.PushDelivery> pushes, com.communityos.api.billing.application.PaymentReconciler recon) {
+        this.recon = recon;
         this.channels = channels; this.simulatedBank = simulatedBank; this.refunds = refunds; this.live = live; this.pushes = pushes;
         this.outbox = outbox; this.webhooks = webhooks; this.payments = payments; this.platformJdbc = platformJdbc; this.gate = gate; this.notices = notices; this.attendance = attendance; this.reports = reports;
     }
@@ -42,13 +44,7 @@ public class Jobs {
     static final String NOTICES_DUE = "SELECT DISTINCT community_id FROM comms.broadcast WHERE status = 'Scheduled' AND scheduled_for <= now()";
     @Scheduled(fixedDelayString = "${cos.jobs.notices-delay:60000}", initialDelay = 45000)
     public void sendScheduledNotices() {
-        run("notices", () -> {
-            for (java.util.UUID c : platformJdbc.query(NOTICES_DUE, Map.of(), (rs, i) -> rs.getObject("community_id", java.util.UUID.class))) {
-                var system = com.communityos.api.shared.security.SystemCaller.of(new com.communityos.api.shared.domain.Ids.CommunityId(c), "scheduled notices");
-                try { com.communityos.api.shared.tenancy.CallerHolder.runAs(system, () -> notices.sendDue(system)); }
-                catch (RuntimeException e) { log.warn("scheduled notices of {} failed: {}", c, e.toString()); }
-            }
-        });
+        perCommunity("notices", NOTICES_DUE, "scheduled notices", (system) -> notices.sendDue(system));
     }
 
     /** Communities with gate work due: an approval past its wait, or a visit past its expected time. */
@@ -57,13 +53,7 @@ public class Jobs {
         UNION SELECT community_id FROM gate.visit WHERE state = 'Inside' AND expected_until < now() - interval '5 minutes'""";
     @Scheduled(fixedDelayString = "${cos.jobs.gate-delay:30000}", initialDelay = 30000)
     public void gateSweep() {
-        run("gate", () -> {
-            for (java.util.UUID c : platformJdbc.query(GATE_DUE, Map.of(), (rs, i) -> rs.getObject("community_id", java.util.UUID.class))) {
-                var system = com.communityos.api.shared.security.SystemCaller.of(new com.communityos.api.shared.domain.Ids.CommunityId(c), "gate sweep");
-                try { com.communityos.api.shared.tenancy.CallerHolder.runAs(system, () -> gate.sweep(system)); }
-                catch (RuntimeException e) { log.warn("gate sweep of {} failed: {}", c, e.toString()); }
-            }
-        });
+        perCommunity("gate", GATE_DUE, "gate sweep", (system) -> gate.sweep(system));
     }
 
     /** Communities with an attendance session open longer than their longest shift. */
@@ -73,26 +63,14 @@ public class Jobs {
         WHERE a.clock_out IS NULL AND a.clock_in < now() - make_interval(mins => CAST(coalesce(s.max_shift_hours, 12) * 60 AS integer))""";
     @Scheduled(fixedDelayString = "${cos.jobs.attendance-delay:600000}", initialDelay = 90000)
     public void closeForgottenAttendance() {
-        run("attendance", () -> {
-            for (java.util.UUID c : platformJdbc.query(ATTENDANCE_DUE, Map.of(), (rs, i) -> rs.getObject("community_id", java.util.UUID.class))) {
-                var system = com.communityos.api.shared.security.SystemCaller.of(new com.communityos.api.shared.domain.Ids.CommunityId(c), "attendance");
-                try { com.communityos.api.shared.tenancy.CallerHolder.runAs(system, () -> attendance.closeOverdue(system)); }
-                catch (RuntimeException e) { log.warn("closing attendance of {} failed: {}", c, e.toString()); }
-            }
-        });
+        perCommunity("attendance", ATTENDANCE_DUE, "attendance", (system) -> attendance.closeOverdue(system));
     }
 
     /** Communities with an active report schedule (each one is checked against its own time and day). */
     static final String REPORTS_DUE = "SELECT DISTINCT community_id FROM reports.schedule WHERE active AND report_type <> 'custom'";
     @Scheduled(fixedDelayString = "${cos.jobs.reports-delay:300000}", initialDelay = 120000)
     public void sendScheduledReports() {
-        run("reports", () -> {
-            for (java.util.UUID c : platformJdbc.query(REPORTS_DUE, Map.of(), (rs, i) -> rs.getObject("community_id", java.util.UUID.class))) {
-                var system = com.communityos.api.shared.security.SystemCaller.of(new com.communityos.api.shared.domain.Ids.CommunityId(c), "scheduled reports");
-                try { com.communityos.api.shared.tenancy.CallerHolder.runAs(system, () -> reports.runDue(system)); }
-                catch (RuntimeException e) { log.warn("scheduled reports of {} failed: {}", c, e.toString()); }
-            }
-        });
+        perCommunity("reports", REPORTS_DUE, "scheduled reports", (system) -> reports.runDue(system));
     }
 
     @Scheduled(fixedDelayString = "${cos.jobs.outbox-delay:2000}")
@@ -127,7 +105,14 @@ public class Jobs {
     }
 
     @Scheduled(fixedDelayString = "${cos.jobs.reconcile-delay:120000}", initialDelay = 60000)
-    public void reconcilePayments() { run("reconcile", () -> payments.reconcile(100)); refunds.ifPresent((r) -> run("refunds", () -> r.reconcile(100))); }
+    public void reconcilePayments() {
+        run("reconcile", () -> payments.reconcile(100)); refunds.ifPresent((r) -> run("refunds", () -> r.reconcile(100)));
+        perCommunity("money checks", RECON_DUE, "reconciliation", recon::run);
+    }
+    /** Communities with money records in the last 90 days (the checks are cheap; quiet communities are skipped). */
+    static final String RECON_DUE = """
+        SELECT DISTINCT community_id FROM billing.payment WHERE created_at > now() - interval '90 days'
+        UNION SELECT DISTINCT community_id FROM billing.gateway_refund WHERE status = 'Pending'""";
 
     @Scheduled(cron = "${cos.jobs.purge-cron:0 17 * * * *}")
     public void purge() {
@@ -141,6 +126,16 @@ public class Jobs {
         });
     }
 
+    /** Each community the query names, as the system, one at a time; one community's failure is logged and the others still run. */
+    private void perCommunity(String job, String sql, String who, java.util.function.Function<com.communityos.api.shared.security.Caller, ?> work) {
+        run(job, () -> {
+            for (java.util.UUID c : platformJdbc.query(sql, Map.of(), (rs, i) -> rs.getObject("community_id", java.util.UUID.class))) {
+                var system = com.communityos.api.shared.security.SystemCaller.of(new com.communityos.api.shared.domain.Ids.CommunityId(c), who);
+                try { com.communityos.api.shared.tenancy.CallerHolder.runAs(system, () -> work.apply(system)); }
+                catch (RuntimeException e) { log.warn("{} of {} failed: {}", job, c, e.toString()); }
+            }
+        });
+    }
     private static void run(String name, Runnable r) {
         try { r.run(); } catch (RuntimeException e) { log.warn("job {} failed: {}", name, e.toString()); }
     }

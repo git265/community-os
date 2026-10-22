@@ -146,6 +146,8 @@ public final class JdbcCulturalStore implements CulturalStore {
     @Override public void release(UUID donationId) { jdbc.update(RELEASE, Map.of("donation", donationId.toString())); }
 
     @Override public List<Cultural.Expense> expenses(UUID eventId) { Map<String, Object> p = new HashMap<>(); p.put("event", eventId == null ? null : eventId.toString()); return jdbc.query(EXPENSES, p, (rs, i) -> expense(rs)); }
+    static final String RELEASED = "SELECT coalesce(sum(r.amount), 0) AS released FROM finance.release r WHERE r.expense_id = CAST(:id AS uuid) AND r.status NOT IN ('Rejected', 'Cancelled')";
+    @Override public java.math.BigDecimal released(UUID expenseId) { return jdbc.query(RELEASED, Map.of("id", expenseId.toString()), (rs, i) -> rs.getBigDecimal("released")).get(0); }
     @Override public Optional<Cultural.Expense> expense(UUID id) { return jdbc.query(EXPENSE, Map.of("id", id.toString()), (rs, i) -> expense(rs)).stream().findFirst(); }
     @Override public void insert(Cultural.Expense x) {
         if (x.id == null) x.id = UUID.randomUUID();

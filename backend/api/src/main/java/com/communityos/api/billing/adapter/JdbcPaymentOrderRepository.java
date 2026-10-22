@@ -39,6 +39,7 @@ public final class JdbcPaymentOrderRepository implements PaymentOrderRepository 
     static final String ITEM = """
         INSERT INTO billing.payment_order_item (community_id, order_id, target_type, target_id, amount)
         VALUES (CAST(:community AS uuid), CAST(:order AS uuid), :type, CAST(:target AS uuid), :amount)""";
+    static final String CHECKED = "UPDATE billing.payment_order SET checked_at = now() WHERE id = CAST(:id AS uuid)";
     static final String UPDATE = """
         UPDATE billing.payment_order SET status = :status, provider_order_ref = :ref, paid_at = CAST(:paidAt AS timestamptz), failure_reason = :reason
         WHERE id = CAST(:id AS uuid) AND version = :version RETURNING version""";
@@ -59,6 +60,7 @@ public final class JdbcPaymentOrderRepository implements PaymentOrderRepository 
         for (PaymentOrder.Item it : o.items())
             jdbc.update(ITEM, Map.of("community", o.community().toString(), "order", o.id().toString(), "type", it.targetType(), "target", it.target().toString(), "amount", it.amount().amount()));
     }
+    @Override public void checked(OrderId id) { jdbc.update(CHECKED, Map.of("id", id.toString())); }
     @Override public boolean save(PaymentOrder o) {
         Map<String, Object> p = new HashMap<>();
         p.put("id", o.id().toString()); p.put("version", o.version()); p.put("status", o.status().label()); p.put("ref", o.providerOrderRef());

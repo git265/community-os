@@ -108,6 +108,8 @@ public final class Fixtures {
         @Override public Optional<PaymentOrder> findByProviderRefForUpdate(String p, String ref) { return rows.values().stream().filter((o) -> ref.equals(o.providerOrderRef())).findFirst(); }
         @Override public void insert(PaymentOrder o) { o.numbered("ORD-" + (++n)); o.stored(1); rows.put(o.id(), o); }
         @Override public boolean save(PaymentOrder o) { o.stored(o.version() + 1); return true; }
+        public final java.util.Set<OrderId> checked = new java.util.HashSet<>();
+        @Override public void checked(OrderId id) { checked.add(id); }
     }
 
     public static final class Payments implements PaymentRepository {
@@ -163,6 +165,10 @@ public final class Fixtures {
         public Platform(Orders orders) { this.orders = orders; }
         @Override public Optional<Located> byProviderRef(String p, String ref) { return orders.rows.values().stream().filter((o) -> ref.equals(o.providerOrderRef())).map((o) -> new Located(o.community(), o.id())).findFirst(); }
         @Override public List<Located> openOlderThan(Instant before, int limit) { return orders.rows.values().stream().filter((o) -> !o.status().isFinal()).map((o) -> new Located(o.community(), o.id())).toList(); }
+        @Override public List<Located> closedToCheck(int limit) {
+            return orders.rows.values().stream().filter((o) -> (o.status() == com.communityos.api.billing.domain.OrderStatus.EXPIRED || o.status() == com.communityos.api.billing.domain.OrderStatus.FAILED)
+                && o.providerOrderRef() != null && !orders.checked.contains(o.id())).map((o) -> new Located(o.community(), o.id())).limit(limit).toList();
+        }
         @Override public boolean alreadyProcessed(String p, String e) { return Boolean.TRUE.equals(inbound.get(p + ":" + e)); }
         @Override public void received(String p, String e, UUID c, String t) { inbound.putIfAbsent(p + ":" + e, false); }
         @Override public void markProcessed(String p, String e) { inbound.put(p + ":" + e, true); }

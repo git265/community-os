@@ -318,5 +318,11 @@ public class ModulesConfig {
         bookings.refunds(refunds);
         return refunds;
     }
+    /** Reconciliation of the money records (and money the provider captured on closed orders, found by the payment job). */
+    @Bean com.communityos.api.billing.application.PaymentReconciler paymentReconciler(NamedParameterJdbcTemplate jdbc, DomainEvents events, AuditWriter audit, Tx tx, Clock clock, PaymentService payments) {
+        var r = new com.communityos.api.billing.application.PaymentReconciler(new com.communityos.api.billing.adapter.JdbcReconStore(jdbc), events, audit, tx, clock);
+        payments.reconciler(r);
+        return r;
+    }
     private static boolean blank(String s) { return s == null || s.isBlank(); }
 }

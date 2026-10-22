@@ -18,6 +18,9 @@ public final class JdbcPlatformPayments implements OrderLocator, InboundEvents {
     static final String BY_REF = "SELECT community_id, id FROM billing.payment_order WHERE provider = :provider AND provider_order_ref = :ref";
     static final String OPEN = """
         SELECT community_id, id FROM billing.payment_order WHERE status IN ('Created', 'Pending') AND updated_at < CAST(:before AS timestamptz) ORDER BY updated_at LIMIT :limit""";
+    static final String CLOSED = """
+        SELECT community_id, id FROM billing.payment_order WHERE status IN ('Expired', 'Failed') AND provider_order_ref IS NOT NULL AND created_at > now() - interval '7 days'
+          AND (checked_at IS NULL OR checked_at < now() - interval '1 hour') ORDER BY coalesce(checked_at, created_at) LIMIT :limit""";
     static final String PROCESSED = "SELECT EXISTS (SELECT 1 FROM integration.inbound_event WHERE provider = :provider AND event_id = :event AND processed_at IS NOT NULL)";
     static final String RECEIVED = """
         INSERT INTO integration.inbound_event (provider, event_id, community_id, type) VALUES (:provider, :event, CAST(:community AS uuid), :type)
@@ -32,6 +35,9 @@ public final class JdbcPlatformPayments implements OrderLocator, InboundEvents {
     }
     @Override public List<Located> openOlderThan(Instant before, int limit) {
         return jdbc.query(OPEN, Map.of("before", Rows.ts(before), "limit", limit), (rs, i) -> new Located(new CommunityId(Rows.uuid(rs, "community_id")), new OrderId(Rows.uuid(rs, "id"))));
+    }
+    @Override public List<Located> closedToCheck(int limit) {
+        return jdbc.query(CLOSED, Map.of("limit", limit), (rs, i) -> new Located(new CommunityId(Rows.uuid(rs, "community_id")), new OrderId(Rows.uuid(rs, "id"))));
     }
     @Override public boolean alreadyProcessed(String provider, String event) { return Boolean.TRUE.equals(jdbc.queryForObject(PROCESSED, Map.of("provider", provider, "event", event), Boolean.class)); }
     @Override public void received(String provider, String event, UUID community, String type) {

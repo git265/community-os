@@ -46,6 +46,8 @@ public final class RefundService {
         Refund insert(String ownerType, UUID ownerId, String part, OnlinePayment p, Money amount);
         Optional<Refund> get(UUID id);
         void asked(UUID id, String providerRefundRef);
+        /** A processed refund reduces what the payment brought in (refunded amount and status: Partly refunded / Refunded). */
+        void refunded(UUID paymentId, Money amount);
         /** Pending -> Processed / Failed, once; false when it was no longer pending. */
         boolean finish(UUID id, String status, String reason, Instant at);
         List<Refund> ofOwner(String ownerType, UUID ownerId);
@@ -71,16 +73,20 @@ public final class RefundService {
         Store.OnlinePayment p = paymentId == null ? null : store.onlinePayment(paymentId).orElse(null);
         if (p == null) throw new DomainException.RuleViolated("not-online", "This was not paid online, so it cannot be sent back automatically - pay it out and record it instead");
         Refund r = tx.inTx(() -> {
+            // one refund in flight per owner and part (the database holds to it too): two people pressing at once cannot send it twice
+            if (store.ofOwner(ownerType, ownerId).stream().anyMatch((x) -> x.pending() && x.part().equals(part)))
+                throw new DomainException.RuleViolated("refund-in-progress", "This refund was already asked from the payment provider - wait for its answer");
             Refund x = store.insert(ownerType, ownerId, part, p, amount);
             audit.write(c, AuditWriter.Action.Create, "billing.gateway_refund", x.id(), x.shortId(), null, "Refund of " + amount.amount().toPlainString() + " asked from " + p.provider(), List.of());
             return x;
         });
-        PaymentGateway g = gateways.get(p.provider());
         PaymentGateway.ProviderRefund pr;
-        try { pr = g.refund(new PaymentGateway.RefundRequest(p.providerPaymentRef(), amount, r.id().toString(), Map.of("community", c.community().toString(), "refund", r.shortId()))); }
+        try { pr = send(c.community(), r, p); }
         catch (TransientFailure | CircuitBreaker.OpenException e) {
-            store.finish(r.id(), "Failed", "the payment service did not answer", clock.instant());
-            throw new TransientFailure("The payment service is not answering, so nothing was sent back. Try again in a few minutes.", e);
+            // no answer is not "no": the provider may have taken it. It stays Pending and is sent again by the reconcile job under the same
+            // idempotency key (the refund's id), so the provider makes it once either way.
+            log.info("refund {} not answered; kept pending for the retry: {}", r.shortId(), e.toString());
+            return store.get(r.id()).orElseThrow();
         } catch (RuntimeException e) {
             store.finish(r.id(), "Failed", e.getMessage() == null ? "refused by the provider" : e.getMessage(), clock.instant());
             throw new DomainException.RuleViolated("refund-refused", "The payment service refused the refund: " + (e.getMessage() == null ? "no reason given" : e.getMessage()));
@@ -88,6 +94,10 @@ public final class RefundService {
         store.asked(r.id(), pr.providerRefundRef());
         if (pr.processed() || pr.failed()) return conclude(c, r.id(), pr);
         return store.get(r.id()).orElseThrow();
+    }
+    /** The refund request; its id is the idempotency key, so sending it again never makes a second refund. */
+    private PaymentGateway.ProviderRefund send(CommunityId community, Refund r, Store.OnlinePayment p) {
+        return gateways.get(p.provider()).refund(new PaymentGateway.RefundRequest(p.providerPaymentRef(), r.amount(), r.id().toString(), Map.of("community", community.toString(), "refund", r.shortId())));
     }
 
     /** The provider's webhook about a refund (the payment webhook passes these on). */
@@ -112,7 +122,18 @@ public final class RefundService {
 
     private void refresh(Caller system, UUID id) {
         Refund r = store.get(id).orElse(null);
-        if (r == null || !r.pending() || r.providerRefundRef() == null) return;
+        if (r == null || !r.pending()) return;
+        if (r.providerRefundRef() == null) {                                     // asked, but the provider never answered: ask again (same key)
+            Store.OnlinePayment p = store.onlinePayment(r.paymentId()).orElse(null);
+            if (p == null) return;
+            PaymentGateway.ProviderRefund pr;
+            try { pr = send(system.community(), r, p); }
+            catch (TransientFailure | CircuitBreaker.OpenException e) { return; }
+            catch (RuntimeException e) { conclude(system, id, new PaymentGateway.ProviderRefund(null, p.providerPaymentRef(), r.amount(), "failed", e.getMessage() == null ? "refused by the provider" : e.getMessage())); return; }
+            store.asked(id, pr.providerRefundRef());
+            if (pr.processed() || pr.failed()) conclude(system, id, pr);
+            return;
+        }
         PaymentGateway.ProviderRefund pr = gateways.get(r.provider()).fetchRefund(r.providerRefundRef());   // the provider's record, not the webhook body
         if (pr.processed() || pr.failed()) conclude(system, id, pr);
     }
@@ -121,6 +142,8 @@ public final class RefundService {
             String status = pr.processed() ? "Processed" : "Failed";
             if (!store.finish(id, status, pr.processed() ? null : (pr.failureReason() == null ? "refused by the bank" : pr.failureReason()), clock.instant())) return store.get(id).orElseThrow();
             Refund done = store.get(id).orElseThrow();
+            if (pr.processed()) store.refunded(done.paymentId(), done.amount());
+            io.micrometer.core.instrument.Metrics.counter("cos.refunds", "status", status).increment();
             owners.get(done.ownerType()).settled(c, done);
             audit.write(c, AuditWriter.Action.Update, "billing.gateway_refund", done.id(), done.shortId(), null, "Refund " + status.toLowerCase()
                 + (done.failureReason() == null ? "" : ": " + done.failureReason()), List.of(new AuditWriter.Change("status", "Pending", status)));

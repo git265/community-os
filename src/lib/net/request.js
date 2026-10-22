@@ -69,7 +69,7 @@ async function send(path, init, opts) {
 /** Reads a failed response into the right kind of error. */
 export async function failureOf(res, what = '') {
   let body = null; try { body = await res.clone().json(); } catch { /* not JSON */ }
-  const msg = body?.message || `Back end error ${res.status}`;
+  const msg = body?.detail || body?.message || `Back end error ${res.status}`;   // problem+json says it in "detail"
   if (res.status === 401 && serverEnforces()) clearSession(body?.code === 'deactivated' ? 'Your portal access has been withdrawn. Please contact the community office.' : 'Your session has ended. Please sign in again.');
   return new HttpFailure(res.status, what ? `${msg} (${what})` : msg, body);
 }

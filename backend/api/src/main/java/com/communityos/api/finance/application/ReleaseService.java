@@ -109,6 +109,8 @@ public final class ReleaseService {
         return tx.inTx(() -> {
             Books.Release r = current(id, version);
             if (!"Approved".equals(r.status)) throw new DomainException.RuleViolated("not-approved", "Only an approved release is paid");
+            if (r.expenseId != null && store.expenseMoney(r.expenseId).map((x) -> "Paid".equals(x.status())).orElse(false))
+                throw new DomainException.RuleViolated("expense-paid", "The event expense was already marked paid - cancel this release instead of paying it twice");
             Books.Entry e = new Books.Entry();
             e.date = date == null ? LocalDate.now(clock) : date; e.type = "Debit"; e.amount = r.amount; e.vendor = r.vendor; e.mode = mode == null ? "Bank transfer" : mode; e.ref = blank(ref);
             e.description = "Release " + r.shortId + (r.ticketShortId != null ? " on " + r.ticketShortId : "") + (r.vendor == null ? "" : " to " + r.vendor);

@@ -290,9 +290,5 @@ public final class JdbcGovernanceStore implements GovernanceStore {
     static byte[] hex(String s) { return s == null ? null : HexFormat.of().parseHex(s); }
     static LocalTime time(String s) { return s == null ? null : LocalTime.parse(s.length() > 8 ? s.substring(0, 8) : s); }
     /** A Postgres text[] literal ({"a","b"}) for CAST(:x AS text[]). */
-    static String array(List<String> xs) {
-        StringBuilder sb = new StringBuilder("{");
-        for (int i = 0; i < xs.size(); i++) { if (i > 0) sb.append(','); sb.append('"').append(xs.get(i).replace("\\", "\\\\").replace("\"", "\\\"")).append('"'); }
-        return sb.append('}').toString();
-    }
+    static String array(List<String> xs) { return com.communityos.api.shared.jdbc.Rows.pgArray(xs); }
 }

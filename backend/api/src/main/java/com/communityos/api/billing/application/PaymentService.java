@@ -63,6 +63,9 @@ public final class PaymentService {
     private RefundService refunds;
     /** Refund webhooks go to the refund service (wired after both exist). */
     public PaymentService refunds(RefundService r) { this.refunds = r; return this; }
+    private PaymentReconciler reconciler;
+    /** Where money captured on a closed order is reported (wired after both exist). */
+    public PaymentService reconciler(PaymentReconciler r) { this.reconciler = r; return this; }
 
     public OrderView createOrder(Caller c, CreateOrder cmd, String idempotencyKey) {
         if (c.membership() == null) throw new AccessDenied("Sign in to pay");
@@ -159,15 +162,39 @@ public final class PaymentService {
             try { CallerHolder.runAs(system, () -> { reconcileOne(system, l.order()); return null; }); n++; }
             catch (RuntimeException ex) { log.warn("reconcile of order {} failed: {}", l.order(), ex.toString()); }
         }
+        // orders that expired or failed: the bank may still have taken the money (a UPI approval after the checkout closed). It is recorded
+        // (on the order's bills, the rest as credit) and the treasurer is told; never left captured with no receipt.
+        for (OrderLocator.Located l : locator.closedToCheck(batch)) {
+            Caller system = SystemCaller.of(l.community(), "payments reconcile");
+            try { CallerHolder.runAs(system, () -> { reconcileClosed(system, l.order()); return null; }); n++; }
+            catch (RuntimeException ex) { log.warn("reconcile of closed order {} failed: {}", l.order(), ex.toString()); }
+        }
         return n;
     }
+    private void reconcileClosed(Caller system, OrderId id) {
+        PaymentOrder o = orders.findById(id).orElse(null);
+        if (o == null || o.providerOrderRef() == null) return;
+        PaymentGateway g = gateways.get(o.provider());
+        String was = o.status().label();
+        for (PaymentGateway.ProviderPayment p : g.paymentsOf(o.providerOrderRef())) {
+            if (!p.captured()) continue;
+            settlement.settle(system, new GatewaySettlement.Request(id, g, p));
+            if (reconciler != null) tx.run(() -> reconciler.file(system, new com.communityos.api.billing.domain.Recon.Finding(com.communityos.api.billing.domain.Recon.LATE_CAPTURE, "payment_order", id.value(),
+                o.shortId(), p.providerPaymentRef(), o.amount().amount(), p.amount().amount(), "Order " + o.shortId() + " was " + was.toLowerCase(java.util.Locale.ROOT)
+                    + " but the provider captured " + p.amount().amount().toPlainString() + " on it - recorded now; check the receipt")));
+        }
+        tx.run(() -> orders.checked(id));
+    }
+    /** Captured payments on an open order: every one is recorded (a second capture becomes credit, and reconciliation flags it). */
 
     private void reconcileOne(Caller system, OrderId id) {
         PaymentOrder o = orders.findById(id).orElse(null);
         if (o == null || o.status().isFinal()) return;
         PaymentGateway g = gateways.get(o.provider());
         if (o.providerOrderRef() != null) {
-            for (PaymentGateway.ProviderPayment p : g.paymentsOf(o.providerOrderRef())) if (p.captured()) { settlement.settle(system, new GatewaySettlement.Request(id, g, p)); return; }
+            boolean any = false;
+            for (PaymentGateway.ProviderPayment p : g.paymentsOf(o.providerOrderRef())) if (p.captured()) { settlement.settle(system, new GatewaySettlement.Request(id, g, p)); any = true; }
+            if (any) return;
         }
         tx.run(() -> {
             PaymentOrder locked = orders.findForUpdate(id).orElseThrow();

@@ -12,4 +12,6 @@ public interface PaymentOrderRepository {
     Optional<PaymentOrder> findByProviderRefForUpdate(String provider, String providerOrderRef);
     void insert(PaymentOrder order);
     boolean save(PaymentOrder order);
+    /** The provider was asked about this closed order now (reconciliation asks again an hour later, for a week). */
+    void checked(OrderId id);
 }

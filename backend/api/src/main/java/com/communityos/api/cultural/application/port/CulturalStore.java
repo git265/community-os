@@ -28,6 +28,8 @@ public interface CulturalStore {
     // expenses
     List<Cultural.Expense> expenses(UUID eventId);
     Optional<Cultural.Expense> expense(UUID id);
+    /** Money already put into releases for this expense (not rejected or cancelled): such an expense is paid through them, not directly. */
+    java.math.BigDecimal released(UUID expenseId);
     void insert(Cultural.Expense x);
     boolean update(Cultural.Expense x);
     boolean deleteExpense(UUID id, long version);

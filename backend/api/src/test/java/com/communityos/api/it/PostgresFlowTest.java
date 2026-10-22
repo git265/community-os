@@ -457,11 +457,39 @@ class PostgresFlowTest {
             com.communityos.api.demo.ReplayClock.at(java.time.Instant.now().plusSeconds(61), () -> { simBank.run(); return null; });
             assertEquals("Refund due", as(admin, () -> bookingSvc.get(admin, refused.id())).state().refundStatus, "refused by the bank: due again");
             assertEquals("Failed", owner.sql("SELECT status FROM billing.gateway_refund WHERE community_id = '" + cid + "' AND owner_id = '" + refused.id() + "'").get(0).get("status"));
+            // the payment service does not answer: the refund is kept as asked (not "failed": the provider may have taken it) and sent again by the
+            // reconcile job under the same key once the service is back; asking twice is refused meanwhile
             sim.mode(new SimulatedGateway.Mode(SimulatedGateway.Service.DOWN, false));
             var again = as(admin, () -> bookingSvc.get(admin, refused.id()));
-            assertTrue(assertThrows(com.communityos.api.shared.resilience.TransientFailure.class, () -> as(admin, () -> bookingSvc.initiateRefund(admin, refused.id(), again.version(), "fee")))
-                .getMessage().contains("nothing was sent back"));
-            assertEquals("Refund due", as(admin, () -> bookingSvc.get(admin, refused.id())).state().refundStatus);
+            assertEquals("Refund initiated", as(admin, () -> bookingSvc.initiateRefund(admin, refused.id(), again.version(), "fee")).state().refundStatus);
+            var stillAsked = as(admin, () -> bookingSvc.get(admin, refused.id()));
+            assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> bookingSvc.initiateRefund(admin, refused.id(), stillAsked.version(), "fee")), "asked once");
+            assertThrows(RuntimeException.class, () -> owner.sql("INSERT INTO billing.gateway_refund (community_id, owner_type, owner_id, part, payment_id, provider, provider_payment_ref, amount) SELECT community_id, owner_type, owner_id, part, payment_id, provider, provider_payment_ref, amount FROM billing.gateway_refund WHERE owner_id = '" + refused.id() + "' AND status = 'Pending' RETURNING 1"),
+                "one refund in flight per booking part (the database)");
+            sim.mode(new SimulatedGateway.Mode(SimulatedGateway.Service.NORMAL, false));
+            com.communityos.api.demo.ReplayClock.at(java.time.Instant.now().plusSeconds(180), () -> refundSvc.reconcile(50));
+            com.communityos.api.demo.ReplayClock.at(java.time.Instant.now().plusSeconds(250), () -> { simBank.run(); return refundSvc.reconcile(50); });
+            assertEquals("Refunded", as(admin, () -> bookingSvc.get(admin, refused.id())).state().refundStatus, "sent again once the service answered");
+            assertEquals("Refunded", owner.sql("SELECT p.status FROM billing.payment p JOIN billing.gateway_refund r ON r.payment_id = p.id WHERE r.owner_id = '" + refused.id() + "' AND r.status = 'Processed'").get(0).get("status"),
+                "the payment shows what went back");
+            // reconciliation: the records checked against each other; a disagreement is kept once, told to the treasurer, resolved with a note
+            var recon = new com.communityos.api.billing.application.PaymentReconciler(new com.communityos.api.billing.adapter.JdbcReconStore(app), events, audit, app, clock);
+            var firstRun = as(admin, () -> recon.run(admin));
+            assertTrue(as(admin, () -> recon.issues(admin, "Open")).stream().noneMatch((i) -> i.kind().equals("ledger-unbalanced")), "the books balance");
+            assertThrows(AccessDenied.class, () -> as(ownerC, () -> recon.issues(ownerC, null)), "residents do not see the accounts' checks");
+            owner.sql("INSERT INTO billing.unit_credit (community_id, unit_id, amount, reason, source_type) VALUES ('" + cid + "', '" + unitA + "', 12.34, 'typed in by hand', 'adjustment') RETURNING 1");
+            var second = as(admin, () -> recon.run(admin));
+            assertEquals(1, second.fresh(), "one new disagreement (first run: " + firstRun + ")");
+            var issue = as(admin, () -> recon.issues(admin, "Open")).stream().filter((i) -> i.kind().equals("credit-mismatch")).findFirst().orElseThrow();
+            assertEquals(0, as(admin, () -> recon.run(admin)).fresh(), "seen again, not new");
+            assertThrows(AccessDenied.class, () -> as(ownerC, () -> recon.resolve(ownerC, issue.id(), issue.version(), "Resolved", "x")), "resolving takes MANAGE_LEDGER");
+            assertEquals("note-required", assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> recon.resolve(admin, issue.id(), issue.version(), "Resolved", " "))).code());
+            var setAside = as(admin, () -> recon.resolve(admin, issue.id(), issue.version(), "Ignored", "Opening balance carried from the old books"));
+            assertEquals("Ignored", setAside.status());
+            as(admin, () -> recon.run(admin));
+            assertEquals("Ignored", as(admin, () -> recon.issues(admin, null)).stream().filter((i) -> i.id().equals(issue.id())).findFirst().orElseThrow().status(), "set aside stays so");
+            owner.sql("DELETE FROM billing.unit_credit WHERE community_id = '" + cid + "' AND reason = 'typed in by hand' RETURNING 1");
+            sim.mode(new SimulatedGateway.Mode(SimulatedGateway.Service.DOWN, false));
             assertTrue(assertThrows(com.communityos.api.shared.resilience.TransientFailure.class, () -> as(ownerC, () -> pay.createOrder(ownerC,
                 new PaymentService.CreateOrder(List.of(), "booking", new UnitId(unitA), Money.of("100")), "it-down-" + tag))).getMessage().contains("nothing was charged"));
             sim.mode(new SimulatedGateway.Mode(SimulatedGateway.Service.NORMAL, false));

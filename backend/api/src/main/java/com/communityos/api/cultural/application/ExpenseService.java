@@ -111,6 +111,9 @@ public final class ExpenseService {
         return tx.inTx(() -> {
             Cultural.Expense x = current(id, version);
             if (!"Approved".equals(x.status)) throw new DomainException.RuleViolated("not-approved", "Only an approved expense is paid");
+            if (x.amount == null || x.amount.signum() <= 0) throw new DomainException.RuleViolated("amount-required", "Enter the actual amount spent before marking it paid");
+            // paid once: an expense with money in releases is paid through those releases, never directly as well
+            if (store.released(x.id).signum() > 0) throw new DomainException.RuleViolated("paid-by-releases", "This expense is being paid through releases - pay the release instead");
             Instant now = clock.instant();
             x.status = "Paid"; x.paidAt = now; x.paidById = c.membership() == null ? null : c.membership().value(); x.paidMode = mode == null || mode.isBlank() ? "Bank transfer" : mode;
             if (!store.update(x)) throw new DomainException.Conflict("Expense " + x.shortId);

@@ -112,5 +112,5 @@ public final class JdbcInbox implements Inbox, Facts {
             Rows.uuid(rs, "owner"), Rows.uuid(rs, "other"), rs.getString("extra"))).stream().findFirst();
     }
 
-    static String array(Collection<?> xs) { return "{" + String.join(",", xs.stream().map((x) -> "\"" + x.toString().replace("\"", "") + "\"").toList()) + "}"; }
+    static String array(Collection<?> xs) { return com.communityos.api.shared.jdbc.Rows.pgArray(xs); }
 }

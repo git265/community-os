@@ -34,5 +34,15 @@ public final class Rows {
     public static java.sql.Timestamp ts(Instant i) { return i == null ? null : Timestamp.from(i); }
     public static java.sql.Date sqlDate(LocalDate d) { return d == null ? null : java.sql.Date.valueOf(d); }
     /** Escape a user's search text for LIKE ... ESCAPE '\'. */
+    /** A PostgreSQL array literal ({"a","b"}) for CAST(:x AS text[]) / uuid[]: every element double-quoted, quotes and backslashes escaped. */
+    public static String pgArray(java.util.Collection<?> list) {
+        StringBuilder b = new StringBuilder("{");
+        int i = 0;
+        for (Object o : list) {
+            if (i++ > 0) b.append(',');
+            b.append(o == null ? "NULL" : "\"" + o.toString().replace("\\", "\\\\").replace("\"", "\\\"") + "\"");
+        }
+        return b.append('}').toString();
+    }
     public static String like(String q) { return "%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"; }
 }

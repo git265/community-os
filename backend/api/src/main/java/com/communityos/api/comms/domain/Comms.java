@@ -28,7 +28,7 @@ public final class Comms {
     public static final List<String> EVENTS = List.of("ticket_assigned", "ticket_status", "ticket_decision", "approval", "bill", "payment_reminder", "announcement", "ticket_new",
         "ticket_chat", "payment_made", "ballot", "ballot_result", "poll", "forum_topic", "forum_reply", "calendar", "cultural", "brochure", "service_notice", "meeting", "shift",
         "event_work", "report", "gate_approval", "gate_guest_arrived", "gate_guest_exit", "gate_delivery", "gate_staff_inout", "gate_crew_inout", "gate_overstay", "gate_ghost",
-        "gate_override", "gate_blocked", "gate_vetting", "amenity_booking", "stock_low");
+        "gate_override", "gate_blocked", "gate_vetting", "amenity_booking", "stock_low", "money_check");
 
     // ---- the inbox -------------------------------------------------------------------------------------------------------------------------------
     /** Who a notification is for: members by id, everyone with portal access to some units, and holders of some roles (by code). */

@@ -54,6 +54,15 @@ public final class Recipes {
             case BillingEvents.PaymentRecorded p when p.unitId() != null -> out.add(new Message("bill", "payment", "Payment received · " + p.receiptNo(),
                 rupees(p.amount().amount()) + " was received" + (p.toCredit() != null && p.toCredit().amount().signum() > 0 ? " (" + rupees(p.toCredit().amount()) + " kept as credit)" : "") + ".",
                 "#/billing", p.paymentId().value(), To.unit(p.unitId().value())));
+            case BillingEvents.PaymentOrderFailed f when f.unitId() != null -> out.add(new Message("bill", "payment", "Payment not completed",
+                "Your online payment did not go through" + (f.reason() == null ? "" : " (" + f.reason() + ")") + ". Nothing was taken; if money left your account, it is recorded or returned by the bank.",
+                "#/billing", f.orderId().value(), To.unit(f.unitId().value())));
+            case BillingEvents.DueCancelled d when d.unitId() != null -> out.add(new Message("bill", "bill", "Bill cancelled",
+                "A bill of " + rupees(d.amount().amount().add(d.tax() == null ? BigDecimal.ZERO : d.tax().amount())) + " was cancelled" + (d.reason() == null ? "" : ": " + d.reason()) + ".", "#/billing", d.dueId().value(), To.unit(d.unitId().value())));
+            case BillingEvents.DueWaived d when d.unitId() != null -> out.add(new Message("bill", "bill", "Bill waived · " + rupees(d.waived().amount()),
+                rupees(d.waived().amount()) + " of a bill was waived" + (d.reason() == null ? "" : ": " + d.reason()) + ".", "#/billing", d.dueId().value(), To.unit(d.unitId().value())));
+            case com.communityos.api.billing.application.PaymentReconciler.IssueFound i -> out.add(new Message("money_check", "reconciliation", "Money check: " + i.kind().replace('-', ' '),
+                i.detail(), "#/billing", i.aggregateId(), To.roles("treasurer")));
             case BookingEvents b when b.topic().endsWith(".created") || b.topic().endsWith(".cancelled") ->
                 facts.of(Facts.Kind.BOOKING, b.aggregateId()).ifPresent((f) -> out.add(new Message("amenity_booking", "booking",
                     (b.topic().endsWith(".created") ? "Booked: " : "Booking cancelled: ") + f.title() + " on " + b.date(),

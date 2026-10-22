@@ -6,6 +6,7 @@ import { areaOf } from '../../lib/paymentEngine.js';
 import { moneyPosition } from '../../lib/approval/position.js';
 import { releaseSummary } from '../../lib/approval/releases.js';
 import { fmtDate, money } from '../../lib/locale.js';
+import MoneyChecks from './MoneyChecks.jsx';
 
 const inr = (n) => money(n);
 const dmy = (s) => fmtDate(s, { year: false, empty: '—' });
@@ -69,6 +70,7 @@ export default function Reconciliation({ ledger, onOpenTask }) {
         { label: 'Still to pay', value: inr(data.totals.owed), tone: data.totals.owed > 0 ? 'orange' : '' },
         { label: 'Paid above approved', value: inr(data.totals.over), tone: data.totals.over > 0 ? 'red' : '' },
       ]} />
+      <MoneyChecks />
       <p className="muted" data-testid="recon-status">{issues === 0 ? '✓ Everything adds up: no overpayments, nothing owed on closed tasks, every payment is linked and matched.' : `${issues} item${issues === 1 ? '' : 's'} to look at, most important first.`}</p>
 
       <Sec id="over" title="Paid more than approved" hint="Total paid on the task is above the approved invoice / quotation (beyond the tolerance)." count={data.overpaid.length} tone="red">

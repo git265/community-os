@@ -152,5 +152,5 @@ public final class JdbcReportData implements ReportData {
     }
     static Boolean bool(ResultSet rs, String c) throws SQLException { boolean v = rs.getBoolean(c); return rs.wasNull() ? null : v; }
     static String s(Object o) { return o == null ? null : o.toString(); }
-    static String array(Collection<?> xs) { return "{" + String.join(",", xs.stream().map((x) -> "\"" + x.toString().replace("\\", "\\\\").replace("\"", "\\\"") + "\"").toList()) + "}"; }
+    static String array(Collection<?> xs) { return com.communityos.api.shared.jdbc.Rows.pgArray(xs); }
 }

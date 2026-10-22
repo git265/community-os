@@ -270,9 +270,5 @@ public final class JdbcGateStore implements GateStore {
     static String t(LocalTime t) { return t == null ? null : t.toString(); }
     static String s(UUID u) { return u == null ? null : u.toString(); }
     static String uid(UnitId u) { return u == null ? null : u.toString(); }
-    static String arr(List<String> l) {
-        StringBuilder b = new StringBuilder("{");
-        for (int i = 0; i < l.size(); i++) { if (i > 0) b.append(','); b.append('"').append(l.get(i).replace("\\", "\\\\").replace("\"", "\\\"")).append('"'); }
-        return b.append('}').toString();
-    }
+    static String arr(List<String> l) { return Rows.pgArray(l); }
 }
