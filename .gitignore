@@ -3,3 +3,5 @@ dist
 .env
 backend/api/target
 tests/v2/.out
+backend/logs/*
+!backend/logs/.gitkeep

@@ -462,7 +462,7 @@ To use it, pick **Back end v2** in the Data source panel, or set `VITE_USE_API=v
 
 ## 11. Running it
 
-**Everything in Docker (quickest):** from `backend/`, run `docker compose up -d --build`, then open http://localhost:8081.
+**Everything in Docker (quickest):** from `backend/`, run `docker compose up -d --build`, then open http://localhost:8081. The API's log is on the console (`docker compose logs -f api`) and in `backend/logs/api.log` (a new file at 10 MB, 7 days kept, 500 MB at most; on Linux make the folder writable for the container's user, uid 10001: `sudo chown 10001 backend/logs`).
 
 | Service | What it is |
 |---|---|

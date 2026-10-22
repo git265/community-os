@@ -57,7 +57,12 @@ services:
       COS_FILES_DIR: /data/files                          # uploaded files' bytes
       COS_FILES_SCANNER: ${COS_FILES_SCANNER:-clamav}     # every upload is scanned by ClamAV (the clamav service) before others can open it
       COS_FILES_CLAMAV_HOST: clamav
-    volumes: ["files:/data/files"]
+      # logs: on the console (docker compose logs api) and in backend/logs/api.log on this machine - a new file at 10 MB, 7 days kept
+      LOGGING_FILE_NAME: /data/logs/api.log
+      LOGGING_LOGBACK_ROLLINGPOLICY_MAX_FILE_SIZE: 10MB
+      LOGGING_LOGBACK_ROLLINGPOLICY_MAX_HISTORY: 7
+      LOGGING_LOGBACK_ROLLINGPOLICY_TOTAL_SIZE_CAP: 500MB
+    volumes: ["files:/data/files", "./logs:/data/logs"]
 
   # ClamAV (free, open source): clamd on 3310, signatures kept up to date by freshclam inside the image. The first start downloads
   # the signatures (a few minutes); until then uploads stay "Pending" and the API's rescan job scans them when clamd is up.
