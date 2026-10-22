@@ -4,7 +4,6 @@ import com.communityos.api.shared.domain.DomainException;
 import com.communityos.api.shared.security.Caller;
 import com.communityos.api.shared.tenancy.CallerHolder;
 import com.communityos.api.shared.web.ETags;
-import com.communityos.api.shared.web.Idempotency;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -30,9 +29,9 @@ import org.springframework.web.bind.annotation.RestController;
 @Tag(name = "Resources")
 public class ResourceController {
     static final String MODULES = "maintenance|amenities|gate|comms|docs|cultural|finance|governance|vendors|assets|workforce|reports|property";
-    private final ResourceRegistry registry; private final ResourceService service; private final ObjectMapper json; private final Idempotency idempotency;
-    public ResourceController(ResourceRegistry registry, ResourceService service, ObjectMapper json, Idempotency idempotency) {
-        this.registry = registry; this.service = service; this.json = json; this.idempotency = idempotency;
+    private final ResourceRegistry registry; private final ResourceService service; private final ObjectMapper json;
+    public ResourceController(ResourceRegistry registry, ResourceService service, ObjectMapper json) {
+        this.registry = registry; this.service = service; this.json = json;
     }
 
     @GetMapping("/api/v1/meta/resources")
@@ -43,12 +42,11 @@ public class ResourceController {
     @GetMapping("/api/v1/{module:" + MODULES + "}/{resource}/{id}")
     public ResponseEntity<JsonNode> get(@PathVariable String module, @PathVariable String resource, @PathVariable UUID id) { return one(entry(module, resource), id); }
     @PostMapping("/api/v1/{module:" + MODULES + "}/{resource}")
-    public ResponseEntity<JsonNode> create(@PathVariable String module, @PathVariable String resource, @RequestBody JsonNode body,
-                                           @RequestHeader(name = "Idempotency-Key", required = false) String key) {
+    public ResponseEntity<JsonNode> create(@PathVariable String module, @PathVariable String resource, @RequestBody JsonNode body) {
         ResourceRegistry.Entry<?> e = entry(module, resource);
         Caller c = CallerHolder.require();
-        Idempotency.Reply<JsonNode> r = idempotency.run(c, key, "POST /api/v1/" + module + "/" + resource, body, JsonNode.class, 201, () -> create(e, c, body));
-        return ResponseEntity.status(r.status()).header("ETag", ETags.of(r.body().path("version").asLong())).body(r.body());
+        JsonNode r = create(e, c, body);
+        return ResponseEntity.status(201).header("ETag", ETags.of(r.path("version").asLong())).body(r);
     }
     @PutMapping("/api/v1/{module:" + MODULES + "}/{resource}/{id}")
     public ResponseEntity<JsonNode> replace(@PathVariable String module, @PathVariable String resource, @PathVariable UUID id, @RequestBody JsonNode body,

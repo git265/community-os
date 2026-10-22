@@ -2,8 +2,9 @@ import React, { useState } from 'react';
 import { useCollection } from '../../context/AppContext.jsx';
 import { COLLECTIONS } from '../../lib/storage/index.js';
 import { parseVersion, restoreVersion } from '../../lib/infra/mapVersions.js';
+import { fmtDateTime } from '../../lib/locale.js';
 
-const when = (iso) => (iso ? new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '');
+const when = (iso) => fmtDateTime(iso);
 
 /**
  * Every change to where an asset sits (or how the plan is set up), newest first, each with who and when. "Put back" restores what

@@ -105,8 +105,9 @@ function UnitDetail({ unit, onEdit, canEdit, canSeePrivate }) {
   // Portal access of each person (signed up, invited, deactivated) needs the users list: read only when asked for
   const [showPortal, setShowPortal] = useState(false);
   const [portalUsers, setPortalUsers] = useState([]);
-  useEffect(() => { setShowPortal(false); setPortalUsers([]); }, [unit.id]);
-  useEffect(() => { if (canEdit && showPortal) secureStorage.list(COLLECTIONS.USERS).then(setPortalUsers).catch(() => {}); }, [canEdit, showPortal, unit.id, unit.ownerPhone, unit.tenantPhone, unit.people]);
+  const [portalErr, setPortalErr] = useState('');
+  useEffect(() => { setShowPortal(false); setPortalUsers([]); setPortalErr(''); }, [unit.id]);
+  useEffect(() => { if (canEdit && showPortal) { setPortalErr(''); secureStorage.list(COLLECTIONS.USERS).then(setPortalUsers).catch((e) => setPortalErr(e?.message || 'the users list could not be read')); } }, [canEdit, showPortal, unit.id, unit.ownerPhone, unit.tenantPhone, unit.people]);
   const mine = (list) => list.filter((r) => r.unit === unit.unit);
   const myDues = mine(dues), myTickets = mine(tickets), myDocs = mine(documents), myBookings = mine(bookings);
   const unpaid = myDues.filter((d) => !['Paid', 'Cancelled'].includes(d.status));
@@ -149,10 +150,11 @@ function UnitDetail({ unit, onEdit, canEdit, canSeePrivate }) {
                 return (
                   <div key={x.slot} style={{ marginTop: 4 }}>
                     <b>{x.name}</b> <small className="muted">· {x.relation}</small>{x.phone && <> · {phoneLink(x.phone)}</>}
-                    {canEdit && showPortal && st && <span className={`tag ${st === 'Active' ? 'green' : st === 'Invited' ? 'blue' : 'red'}`} style={{ marginLeft: 6 }} title="Portal access for this phone number">{st === 'Invited' ? 'Invite sent' : `Portal: ${st}`}</span>}
+                    {canEdit && showPortal && !portalErr && st && <span className={`tag ${st === 'Active' ? 'green' : st === 'Invited' ? 'blue' : 'red'}`} style={{ marginLeft: 6 }} title="Portal access for this phone number">{st === 'Invited' ? 'Invite sent' : `Portal: ${st}`}</span>}
                   </div>
                 );
               })}
+              {canEdit && showPortal && portalErr && <div className="notice error" data-testid="portal-error" style={{ marginTop: 4 }}>Portal access could not be read ({portalErr}).</div>}
               {canEdit && !showPortal && peopleOf(unit).some((x) => x.phone) && <button type="button" className="link-btn" data-testid="portal-show" style={{ display: 'block', marginTop: 4 }} onClick={() => setShowPortal(true)}>Show portal access</button>}
               <small className="muted" style={{ display: 'block', marginTop: 6 }}>{ownersOf(unit).length > 1 ? `${ownersOf(unit).length} owners — any one of them can cast the villa's single e-vote.` : 'One vote per villa in e-voting (owners only).'}</small>
             </div>

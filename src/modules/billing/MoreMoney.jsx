@@ -47,7 +47,12 @@ export function RecurringDialog({ onClose }) {
   const set = (k, v) => setF((x) => ({ ...x, [k]: v }));
   const canEdit = canWriteCollection(C.RECURRING_BILLS, getPrincipal());
   async function add() {
-    const ok = await save({ ...f, amount: Number(f.amount), dayOfMonth: Number(f.dayOfMonth) || 10, active: true });
+    if (!f.description.trim()) return setMsg('Say what the bill is for.');
+    if (!f.provider.trim()) return setMsg('Enter the supplier.');
+    if (!(Number(f.amount) > 0)) return setMsg('Enter the amount each month (more than 0).');
+    const day = Number(f.dayOfMonth);
+    if (String(f.dayOfMonth).trim() !== '' && !(Number.isInteger(day) && day >= 1 && day <= 28)) return setMsg('The due day must be between 1 and 28.');
+    const ok = await save({ ...f, description: f.description.trim(), provider: f.provider.trim(), amount: Number(f.amount), dayOfMonth: day || 10, active: true });
     if (ok) { setF({ description: '', utility: 'Other', provider: '', amount: '', dayOfMonth: 10, location: 'Common area' }); setMsg('Added. Its bill appears under Utilities (Association) every month.'); }
   }
   return (

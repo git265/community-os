@@ -108,7 +108,7 @@ function Members({ community, onClose }) {
       <div className="form-grid">
         <Field label="Name *" error={errs.name}><input aria-label="Person name" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></Field>
         <Field label="E-mail *" error={errs.email}><input aria-label="Person e-mail" value={draft.email} onChange={(e) => setDraft({ ...draft, email: e.target.value })} /></Field>
-        <Field label="Phone"><input value={draft.phone} onChange={(e) => setDraft({ ...draft, phone: e.target.value })} /></Field>
+        <Field label="Phone" error={errs.phone}><input aria-label="Person phone" value={draft.phone} onChange={(e) => setDraft({ ...draft, phone: e.target.value })} /></Field>
         <Field label="Role *" error={errs.roleId}>
           <select aria-label="Person role" value={draft.roleId} onChange={(e) => setDraft({ ...draft, roleId: e.target.value })}>
             <option value="">Select a role…</option>

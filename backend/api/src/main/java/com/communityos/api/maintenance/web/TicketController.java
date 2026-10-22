@@ -24,7 +24,6 @@ import com.communityos.api.shared.domain.Ids.UnitId;
 import com.communityos.api.shared.security.Caller;
 import com.communityos.api.shared.tenancy.CallerHolder;
 import com.communityos.api.shared.web.ETags;
-import com.communityos.api.shared.web.Idempotency;
 import com.communityos.api.shared.web.PageQuery;
 import com.communityos.api.shared.web.PageResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -45,9 +44,9 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @Tag(name = "Maintenance")
 public class TicketController {
-    private final TicketService tickets; private final FieldStaffService staff; private final Idempotency idempotency;
-    public TicketController(TicketService tickets, FieldStaffService staff, Idempotency idempotency) {
-        this.tickets = tickets; this.staff = staff; this.idempotency = idempotency;
+    private final TicketService tickets; private final FieldStaffService staff;
+    public TicketController(TicketService tickets, FieldStaffService staff) {
+        this.tickets = tickets; this.staff = staff;
     }
 
     @GetMapping("/api/v1/tickets")
@@ -67,12 +66,12 @@ public class TicketController {
     public ResponseEntity<TicketResponse> get(@PathVariable UUID id) { return tagged(tickets.get(CallerHolder.require(), id), 200); }
 
     @PostMapping("/api/v1/tickets")
-    public ResponseEntity<TicketResponse> raise(@Valid @RequestBody RaiseRequest b, @RequestHeader(name = "Idempotency-Key", required = false) String key) {
+    public ResponseEntity<TicketResponse> raise(@Valid @RequestBody RaiseRequest b) {
         Caller c = CallerHolder.require();
-        Idempotency.Reply<TicketResponse> r = idempotency.run(c, key, "POST /api/v1/tickets", b, TicketResponse.class, 201, () -> TicketResponse.of(tickets.raise(c,
+        TicketResponse r = TicketResponse.of(tickets.raise(c,
             new TicketService.RaiseTicket(b.taskTypeId(), b.title(), b.description(), b.unitId() == null ? null : new UnitId(b.unitId()), b.scope(), b.location(), b.category(),
-                b.subCategory(), b.priority(), b.preferredTime(), b.slaDueAt()))));
-        return ResponseEntity.status(r.status()).header("ETag", ETags.of(r.body().version())).body(r.body());
+                b.subCategory(), b.priority(), b.preferredTime(), b.slaDueAt())));
+        return ResponseEntity.status(201).header("ETag", ETags.of(r.version())).body(r);
     }
     @PatchMapping("/api/v1/tickets/{id}")
     public ResponseEntity<TicketResponse> edit(@PathVariable UUID id, @Valid @RequestBody EditRequest b, @RequestHeader(name = "If-Match", required = false) String ifMatch) {

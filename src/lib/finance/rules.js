@@ -8,11 +8,12 @@ import { uuid } from '../uuid.js';
 import { logEvent } from '../audit/auditLog.js';
 import { notifyMany } from '../notify.js';
 import { recordPayment } from '../paymentEngine.js';
+import { fmtDate } from '../locale.js';
 
 export const r2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 export const todayIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 export const inr = (n) => `₹${Math.round(Number(n) || 0).toLocaleString('en-IN')}`;
-export const dmy = (s) => (s ? new Date(`${String(s).slice(0, 10)}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '');
+export const dmy = (s) => fmtDate(s);
 export const addMonthsIso = (iso, n) => { const d = new Date(`${iso}T00:00:00`); const day = d.getDate(); d.setDate(1); d.setMonth(d.getMonth() + n); const last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate(); d.setDate(Math.min(day, last)); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 export const addDaysIso = (iso, n) => { const d = new Date(`${iso}T00:00:00`); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 export const daysBetween = (a, b) => Math.round((new Date(`${b}T00:00:00`) - new Date(`${a}T00:00:00`)) / 86400000);

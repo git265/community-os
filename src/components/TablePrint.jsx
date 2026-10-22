@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 
 // Adds a "Print" button above every data grid (table.table) in the portal, and prints just that grid with a title and date.
 // The grids are rendered by many modules; this keeps printing consistent without touching each one.
-const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+import { escapeHtml as esc } from '../lib/escapeHtml.js';
 
 export function printTable(table, title, community) {
   const clone = table.cloneNode(true);

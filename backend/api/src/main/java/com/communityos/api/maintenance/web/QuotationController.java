@@ -10,7 +10,6 @@ import com.communityos.api.shared.domain.Money;
 import com.communityos.api.shared.security.Caller;
 import com.communityos.api.shared.tenancy.CallerHolder;
 import com.communityos.api.shared.web.ETags;
-import com.communityos.api.shared.web.Idempotency;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -60,8 +59,8 @@ public class QuotationController {
         }
     }
 
-    private final QuotationService docs; private final WishVotes votes; private final Idempotency idempotency;
-    public QuotationController(QuotationService docs, WishVotes votes, Idempotency idempotency) { this.docs = docs; this.votes = votes; this.idempotency = idempotency; }
+    private final QuotationService docs; private final WishVotes votes;
+    public QuotationController(QuotationService docs, WishVotes votes) { this.docs = docs; this.votes = votes; }
 
     @GetMapping("/api/v1/tickets/{id}/quotations")
     public List<QuotationResponse> ofTicket(@PathVariable UUID id) { Caller c = CallerHolder.require(); return docs.ofTicket(c, id).stream().map((q) -> out(c, q)).toList(); }
@@ -73,11 +72,10 @@ public class QuotationController {
     public TaskMoney.Position money(@PathVariable UUID id) { return docs.position(CallerHolder.require(), id); }
 
     @PostMapping("/api/v1/tickets/{id}/quotations")
-    public ResponseEntity<QuotationResponse> add(@PathVariable UUID id, @Valid @RequestBody AddDocumentRequest b, @RequestHeader(name = "Idempotency-Key", required = false) String key) {
+    public ResponseEntity<QuotationResponse> add(@PathVariable UUID id, @Valid @RequestBody AddDocumentRequest b) {
         Caller c = CallerHolder.require();
-        Idempotency.Reply<QuotationResponse> r = idempotency.run(c, key, "POST /api/v1/tickets/" + id + "/quotations", b, QuotationResponse.class, 201,
-            () -> out(c, docs.add(c, id, new QuotationService.AddDocument(b.kind(), b.vendor(), b.amount(), b.gstMode(), b.gstRate(), b.quoteDate(), b.note()))));
-        return ResponseEntity.status(r.status()).header("ETag", ETags.of(r.body().version())).body(r.body());
+        QuotationResponse r = out(c, docs.add(c, id, new QuotationService.AddDocument(b.kind(), b.vendor(), b.amount(), b.gstMode(), b.gstRate(), b.quoteDate(), b.note())));
+        return ResponseEntity.status(201).header("ETag", ETags.of(r.version())).body(r);
     }
     @PostMapping("/api/v1/quotations/{id}/select")
     public ResponseEntity<QuotationResponse> select(@PathVariable UUID id, @RequestHeader(name = "If-Match", required = false) String ifMatch) {

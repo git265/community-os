@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { SegTabs } from '../../components/ui.jsx';
 import { inr } from '../../lib/amenityEngine.js';
+import { BOOKING_PAY_TONE as TONE } from '../../components/StatusTag.jsx';
 
-const TONE = { Paid: 'green', Pending: 'orange', 'Refund due': 'orange', Refunded: 'blue', 'Partially refunded': 'blue', Cancelled: 'red' };
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const PAGE = 40;
 export const isFinancial = (b) => Number(b.totalPayable) > 0 || (b.paymentStatus && !['Not required', undefined, ''].includes(b.paymentStatus) && b.paymentStatus !== 'Cancelled' && Number(b.totalPayable) > 0);

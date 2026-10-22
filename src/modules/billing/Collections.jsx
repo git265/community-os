@@ -4,9 +4,10 @@ import { COLLECTIONS as C } from '../../lib/storage/index.js';
 import { headOf } from '../../lib/utilityLedger.js';
 import AmenityLedgerPanel from './AmenityLedgerPanel.jsx';
 import { SegTabs } from '../../components/ui.jsx';
+import { fmtDate, money } from '../../lib/locale.js';
 
-const inr = (n) => `₹${Math.round(Number(n) || 0).toLocaleString('en-IN')}`;
-const dmy = (s) => (s ? new Date(`${s}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—');
+const inr = (n) => money(n);
+const dmy = (s) => fmtDate(s, { empty: '—' });
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const HEADS = [['Utilities', '💧 Utilities'], ['Amenities', '🏊 Amenities'], ['Maintenance', '🏠 Maintenance dues']];
 const PAGE = 50;

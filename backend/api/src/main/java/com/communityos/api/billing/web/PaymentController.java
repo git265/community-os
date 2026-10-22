@@ -12,7 +12,6 @@ import com.communityos.api.shared.domain.Ids.OrderId;
 import com.communityos.api.shared.domain.Ids.UnitId;
 import com.communityos.api.shared.security.Caller;
 import com.communityos.api.shared.tenancy.CallerHolder;
-import com.communityos.api.shared.web.Idempotency;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -31,8 +30,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @Tag(name = "Payments")
 public class PaymentController {
-    private final PaymentService payments; private final CounterSettlement counter; private final Idempotency idempotency;
-    public PaymentController(PaymentService payments, CounterSettlement counter, Idempotency idempotency) { this.payments = payments; this.counter = counter; this.idempotency = idempotency; }
+    private final PaymentService payments; private final CounterSettlement counter;
+    public PaymentController(PaymentService payments, CounterSettlement counter) { this.payments = payments; this.counter = counter; }
 
     @PostMapping("/api/v1/payment-orders") @Operation(summary = "Start paying bills online (the server prices them)")
     public ResponseEntity<OrderResponse> create(@Valid @RequestBody CreateOrderRequest b, @RequestHeader(name = "Idempotency-Key", required = false) String key) {
@@ -49,11 +48,11 @@ public class PaymentController {
     }
 
     @PostMapping("/api/v1/payments") @Operation(summary = "Record money received at the office")
-    public ResponseEntity<ReceiptResponse> counter(@Valid @RequestBody CounterReceiptRequest b, @RequestHeader(name = "Idempotency-Key", required = false) String key) {
+    public ResponseEntity<ReceiptResponse> counter(@Valid @RequestBody CounterReceiptRequest b) {
         Caller c = CallerHolder.require();
-        Idempotency.Reply<ReceiptResponse> r = idempotency.run(c, key, "POST /api/v1/payments", b, ReceiptResponse.class, 201, () -> ReceiptResponse.of(counter.settle(c,
-            new CounterSettlement.Request(new UnitId(b.unitId()), b.amount(), b.method(), b.receivedOn(), b.dueIds() == null ? null : b.dueIds().stream().map(DueId::new).toList(), b.reference()))));
-        return ResponseEntity.status(r.status()).body(r.body());
+        ReceiptResponse r = ReceiptResponse.of(counter.settle(c,
+            new CounterSettlement.Request(new UnitId(b.unitId()), b.amount(), b.method(), b.receivedOn(), b.dueIds() == null ? null : b.dueIds().stream().map(DueId::new).toList(), b.reference())));
+        return ResponseEntity.status(201).body(r);
     }
 
     /** Provider webhooks: no bearer token; authenticated by the signature on the raw body. Always 200 once handled so the provider stops retrying. */

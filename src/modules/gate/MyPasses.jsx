@@ -5,6 +5,7 @@ import { makeCode, passMessage, passQrText, shareLinks } from '../../lib/gate/en
 import { DAYS, GOODS_KINDS } from '../../lib/gate/constants.js';
 import { Chips, PhotoCapture, StateTag } from './gateUi.jsx';
 import { QrImage } from './QrImage.jsx';
+import { validatePhone } from '../../lib/phone.js';
 
 const ld = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const todayStr = () => ld(new Date());
@@ -61,6 +62,7 @@ export default function MyPasses({ unit, name }) {
   async function submit(e) {
     e.preventDefault();
     if (!f.visitorName.trim()) { setErr(goods ? 'Driver or company name is required' : 'Guest name is required'); return; }
+    if (String(f.phone || '').trim()) { const v = validatePhone(f.phone); if (!v.ok) { setErr(`${goods ? 'Driver' : 'Guest'} mobile: ${v.error}`); return; } }
     if (f.validTo < f.validFrom) { setErr('Valid until cannot be before valid from'); return; }
     if (goods && !f.vehicle.trim()) { setErr('The vehicle number is required for a goods pass'); return; }
     if (goods && !(Number(f.peopleCount) >= 1)) { setErr('Say how many people will be in the vehicle'); return; }

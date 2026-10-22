@@ -5,13 +5,13 @@ import { getPrincipal } from '../../lib/security/principal.js';
 import { canWriteCollection } from '../../lib/security/authz.js';
 import Modal from '../../components/Modal.jsx';
 import { previewMaintenanceFee, publishMaintenanceFee, DEFAULT_FEE_BODY } from '../../lib/maintenanceFee.js';
-import { fyStartMonth } from '../../lib/locale.js';
+import { fyStartMonth, money } from '../../lib/locale.js';
 import { BASES } from '../../lib/finance/rules.js';
 import { LevyDialog, LateFeeDialog, CreditDialog, RulesDialog } from './FinanceTools.jsx';
 import { runDueReminders, REMINDER_DEFAULTS, dueForReminder, reminderSettings, DEFAULT_REMINDER_BODY } from '../../lib/dueReminders.js';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const inr = (n) => `₹${Math.round(Number(n) || 0).toLocaleString('en-IN')}`;
+const inr = (n) => money(n);
 const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 function periodLabel(kind, year, month, quarter) {

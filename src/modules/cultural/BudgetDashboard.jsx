@@ -5,10 +5,11 @@ import Modal from '../../components/Modal.jsx';
 import { MoneyTiles } from '../../components/ui.jsx';
 import { recordPayment, routingMap } from '../../lib/paymentEngine.js';
 import { actualOf, hasActual, savingOf, creditedOf, toCredit, yearOf, seriesOf, summarize } from '../../lib/culturalBudget.js';
+import { fmtDate, money } from '../../lib/locale.js';
 
-const inr = (n) => `₹${Math.round(Number(n) || 0).toLocaleString('en-IN')}`;
+const inr = (n) => money(n);
 const short = (n) => (Math.abs(n) >= 100000 ? `₹${(n / 100000).toFixed(n % 100000 ? 2 : 0)}L` : Math.abs(n) >= 1000 ? `₹${(n / 1000).toFixed(n % 1000 ? 1 : 0)}k` : `₹${Math.round(n)}`);
-const dmy = (s) => (s ? new Date(`${s}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) : '');
+const dmy = (s) => fmtDate(s, { year: false });
 const SAVE = '#2563eb'; const OVER = '#ea580c'; const PLAN = '#94a3b8';
 
 export function CreditDialog({ ev, onClose, onDone }) {

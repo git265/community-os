@@ -5,9 +5,10 @@ import { MoneyTiles } from '../../components/ui.jsx';
 import { areaOf } from '../../lib/paymentEngine.js';
 import { moneyPosition } from '../../lib/approval/position.js';
 import { releaseSummary } from '../../lib/approval/releases.js';
+import { fmtDate, money } from '../../lib/locale.js';
 
-const inr = (n) => `₹${Math.round(Number(n) || 0).toLocaleString('en-IN')}`;
-const dmy = (s) => (s ? new Date(`${String(s).slice(0, 10)}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) : '—');
+const inr = (n) => money(n);
+const dmy = (s) => fmtDate(s, { year: false, empty: '—' });
 
 /**
  * One screen that lists everything that does not add up, in the order someone would chase it:

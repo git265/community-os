@@ -1,7 +1,8 @@
 import React, { useMemo } from 'react';
 import { COND_COLOR, areaRollup } from './infraModel.js';
+import { fmtDate } from '../../lib/locale.js';
 
-const dmy = (iso) => (iso ? new Date(`${iso}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—');
+const dmy = (iso) => fmtDate(iso, { empty: '—' });
 const today = () => new Date().toISOString().slice(0, 10);
 
 /** One row per area: worst condition, how many items, open tasks, next service and cover running out. Tap a row to see it on the map. */

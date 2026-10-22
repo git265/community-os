@@ -1,3 +1,4 @@
+import { fmtDateTime } from './locale.js';
 // Service notices: "the whole community has no power", "water supply is off in Block B". Staff post one; residents then see it
 // before they raise a request, and a request that is clearly about the same thing asks them to confirm (or is not accepted),
 // so the helpdesk is not buried under 150 copies of "no power".
@@ -37,7 +38,7 @@ export function suggest(tickets, notices, { now = Date.now(), hours = 3, minVill
   }).filter((s) => s.count >= minVillas);
 }
 
-export const fmtWhen = (iso) => (iso ? new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '');
+export const fmtWhen = (iso) => fmtDateTime(iso);
 export const defaultMessage = (kind, scopeText) => ({
   'Power cut': `There is a power cut ${scopeText}. The team is checking the supply and the DG / backup. You do not need to raise a request for this.`,
   'Water supply': `Water supply is interrupted ${scopeText}. The team is working on it. You do not need to raise a request for this.`,

@@ -4,9 +4,10 @@ import { COLLECTIONS as C } from '../../lib/storage/index.js';
 import { RecentNote, recentCutoff, inRecent } from '../../components/RecentWindow.jsx';
 import { usePrompt } from '../../components/PromptDialog.jsx';
 import RecordDetail from './RecordDetail.jsx';
+import { fmtDate, money } from '../../lib/locale.js';
 
-const inr = (n) => `₹${Math.round(Number(n) || 0).toLocaleString('en-IN')}`;
-const dmy = (s) => (s ? new Date(`${s}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—');
+const inr = (n) => money(n);
+const dmy = (s) => fmtDate(s, { empty: '—' });
 
 /** Where a cultural expense stands, in one short phrase. */
 export function expenseStage(x) {

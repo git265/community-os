@@ -12,12 +12,13 @@ import { canWriteCollection } from '../../lib/security/authz.js';
 import { getPrincipal } from '../../lib/security/principal.js';
 import { uuid } from '../../lib/uuid.js';
 import AuditTimeline from './AuditTimeline.jsx';
+import { fmtDate } from '../../lib/locale.js';
 
 const DEFAULT_AREAS = ['STP (sewage treatment)', 'WTP (water treatment)', 'Swimming pool water', 'Drinking water quality', 'Fire safety', 'Lifts', 'Electrical safety', 'DG set', 'Structural', 'Security / CCTV', 'Financial'];
 const RESULTS = ['Pass', 'Pass with observations', 'Fail', 'Pending'];
 const TONE = { Pass: 'green', 'Pass with observations': 'orange', Fail: 'red', Pending: '' };
 const today = () => new Date().toISOString().slice(0, 10);
-const dmy = (s) => (s ? new Date(`${s}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—');
+const dmy = (s) => fmtDate(s, { empty: '—' });
 const addMonths = (iso, n) => { const d = new Date(`${iso}T00:00:00`); d.setMonth(d.getMonth() + Number(n)); return d.toISOString().slice(0, 10); };
 const daysTo = (iso) => Math.round((new Date(`${iso}T00:00:00`) - new Date(`${today()}T00:00:00`)) / 86400000);
 const params = (a) => (Array.isArray(a?.parameters) ? a.parameters : []);

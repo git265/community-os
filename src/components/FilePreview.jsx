@@ -4,6 +4,7 @@ import Modal from './Modal.jsx';
 import { loadFileData, downloadAttachment } from '../lib/files/attachments.js';
 import { getDataSource } from '../lib/storage/dataSource.js';
 import { readWorkbook } from '../lib/files/xlsxRead.js';
+import { sanitizeHtml } from '../lib/richtext/sanitize.js';
 
 const extOf = (m) => String(m?.name || '').split('.').pop().toLowerCase();
 export function previewKind(m) {
@@ -39,12 +40,12 @@ export default function FilePreview({ meta, onClose }) {
         if (kind === 'docx') {
           const mammoth = (await import('mammoth/mammoth.browser.js')).default || (await import('mammoth/mammoth.browser.js'));
           const r = await mammoth.convertToHtml({ arrayBuffer: await blob.arrayBuffer() });
-          return on && setState({ kind, html: r.value });
+          return on && setState({ kind, html: sanitizeHtml(r.value, { document: true }) });
         }
         if (kind === 'sheet') {
           const XLSX = await import('xlsx');
           const wb = await readWorkbook(await blob.arrayBuffer(), { type: 'array' });
-          const sheets = wb.SheetNames.slice(0, 6).map((n) => ({ name: n, html: XLSX.utils.sheet_to_html(wb.Sheets[n], { header: '', footer: '' }) }));
+          const sheets = wb.SheetNames.slice(0, 6).map((n) => ({ name: n, html: sanitizeHtml(XLSX.utils.sheet_to_html(wb.Sheets[n], { header: '', footer: '' }), { document: true }) }));
           return on && setState({ kind, sheets, sheet: 0 });
         }
         return on && setState({ kind: 'none' });

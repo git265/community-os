@@ -6,6 +6,7 @@ import { qrDataUrl } from '../../lib/payments.js';
 import { DAYS } from '../../lib/gate/constants.js';
 import { Chips, clock, useTick } from './gateUi.jsx';
 import { QrImage, ScanBox } from './QrImage.jsx';
+import { escapeHtml } from '../../lib/escapeHtml.js';
 
 const code = () => Math.random().toString(36).slice(2, 10);
 const dayKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -14,7 +15,7 @@ async function printSheet(cps) {
   const items = [];
   for (const c of cps) items.push({ c, img: await qrDataUrl(checkpointQr(c)) });
   const w = window.open('', '_blank'); if (!w) return false;
-  w.document.write(`<!doctype html><title>Patrol checkpoints</title><style>body{font-family:sans-serif;margin:16px}.g{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}.c{border:2px solid #222;border-radius:12px;padding:14px;text-align:center;break-inside:avoid}.c img{width:220px}h2{margin:6px 0 0}</style><div class="g">${items.map(({ c, img }) => `<div class="c"><img src="${img}"><h2>${c.name}</h2><div>${c.area || ''}</div><small>Scan with the Security app</small></div>`).join('')}</div>`);
+  w.document.write(`<!doctype html><title>Patrol checkpoints</title><style>body{font-family:sans-serif;margin:16px}.g{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}.c{border:2px solid #222;border-radius:12px;padding:14px;text-align:center;break-inside:avoid}.c img{width:220px}h2{margin:6px 0 0}</style><div class="g">${items.map(({ c, img }) => `<div class="c"><img src="${escapeHtml(img)}"><h2>${escapeHtml(c.name)}</h2><div>${escapeHtml(c.area || '')}</div><small>Scan with the Security app</small></div>`).join('')}</div>`);
   w.document.close(); setTimeout(() => w.print(), 300); return true;
 }
 

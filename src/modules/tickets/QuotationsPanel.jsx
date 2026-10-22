@@ -13,8 +13,9 @@ import ActionMenu from '../../components/ActionMenu.jsx';
 import { uuid } from '../../lib/uuid.js';
 import PlanPanel from '../approval/PlanPanel.jsx';
 import { parseJson } from '../../lib/approval/kit.js';
+import { money } from '../../lib/locale.js';
 
-const inr = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
+const inr = (n) => money(n, { round: false });
 
 /**
  * EC + Final approval block, shared by quotations and invoices (same look and actions).

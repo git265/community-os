@@ -3,51 +3,53 @@ package com.communityos.api.shared.web;
 import com.communityos.api.shared.crypto.Crypto;
 import com.communityos.api.shared.domain.DomainException;
 import com.communityos.api.shared.security.Caller;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
 
 /**
- * Idempotency-Key for POSTs that create something (a bill, a receipt, a payment order): a retry after a network drop gets the SAME answer and
- * creates nothing new. The key is per caller; the same key with a different request is refused; a request still running answers 409.
- * Stored replies are kept 24 h (integration.idempotency_key). The key must be 8-128 characters.
+ * Idempotency-Key for every POST (IdempotencyFilter applies it to all of them, one place): a retry after a network drop gets the SAME answer -
+ * status, body and the ETag / Location headers - and does nothing again. The key is per caller; the same key with a different request is
+ * refused; a request still running answers 409. Only a success is kept (a refusal or an error frees the key for the retry). Replies are
+ * kept 24 h (integration.idempotency_key). The key must be 8-128 characters.
  */
 public final class Idempotency {
-    public record Stored(byte[] requestHash, boolean done, int status, byte[] body) {}
+    /** A stored reply: the request's hash, done or still running, and what was answered. */
+    public record Stored(byte[] requestHash, boolean done, int status, Map<String, String> headers, byte[] body) {}
+    /** An answer to keep and give again. */
+    public record Reply(int status, Map<String, String> headers, byte[] body, boolean replayed) {}
 
     /** Port over integration.idempotency_key. */
     public interface Store {
         /** Insert an InFlight row; false if one exists for this caller and key. */
         boolean begin(Caller caller, String key, byte[] requestHash);
         Optional<Stored> find(Caller caller, String key);
-        void complete(Caller caller, String key, int status, byte[] body);
+        void complete(Caller caller, String key, int status, Map<String, String> headers, byte[] body);
         void abandon(Caller caller, String key);
     }
 
-    public record Reply<T>(int status, T body, boolean replayed) {}
+    static final java.util.regex.Pattern KEY = java.util.regex.Pattern.compile("[A-Za-z0-9_\\-:.]{8,128}");
+    private final Store store;
+    public Idempotency(Store store) { this.store = store; }
 
-    private final Store store; private final ObjectMapper json;
-    public Idempotency(Store store, ObjectMapper json) { this.store = store; this.json = json; }
-
-    public <T> Reply<T> run(Caller caller, String key, String operation, Object request, Class<T> type, int status, Supplier<T> work) {
-        if (key == null) return new Reply<>(status, work.get(), false);
-        if (key.length() < 8 || key.length() > 128 || !key.matches("[A-Za-z0-9_\\-:.]+"))
-            throw new DomainException.RuleViolated("bad-idempotency-key", "Idempotency-Key must be 8-128 letters, digits or - _ : .");
-        byte[] hash = Crypto.sha256(operation + "\n" + write(request));
+    /** Run `work` once for this caller and key; a repeat of the same request gets the first success again. */
+    public Reply run(Caller caller, String key, String operation, byte[] body, Supplier<Reply> work) {
+        if (!KEY.matcher(key).matches()) throw new DomainException.RuleViolated("bad-idempotency-key", "Idempotency-Key must be 8-128 letters, digits or - _ : .");
+        byte[] op = (operation + "\n").getBytes(java.nio.charset.StandardCharsets.UTF_8), b = body == null ? new byte[0] : body;
+        byte[] all = java.util.Arrays.copyOf(op, op.length + b.length); System.arraycopy(b, 0, all, op.length, b.length);
+        byte[] hash = Crypto.sha256(all);                                                     // method + path + body
         if (!store.begin(caller, key, hash)) {
             Stored s = store.find(caller, key).orElseThrow(() -> new DomainException.Conflict("This request"));
             if (!Crypto.constantTimeEquals(s.requestHash(), hash))
                 throw new DomainException.RuleViolated("idempotency-key-reused", "This Idempotency-Key was already used for a different request");
             if (!s.done()) throw new DomainException.Conflict("The same request is still being processed; it");
-            try { return new Reply<>(s.status(), json.readValue(s.body(), type), true); } catch (java.io.IOException e) { throw new IllegalStateException(e); }
+            return new Reply(s.status(), s.headers() == null ? Map.of() : s.headers(), s.body(), true);
         }
-        try {
-            T out = work.get();
-            store.complete(caller, key, status, json.writeValueAsBytes(out));
-            return new Reply<>(status, out, false);
-        } catch (RuntimeException e) { store.abandon(caller, key); throw e; }
-        catch (com.fasterxml.jackson.core.JsonProcessingException e) { store.abandon(caller, key); throw new IllegalStateException(e); }
+        Reply out;
+        try { out = work.get(); }
+        catch (RuntimeException e) { store.abandon(caller, key); throw e; }
+        if (out.status() >= 200 && out.status() < 300) store.complete(caller, key, out.status(), out.headers(), out.body());
+        else store.abandon(caller, key);
+        return out;
     }
-
-    private String write(Object o) { try { return json.writeValueAsString(o); } catch (Exception e) { throw new IllegalStateException(e); } }
 }

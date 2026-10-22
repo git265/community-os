@@ -93,22 +93,26 @@ class KernelTest {
     @Test void idempotencyReplaysSameRequestAndRefusesADifferentOne() {
         Map<String, Idempotency.Stored> store = new HashMap<>();
         Idempotency.Store s = new Idempotency.Store() {
-            public boolean begin(Caller c, String k, byte[] h) { return store.putIfAbsent(k, new Idempotency.Stored(h, false, 0, null)) == null; }
+            public boolean begin(Caller c, String k, byte[] h) { return store.putIfAbsent(k, new Idempotency.Stored(h, false, 0, null, null)) == null; }
             public Optional<Idempotency.Stored> find(Caller c, String k) { return Optional.ofNullable(store.get(k)); }
-            public void complete(Caller c, String k, int st, byte[] b) { store.put(k, new Idempotency.Stored(store.get(k).requestHash(), true, st, b)); }
+            public void complete(Caller c, String k, int st, Map<String, String> hd, byte[] b) { store.put(k, new Idempotency.Stored(store.get(k).requestHash(), true, st, hd, b)); }
             public void abandon(Caller c, String k) { store.remove(k); }
         };
-        Idempotency idem = new Idempotency(s, Json.mapper());
+        Idempotency idem = new Idempotency(s);
         Caller c = Fixtures.treasurer();
         AtomicInteger runs = new AtomicInteger();
-        Idempotency.Reply<Out> first = idem.run(c, "key-12345", "POST /x", new Body("1"), Out.class, 201, () -> new Out("n" + runs.incrementAndGet()));
-        Idempotency.Reply<Out> again = idem.run(c, "key-12345", "POST /x", new Body("1"), Out.class, 201, () -> new Out("n" + runs.incrementAndGet()));
-        assertEquals(1, runs.get()); assertEquals(first.body(), again.body()); assertTrue(again.replayed());
-        DomainException e = assertThrows(DomainException.class, () -> idem.run(c, "key-12345", "POST /x", new Body("2"), Out.class, 201, () -> new Out("x")));
+        java.util.function.Supplier<Idempotency.Reply> made = () -> new Idempotency.Reply(201, Map.of("ETag", "\"3\""), ("{\"n\":" + runs.incrementAndGet() + "}").getBytes(), false);
+        Idempotency.Reply first = idem.run(c, "key-12345", "POST /x", "{\"a\":1}".getBytes(), made);
+        Idempotency.Reply again = idem.run(c, "key-12345", "POST /x", "{\"a\":1}".getBytes(), made);
+        assertEquals(1, runs.get()); assertEquals(new String(first.body()), new String(again.body())); assertTrue(again.replayed()); assertEquals("\"3\"", again.headers().get("ETag"));
+        DomainException e = assertThrows(DomainException.class, () -> idem.run(c, "key-12345", "POST /x", "{\"a\":2}".getBytes(), made));
         assertEquals("idempotency-key-reused", e.code());
-        assertThrows(DomainException.class, () -> idem.run(c, "kk", "POST /x", new Body("1"), Out.class, 201, () -> new Out("x")), "key too short");
-        assertThrows(IllegalStateException.class, () -> idem.run(c, "key-fails-1", "POST /x", new Body("1"), Out.class, 201, () -> { throw new IllegalStateException("boom"); }));
+        assertThrows(DomainException.class, () -> idem.run(c, "kk", "POST /x", new byte[0], made), "key too short");
+        assertThrows(IllegalStateException.class, () -> idem.run(c, "key-fails-1", "POST /x", new byte[0], () -> { throw new IllegalStateException("boom"); }));
         assertFalse(store.containsKey("key-fails-1"), "a failed request frees its key for the retry");
+        idem.run(c, "key-refused", "POST /x", new byte[0], () -> new Idempotency.Reply(422, Map.of(), "{}".getBytes(), false));
+        assertFalse(store.containsKey("key-refused"), "a refusal is not kept: the corrected retry runs");
+        assertTrue(com.communityos.api.shared.web.IdempotencyFilter.class.getSimpleName().length() > 0);
     }
 
     @Test void outboxRelayRetriesWithBackoffThenGivesUp() {

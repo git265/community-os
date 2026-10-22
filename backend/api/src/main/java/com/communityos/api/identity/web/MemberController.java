@@ -8,7 +8,6 @@ import com.communityos.api.shared.domain.Ids.UnitId;
 import com.communityos.api.shared.security.Caller;
 import com.communityos.api.shared.tenancy.CallerHolder;
 import com.communityos.api.shared.web.ETags;
-import com.communityos.api.shared.web.Idempotency;
 import com.communityos.api.shared.web.PageQuery;
 import com.communityos.api.shared.web.PageResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -44,8 +43,8 @@ public class MemberController {
         }
     }
 
-    private final MemberService members; private final Idempotency idempotency;
-    public MemberController(MemberService members, Idempotency idempotency) { this.members = members; this.idempotency = idempotency; }
+    private final MemberService members;
+    public MemberController(MemberService members) { this.members = members; }
 
     @GetMapping
     public PageResponse<MemberResponse> list(@RequestParam(required = false) String q, @RequestParam(required = false) String role, @RequestParam(required = false) String status,
@@ -58,11 +57,11 @@ public class MemberController {
         return ResponseEntity.ok().header("ETag", ETags.of(m.version())).body(MemberResponse.of(m));
     }
     @PostMapping
-    public ResponseEntity<MemberResponse> add(@Valid @RequestBody AddMemberRequest b, @RequestHeader(name = "Idempotency-Key", required = false) String key) {
+    public ResponseEntity<MemberResponse> add(@Valid @RequestBody AddMemberRequest b) {
         Caller c = CallerHolder.require();
-        Idempotency.Reply<MemberResponse> r = idempotency.run(c, key, "POST /api/v1/members", b, MemberResponse.class, 201, () -> MemberResponse.of(members.add(c,
-            new MemberService.AddMember(b.phone(), b.fullName(), b.displayName(), b.roleCode(), b.unitId() == null ? null : new UnitId(b.unitId()), b.relation()))));
-        return ResponseEntity.status(r.status()).header("ETag", ETags.of(r.body().version())).body(r.body());
+        MemberResponse r = MemberResponse.of(members.add(c,
+            new MemberService.AddMember(b.phone(), b.fullName(), b.displayName(), b.roleCode(), b.unitId() == null ? null : new UnitId(b.unitId()), b.relation())));
+        return ResponseEntity.status(201).header("ETag", ETags.of(r.version())).body(r);
     }
     @PutMapping("/{id}/roles")
     public ResponseEntity<MemberResponse> roles(@PathVariable UUID id, @Valid @RequestBody ChangeRolesRequest b, @RequestHeader(name = "If-Match", required = false) String ifMatch) {

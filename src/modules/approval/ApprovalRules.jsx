@@ -7,8 +7,9 @@ import { COLLECTIONS } from '../../lib/storage/index.js';
 import { canWriteCollection } from '../../lib/security/authz.js';
 import { getPrincipal } from '../../lib/security/principal.js';
 import { approverOptions } from './PlanPanel.jsx';
+import { money } from '../../lib/locale.js';
 
-const inr = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
+const inr = (n) => money(n, { round: false });
 const conditionChips = (p) => {
   const c = [];
   c.push((p.subjects || []).length ? p.subjects.join(' · ') : 'Anything');

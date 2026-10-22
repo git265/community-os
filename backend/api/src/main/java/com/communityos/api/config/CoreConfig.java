@@ -46,7 +46,13 @@ public class CoreConfig {
         return new DomainEvents(handlers, new JdbcOutboxWriter(jdbc, json));
     }
     @Bean AuditWriter auditWriter(NamedParameterJdbcTemplate jdbc, ObjectMapper json) { return new JdbcAuditWriter(jdbc, json); }
-    @Bean Idempotency idempotency(NamedParameterJdbcTemplate jdbc, ObjectMapper json) { return new Idempotency(new JdbcIdempotencyStore(jdbc), json); }
+    @Bean Idempotency idempotency(NamedParameterJdbcTemplate jdbc) { return new Idempotency(new JdbcIdempotencyStore(jdbc)); }
+    /** Every POST: a retry gets the first answer (after sign-in, so the key is the caller's; before the request's read connection). */
+    @Bean org.springframework.boot.web.servlet.FilterRegistrationBean<com.communityos.api.shared.web.IdempotencyFilter> idempotencyFilter(Idempotency idempotency) {
+        var r = new org.springframework.boot.web.servlet.FilterRegistrationBean<>(new com.communityos.api.shared.web.IdempotencyFilter(idempotency));
+        r.setName("idempotency"); r.addUrlPatterns("/api/*"); r.setOrder(-50);       // Spring Security's chain is at -100
+        return r;
+    }
     @Bean CustomFields customFields(NamedParameterJdbcTemplate jdbc) { return new CustomFields(new JdbcFieldDefinitions(jdbc)); }
     @Bean HttpTransport httpTransport() { return new JdkHttpTransport(); }
 

@@ -16,14 +16,16 @@ import UtilityPayments from './UtilityPayments.jsx';
 import { recomputeEventTotals } from '../../lib/culturalServer.js';
 import { canWriteCollection } from '../../lib/security/authz.js';
 import { getPrincipal } from '../../lib/security/principal.js';
+import { tell } from '../../lib/net/activity.js';
 import { AttachmentPicker } from '../../components/Attachments.jsx';
 import { persistPending } from '../../lib/files/attachments.js';
 import { TDS_SECTIONS, submitPayRequest, markReleasePaid, r2 } from '../../lib/finance/rules.js';
 import Reconciliation from './Reconciliation.jsx';
 import { IncomeDialog, RecurringDialog, RequestsPanel } from './MoreMoney.jsx';
+import { fmtDate, money } from '../../lib/locale.js';
 
-const inr = (n) => `₹${Math.round(Number(n) || 0).toLocaleString('en-IN')}`;
-const dmy = (s) => (s ? new Date(`${s}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—');
+const inr = (n) => money(n);
+const dmy = (s) => fmtDate(s, { empty: '—' });
 const today = () => new Date().toISOString().slice(0, 10);
 
 /** The record a payment can be linked to, per area. */
@@ -128,21 +130,33 @@ export function PayDialog({ initial = {}, accounts, routing, onClose, onDone }) 
         extra: extraRow,
       });
       if (res.error) { setErr(res.error); setBusy(false); return; }
+      // The payment is booked: anything below that fails is said out loud (the release would otherwise stay Approved and could be paid twice).
+      const after = [];
+      const step = async (what, work) => { try { await work(); } catch (e) { after.push(`${what} (${e?.message || 'failed'})`); } };
+      const { secureStorage } = await import('../../lib/storage/secureStorage.js');
+      const how = `${f.mode} · ${account}${f.ref ? ` · ${f.ref}` : ''}`;
       if (files.length && res.row && !res.existing) {
         const metas = await persistPending(files, { ownerType: 'ledger', ownerId: res.row.id });
-        if (metas) { const { secureStorage } = await import('../../lib/storage/secureStorage.js'); await secureStorage.put(C.LEDGER, { ...res.row, attachments: metas }).catch(() => {}); }
+        if (metas) await step('the attached file could not be linked to the payment', async () => { const cur = (await secureStorage.get(C.LEDGER, res.row.id)) || res.row; await secureStorage.put(C.LEDGER, { ...cur, attachments: [...(cur.attachments || []), ...metas] }); });
         else setErr('The payment was recorded but a file could not be stored. Open the payment and add it again.');
       }
       if (picked?.type === 'release' && !res.existing) {
-        const { secureStorage } = await import('../../lib/storage/secureStorage.js');
-        await secureStorage.put(C.RELEASES, { ...picked.release, status: 'Paid' }).catch(() => {});
+        await step('the release could not be marked Paid', async () => {
+          const cur = await secureStorage.get(C.RELEASES, picked.release.id); // fresh: the copy picked in the list may be out of date
+          if (!cur) throw new Error('release not found');
+          if (cur.status !== 'Paid') await secureStorage.put(C.RELEASES, { ...cur, status: 'Paid' });
+        });
       }
-      if (picked?.type === 'culturalRelease' && !res.existing) await markReleasePaid(picked.release.id, `${f.mode} · ${account}${f.ref ? ` · ${f.ref}` : ''}`).catch(() => {});
+      if (picked?.type === 'culturalRelease' && !res.existing) await step('the cultural release could not be marked Paid', () => markReleasePaid(picked.release.id, how));
       if (picked?.type === 'culturalExpense' && !res.existing && picked.expense.status !== 'Paid') {
-        const { secureStorage } = await import('../../lib/storage/secureStorage.js');
-        await secureStorage.put(C.CULTURAL_EXPENSES, { ...picked.expense, status: 'Paid', paidBy: `${f.mode} · ${account}${f.ref ? ` · ${f.ref}` : ''}` });
-        await recomputeEventTotals(picked.expense.eventId).catch(() => {});
+        await step('the cultural expense could not be marked Paid', async () => {
+          const cur = await secureStorage.get(C.CULTURAL_EXPENSES, picked.expense.id);
+          if (!cur) throw new Error('expense not found');
+          if (cur.status !== 'Paid') await secureStorage.put(C.CULTURAL_EXPENSES, { ...cur, status: 'Paid', paidBy: how });
+        });
+        await step('the event totals could not be updated', () => recomputeEventTotals(picked.expense.eventId));
       }
+      if (after.length) tell(`The payment was recorded, but ${after.join('; ')}. Do not pay it again - open it and mark it Paid by hand.`);
       setBusy(false); onDone(res.row);
     } catch (e) { setErr(e.message); } finally { setBusy(false); }
   }

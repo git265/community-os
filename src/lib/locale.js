@@ -40,7 +40,14 @@ if (!Number.prototype.__cosPatched) {
 }
 
 export const fmtNum = (n, opts) => (Number(n) || 0).toLocaleString(numberLocale(), opts);
-export const money = (n, opts) => `${currencySymbol()}${fmtNum(Math.round(Number(n) || 0), opts)}`;
+/** "₹12,34,567" - whole rupees. `{ round: false }` keeps the paise as typed (up to 3 decimals, or set maximumFractionDigits). */
+export const money = (n, { round = true, ...opts } = {}) => `${currencySymbol()}${fmtNum(round ? Math.round(Number(n) || 0) : Number(n) || 0, opts)}`;
+
+// Dates, one style everywhere: "05 Mar 2026" (a day: YYYY-MM-DD or an ISO time, read as that calendar day) and "05 Mar, 14:30" (a moment).
+const asDay = (s) => new Date(`${String(s).slice(0, 10)}T00:00:00`);
+/** `{ year: false }` -> "05 Mar"; `empty` is what a blank date shows ('' or '—'). */
+export const fmtDate = (s, { year = true, empty = '' } = {}) => (s ? asDay(s).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', ...(year ? { year: 'numeric' } : {}) }) : empty);
+export const fmtDateTime = (iso, { empty = '' } = {}) => (iso ? new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : empty);
 /** 12,50,000 -> "12.50 L" / "1.25 M" / full, per the community's choice. */
 export function compactMoney(n) {
   const v = Number(n) || 0; const a = Math.abs(v); const sym = currencySymbol();

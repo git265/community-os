@@ -25,7 +25,7 @@ export default function RichTextEditor({ value, onChange, placeholder = 'Write a
   // Only touch the DOM when the value changed from outside (e.g. cleared after posting).
   useEffect(() => {
     const el = ref.current;
-    if (el && (value || '') !== last.current) { el.innerHTML = value || ''; last.current = value || ''; }
+    if (el && (value || '') !== last.current) { el.innerHTML = value ? sanitizeHtml(value) : ''; last.current = value || ''; }
   }, [value]);
 
   const emit = () => { const clean = sanitizeHtml(ref.current.innerHTML); last.current = clean; onChange(clean); };

@@ -10,6 +10,7 @@ import { COLLECTIONS as C } from './storage/StorageAdapter.js';
 
 export const AREAS = ['Maintenance', 'Cultural', 'Utilities', 'Amenities', 'Dues', 'Capex / projects', 'Other'];
 import { ALL_MODES } from './region/paymentModes.js';
+import { tell } from './net/activity.js';
 export const MODES = ALL_MODES; // live: follows the community's country
 export const DEFAULT_ROUTING = { Maintenance: 'Maintenance', Cultural: 'Cultural', Utilities: 'Electricity/Water/Tax', Amenities: 'Maintenance', Dues: 'Maintenance', 'Capex / projects': 'Sinking' };
 
@@ -75,13 +76,22 @@ export async function reversePayment(orig, reason) {
     });
   } catch (e) { return { error: e?.message || 'Not permitted' }; }
   if (!row) return { error: 'Not permitted' };
-  await secureStorage.put(C.LEDGER, { ...orig, reconStatus: 'Not applicable' }).catch(() => {});
+  // The reversal is booked: a failure below is said out loud, never swallowed.
+  const after = [];
+  try {
+    const cur = (await secureStorage.get(C.LEDGER, orig.id)) || orig; // fresh, not the copy on screen
+    await secureStorage.put(C.LEDGER, { ...cur, reconStatus: 'Not applicable' });
+  } catch (e) { after.push(`the original payment could not be taken off bank matching (${e?.message || 'failed'})`); }
   if (orig.sourceType === 'release' && orig.sourceId) {
-    const rel = (await secureStorage.list(C.RELEASES).catch(() => [])).find((r) => r.id === orig.sourceId);
-    if (rel && rel.status === 'Paid') await secureStorage.put(C.RELEASES, { ...rel, status: 'Approved' }).catch(() => {});
+    try {
+      const rel = await secureStorage.get(C.RELEASES, orig.sourceId);
+      if (rel && rel.status === 'Paid') await secureStorage.put(C.RELEASES, { ...rel, status: 'Approved' });
+    } catch (e) { after.push(`its release could not be set back to Approved (${e?.message || 'failed'})`); }
   }
   window.dispatchEvent(new CustomEvent('communityos:changed', { detail: { collection: C.LEDGER } }));
-  return { row, count: all.length };
+  const warning = after.length ? `The reversal was recorded, but ${after.join('; ')}. Fix it by hand before paying again.` : '';
+  if (warning) tell(warning);
+  return { row, count: all.length, ...(warning ? { warning } : {}) };
 }
 
 /* ---------------------------------------------------------- reconciliation -- */

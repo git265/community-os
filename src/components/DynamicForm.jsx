@@ -78,6 +78,7 @@ export default function DynamicForm({ schema, roleId, record, onSave, onCancel, 
   const mayRename = roleId === 'super_admin' || me?.category === 'EC';
   const lockedField = (f) => !!f.fixedAfterCreate && !!record?.id && !mayRename; // e.g. an asset's name: only an admin or EC member changes it after it is saved
   const [existing, setExisting] = useState([]); // same-collection rows, for "looks like an existing record" warnings
+  const [existingErr, setExistingErr] = useState(''); // the list could not be read: the duplicate check did not run
 
   // a field can show only in some cases, e.g. { showWhen: { key: 'type', in: ['UPS / battery'] } } or { showWhen: { key: 'quantity', gt: 1 } }
   const showNow = (f) => { const w = f.showWhen; if (!w) return true; const v = draft[w.key]; if (w.in) return w.in.some((x) => String(x).toLowerCase() === String(v ?? '').toLowerCase()); if (w.gt != null) return Number(v) > w.gt; if (w.equals != null) return v === w.equals; return true; };
@@ -117,7 +118,8 @@ export default function DynamicForm({ schema, roleId, record, onSave, onCancel, 
   useEffect(() => {
     if (!needsExisting) return;
     let on = true;
-    secureStorage.list(schema.id).then((rows) => on && setExisting(rows)).catch(() => {});
+    setExistingErr('');
+    secureStorage.list(schema.id).then((rows) => on && setExisting(rows)).catch((e) => on && setExistingErr(e?.message || 'the list could not be read'));
     return () => { on = false; };
   }, [schema.id, needsExisting]);
 
@@ -225,6 +227,7 @@ export default function DynamicForm({ schema, roleId, record, onSave, onCancel, 
           <>
             <input type="text" value={value} onChange={(e) => setValue(field.key, e.target.value)} />
             {field.suggestSimilar && <SimilarNotice text={value} rows={existing} fieldKey={field.key} exclude={draft.id} noun={schema.label} />}
+            {field.suggestSimilar && existingErr && <div className="notice error" data-testid="similar-check-error" style={{ marginTop: 6 }}>Could not check for an existing {schema.label.toLowerCase()} with this name ({existingErr}). Look in the list before adding it.</div>}
           </>
         );
     }
@@ -252,6 +255,7 @@ export default function DynamicForm({ schema, roleId, record, onSave, onCancel, 
         if (imp?.needsAck && !ack) missing.__ack = 'Please confirm you understand the access change';
         setErrors(missing);
         if (Object.keys(missing).length > 0) return;
+        if (existingErr && !draft.id && fields.some((f) => f.suggestSimilar && String(draft[f.key] ?? '').trim()) && !window.confirm(`The check for an existing ${schema.label.toLowerCase()} with the same name could not run (${existingErr}). Save anyway?`)) return;
         // store newly added files now (the form is being saved), then save the record with their metadata
         setSaving(true);
         const out = { ...draft };

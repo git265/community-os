@@ -7,8 +7,9 @@ import { usePrompt } from '../../components/PromptDialog.jsx';
 import { releaseSummary } from '../../lib/approval/releases.js';
 import { liveDebits, grossOf, paymentBlock } from '../../lib/approval/moneyGuard.js';
 import { reversePayment } from '../../lib/paymentEngine.js';
+import { money } from '../../lib/locale.js';
 
-const inr = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
+const inr = (n) => money(n, { round: false });
 const tone = (v) => (v === 'Approved' ? 'green' : v === 'Rejected' ? 'red' : 'orange');
 
 /**

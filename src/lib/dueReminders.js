@@ -6,11 +6,12 @@ import { storage, COLLECTIONS } from './storage/index.js';
 import { notifyMany } from './notify.js';
 import { logEvent } from './audit/auditLog.js';
 import { termsFor } from './billTermsServer.js';
+import { fmtDate } from './locale.js';
 
 export const REMINDER_DEFAULTS = { reminderEnabled: true, reminderEveryDays: 7, reminderLeadDays: 3, reminderMax: 4 };
 const DAY = 86400000;
 const inr = (n) => `₹${Math.round(Number(n) || 0).toLocaleString('en-IN')}`;
-const dmy = (s) => (s ? new Date(`${s}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '');
+const dmy = (s) => fmtDate(s);
 export const DEFAULT_REMINDER_BODY = 'Dear owner of {{UNIT}},\n\nThis is a reminder that your {{UTILITY_TYPE}} bill {{BILL_NO}} of {{AMOUNT}} for {{MONTH}} is {{WHEN}} (payable by {{DUE_DATE}}).\nPlease pay it from the portal or at the office.\n\nThank you,\n{{SOCIETY_NAME}} Management';
 
 export async function reminderSettings() {

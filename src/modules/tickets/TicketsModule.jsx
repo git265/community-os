@@ -48,6 +48,7 @@ import { parseJson } from '../../lib/approval/kit.js';
 import ReleasesPanel from '../approval/ReleasesPanel.jsx';
 import { releaseSummary } from '../../lib/approval/releases.js';
 import { moneyPosition } from '../../lib/approval/position.js';
+import { money } from '../../lib/locale.js';
 
 const EMOJI = { Plumbing: '🔧', Electrical: '⚡', MEP: '🌀', Carpentry: '🪚', Housekeeping: '🧹', Gardening: '🌿', Landscape: '🌳', Security: '🛡', Amenities: '🎾', Cultural: '🎭', Helpdesk: '💬', General: '🧰', Other: '📋' };
 /** Super Admin only. Hidden (with the reason) while payments are recorded against the task. */
@@ -666,7 +667,7 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
     );
   };
 
-  const rupees = (n) => `₹${(Number(n) || 0).toLocaleString('en-IN')}`;
+  const rupees = (n) => money(n, { round: false });
 
   /** What is waiting for THIS person on the open ticket (invoices on their step, plus the selected quotation). */
   const selDocs = selected && showFinance ? allDocs.filter((d) => d.ticketId === selected.id) : [];

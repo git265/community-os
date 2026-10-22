@@ -11,7 +11,6 @@ import com.communityos.api.shared.domain.Ids.UnitId;
 import com.communityos.api.shared.security.Caller;
 import com.communityos.api.shared.tenancy.CallerHolder;
 import com.communityos.api.shared.web.ETags;
-import com.communityos.api.shared.web.Idempotency;
 import com.communityos.api.shared.web.PageQuery;
 import com.communityos.api.shared.web.PageResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -32,8 +31,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/dues")
 @Tag(name = "Bills")
 public class DueController {
-    private final DueService dues; private final Idempotency idempotency;
-    public DueController(DueService dues, Idempotency idempotency) { this.dues = dues; this.idempotency = idempotency; }
+    private final DueService dues;
+    public DueController(DueService dues) { this.dues = dues; }
 
     @GetMapping
     public PageResponse<DueResponse> list(@RequestParam(required = false) UUID unit, @RequestParam(required = false) String status, @RequestParam(defaultValue = "false") boolean open,
@@ -46,11 +45,11 @@ public class DueController {
     public ResponseEntity<DueResponse> get(@PathVariable UUID id) { return withTag(dues.get(CallerHolder.require(), new DueId(id)), 200); }
 
     @PostMapping
-    public ResponseEntity<DueResponse> raise(@Valid @RequestBody RaiseDueRequest b, @RequestHeader(name = "Idempotency-Key", required = false) String key) {
+    public ResponseEntity<DueResponse> raise(@Valid @RequestBody RaiseDueRequest b) {
         Caller c = CallerHolder.require();
-        Idempotency.Reply<DueResponse> r = idempotency.run(c, key, "POST /api/v1/dues", b, DueResponse.class, 201, () -> DueResponse.of(dues.raise(c,
-            new DueService.RaiseDue(new UnitId(b.unitId()), b.categoryCode(), b.billedMonth(), b.description(), b.amount(), b.dueDate()))));
-        return ResponseEntity.status(r.status()).header("ETag", ETags.of(r.body().version())).body(r.body());
+        DueResponse r = DueResponse.of(dues.raise(c,
+            new DueService.RaiseDue(new UnitId(b.unitId()), b.categoryCode(), b.billedMonth(), b.description(), b.amount(), b.dueDate())));
+        return ResponseEntity.status(201).header("ETag", ETags.of(r.version())).body(r);
     }
     @PostMapping("/{id}/cancel")
     public ResponseEntity<DueResponse> cancel(@PathVariable UUID id, @Valid @RequestBody ReasonRequest b, @RequestHeader(name = "If-Match", required = false) String ifMatch) {

@@ -7,7 +7,6 @@ import com.communityos.api.shared.domain.Ids.UnitId;
 import com.communityos.api.shared.security.Caller;
 import com.communityos.api.shared.tenancy.CallerHolder;
 import com.communityos.api.shared.web.ETags;
-import com.communityos.api.shared.web.Idempotency;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
@@ -56,8 +55,8 @@ public class GateController {
     public record ResolveRequest(@NotBlank String resolution, @Size(max = 500) String note) {}
     public record ScanRequest(@NotBlank @Size(max = 200) String text, @Size(max = 300) String note) {}
 
-    private final GateService gate; private final Idempotency idempotency;
-    public GateController(GateService gate, Idempotency idempotency) { this.gate = gate; this.idempotency = idempotency; }
+    private final GateService gate;
+    public GateController(GateService gate) { this.gate = gate; }
 
     // ---- passes ----------------------------------------------------------------------------------------------------------------------------------
     @GetMapping("/api/v1/gate/passes")
@@ -71,12 +70,12 @@ public class GateController {
     @GetMapping("/api/v1/gate/passes/search")
     public List<GateService.PassCheck> search(@RequestParam String q) { return gate.findPasses(CallerHolder.require(), q); }
     @PostMapping("/api/v1/gate/passes")
-    public ResponseEntity<Gate.Pass> createPass(@Valid @RequestBody PassRequest b, @RequestHeader(name = "Idempotency-Key", required = false) String key) {
+    public ResponseEntity<Gate.Pass> createPass(@Valid @RequestBody PassRequest b) {
         Caller c = CallerHolder.require();
-        Idempotency.Reply<Gate.Pass> r = idempotency.run(c, key, "POST /api/v1/gate/passes", b, Gate.Pass.class, 201, () -> gate.createPass(c, new GateService.NewPass(b.visitorName(), b.phone(),
+        Gate.Pass r = gate.createPass(c, new GateService.NewPass(b.visitorName(), b.phone(),
             b.unitId() == null ? null : new UnitId(b.unitId()), b.type(), b.validFrom(), b.validTo(), b.fromTime(), b.toTime(), b.days(), b.vehicle(), b.guestCap(), b.goodsKind(), b.peopleCount(),
-            b.material(), Boolean.TRUE.equals(b.carryingOut()), b.outItems(), b.photo())));
-        return ResponseEntity.status(r.status()).header("ETag", ETags.of(r.body().version)).body(r.body());
+            b.material(), Boolean.TRUE.equals(b.carryingOut()), b.outItems(), b.photo()));
+        return ResponseEntity.status(201).header("ETag", ETags.of(r.version)).body(r);
     }
     @PostMapping("/api/v1/gate/passes/{id}/cancel")
     public ResponseEntity<Gate.Pass> cancelPass(@PathVariable UUID id, @RequestHeader(name = "If-Match", required = false) String ifMatch) {

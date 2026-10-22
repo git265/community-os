@@ -10,8 +10,9 @@ import { isSameName } from '../../lib/fuzzy.js';
 import { validateGstin } from '../../lib/finance/itc.js';
 import VendorWorkers from './VendorWorkers.jsx';
 import { getPrincipal } from '../../lib/security/principal.js';
+import { money } from '../../lib/locale.js';
 
-const inr = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
+const inr = (n) => money(n, { round: false });
 
 function vendorStatCards(records) {
   const now = new Date();

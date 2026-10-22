@@ -6,8 +6,9 @@ import { getPrincipal } from '../../lib/security/principal.js';
 import Modal from '../../components/Modal.jsx';
 import { hhmm, mapLink, summarise, loadReport } from '../../lib/attendance.js';
 import { iso, addDays, weekStart, monthStart, monthEnd } from '../../lib/shifts.js';
+import { fmtDate } from '../../lib/locale.js';
 
-const dshort = (s) => (s ? new Date(`${s}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '');
+const dshort = (s) => fmtDate(s);
 function csv(name, rows) {
   const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const keys = Object.keys(rows[0] || {});

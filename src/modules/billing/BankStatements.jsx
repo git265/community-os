@@ -9,9 +9,10 @@ import Modal from '../../components/Modal.jsx';
 import RecordModal from './RecordModal.jsx';
 import { BUDGET_HEADS, MONTH_NAMES, monthEnd } from '../../lib/bank/analysis.js';
 import { readStatement, txnKey } from '../../lib/bank/importExcel.js';
+import { fmtDate, money } from '../../lib/locale.js';
 
-const rupees = (n) => `₹${Math.round(Number(n) || 0).toLocaleString('en-IN')}`;
-const dmy = (iso) => (iso ? new Date(`${iso}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—');
+const rupees = (n) => money(n);
+const dmy = (iso) => fmtDate(iso, { empty: '—' });
 
 export default function Statements({ accounts, txns }) {
   const [account, setAccount] = useState('');

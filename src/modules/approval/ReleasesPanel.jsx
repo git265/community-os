@@ -7,8 +7,9 @@ import PlanPanel from './PlanPanel.jsx';
 import { buildPlan } from '../../lib/approval/engine.js';
 import { parseJson } from '../../lib/approval/kit.js';
 import { releaseSummary, releaseProblem } from '../../lib/approval/releases.js';
+import { money } from '../../lib/locale.js';
 
-const inr = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
+const inr = (n) => money(n, { round: false });
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
 /**

@@ -170,7 +170,7 @@ class PostgresFlowTest {
             UnitService units = new UnitService(new JdbcUnitRepository(app, json), new CustomFields(new JdbcFieldDefinitions(app)), audit, app, new com.communityos.api.property.adapter.JdbcPropertySetup(app, json));
             MemberService memberService = new MemberService(new JdbcMemberRepository(app, json), new JdbcRoleCatalog(app), new JdbcPersonDirectory(platform), refreshStore,
                 callers, audit, app, clock, "+91");
-            Idempotency idem = new Idempotency(new JdbcIdempotencyStore(app), json);
+            Idempotency idem = new Idempotency(new JdbcIdempotencyStore(app));
 
             // ---- 1. sign in ---------------------------------------------------------------------------------------------------------------------
             String ownerPhone = phone.substring(0, phone.length() - 1) + "0";
@@ -217,9 +217,13 @@ class PostgresFlowTest {
             assertEquals("Paid", owner.sql("SELECT status FROM billing.payment_order WHERE id = '" + order.order().id() + "'").get(0).get("status"));
 
             // ---- 4. office receipt, overpaid ---------------------------------------------------------------------------------------------------------
-            Idempotency.Reply<PaymentRepository.Receipt> cr = as(treasurer, () -> idem.run(treasurer, "it-receipt-" + tag, "POST /api/v1/payments", Map.of("unit", unitB.toString()),
-                PaymentRepository.Receipt.class, 201, () -> counter.settle(treasurer, new CounterSettlement.Request(new UnitId(unitB), Money.of("4000"), "Cheque", today, null, "CHQ 1"))));
-            assertEquals(Money.of("460"), cr.body().toCredit());
+            java.util.concurrent.atomic.AtomicReference<PaymentRepository.Receipt> officeReceipt = new java.util.concurrent.atomic.AtomicReference<>();
+            java.util.function.Supplier<Idempotency.Reply> settleOnce = () -> as(treasurer, () -> idem.run(treasurer, "it-receipt-" + tag, "POST /api/v1/payments", ("{\"unit\":\"" + unitB + "\"}").getBytes(),
+                () -> { officeReceipt.set(counter.settle(treasurer, new CounterSettlement.Request(new UnitId(unitB), Money.of("4000"), "Cheque", today, null, "CHQ 1"))); return new Idempotency.Reply(201, Map.of("ETag", "\"1\""), "{}".getBytes(), false); }));
+            settleOnce.get();
+            assertTrue(settleOnce.get().replayed(), "a retry of the same receipt is answered from the first, not booked again");
+            assertEquals(Map.of("ETag", "\"1\""), as(treasurer, () -> idem.run(treasurer, "it-receipt-" + tag, "POST /api/v1/payments", ("{\"unit\":\"" + unitB + "\"}").getBytes(), () -> null)).headers(), "with its headers");
+            assertEquals(Money.of("460"), officeReceipt.get().toCredit());
             assertEquals("460.00", owner.sql("SELECT sum(amount)::text AS s FROM billing.unit_credit WHERE community_id = '" + cid + "'").get(0).get("s"));
 
             // ---- 5. the books balance; receivables are settled -----------------------------------------------------------------------------------

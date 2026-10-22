@@ -6,6 +6,8 @@ import ServerTable from '../../components/ServerTable.jsx';
 import Modal from '../../components/Modal.jsx';
 import RecordMeta from '../../components/RecordMeta.jsx';
 import { secureStorage } from '../../lib/storage/secureStorage.js';
+import { validatePhone } from '../../lib/phone.js';
+import { emailError } from '../../lib/validate.js';
 
 const CATEGORY_LABEL = { EC: 'Executive Committee', Staff: 'Facility staff', Resident: 'Owners & residents' };
 const blank = () => ({ name: '', phone: '', email: '', status: 'Active', roleId: '', extraRoleIds: [], units: [], blocks: [] });
@@ -25,8 +27,9 @@ export default function UsersModule() {
   const [villas, setVillas] = useState([]);
   const [blockNames, setBlockNames] = useState([]);
   const [vq, setVq] = useState('');
-  useEffect(() => { secureStorage.list(COLLECTIONS.BLOCKS).then((r) => setBlockNames(r.map((b) => b.name).sort())).catch(() => {}); }, []);
-  useEffect(() => { secureStorage.list(COLLECTIONS.PROPERTIES).then((r) => setVillas(r.map((p) => p.unit).sort())); }, []);
+  const [loadErr, setLoadErr] = useState('');
+  useEffect(() => { secureStorage.list(COLLECTIONS.BLOCKS).then((r) => setBlockNames(r.map((b) => b.name).sort())).catch((e) => setLoadErr(`Blocks could not be read (${e?.message || 'error'}).`)); }, []);
+  useEffect(() => { secureStorage.list(COLLECTIONS.PROPERTIES).then((r) => setVillas(r.map((p) => p.unit).sort())).catch((e) => setLoadErr(`Units could not be read (${e?.message || 'error'}).`)); }, []);
 
   const grouped = useMemo(() => CATEGORIES.map((c) => ({ category: c, roles: roles.filter((r) => r.category === c) })), [roles]);
   const catOf = (id) => roleFor(id)?.category;
@@ -45,10 +48,14 @@ export default function UsersModule() {
     const er = {};
     if (!draft.name.trim()) er.name = 'Name is required';
     if (!draft.roleId) er.roleId = 'Primary role is required';
+    // the phone is the sign-in key: check it whenever it is typed or changed (an old stored value is left alone until edited)
+    const ph = String(draft.phone || '').trim();
+    if (ph && ph !== String(editing?.phone || '').trim()) { const v = validatePhone(ph); if (!v.ok) er.phone = v.error; }
+    const em = emailError(draft.email); if (em) er.email = em;
     if (needsVilla && draft.units.length === 0) er.units = 'Owners/residents need at least one villa/unit';
     setErrs(er);
     if (Object.keys(er).length) return;
-    const saved = await save({ ...draft, name: draft.name.trim(), extraRoleIds: draft.extraRoleIds.filter((x) => x !== draft.roleId) });
+    const saved = await save({ ...draft, name: draft.name.trim(), phone: String(draft.phone || '').trim(), email: String(draft.email || '').trim().toLowerCase(), extraRoleIds: draft.extraRoleIds.filter((x) => x !== draft.roleId) });
     if (saved) setEditing(null);
   }
 
@@ -88,6 +95,7 @@ export default function UsersModule() {
       {editing && (
         <Modal title={editing.id ? 'Edit user' : 'Add a user'} subtitle="Who can sign in: their main role, any extra roles, and the villa(s) they own." onClose={() => setEditing(null)}>
           <form className="form-grid" onSubmit={submit} noValidate>
+            {loadErr && <div className="notice error" data-testid="user-load-error" style={{ gridColumn: '1 / -1' }}>{loadErr} Close and open the form again.</div>}
             <div className={`field${errs.name ? ' invalid' : ''}`}><label>Name *</label><input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />{errs.name && <div className="field-error">{errs.name}</div>}</div>
             <div className="field"><label>Status</label>
               <select value={draft.status} onChange={(e) => setDraft({ ...draft, status: e.target.value })}>
@@ -95,8 +103,8 @@ export default function UsersModule() {
               </select>
               {draft.status === 'Inactive' && <small className="muted">Inactive users can't sign in.</small>}
             </div>
-            <div className="field"><label>Phone</label><input value={draft.phone} onChange={(e) => setDraft({ ...draft, phone: e.target.value })} /></div>
-            <div className="field"><label>Email</label><input value={draft.email} onChange={(e) => setDraft({ ...draft, email: e.target.value })} /></div>
+            <div className={`field${errs.phone ? ' invalid' : ''}`}><label>Phone</label><input value={draft.phone} onChange={(e) => setDraft({ ...draft, phone: e.target.value })} placeholder="+91 98450 71234" />{errs.phone && <div className="field-error">{errs.phone}</div>}</div>
+            <div className={`field${errs.email ? ' invalid' : ''}`}><label>Email</label><input value={draft.email} onChange={(e) => setDraft({ ...draft, email: e.target.value })} />{errs.email && <div className="field-error">{errs.email}</div>}</div>
 
             <div className={`field${errs.roleId ? ' invalid' : ''}`} style={{ gridColumn: '1 / -1' }}>
               <label>Primary role *</label>

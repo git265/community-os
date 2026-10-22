@@ -1,5 +1,5 @@
 import BillTerms from '../../components/BillTerms.jsx';
-import { communityTaxId } from '../../lib/locale.js';
+import { communityTaxId, fmtDateTime } from '../../lib/locale.js';
 import RecordMeta from '../../components/RecordMeta.jsx';
 import { DocButton } from '../../components/DocumentPreview.jsx';
 import { bookingReceipt } from '../../lib/documents/builders.js';
@@ -15,6 +15,7 @@ import { tell } from '../../lib/net/activity.js';
 import { cancellationQuote, inr, tiersOf, startAtOf, PAYMENT_MODES, ONLINE_MODES, parseExtras } from '../../lib/amenityEngine.js';
 
 import { PAYOUT_MODES, needsRef } from '../../lib/region/paymentModes.js';
+import { BOOKING_PAY_TONE as TONE } from '../../components/StatusTag.jsx';
 const plain = (h) => String(h || '').replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
 
 /** A small step tracker: done steps are ticked, the current one is highlighted. */
@@ -31,8 +32,7 @@ function Steps({ steps, testid }) {
   );
 }
 
-const TONE = { Paid: 'green', 'Not required': '', Pending: 'orange', 'Refund due': 'orange', Refunded: 'blue', 'Partially refunded': 'blue', Cancelled: 'red' };
-const fmtWhen = (d) => new Date(d).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+const fmtWhen = (d) => fmtDateTime(d);
 
 /** Price lines of one booking (also used for the preview before booking, see PriceBreakdown). */
 export function PriceLines({ q, gstin, extras = [] }) {

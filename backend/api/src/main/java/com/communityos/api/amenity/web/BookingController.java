@@ -9,7 +9,6 @@ import com.communityos.api.shared.domain.Ids.UnitId;
 import com.communityos.api.shared.security.Caller;
 import com.communityos.api.shared.tenancy.CallerHolder;
 import com.communityos.api.shared.web.ETags;
-import com.communityos.api.shared.web.Idempotency;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
@@ -65,8 +64,8 @@ public class BookingController {
         }
     }
 
-    private final BookingService bookings; private final Idempotency idempotency;
-    public BookingController(BookingService bookings, Idempotency idempotency) { this.bookings = bookings; this.idempotency = idempotency; }
+    private final BookingService bookings;
+    public BookingController(BookingService bookings) { this.bookings = bookings; }
 
     @GetMapping("/api/v1/amenities/bookings")
     public List<BookingResponse> list(@RequestParam(required = false) UUID amenityTypeId, @RequestParam(required = false) LocalDate from, @RequestParam(required = false) LocalDate to,
@@ -81,12 +80,12 @@ public class BookingController {
     }
 
     @PostMapping("/api/v1/amenities/bookings")
-    public ResponseEntity<BookingResponse> book(@Valid @RequestBody BookRequest b, @RequestHeader(name = "Idempotency-Key", required = false) String key) {
+    public ResponseEntity<BookingResponse> book(@Valid @RequestBody BookRequest b) {
         Caller c = CallerHolder.require();
-        Idempotency.Reply<BookingResponse> r = idempotency.run(c, key, "POST /api/v1/amenities/bookings", b, BookingResponse.class, 201, () -> BookingResponse.of(bookings.book(c,
+        BookingResponse r = BookingResponse.of(bookings.book(c,
             new BookingService.Book(b.amenityTypeId(), b.unitId() == null ? null : new UnitId(b.unitId()), b.date(), b.slot(), b.paymentMode(), b.prepaymentId(),
-                Boolean.TRUE.equals(b.useCredit()), b.bookedFor() == null ? "Unit" : b.bookedFor(), b.association(), Boolean.TRUE.equals(b.freeOfCharge()), b.waiveReason(), b.extras()))));
-        return ResponseEntity.status(r.status()).header("ETag", ETags.of(r.body().version())).body(r.body());
+                Boolean.TRUE.equals(b.useCredit()), b.bookedFor() == null ? "Unit" : b.bookedFor(), b.association(), Boolean.TRUE.equals(b.freeOfCharge()), b.waiveReason(), b.extras())));
+        return ResponseEntity.status(201).header("ETag", ETags.of(r.version())).body(r);
     }
     @PostMapping("/api/v1/amenities/bookings/{id}/cancel")
     public ResponseEntity<BookingResponse> cancel(@PathVariable UUID id, @Valid @RequestBody CancelRequest b, @RequestHeader(name = "If-Match", required = false) String ifMatch) {

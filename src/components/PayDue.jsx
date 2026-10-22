@@ -18,8 +18,9 @@ import { lateFeeSettings, finalDue, applyLateFees } from '../lib/finance/rules.j
 import { quoteBills } from '../lib/payments/index.js';
 import { serverDecides } from '../lib/auth/session.js';
 import { tell } from '../lib/net/activity.js';
+import { money } from '../lib/locale.js';
 
-const inr = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
+const inr = (n) => money(n, { round: false });
 import { ONLINE_MODES as ONLINE, ALL_MODES } from '../lib/region/paymentModes.js';
 
 /** Who may settle a bill from the UI: the owner of that unit, or finance roles (recording a payment that arrived offline). */

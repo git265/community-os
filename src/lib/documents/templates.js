@@ -1,10 +1,10 @@
 // Printable documents as self-contained HTML (A4). One stylesheet, one letterhead, used by every receipt and statement,
 // so they all look like they came from the same office. Pure functions: pass data in, get a string out.
-import { money } from '../locale.js';
+import { money, fmtDate } from '../locale.js';
 import { region } from '../region/regions.js';
 
 const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-export const dmy = (s) => (s ? new Date(`${String(s).slice(0, 10)}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '');
+export const dmy = (s) => fmtDate(s);
 export const hm = (iso) => (iso && String(iso).length > 10 ? new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '');
 export const dateTime = (iso) => (iso ? `${dmy(iso)}${hm(iso) ? `, ${hm(iso)}` : ''}` : '');
 

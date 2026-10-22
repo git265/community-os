@@ -18,11 +18,12 @@ import { getPrincipal } from '../../lib/security/principal.js';
 import { monthLabel, recentMonths, renderNotice, todayIso } from '../../lib/notice.js';
 import { uuid } from '../../lib/uuid.js';
 import { DEFAULT_UTILITY_TYPES, addUtilityToSchemas } from '../../lib/utilityTypes.js';
+import { money } from '../../lib/locale.js';
 
 let typeList = DEFAULT_UTILITY_TYPES; // set by the screen each render (the types are data, not code)
 const icon = (u) => typeList.find((t) => t.name === u)?.icon || '📊';
 const labelOf = (u) => typeList.find((t) => t.name === u)?.label || u;
-const inr = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
+const inr = (n) => money(n, { round: false });
 const addDays = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
 const byUnit = (a, b) => String(a).localeCompare(String(b), undefined, { numeric: true });
 

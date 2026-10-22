@@ -6,6 +6,7 @@ import Combobox from '../../components/Combobox.jsx';
 import RichText from '../../components/RichText.jsx';
 import RichTextEditor from '../../components/RichTextEditor.jsx';
 import { isEmptyHtml } from '../../lib/richtext/sanitize.js';
+import { validatePhone } from '../../lib/phone.js';
 
 const DEFAULT_CATS = ['Plumber', 'Electrician', 'Carpenter', 'AC technician', 'Painter', 'Driver', 'Cook', 'Maid / housekeeping', 'Pest control', 'Appliance repair', 'Gardener', 'Tutor', 'Other'];
 const dmy = (s) => (s ? new Date(s).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '');
@@ -35,7 +36,8 @@ function ContactForm({ record, cats, onClose, onSaved, contacts }) {
   async function submit() {
     if (!f.name.trim()) return setErr('Enter their name');
     if (!String(f.category).trim()) return setErr('Say what they do');
-    if (digits(f.phone).length < 8) return setErr('Enter a phone number');
+    if (!String(f.phone || '').trim()) return setErr('Enter a phone number');
+    if (String(f.phone).trim() !== String(record?.phone || '').trim()) { const v = validatePhone(f.phone); if (!v.ok) return setErr(v.error); }
     if (dup) return setErr(`${dup.name} is already listed with this number - open them and add your review instead`);
     const out = await save({ ...(record || {}), ...f, name: f.name.trim(), category: String(f.category).trim(), phone: f.phone.trim(), status: record?.status || 'Active', addedBy: record?.addedBy || currentUser?.name, addedByUnit: record?.addedByUnit ?? (currentUser?.unit || '') });
     if (out) onSaved(out);

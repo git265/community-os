@@ -5,12 +5,13 @@ import { canWriteCollection } from '../../lib/security/authz.js';
 import { getPrincipal } from '../../lib/security/principal.js';
 import { notify } from '../../lib/notify.js';
 import RecordModal from '../billing/RecordModal.jsx';
+import { fmtDate } from '../../lib/locale.js';
 
 export const PHASES = ['Before the event', 'During the event', 'After the event'];
 export const OWNER_ROLE_IDS = { 'Facility Manager': ['facility_manager'], MEP: ['handyman_mep'] };
 const TONE = { 'Not started': '', 'In progress': 'blue', Blocked: 'red', Done: 'green', Cancelled: '' };
 const today = () => new Date().toISOString().slice(0, 10);
-export const dmy = (s) => (s ? new Date(`${s}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) : '');
+export const dmy = (s) => fmtDate(s, { year: false });
 const late = (w) => !['Done', 'Cancelled'].includes(w.status) && w.neededOn < today();
 
 /** Tell the owning role when work is given or changed. */

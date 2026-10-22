@@ -2,8 +2,9 @@ import React, { useEffect, useState } from 'react';
 import Modal from './Modal.jsx';
 import { useGatewayPay, PaymentResult } from './GatewayCheckout.jsx';
 import { upiLink, qrDataUrl, gatewayOf, GATEWAY_DEMO, payOnline } from '../lib/payments.js';
+import { money } from '../lib/locale.js';
 
-const inr = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
+const inr = (n) => money(n, { round: false });
 
 /** Reusable "pay now" panel: UPI QR (scan with any UPI app), open-in-app link for phones, copy UPI id,
  *  UTR reference + "I've paid", and an optional online gateway. Works for any event that has a UPI id.

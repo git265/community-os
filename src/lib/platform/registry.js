@@ -10,9 +10,10 @@ import { logEvent } from '../audit/auditLog.js';
 import { storage, COLLECTIONS } from '../storage/index.js';
 import { DEFAULT_COMMUNITY, RESERVED_SLUGS, SLUG_RE } from '../community.js';
 import { DEFAULT_ROLES } from '../access/roles.js';
-import { phoneKey } from '../phone.js';
+import { phoneKey, validatePhone } from '../phone.js';
 import { isApiMode } from '../storage/dataSource.js';
 import { apiFetch } from '../net/request.js';
+import { isEmail } from '../validate.js';
 
 const C = COLLECTIONS.COMMUNITIES;
 const SESSION_KEY = 'communityos:platformSession';
@@ -62,7 +63,8 @@ export function validateNewCommunity(v, existing) {
   else if (RESERVED_SLUGS.includes(slug)) e.slug = 'That address is reserved';
   else if (existing.some((c) => c.slug === slug)) e.slug = 'That web address is already taken';
   if (!v.adminName?.trim()) e.adminName = 'First Super Admin name is required';
-  if (!/^\S+@\S+\.\S+$/.test((v.adminEmail || '').trim())) e.adminEmail = 'A valid e-mail is required (it identifies the person across communities)';
+  if (!isEmail(v.adminEmail)) e.adminEmail = 'A valid e-mail is required (it identifies the person across communities)';
+  if (String(v.adminPhone || '').trim()) { const ph = validatePhone(v.adminPhone); if (!ph.ok) e.adminPhone = ph.error; }
   return e;
 }
 
@@ -110,8 +112,9 @@ export async function addMember(slug, p) {
   const email = (p.email || '').trim().toLowerCase();
   const e = {};
   if (!p.name?.trim()) e.name = 'Name is required';
-  if (!/^\S+@\S+\.\S+$/.test(email)) e.email = 'A valid e-mail is required';
+  if (!isEmail(email)) e.email = 'A valid e-mail is required';
   else if (users.some((u) => (u.email || '').toLowerCase() === email && u.status !== 'Inactive')) e.email = 'This person is already in the community';
+  if (String(p.phone || '').trim()) { const ph = validatePhone(p.phone); if (!ph.ok) e.phone = ph.error; }
   if (!p.roleId) e.roleId = 'Pick a role';
   if (Object.keys(e).length) return { errors: e };
   const { stampRow } = await import('../seed/seedData.js');

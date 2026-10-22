@@ -4,10 +4,11 @@ import { COLLECTIONS as C } from '../../lib/storage/index.js';
 import { canWriteCollection } from '../../lib/security/authz.js';
 import { getPrincipal } from '../../lib/security/principal.js';
 import RecordModal from '../billing/RecordModal.jsx';
+import { money } from '../../lib/locale.js';
 
 const ym = () => new Date().toISOString().slice(0, 7);
 const n0 = (v) => Number(v) || 0;
-const inr = (n) => `₹${Math.round(n0(n)).toLocaleString('en-IN')}`;
+const inr = (n) => money(n);
 
 /**
  * What a vendor is signed for, one line per category they handle (a facilities company may run housekeeping, landscaping and plant operation;

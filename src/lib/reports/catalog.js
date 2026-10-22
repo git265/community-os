@@ -3,10 +3,11 @@
 // so any new report is one more entry here. `perUnit` reports can also be personalised: sent to a villa they show only that villa's rows.
 import { storage, COLLECTIONS as C } from '../storage/index.js';
 import { effectiveCondition, faultyOf, openTicketsByAsset, units as unitsOf } from '../../modules/infra/infraModel.js';
+import { fmtDate } from '../locale.js';
 
 export const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 export const addDays = (s, n) => { const d = new Date(`${s}T00:00:00`); d.setDate(d.getDate() + n); return iso(d); };
-export const dmy = (s) => (s ? new Date(`${String(s).slice(0, 10)}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '');
+export const dmy = (s) => fmtDate(s);
 export const inr = (n) => `₹${Math.round(Number(n) || 0).toLocaleString('en-IN')}`;
 const monthStart = (s) => `${s.slice(0, 7)}-01`;
 

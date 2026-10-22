@@ -28,13 +28,14 @@ import { useApprovalKit } from '../../lib/approval/usePlans.js';
 import ExpenseReleases from '../approval/ExpenseReleases.jsx';
 import { planState, decide as planDecide, stepWho } from '../../lib/approval/engine.js';
 import { getPrincipal } from '../../lib/security/principal.js';
+import { fmtDate, money } from '../../lib/locale.js';
 
 const addYear = (s) => (s ? `${Number(s.slice(0, 4)) + 1}${s.slice(4)}` : s); // same calendar date next year
 const weekday = (s) => (s ? new Date(`${s}T00:00:00`).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short' }) : '');
 const shown = (ev, k) => ev?.[k] !== 'No'; // section toggles default to visible
 
-const inr = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
-const dshort = (s) => (s ? new Date(`${s}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '');
+const inr = (n) => money(n, { round: false });
+const dshort = (s) => fmtDate(s);
 const when = (r) => `${dshort(r.date)}${r.startTime ? ` · ${r.startTime}${r.endTime ? `–${r.endTime}` : ''}` : ''}`;
 const TAGS = { Rejected: 'red', Planning: 'orange', Open: 'green', Completed: 'blue', Cancelled: 'red', Pledged: 'orange', Received: 'green', 'Pending approval': 'orange', Approved: 'blue', Paid: 'green' };
 const Tag = ({ v }) => <span className={`tag ${TAGS[v] || ''}`}>{v}</span>;

@@ -8,9 +8,10 @@ import { canWriteCollection } from '../../lib/security/authz.js';
 import { getPrincipal } from '../../lib/security/principal.js';
 import { METERS, klOf, withKl, validate, suggestOpening, checks, stockOf, monthTotals, monthOfDate, parseWorkbook } from '../../lib/plantLogs.js';
 import { readWorkbook } from '../../lib/files/xlsxRead.js';
+import { money } from '../../lib/locale.js';
 
 const n0 = (n) => Math.round(Number(n) || 0).toLocaleString('en-IN');
-const inr = (n) => `₹${n0(n)}`;
+const inr = (n) => money(n);
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 export const monthLabel = (m) => `${MON[Number(m.slice(5, 7)) - 1]} ${m.slice(0, 4)}`;
 const dm = (d) => `${d.slice(8)} ${MON[Number(d.slice(5, 7)) - 1]}`;

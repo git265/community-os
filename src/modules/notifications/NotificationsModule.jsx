@@ -8,8 +8,9 @@ import { ApprovalButtons } from '../../components/GateApproval.jsx';
 import { loadRoles } from '../../lib/access/roleStore.js';
 import { canReadCollection } from '../../lib/security/authz.js';
 import { getPrincipal } from '../../lib/security/principal.js';
+import { fmtDateTime } from '../../lib/locale.js';
 
-const when = (iso) => (iso ? new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '');
+const when = (iso) => fmtDateTime(iso);
 
 function Inbox({ onNavigate }) {
   const [items, setItems] = useState([]);

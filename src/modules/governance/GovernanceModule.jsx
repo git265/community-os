@@ -5,11 +5,14 @@ import SectionPage from '../../components/SectionPage.jsx';
 import CommitteeManager from './CommitteeManager.jsx';
 import Modal from '../../components/Modal.jsx';
 import RichText from '../../components/RichText.jsx';
+import { htmlToText } from '../../lib/richtext/sanitize.js';
 import { AttachmentList } from '../../components/Attachments.jsx';
+import { fmtDate } from '../../lib/locale.js';
 
-const dmy = (iso) => (iso ? new Date(`${iso}T12:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '');
+const dmy = (iso) => fmtDate(iso);
 export const when = (m) => [dmy(m.date), m.startTime && (m.endTime ? `${m.startTime}–${m.endTime}` : m.startTime)].filter(Boolean).join(' · ');
-const textOf = (html) => { const d = document.createElement('div'); d.innerHTML = String(html || '').replace(/<\/(li|p|div)>/gi, '\n').replace(/<br\s*\/?>/gi, '\n'); return d.textContent.replace(/\n{3,}/g, '\n\n').trim(); };
+// parsed with DOMParser (inert document): no image or handler in the agenda runs
+const textOf = (html) => htmlToText(String(html || '').replace(/<\/(li|p|div)>/gi, '\n').replace(/<br\s*\/?>/gi, '\n')).replace(/\n{3,}/g, '\n\n');
 
 function exportAgenda(meeting) {
   const text = `${meeting.title}\n${when(meeting)}\n${meeting.location || ''}\n\nAgenda:\n${textOf(meeting.agenda)}`;

@@ -1,9 +1,10 @@
 import React from 'react';
 import Modal from '../../components/Modal.jsx';
 import { AttachmentList } from '../../components/Attachments.jsx';
+import { fmtDate, money } from '../../lib/locale.js';
 
-const inr = (n) => `₹${Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
-const dmy = (s) => (s ? new Date(`${String(s).slice(0, 10)}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—');
+const inr = (n) => money(n, { round: false, maximumFractionDigits: 2 });
+const dmy = (s) => fmtDate(s, { empty: '—' });
 
 /**
  * Read-only detail of one record behind a payment row - the same idea as opening a maintenance task from Payments.

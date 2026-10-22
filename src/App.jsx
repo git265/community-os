@@ -25,6 +25,7 @@ import { isClockRole } from './lib/attendance.js';
 import { useDuty, ClockGate, OnDutyBar } from './components/DutyGate.jsx';
 import { storageOverflowed } from './lib/storage/SessionStorageAdapter.js';
 import { utilitiesVisible, plantVisible } from './lib/access/visibility.js';
+import { validatePhone } from './lib/phone.js';
 
 /** Each page is its own chunk: it downloads the first time someone opens it, so the first screen only carries the shell. */
 const lazyPage = (load) => { const C = lazy(load); C.preload = load; return C; };
@@ -127,14 +128,16 @@ function ProfileModal({ onClose }) {
   const Locked = ({ label, value }) => <div className="field"><label>{label} <span title="Managed by the Super Admin" aria-hidden="true">🔒</span></label><input aria-label={label} value={value || '—'} readOnly disabled /></div>;
   async function save() {
     if (admin && !name.trim()) return setNameErr('Name is required');
-    const bad = ['altPhone', 'emergencyPhone'].find((k) => val(k) && !/^\+?[\d\s-]{10,15}$/.test(val(k).trim()));
-    if (bad) return setErr('Enter a valid phone number (10 digits, optional +91)');
+    if (admin && String(phone || '').trim() && String(phone).trim() !== String(currentUser?.phone || '').trim()) { const v = validatePhone(phone); if (!v.ok) return setErr(`Phone: ${v.error}`); }
+    for (const [k, label] of [['altPhone', 'Alternate phone'], ['emergencyPhone', 'Emergency phone']]) {
+      if (String(val(k) || '').trim() && String(val(k)).trim() !== String(mine?.[k] || '').trim()) { const v = validatePhone(val(k)); if (!v.ok) return setErr(`${label}: ${v.error}`); }
+    }
     if (Object.keys(edits).length) {
       const rec = { ...(mine || {}), userName: currentUser.name, ...Object.fromEntries(SELF_FIELDS.map(([k]) => [k, String(val(k)).trim()])), language: val('language') };
       const ok = await saveProfile(rec);
       if (!ok) return undefined;
     }
-    if (admin) updateProfile({ name: name.trim(), phone });
+    if (admin) updateProfile({ name: name.trim(), phone: String(phone || '').trim() });
     onClose(); return undefined;
   }
   return (
@@ -244,7 +247,14 @@ function Shell() {
     if (serverDecides()) return undefined;   // with a back end that enforces sign-in these jobs run on the server (backend/api, config/Jobs.java), once, instead of in every open browser
     ensureUtilityTypes().catch(() => {});
     const run = () => (jobsRunning ||= runJobsOnce().finally(() => { jobsRunning = null; }));
-    const runJobsOnce = () => runAmenityScheduler().then(() => runRecurringBills()).then(() => runAutoLateFees()).then(() => runDueReminders()).then(() => runBallotReminders()).then(() => runAutoItc()).then(() => runReportSchedules()).then(() => window.dispatchEvent(new CustomEvent('communityos:changed'))).catch(() => {});
+    // in order (bills before late fees before reminders), but each job on its own: one failing job does not skip the rest
+    const JOBS = [['amenities', runAmenityScheduler], ['recurring bills', runRecurringBills], ['late fees', runAutoLateFees], ['due reminders', runDueReminders], ['ballot reminders', runBallotReminders], ['input credit', runAutoItc], ['report schedules', runReportSchedules]];
+    const runJobsOnce = async () => {
+      for (const [name, job] of JOBS) {
+        try { await job(); } catch (e) { console.warn(`Background job "${name}" failed:`, e?.name || 'Error', e?.status || e?.code || ''); } // no message: it can carry names or units
+      }
+      window.dispatchEvent(new CustomEvent('communityos:changed'));
+    };
     const t0 = setTimeout(run, 1500); const iv = setInterval(run, 5 * 60 * 1000);
     return () => { clearTimeout(t0); clearInterval(iv); };
   }, [ready, role]);

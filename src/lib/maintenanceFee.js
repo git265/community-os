@@ -4,10 +4,11 @@ import { storage, COLLECTIONS } from './storage/index.js';
 import { nextShortId } from './storage/secureStorage.js';
 import { logEvent } from './audit/auditLog.js';
 import { chargeFor, billedToOf, applyCredits } from './finance/rules.js';
+import { fmtDate } from './locale.js';
 
 export const DEFAULT_FEE_BODY = 'Dear owner of {{UNIT}},\n\nThe maintenance fee for {{MONTH}} is {{AMOUNT}}, payable by {{DUE_DATE}}.\nPlease pay it from the portal (Billing & Finance → Dues) or at the office.\n\nThank you,\n{{SOCIETY_NAME}} Management';
 const inr = (n) => `₹${Math.round(Number(n) || 0).toLocaleString('en-IN')}`;
-const dmy = (s) => (s ? new Date(`${s}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '');
+const dmy = (s) => fmtDate(s);
 
 export async function maintenanceTemplate() {
   return (await storage.list(COLLECTIONS.NOTICE_TEMPLATES)).find((t) => t.appliesTo === 'Maintenance fee');

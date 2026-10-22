@@ -1,9 +1,10 @@
 import { useMemo } from 'react';
 import { useCollection } from '../../context/AppContext.jsx';
 import { COLLECTIONS as C } from '../../lib/storage/index.js';
+import { fmtDate, money } from '../../lib/locale.js';
 
-export const inr = (n) => `₹${Math.round(Number(n) || 0).toLocaleString('en-IN')}`;
-export const dmy = (s) => (s ? new Date(`${String(s).slice(0, 10)}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—');
+export const inr = (n) => money(n);
+export const dmy = (s) => fmtDate(s, { empty: '—' });
 export const todayIso = () => new Date().toISOString().slice(0, 10);
 export const UTIL_ICON = { Electricity: '⚡', Water: '💧', 'DG diesel': '🛢', Gas: '🔥', 'Internet / telecom': '🌐', 'Waste / sanitation': '♻', Other: '🧾' };
 

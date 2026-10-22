@@ -23,7 +23,6 @@ const PAGE = 10;
 const pad = (n) => String(n).padStart(2, '0');
 const fmt = (y, m, d) => `${y}-${pad(m + 1)}-${pad(d)}`;
 const todayStr = () => { const n = new Date(); return fmt(n.getFullYear(), n.getMonth(), n.getDate()); };
-const TONE = { Paid: 'green', Pending: 'orange', 'Refund due': 'orange', Refunded: 'blue', 'Partially refunded': 'blue', Cancelled: 'red' };
 
 function monthCells(year, month) {
   const cells = [];

@@ -13,10 +13,11 @@ import { canWriteCollection } from '../../lib/security/authz.js';
 import { getPrincipal } from '../../lib/security/principal.js';
 import { fyRange, currentFy, actualsByHead } from '../../lib/bank/analysis.js';
 import { readWorkbook } from '../../lib/files/xlsxRead.js';
+import { fmtDate, money } from '../../lib/locale.js';
 
-const inr = (n) => `₹${Math.round(Number(n) || 0).toLocaleString('en-IN')}`;
+const inr = (n) => money(n);
 const num = (n, d = 1) => Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: d, maximumFractionDigits: d });
-const dmy = (iso) => (iso ? new Date(`${iso}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—');
+const dmy = (iso) => fmtDate(iso, { empty: '—' });
 const today = () => new Date().toISOString().slice(0, 10);
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 

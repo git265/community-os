@@ -9,14 +9,14 @@ import RecordModal from './RecordModal.jsx';
 import Statements from './BankStatements.jsx';
 import { TableExportIcon } from '../../components/ExportIcon.jsx';
 import { actualsByHead, sumHeads, balanceAsOf, fyOptions, fyRange, prevFy, currentFy, lastDateIn, monthEnd, monthLabel, INCOME_HEADS, EXPENSE_HEADS } from '../../lib/bank/analysis.js';
-import { MONTH_NAMES, compactMoney, money } from '../../lib/locale.js';
+import { MONTH_NAMES, compactMoney, money, fmtDate } from '../../lib/locale.js';
 import { DEPOSIT_TYPES } from '../../lib/lists/configLists.js';
 import { computeHeadroom, accountTotal, depositsOf, DEFAULT_SETTINGS } from '../../lib/bank/headroom.js';
 
 /** Amounts are stored in full; large ones are shown in the community's unit (lakh / crore, thousand / million, or full). */
 const amt = (n) => compactMoney(Number(n || 0));
 const rupees = (n) => money(n);
-const dmy = (iso) => (iso ? new Date(`${iso}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—');
+const dmy = (iso) => fmtDate(iso, { empty: '—' });
 const monthsBetween = (a, b) => Math.max(0, (new Date(b) - new Date(a)) / (30.4375 * 864e5));
 const snippet = (html, n = 110) => { const t = htmlToText(html || ''); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
 

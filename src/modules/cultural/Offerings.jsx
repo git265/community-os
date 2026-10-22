@@ -7,8 +7,9 @@ import { recomputeEventTotals } from '../../lib/culturalServer.js';
 import { notify } from '../../lib/notify.js';
 import PayPanel from '../../components/PayPanel.jsx';
 import { claimPayment } from '../../lib/payments.js';
+import { money } from '../../lib/locale.js';
 
-const inr = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
+const inr = (n) => money(n, { round: false });
 
 /** Seva offerings: pick an open slot (or the community pool), give the devotee details, review and confirm the pledge. */
 export default function Offerings({ ev, offerings, manager, canPledge, onEdit, onAdd }) {

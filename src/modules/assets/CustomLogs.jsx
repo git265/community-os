@@ -7,10 +7,11 @@ import { getPrincipal } from '../../lib/security/principal.js';
 import { AttachmentList, AttachmentPicker } from '../../components/Attachments.jsx';
 import { persistPending } from '../../lib/files/attachments.js';
 import { uuid } from '../../lib/uuid.js';
+import { fmtDate } from '../../lib/locale.js';
 
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const today = () => new Date().toISOString().slice(0, 10);
-const dmy = (s) => (s ? new Date(`${s}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—');
+const dmy = (s) => fmtDate(s, { empty: '—' });
 export const FIELD_TYPES = [['number', 'Number'], ['text', 'Text'], ['yesno', 'Yes / No'], ['choice', 'Choice from a list'], ['date', 'Date']];
 const fieldsOf = (t) => (Array.isArray(t?.fields) ? t.fields : []);
 const show = (f, v) => (v === '' || v == null ? '—' : f.type === 'yesno' ? (v === true || v === 'Yes' ? 'Yes' : 'No') : f.type === 'date' ? dmy(v) : `${v}${f.unit && f.type === 'number' ? ` ${f.unit}` : ''}`);

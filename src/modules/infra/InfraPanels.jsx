@@ -7,9 +7,10 @@ import { TICKET_CATEGORIES } from '../../lib/schema/registry.js';
 import {
   COND_COLOR, COND_HELP, CONDITIONS, effectiveCondition, faultyOf, fmtLength, isOverdue, layerOf, parseBreaks, parseShape, pathLength, pointsAlong, shapeJson, units, warrantySoon,
 } from './infraModel.js';
+import { fmtDate } from '../../lib/locale.js';
 
 const today = () => new Date().toISOString().slice(0, 10);
-const dmy = (iso) => (iso ? new Date(`${iso}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—');
+const dmy = (iso) => fmtDate(iso, { empty: '—' });
 
 /** The side panels and dialogs of the Site map: overview legend, one asset's record, add-an-asset, set-the-scale. */
 export function Overview({ hereAssets, open, countOf, unplaced, canEdit, plan, layers, boundary, onFilter, onPlace, onPick }) {

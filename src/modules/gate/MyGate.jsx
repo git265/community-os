@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useApp, useCollection } from '../../context/AppContext.jsx';
 import { COLLECTIONS } from '../../lib/storage/index.js';
 import MyPasses from './MyPasses.jsx';
+import { validatePhone } from '../../lib/phone.js';
 import { SegTabs } from '../../components/ui.jsx';
 import { ApprovalCard } from '../../components/GateApproval.jsx';
 import { makeCode, readDigest, villaRule } from '../../lib/gate/engine.js';
@@ -44,7 +45,8 @@ function ShareToDirectory({ person, unit }) {
   if (person.status !== 'Active') return null;
   const cat = person.personClass === 'Driver' ? 'Driver' : /cook/i.test(person.personClass) ? 'Cook' : 'Maid / housekeeping';
   async function add() {
-    if (!/^\+?[\d\s-]{8,15}$/.test(phone.trim())) { setErr('Enter a phone number neighbours can call'); return; }
+    if (!phone.trim()) { setErr('Enter a phone number neighbours can call'); return; }
+    { const v = validatePhone(phone); if (!v.ok) { setErr(v.error); return; } }
     const out = await save({ name: person.name, category: cat, phone: phone.trim(), rate: rate.trim(), area: 'Works in this community', notes: 'Registered and police-verified with the gate. Listed with the employer\'s consent.', status: 'Active', registryId: person.id, addedBy: currentUser?.name, addedByUnit: unit });
     if (out?.error) setErr(out.error); else { setOpen(false); setErr(''); }
   }

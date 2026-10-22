@@ -12,8 +12,9 @@ import { money } from '../lib/locale.js';
 export default function BillTerms({ amount, rate, mode, flatTax, dueDate, status, due, showPenalty = true, taxId = '', compact = false }) {
   const [settings, setSettings] = useState(null);
   const [all, setAll] = useState([]);
-  useEffect(() => { if (showPenalty) lateFeeSettings().then(setSettings).catch(() => {}); }, [showPenalty]);
-  useEffect(() => { if (showPenalty && due?.id) storage.list(COLLECTIONS.DUES).then((r) => setAll(r.filter((x) => x.lateFeeFor === due.id))).catch(() => {}); }, [showPenalty, due?.id]);
+  const [loadErr, setLoadErr] = useState('');
+  useEffect(() => { if (showPenalty) lateFeeSettings().then(setSettings).catch((e) => setLoadErr(`The late-fee rule could not be read (${e?.message || 'error'}).`)); }, [showPenalty]);
+  useEffect(() => { if (showPenalty && due?.id) storage.list(COLLECTIONS.DUES).then((r) => setAll(r.filter((x) => x.lateFeeFor === due.id))).catch((e) => setLoadErr(`Late fees already charged could not be read (${e?.message || 'error'}).`)); }, [showPenalty, due?.id]);
   const today = todayIso();
   const tb = taxBreakdown({ amount, rate, mode, flatTax });
   const di = dueDate ? dueInfo(dueDate, status, today) : null;
@@ -31,6 +32,7 @@ export default function BillTerms({ amount, rate, mode, flatTax, dueDate, status
         </div>
       )}
       {di && status !== 'Paid' && <div className={`bt-due bt-${di.tone}`} data-testid="bt-due">📅 {di.text}</div>}
+      {loadErr && status !== 'Paid' && <div className="notice error" data-testid="bt-load-error">{loadErr}</div>}
       {showPenalty && settings && status !== 'Paid' && (
         <div className="bt-pen" data-testid="bt-penalty">
           <div className="bt-h">Late fee</div>

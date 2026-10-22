@@ -6,8 +6,9 @@ import Combobox from '../../components/Combobox.jsx';
 import PlanPanel from './PlanPanel.jsx';
 import { buildPlan } from '../../lib/approval/engine.js';
 import { parseJson } from '../../lib/approval/kit.js';
+import { money } from '../../lib/locale.js';
 
-const inr = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
+const inr = (n) => money(n, { round: false });
 
 /**
  * Pay one cultural expense in parts. Same single action as maintenance: "Ask for a release".

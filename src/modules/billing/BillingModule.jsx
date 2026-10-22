@@ -15,8 +15,9 @@ import TicketsModule from '../tickets/TicketsModule.jsx';
 import { canEdit } from '../../lib/access/permissions.js';
 import { DueExtras } from '../../components/PayDue.jsx';
 import { monthLabel } from '../../lib/notice.js';
+import { money } from '../../lib/locale.js';
 
-const inr = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
+const inr = (n) => money(n, { round: false });
 
 /** Jump to a task's details in Maintenance (used by the Payments Cross-check and the financial task list). */
 export function openTask(ticketRef, onNavigate) {

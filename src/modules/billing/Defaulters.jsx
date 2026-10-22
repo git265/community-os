@@ -1,5 +1,6 @@
 // Billing & Finance -> Defaulters: every unit with overdue bills, oldest and biggest first, with one-click reminder / demand / final notices.
 import React, { useMemo, useState } from 'react';
+import { escapeHtml as esc } from '../../lib/escapeHtml.js';
 import Modal from '../../components/Modal.jsx';
 import { Chips, MoneyTiles } from '../../components/ui.jsx';
 import { useCollection } from '../../context/AppContext.jsx';
@@ -78,7 +79,6 @@ function NoticeDialog({ rows, onClose, onSent }) {
   async function go() { setBusy(true); try { const r = await sendNotices({ rows, stage, body, actor: getPrincipal().name }); setDone(r); onSent(r.sent); } finally { setBusy(false); } }
   function printAll() {
     const w = window.open('', '_blank'); if (!w) return window.alert('Allow pop-ups to print the notices.');
-    const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
     w.document.write(`<html><head><title>${esc(stage)}s</title><style>body{font:14px Arial;padding:30px}.p{page-break-after:always;white-space:pre-wrap;line-height:1.5}</style></head><body>${done.texts.map((t) => `<div class="p"><b>${esc(stage)} · ${esc(t.unit)}</b>\n\n${esc(t.text)}</div>`).join('')}</body></html>`);
     w.document.close(); setTimeout(() => w.print(), 250);
   }

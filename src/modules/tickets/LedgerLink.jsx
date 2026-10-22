@@ -1,8 +1,9 @@
 import React from 'react';
 import { useCollection } from '../../context/AppContext.jsx';
 import { COLLECTIONS } from '../../lib/storage/index.js';
+import { money } from '../../lib/locale.js';
 
-const inr = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
+const inr = (n) => money(n, { round: false });
 
 /**
  * Shows the payments made for a financial task (read only). Paying is done by the Treasurer in Payments: once the quotation or

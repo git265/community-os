@@ -15,6 +15,8 @@ const CHANGED_BY = {
   ticket_assigned: ['tickets'], ticket_status: ['tickets'], ticket_decision: ['tickets', 'quotations'], release: ['releases'], stock_low: ['inventory'],
   gate_guest_arrived: ['gateVisits'], gate_guest_exit: ['gateVisits'], gate_delivery: ['gateVisits'], gate_staff_inout: ['gateVisits'], gate_overstay: ['gateFlags'], gate_override: ['gateVisits'],
   gate: ['gateVisits'], gate_approval: ['gateApprovals', 'gateVisits'], announcement: ['broadcasts'], poll: ['broadcasts'], forum_topic: ['forum'], forum_reply: ['forumPosts'],
+  meeting: ['meetings'], ballot: ['ballots'], ballot_result: ['ballots'], cultural: ['culturalDonations', 'culturalExpenses', 'culturalEvents'],
+  // properties, users, documents, vendors and attendance: the server sends no notification for them (backend/api comms Recipes), so nothing to map
 };
 /** True while the live stream is connected (the bell then stops asking for the unread count). */
 export const isLive = () => live;
