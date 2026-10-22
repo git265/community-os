@@ -30,9 +30,17 @@ services:
       - ./api/docker/initdb:/docker-entrypoint-initdb.d:ro   # creates the cos_app / cos_platform login roles on first start
     healthcheck: { test: ["CMD-SHELL", "pg_isready -U cos_owner -d communityos"], interval: 5s, retries: 20 }
 
+  # Makes backend/logs writable for the API's user (uid 10001) before it starts, the same on macOS, Windows and Linux: on Linux a bind
+  # mount keeps the host's owner, so without this the API could not write there. Runs once and exits.
+  logs-init:
+    image: busybox:1.36
+    user: root
+    command: ["sh", "-c", "mkdir -p /data/logs && chown -R 10001 /data/logs 2>/dev/null; chmod -R a+rwX /data/logs 2>/dev/null; exit 0"]
+    volumes: ["./logs:/data/logs"]
+
   api:
     build: { context: ./api }
-    depends_on: { postgres: { condition: service_healthy }, clamav: { condition: service_started } }
+    depends_on: { postgres: { condition: service_healthy }, clamav: { condition: service_started }, logs-init: { condition: service_completed_successfully } }
     ports: ["8080:8080"]
     environment:
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev}
@@ -62,7 +70,7 @@ services:
       LOGGING_LOGBACK_ROLLINGPOLICY_MAX_FILE_SIZE: 10MB
       LOGGING_LOGBACK_ROLLINGPOLICY_MAX_HISTORY: 7
       LOGGING_LOGBACK_ROLLINGPOLICY_TOTAL_SIZE_CAP: 500MB
-    volumes: ["files:/data/files", "./logs:/data/logs"]
+    volumes: ["files:/data/files", "./logs:/data/logs"]   # a relative path: works from backend/ on macOS, Windows and Linux
 
   # ClamAV (free, open source): clamd on 3310, signatures kept up to date by freshclam inside the image. The first start downloads
   # the signatures (a few minutes); until then uploads stay "Pending" and the API's rescan job scans them when clamd is up.
