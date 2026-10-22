@@ -62,7 +62,7 @@ services:
   # ClamAV (free, open source): clamd on 3310, signatures kept up to date by freshclam inside the image. The first start downloads
   # the signatures (a few minutes); until then uploads stay "Pending" and the API's rescan job scans them when clamd is up.
   clamav:
-    image: clamav/clamav:stable
+    image: ${CLAMAV_IMAGE:-clamav/clamav-debian:stable}   # the Debian build is published for amd64 and arm64 (Apple silicon); clamav/clamav is amd64 only
     volumes: ["clamdb:/var/lib/clamav"]
     healthcheck: { test: ["CMD", "clamdcheck.sh"], interval: 30s, timeout: 10s, retries: 20, start_period: 300s }
 

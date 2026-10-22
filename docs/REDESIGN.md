@@ -502,7 +502,7 @@ cd backend/api && mvn spring-boot:run -Dspring-boot.run.profiles=dev # log the c
 | WhatsApp / SMS / e-mail copies of notifications | a provider behind `ChannelSender` (none is wired yet: with `cos.channels.provider=none` they stay Queued) | `simulated`: written to the log and marked Sent, retried up to 5 times on failure |
 | Push notifications (app closed) | Web Push: the browser's own push service (Google, Mozilla, Apple), `COS_PUSH_PROVIDER=webpush` with the server's VAPID key pair (`COS_PUSH_VAPID_PUBLIC_KEY` / `_PRIVATE_KEY`, base64url) | real Web Push too (`cos.push.provider: webpush`); with no keys set, a pair is made at start-up and printed in the log (copy it into the yml to keep browsers subscribed across restarts). `log` writes them to the log instead (no internet) |
 | Push notifications (app open) | the server's own live stream (no outside service) | the same |
-| Virus scanning of uploads | ClamAV (`clamav/clamav` in docker-compose, `COS_FILES_CLAMAV_HOST/PORT`; a strict deployment must use it) | `simulated`: finds the EICAR test file, calls the rest clean |
+| Virus scanning of uploads | ClamAV (`clamav/clamav-debian` in docker-compose (amd64 and arm64), `COS_FILES_CLAMAV_HOST/PORT`; a strict deployment must use it) | `simulated`: finds the EICAR test file, calls the rest clean |
 | File storage | a folder on the server (`COS_FILES_DIR`); an object-store adapter replaces it later | the same |
 | Outgoing webhooks | real HTTP to the subscribers a community adds | the same |
 | Map tiles | OpenStreetMap (or the community's own tile URL), loaded by the browser | the same |
