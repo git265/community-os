@@ -27,7 +27,7 @@
 import { apiFetch } from '../../net/request.js';
 import { AuthzError, ConflictError } from '../../security/errors.js';
 import { SessionStorageAdapter } from '../SessionStorageAdapter.js';
-import { propertyOf, unitPatch, userOf, dueOf, raiseBody, roleOf, ticketOf, ticketPatch, raiseTicketBody, commentOf, fieldStaffOf, quotationOf, addDocumentBody,
+import { propertyOf, directoryOf, unitPatch, userOf, dueOf, raiseBody, roleOf, ticketOf, ticketPatch, raiseTicketBody, commentOf, fieldStaffOf, quotationOf, addDocumentBody,
   quotationCommands, RESOURCES, resourceOf, resourceBody, isUuid, bookingOf, busyOf, bookBody, bookingCommand, gatePassOf, gateVisitOf, gateApprovalOf, gateFlagOf, gateScanOf,
   passBody, ledgerOf, ledgerBody, bookedByServer, releaseOf, releaseCommands, payRequestOf, bankTxnOf, donationOf, donationBody, expenseOf, expenseBody, expenseCommands, fileMeta, fileRowOf, dataUrlBytes, bytesDataUrl, documentOf, documentBody, notificationOf, broadcastOf, broadcastDraft, broadcastCommands, pollVoteRows, topicOf, postOf, meetingOf, meetingBody, ballotOf, ballotBody, voteMarksOf, boxRowOf, voteUnit, contactOf, contactBody, reviewOf, attendanceOf, teamOf, auditOf, auditFilterOf, blockOf, blockBody, newUnitBody } from './v2map.js';
 import { key as nameKey } from '../../unitNaming.js';
@@ -106,7 +106,18 @@ async function unitIndex() {
 }
 
 const readers = {
-  properties: { list: async () => { dropUnits(); return (await allUnits()).map(propertyOf); }, get: async (id) => { const u = await call(`/units/${encodeURIComponent(id)}`); return u && propertyOf(u); } },
+  properties: {
+    list: async () => {
+      dropUnits();
+      const own = (await allUnits()).map(propertyOf);
+      if (getAuthUser()?.category !== 'Resident') return own;
+      // a resident's unit list is their own homes; the rest of the community comes from the contact directory (who to call, nothing more)
+      const dir = (await all('/units/directory')).map(directoryOf);
+      const mine = new Map(own.map((u) => [u.id, u]));
+      return [...own.map((u) => ({ ...(dir.find((d) => d.id === u.id) || {}), ...u })), ...dir.filter((d) => !mine.has(d.id))];
+    },
+    get: async (id) => { const u = await call(`/units/${encodeURIComponent(id)}`); return u && propertyOf(u); },
+  },
   users: {
     list: async () => { const { noById } = await unitIndex(); return (await all('/members')).map((m) => userOf(m, noById)); },
     get: async (id) => { const m = await call(`/members/${encodeURIComponent(id)}`); if (!m) return null; const { noById } = await unitIndex(); return userOf(m, noById); },
@@ -126,7 +137,7 @@ readers.amenities = {
   list: async () => {
     const own = (await many('/amenities/bookings')).map(bookingOf);
     if (getAuthUser()?.category !== 'Resident') return own;
-    const from = new Date(Date.now() - 86400e3).toISOString().slice(0, 10); const to = new Date(Date.now() + 120 * 86400e3).toISOString().slice(0, 10);
+    const from = new Date(Date.now() - 86400e3).toISOString().slice(0, 10); const to = new Date(Date.now() + 119 * 86400e3).toISOString().slice(0, 10);   // the server answers for up to 120 days: yesterday .. 119 days ahead
     const [taken, types] = await Promise.all([call(`/amenities/availability?from=${from}&to=${to}`), call('/amenities/types')]);
     const name = Object.fromEntries(types.map((t) => [t.id, t.name]));
     const mine = new Map();
@@ -834,6 +845,8 @@ const notYet = (c) => { if (!warned.has(c)) { warned.add(c); console.info(`[v2] 
 const unitParam = async (no) => { const id = (await unitIndex()).idByNo[no]; return id || '__unknown__'; };
 const PAGED = {
   properties: { path: '/units', order: ['unit:asc'], search: 'q', filters: {}, rows: async (items) => items.map(propertyOf) },
+  // a resident's page of homes is the contact directory (every home, who to call there)
+  directory: { path: '/units/directory', order: ['unit:asc'], search: 'q', filters: { type: (v) => ['type', v] }, rows: async (items) => items.map(directoryOf) },
   users: { path: '/members', order: ['name:asc'], search: 'q', filters: { status: (v) => ['status', v] },
     rows: async (items) => { const { noById } = await unitIndex(); return items.map((m) => userOf(m, noById)); } },
   dues: { path: '/dues', order: ['dueDate:desc'], search: null, filters: { unit: async (v) => ['unit', await unitParam(v)] }, rows: async (items) => items.map((d) => dueOf(d)) },
@@ -851,7 +864,7 @@ const PAGED = {
     rows: async (items) => { const { noById } = await unitIndex(); return items.map((t) => ticketOf(t, noById)); } },
 };
 async function serverPage(c, params) {
-  const spec = PAGED[c];
+  const spec = c === 'properties' && getAuthUser()?.category === 'Resident' ? PAGED.directory : PAGED[c];
   if (!spec) return null;
   const { page = 1, pageSize = 50, sort, filters = {}, search = '', dateRange, period } = params;
   if (pageSize > 200 || period?.year || period?.month || period?.from || period?.to) return null;

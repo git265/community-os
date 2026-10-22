@@ -98,6 +98,7 @@ In total there are 156 tables. 150 of them are tenant tables.
 | V38 | Meter photos (`billing.reading`) allowed by the files table |
 | V39 | Late fees on the server: `late_fee_no`, one fee per bill and month (unique) |
 | V40 | Provider payouts: `payment.payout_entry_id`, unsettled-payments index, recon kind `payout-missing` |
+| V41 | Tickets at volume: `ticket_closed_recent` (closed this month) |
 | V13 | Amenities: unique, checked amenity types (rates, GST, limits, JSON cancellation tiers, own slots); items and bookings point at their amenity by id; a booking carries its whole money life (price, deposit, the policy it was booked under, payment, refund, deposit settlement), each state checked. Payments open to bookings and donations: allocations have a target, a prepayment is claimed once, unit credit has new kinds; accounts 2200 Security deposits held and 2400 Refunds payable (`provision_amenities`). |
 | V12 | Money on tasks: quotations / invoices always belong to a ticket, with checked kinds, GST modes, amounts and approval slots; the ticket's money summary is checked; releases have a checked status (and a reason when cancelled); approval rules have unique names and valid ranges; finance settings and approver lists are one row per community (`provision_finance`); wishes, service notices and event work have checked statuses. |
 
@@ -299,6 +300,7 @@ Errors are RFC 9457 problem+json with a stable `code`. A 500 carries only an err
 - **Unit credit pays new bills:** a bill raised on the server uses the unit's credit in the same transaction (locked, ledger Dr 2000 / Cr 1100, audited).
 - **Payouts:** a money-in bank line is matched to the provider payments it settles (`/finance/bank-lines/{id}/payout`, fees up to 5%): one settlement entry Dr 1000 net, Dr 5000 fees, Cr 1200 gross; a payment left unsettled is a `payout-missing` issue.
 - **Field limits:** every resource write goes through `FieldLimits` (text 1000 / long 20 000 / structured 200 000 / inline image 13 MB, lists 1000, maps 200, numbers to 1e12 with 6 decimals); request DTOs carry `@Size`; the web form sets the same `maxLength`. With the body cap this guards the database without a CHECK per column.
+- **Tickets at volume** (measured on 330 000 tickets, three years at 300 a day): a page is read through the order's index and the total counted on its own (the old `count(*) OVER ()` read every ticket: 1.07 s for "All", now ~30 ms); the tiles read only unfinished tickets and count finished ones by status (524 ms to 67 ms); connections use `plan_cache_mode=force_custom_plan`, because a generic plan for the lists' optional filters took 29 s. Partitioning was weighed and not taken: the indexes answer in milliseconds at this size, and a partitioned ticket table would need `created_at` in its key and in the nine tables that refer to a ticket.
 - **Bills are never edited.** A bill is cancelled (only if nothing has been paid) or waived, always with a reason. A correction is a new bill.
 
 ## 7. Network latency, retries and resilience

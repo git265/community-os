@@ -84,6 +84,8 @@ export default function DynamicForm({ schema, roleId, record, onSave, onCancel, 
   // a field can show only in some cases, e.g. { showWhen: { key: 'type', in: ['UPS / battery'] } } or { showWhen: { key: 'quantity', gt: 1 } }
   const showNow = (f) => { const w = f.showWhen; if (!w) return true; const v = draft[w.key]; if (w.in) return w.in.some((x) => String(x).toLowerCase() === String(v ?? '').toLowerCase()); if (w.gt != null) return Number(v) > w.gt; if (w.equals != null) return v === w.equals; return true; };
   const fields = schema.fields.filter((f) => canView(f, roleId) && !f.hidden && showNow(f));
+  // nothing here this person may change: the form is for reading - no Save (the server would refuse it anyway)
+  const viewOnly = readOnly || !fields.some((f) => canEdit(f, roleId) && !lockedField(f));
   // a field can be mandatory only in some cases, e.g. { requiredWhen: { key: 'access', equals: 'Villa owner / resident' } }
   const isRequired = (f) => !!f.required || (!!f.requiredWhen && draft[f.requiredWhen.key] === f.requiredWhen.equals);
 
@@ -311,8 +313,8 @@ export default function DynamicForm({ schema, roleId, record, onSave, onCancel, 
       {extra && !extra.props?.top && <div style={{ gridColumn: '1 / -1' }}>{extra}</div>}
       <div style={{ gridColumn: '1 / -1' }}><RecordMeta record={record} /></div>
       <div className="form-actions">
-        {!readOnly && <button type="submit" className="btn" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>}
-        <button type="button" className="btn secondary" onClick={onCancel}>{readOnly ? 'Close' : 'Cancel'}</button>
+        {!viewOnly && <button type="submit" className="btn" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>}
+        <button type="button" className="btn secondary" onClick={onCancel}>{viewOnly ? 'Close' : 'Cancel'}</button>
         {deleteSlot && <span style={{ marginLeft: 'auto' }}>{deleteSlot}</span>}
         {!deleteSlot && record.id && !noDelete && <span style={{ marginLeft: 'auto' }}><AdminDelete collection={schema.id} id={record.id} label={(schema.label || 'record').toLowerCase()} onDone={onCancel} /></span>}
       </div>

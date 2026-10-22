@@ -2119,3 +2119,13 @@ dl.kv dd { margin: 0; }
   .rte-pop-btn { width: 36px; height: 40px; }
   .rte.rte-wa .rte-body { font-size: 16px; }   /* 16 px: iOS does not zoom into the box */
 }
+
+/* ---- notices: open on tap; new ones marked until opened (CommunicationsModule) ---- */
+.notice-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.notice-head h2 { display: flex; align-items: center; gap: 8px; margin: 0; }
+.notice-unread-count { font-size: 12px; }
+.notice-list .notice-toggle { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 0; margin: 0; font: inherit; color: inherit; cursor: pointer; position: relative; }
+.notice-list .notice-item.unread .notice-toggle { padding-left: 14px; }
+.notice-list .notice-dot { position: absolute; left: 0; top: 7px; width: 8px; height: 8px; border-radius: 50%; background: var(--blue); }
+.notice-list .notice-item:not(.unread) .notice-toggle b { font-weight: 600; color: #374151; }
+.notice-list .notice-preview { display: block; margin-top: 2px; color: #64748b; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

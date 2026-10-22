@@ -372,11 +372,18 @@ class PostgresFlowTest {
                 new com.communityos.api.maintenance.MaintenanceResources.TaskTypeFields("Painting", "🎨", "Anyone", "Direct assign", "No", null, null, null, null, true, false, true)));
             assertEquals("Painting", paint.data().name());
             assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> { kit.delete(admin, com.communityos.api.maintenance.MaintenanceResources.TASK_TYPES, ttRepo, paint.id(), paint.version()); return null; }));
+            // the contact directory: an owner reaches their neighbours (the unit list itself shows a resident only their own units)
+            var homes = as(ownerC, () -> units.directory(ownerC, null, null, PageQuery.of(200, 0)));
+            assertTrue(homes.items().stream().anyMatch((e) -> e.unitId().equals(unitB) && e.name() != null), "another home, with who to call there");
+            assertEquals(1, as(ownerC, () -> units.directory(ownerC, "Villa 101", null, PageQuery.of(50, 0))).items().stream().filter((e) -> e.unitId().equals(unitA)).count(), "found by number");
+            assertThrows(AccessDenied.class, () -> as(ownerC, () -> units.directory(com.communityos.api.shared.security.SystemCaller.of(ownerC.community(), "job"), null, null, PageQuery.of(10, 0))));
             var wishRepo = new com.communityos.api.shared.resource.JdbcResourceRepository<>(com.communityos.api.maintenance.MaintenanceResources.WISHES.table(), app, json);
-            var wish = as(ownerC, () -> kit.create(ownerC, com.communityos.api.maintenance.MaintenanceResources.WISHES, wishRepo,
+            assertThrows(AccessDenied.class, () -> as(ownerC, () -> kit.create(ownerC, com.communityos.api.maintenance.MaintenanceResources.WISHES, wishRepo,
+                new com.communityos.api.maintenance.MaintenanceResources.WishFields("Shade", null, null, null, null, null, null, null))), "the wishlist is the committee's");
+            assertTrue(as(ownerC, () -> kit.list(ownerC, com.communityos.api.maintenance.MaintenanceResources.WISHES, wishRepo)).isEmpty(), "residents do not see it");
+            var wish = as(treasurer, () -> kit.create(treasurer, com.communityos.api.maintenance.MaintenanceResources.WISHES, wishRepo,
                 new com.communityos.api.maintenance.MaintenanceResources.WishFields("Shade over the kids' park", "Afternoons are too hot", "Amenities", "Park", null, "Planned", java.math.BigDecimal.TEN, "x")));
             assertEquals("Submitted", wish.data().status(), "the server sets the status of a new wish"); assertNull(wish.data().estimate());
-            assertEquals(unitA, wish.data().unitId()); assertEquals("Villa 101", wish.server("unit")); assertEquals(members[0].toString(), String.valueOf(wish.server("raisedById")));
             var registry = new com.communityos.api.shared.resource.ResourceRegistry(app, json).add(com.communityos.api.maintenance.MaintenanceResources.WISHES);
             var votes = new com.communityos.api.maintenance.application.WishVotes(app, kit, registry, json);
             as(treasurer, () -> votes.vote(treasurer, wish.id(), true));
@@ -384,9 +391,8 @@ class PostgresFlowTest {
             assertEquals(2, voted.path("votes").size());
             var reviewed = as(admin, () -> kit.replace(admin, com.communityos.api.maintenance.MaintenanceResources.WISHES, wishRepo, wish.id(), voted.path("version").asLong(),
                 new com.communityos.api.maintenance.MaintenanceResources.WishFields("Shade over the kids' park", "Afternoons are too hot", "Amenities", "Park", null, "Planned", new java.math.BigDecimal("85000"), "In the next budget")));
-            assertEquals("Planned", reviewed.data().status()); assertEquals(unitA, reviewed.data().unitId(), "the unit does not move");
-            assertThrows(DomainException.RuleViolated.class, () -> as(ownerC, () -> kit.replace(ownerC, com.communityos.api.maintenance.MaintenanceResources.WISHES, wishRepo, wish.id(), reviewed.version(),
-                new com.communityos.api.maintenance.MaintenanceResources.WishFields("Shade", null, null, null, null, "Planned", null, null))), "being reviewed now");
+            assertEquals("Planned", reviewed.data().status());
+            assertThrows(AccessDenied.class, () -> as(ownerC, () -> votes.vote(ownerC, wish.id(), true)), "residents do not vote on the committee's wishlist");
             assertThrows(AccessDenied.class, () -> as(plumberC, () -> kit.replace(plumberC, com.communityos.api.maintenance.MaintenanceResources.WISHES, wishRepo, wish.id(), reviewed.version(),
                 new com.communityos.api.maintenance.MaintenanceResources.WishFields("Shade", null, null, null, null, "Withdrawn", null, null))), "not theirs");
 

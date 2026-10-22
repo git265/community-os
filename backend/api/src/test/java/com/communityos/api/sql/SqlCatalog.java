@@ -83,6 +83,7 @@ public final class SqlCatalog {
             Spec<?> ts = new com.communityos.api.maintenance.application.TicketPolicy().readScope(c);
             out.add(new Stmt("cos_app", "tickets.list." + i, com.communityos.api.maintenance.adapter.JdbcTicketRepository.listSql(ts.sql())));
             for (String o : List.of("sla", "status")) out.add(new Stmt("cos_app", "tickets.list." + o + "." + i, com.communityos.api.maintenance.adapter.JdbcTicketRepository.listSql(ts.sql(), o)));
+            out.add(new Stmt("cos_app", "tickets.count." + i, com.communityos.api.maintenance.adapter.JdbcTicketRepository.countSql(ts.sql())));
             out.add(new Stmt("cos_app", "comments.recent." + i, com.communityos.api.maintenance.adapter.JdbcMaintenanceDirectory.recentSql(ts.sql())));
             out.add(new Stmt("cos_app", "tickets.get." + i, com.communityos.api.maintenance.adapter.JdbcTicketRepository.getSql(ts.sql())));
             Spec<?> bs = new com.communityos.api.amenity.application.BookingPolicy().readScope(c);
@@ -107,7 +108,8 @@ public final class SqlCatalog {
             out.add(new Stmt("cos_app", "donations.get." + i, com.communityos.api.cultural.adapter.JdbcCulturalStore.donationSql(cd.sql())));
             out.add(new Stmt("cos_app", "quotations.all." + i, com.communityos.api.maintenance.adapter.JdbcQuotationRepository.allSql(ts.sql())));
             // the counts above the pages, with the same scopes as their lists
-            out.add(new Stmt("cos_app", "summary.tickets." + i, com.communityos.api.summary.SummaryService.TICKETS.formatted(ts.sql())));
+            out.add(new Stmt("cos_app", "summary.tickets." + i, com.communityos.api.summary.SummaryService.ticketsSql(com.communityos.api.summary.SummaryService.TICKETS, ts.sql())));
+            out.add(new Stmt("cos_app", "summary.tickets.closed." + i, com.communityos.api.summary.SummaryService.ticketsSql(com.communityos.api.summary.SummaryService.CLOSED_MONTH, ts.sql())));
             out.add(new Stmt("cos_app", "summary.dues." + i, com.communityos.api.summary.SummaryService.DUES.formatted(ds.sql())));
             out.add(new Stmt("cos_app", "summary.gate." + i, com.communityos.api.summary.SummaryService.GATE.formatted(gv.sql())));
             out.add(new Stmt("cos_app", "summary.bookings." + i, com.communityos.api.summary.SummaryService.BOOKINGS.formatted(bs.sql())));

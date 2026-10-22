@@ -25,7 +25,7 @@ public final class WishVotes {
 
     @SuppressWarnings("unchecked")
     public JsonNode vote(Caller c, UUID id, boolean on) {
-        if (c.membership() == null || c.category() == Caller.Category.Vendor) throw new AccessDenied("Only members vote on wishes");
+        if (c.membership() == null || !(c.isSuperAdmin() || c.category() == Caller.Category.EC)) throw new AccessDenied("The wishlist is the committee's");
         var e = (ResourceRegistry.Entry<MaintenanceResources.WishFields>) registry.byPath(MaintenanceResources.WISHES.table().path()).orElseThrow();
         resources.get(c, e.resource(), e.repository(), id);                                       // visible to this caller
         if (jdbc.update(VOTE, Map.of("on", on, "me", c.membership().toString(), "id", id.toString())) == 0)

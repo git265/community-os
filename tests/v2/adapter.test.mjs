@@ -88,6 +88,7 @@ globalThis.fetch = async (url, init = {}) => {
     for (const r of body.units) { if (state.units.some((u) => u.unitNo.toLowerCase() === r.unitNo.toLowerCase())) { skipped.push(r.unitNo); continue; } const u = { id: uuid(), shortId: 'UNIT-9', unitNo: r.unitNo, blockId: r.blockId, unitType: r.unitType || 'Villa', occupancy: r.occupancy || 'Vacant', status: 'Active', custom: {}, version: 1 }; state.units.push(u); added.push({ id: u.id, shortId: u.shortId, unitNo: u.unitNo }); }
     return ok({ added, skipped }, 201);
   }
+  if (path === '/units/directory') { const q = (u.searchParams.get('q') || '').toLowerCase(); const items = state.units.filter((x) => !q || x.unitNo.toLowerCase().includes(q)).map((x) => ({ unitId: x.id, unitNo: x.unitNo, blockName: x.blockName, unitType: x.unitType, name: x.id === A ? 'Asha' : 'Bhavna', phone: x.id === A ? '+919800000001' : '+919800000002', relation: 'Owner' })); return ok(page(items)); }
   if (path === '/units' && method === 'POST') { const u = { id: uuid(), shortId: 'UNIT-8', unitNo: body.unitNo, blockId: body.blockId, unitType: body.unitType || 'Villa', occupancy: body.occupancy || 'Vacant', status: 'Active', custom: {}, version: 1 }; state.units.push(u); return ok(u, 201); }
   if (path === '/units') return ok(page(state.units));
   if ((m = /^\/units\/([^/]+)$/.exec(path))) {
@@ -150,6 +151,7 @@ globalThis.fetch = async (url, init = {}) => {
     return x ? ok(x) : problem(404, 'not-found', 'Not found');
   }
   if ((m = /^\/gate\/approvals\/([^/]+)\/answer$/.exec(path))) { const a = state.approvals.find((x) => x.id === m[1]); a.status = body.decision; a.alwaysAllow = body.always; return ok(a); }
+  if (path === '/amenities/availability' && (new Date(u.searchParams.get('to')) - new Date(u.searchParams.get('from'))) / 864e5 > 120) return problem(422, 'bad-range', 'Ask for up to 120 days');   // as BookingService
   if (path === '/amenities/availability') return ok([{ amenityTypeId: HALL, date: '2026-11-01', slot: 'Full day', bookings: 2, items: { [CHAIRS]: 30 } }]);
   if (path === '/amenities/bookings' && method === 'GET') return ok(state.bookings);
   if (path === '/amenities/bookings' && method === 'POST') {
@@ -516,6 +518,16 @@ test('sign-in: the community from the page, a code, then who I am', async () => 
   assert.equal(last('GET', /^\/me/).headers.Authorization, 'Bearer tok-1');
 });
 
+
+test('contact directory: a resident sees every home with who to call there (their own home in full)', async () => {
+  const homes = await storage.list('properties');
+  const other = homes.find((h) => h.unit === 'Villa 202');
+  assert.equal(other.owner, 'Bhavna'); assert.equal(other.ownerPhone, '+919800000002'); assert.equal(other.directoryOnly, true);
+  const mine = homes.find((h) => h.unit === 'Villa 101');
+  assert.equal(mine.owner, 'Asha'); assert.equal(mine.areaSqft, 2400, 'their own home keeps its details');
+  const pageOf = await storage.query('properties', { page: 1, pageSize: 50, search: '202', sort: { key: 'unit', dir: 'asc' } });
+  assert.equal(last('GET', /^\/units\/directory/).path.includes('q=202'), true); assert.equal(pageOf.rows[0].owner, 'Bhavna');
+});
 test('demo: the roster only when the server offers one; signing in by id or by role and unit', async () => {
   const { setAuthConfig } = await import('../../src/lib/auth/session.js');
   const keep = await authApi.loadAuthConfig();

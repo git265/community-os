@@ -115,6 +115,14 @@ public final class UnitService {
         });
     }
     public com.communityos.api.property.application.port.PropertySetup.Setting naming(Caller c) { return setup.setting(); }
+    /**
+     * The community's contact directory: every home with who to call there - for every member, residents included (a resident's own
+     * unit list shows only their units; the directory is how they reach a neighbour). Vendors and a caller with no membership get none.
+     */
+    public com.communityos.api.shared.web.Page<com.communityos.api.property.application.port.PropertySetup.DirectoryEntry> directory(Caller c, String q, String type, PageQuery page) {
+        if (c.membership() == null || c.category() == Caller.Category.Vendor || c.category() == Caller.Category.System) throw new AccessDenied("The directory is for the community's members");
+        return setup.directory(q, type, page.limit(), page.offset());
+    }
     /** The community's pattern for unit numbers. Units already there keep their numbers; new and renamed ones follow it. */
     public com.communityos.api.property.application.port.PropertySetup.Setting setNaming(Caller c, String pattern, long version) {
         layout(c);

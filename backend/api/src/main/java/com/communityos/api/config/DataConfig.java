@@ -51,7 +51,9 @@ public class DataConfig {
         c.setConnectionTimeout(p.connectionTimeout().toMillis());               // fail fast when the pool is exhausted instead of queueing forever
         c.setMaxLifetime(30 * 60_000L);
         c.setAutoCommit(true);
-        c.addDataSourceProperty("options", "-c statement_timeout=" + p.statementTimeout().toMillis() + " -c idle_in_transaction_session_timeout=30000");
+        // plan_cache_mode: the lists' optional filters ("CAST(:x AS ...) IS NULL OR ...") need a plan made for the values given; a generic plan, which
+        // PostgreSQL may switch a prepared statement to after five runs, cannot use the indexes and read 330 000 tickets in 29 s instead of 2 ms
+        c.addDataSourceProperty("options", "-c statement_timeout=" + p.statementTimeout().toMillis() + " -c idle_in_transaction_session_timeout=30000 -c plan_cache_mode=force_custom_plan");
         c.addDataSourceProperty("ApplicationName", name);
         c.addDataSourceProperty("reWriteBatchedInserts", "true");
         return new HikariDataSource(c);

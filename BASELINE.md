@@ -18,6 +18,9 @@ Git tag `baseline-r76`. This is the reference version: later changes are compare
 - Uploads are scanned by ClamAV (in docker-compose); an unscanned file opens only for its uploader. Bank payout lines are matched to the
   provider payments they settle (Billing → Payments → bank line → Payout…). Unit credit pays new bills on the server. Every field has a size
   limit (FieldLimits, DTO @Size, form maxLength) and the rules the forms check are also checked by the server.
+- Maintenance opens on the open tasks; the wishlist is the committee's (server too); residents see the contact directory of every home
+  (GET /units/directory); notices are marked read when opened (the server's per-person viewedAt); ticket lists and tiles measured and tuned
+  for a few hundred tickets a day (docs/REDESIGN.md section 6).
 - Attendance report shows the gate beside the clock: each session's badge-in / badge-out (staff badge at the gate), days seen only at the gate, and
   flags (no gate entry, clocked in before the gate, left before clocking out, inside after clocking out). Built by the server on the back end.
 - Site map is map first: one toolbar row (plan, search, Filters, ⋯ Tools), the map fills the screen, the side panel can be hidden;

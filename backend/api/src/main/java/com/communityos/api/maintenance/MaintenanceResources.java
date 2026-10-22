@@ -103,7 +103,9 @@ public final class MaintenanceResources {
         new ResourceTable<>("wishes", "maintenance/wishes", "maintenance.wish", WishFields.class, "r.created_at DESC")
             .who("raisedBy").unitNo("unit", "unit_id").server("votes", Kind.TEXT_ARRAY).server("convertedTicketId", Kind.UUID).server("convertedTicketNo", Kind.TEXT),
         new ResourceRules<>() {
-            @Override public boolean mayWrite(Caller c) { return c.category() != Caller.Category.Vendor && c.category() != Caller.Category.System; }
+            // the wishlist is the committee's: ideas it weighs, estimates and decides (not residents', staff's or vendors')
+            @Override public Spec<WishFields> readScope(Caller c) { return committee(c) ? Spec.all() : Spec.none(); }
+            @Override public boolean mayWrite(Caller c) { return committee(c); }
             @Override public WishFields validate(Caller c, WishFields f, WishFields old) {
                 String title = Checks.required(f.title(), "Title");
                 boolean reviewer = committee(c) || TicketRules.coordinator(c);

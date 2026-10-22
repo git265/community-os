@@ -16,6 +16,19 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 
 /** property.block / property.unit_setting / new property.unit rows on the tenant connection (the community comes from the connection). */
 public final class JdbcPropertySetup implements PropertySetup {
+    /** The community directory: one row a unit, its contact from the current occupants (never past ones, never family or caretakers). */
+    static final String DIRECTORY = """
+        SELECT u.id, u.unit_no, b.name AS block_name, u.unit_type, o.full_name, o.phone_e164, o.relation, count(*) OVER () AS total
+        FROM property.unit u
+        LEFT JOIN property.block b ON b.community_id = u.community_id AND b.id = u.block_id
+        LEFT JOIN LATERAL (
+          SELECT x.full_name, x.phone_e164, x.relation FROM property.occupant x
+          WHERE x.community_id = u.community_id AND x.unit_id = u.id AND x.to_date IS NULL AND x.relation IN ('Owner', 'Co-owner', 'Tenant')
+          ORDER BY (x.relation = 'Owner' AND x.is_primary) DESC, (x.relation = 'Owner') DESC, (x.relation = 'Co-owner') DESC, x.created_at LIMIT 1) o ON true
+        WHERE u.status = 'Active'
+          AND (CAST(:q AS text) IS NULL OR u.unit_no ILIKE :q ESCAPE '\\' OR o.full_name ILIKE :q ESCAPE '\\')
+          AND (CAST(:type AS text) IS NULL OR u.unit_type = :type)
+        ORDER BY lower(u.unit_no), u.id LIMIT :limit OFFSET :offset""";
     static final String BLOCKS = """
         SELECT b.id, b.short_id, b.name, b.code, b.kind, b.sort_order, b.unit_pattern, b.custom::text AS custom, b.version,
                (SELECT count(*) FROM property.unit u WHERE u.community_id = b.community_id AND u.block_id = b.id) AS units
@@ -97,5 +110,18 @@ public final class JdbcPropertySetup implements PropertySetup {
         String body;
         try { body = json.writeValueAsString(rows); } catch (Exception e) { throw new IllegalStateException(e); }
         return jdbc.query(INSERT_UNITS, Map.of("rows", body), (rs, i) -> new Added(Rows.uuid(rs, "id"), rs.getString("short_id"), rs.getString("unit_no")));
+    }
+
+    @Override public com.communityos.api.shared.web.Page<DirectoryEntry> directory(String q, String type, int limit, int offset) {
+        Map<String, Object> p = new HashMap<>();
+        p.put("q", q == null || q.isBlank() ? null : Rows.like(q.strip())); p.put("type", type == null || type.isBlank() ? null : type.strip());
+        p.put("limit", limit); p.put("offset", offset);
+        long[] total = {0};
+        List<DirectoryEntry> rows = jdbc.query(DIRECTORY, p, (rs, i) -> {
+            total[0] = rs.getLong("total");
+            return new DirectoryEntry(rs.getObject("id", UUID.class), rs.getString("unit_no"), rs.getString("block_name"), rs.getString("unit_type"),
+                rs.getString("full_name"), rs.getString("phone_e164"), rs.getString("relation"));
+        });
+        return new com.communityos.api.shared.web.Page<>(rows, total[0], limit, offset);
     }
 }

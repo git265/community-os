@@ -35,4 +35,9 @@ public interface PropertySetup {
     /** Is the number (any case) another unit's? */
     boolean numberTaken(String unitNo, UUID except);
     List<Added> insertUnits(List<NewUnit> units);
+
+    /** One home in the community directory: the unit and who to call there (its primary owner, else an owner, else the tenant). */
+    record DirectoryEntry(UUID unitId, String unitNo, String blockName, String unitType, String name, String phone, String relation) {}
+    /** Every active unit, by number; `q` matches the unit number or the name, `type` the unit type. */
+    com.communityos.api.shared.web.Page<DirectoryEntry> directory(String q, String type, int limit, int offset);
 }

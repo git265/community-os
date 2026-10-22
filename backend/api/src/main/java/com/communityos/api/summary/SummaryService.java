@@ -39,6 +39,14 @@ public final class SummaryService {
     /** The Command Center: every part the caller may see (a part they may not see is absent). */
     public record Dashboard(Homes homes, Tickets tickets, Dues dues, GateNow gate, Bookings bookings, Staff staff, long unreadNotifications) {}
 
+    /**
+     * The tiles: the open work is read in full (it is small; named status by status so the (community, status) index finds it); finished tickets (most of them, after a few years) are only counted by status, which
+     * the (community, status) index answers without reading the rows; "closed this month" has an index of its own (CLOSED_MONTH).
+     */
+    /**
+     * The tiles: the open work is read in full (it is small; named status by status so the (community, status) index finds it); finished tickets (most of them, after a few years) are only counted by status, which
+     * the (community, status) index answers without reading the rows; "closed this month" has an index of its own (CLOSED_MONTH).
+     */
     public static final String TICKETS = """
         SELECT t.status, count(*) AS n,
                count(*) FILTER (WHERE t.status IN ('Open', 'Assigned', 'In Progress', 'On Hold') AND t.sla_due_at::date < CAST(:today AS date)) AS overdue,
@@ -47,12 +55,18 @@ public final class SummaryService {
                count(*) FILTER (WHERE t.status NOT IN ('Closed', 'Cancelled') AND (t.ec_approval = 'Pending' OR t.treasurer_approval = 'Pending')) AS awaiting,
                count(*) FILTER (WHERE t.status NOT IN ('Closed', 'Cancelled') AND t.priority IN ('High', 'Critical')) AS critical,
                count(*) FILTER (WHERE t.status = 'Open' AND t.assignee_id IS NULL) AS unassigned,
-               count(*) FILTER (WHERE t.status NOT IN ('Closed', 'Cancelled') AND (t.status = 'On Hold' OR t.awaiting_parts)) AS on_hold,
-               count(*) FILTER (WHERE t.status = 'Closed' AND t.closed_at >= CAST(:month AS date)) AS closed_month
+               count(*) FILTER (WHERE t.status NOT IN ('Closed', 'Cancelled') AND (t.status = 'On Hold' OR t.awaiting_parts)) AS on_hold
         FROM maintenance.ticket t
-        LEFT JOIN maintenance.task_type tt ON tt.community_id = t.community_id AND tt.id = t.task_type_id
-        LEFT JOIN property.unit u ON u.community_id = t.community_id AND u.id = t.unit_id
-        WHERE %s GROUP BY t.status""";
+        %2$sWHERE t.status IN ('Open', 'Assigned', 'In Progress', 'On Hold', 'Completed') AND %1$s GROUP BY t.status
+        UNION ALL
+        SELECT t.status, count(*), 0, 0, 0, 0, 0, 0, 0
+        FROM maintenance.ticket t
+        %2$sWHERE t.status IN ('Closed', 'Cancelled') AND %1$s GROUP BY t.status""";
+    public static final String CLOSED_MONTH = """
+        SELECT count(*) FROM maintenance.ticket t
+        %2$sWHERE t.status = 'Closed' AND t.closed_at >= CAST(CAST(:month AS date) AS timestamptz) AND %1$s""";
+    /** A tiles query for this access rule: only the joins the rule needs (see JdbcTicketRepository.scopeJoins). */
+    public static String ticketsSql(String template, String scopeSql) { return template.formatted(scopeSql, com.communityos.api.maintenance.adapter.JdbcTicketRepository.scopeJoins(scopeSql)); }
     public static final String MOST_OVERDUE = """
         SELECT t.id, t.short_id, t.title, t.category, u.unit_no, a.display_name AS assignee, t.sla_due_at::date AS sla
         FROM maintenance.ticket t
@@ -107,12 +121,13 @@ public final class SummaryService {
     public Tickets tickets(Caller c) {
         Spec<Ticket> s = tickets.readScope(c);
         Map<String, Long> by = new LinkedHashMap<>(); long[] agg = new long[9];
-        jdbc.query(TICKETS.formatted(s.sql()), params(s, c), (rs, i) -> {
+        jdbc.query(ticketsSql(TICKETS, s.sql()), params(s, c), (rs, i) -> {
             long n = rs.getLong("n"); by.put(rs.getString("status"), n);
             agg[0] += n; agg[1] += rs.getLong("overdue"); agg[2] += rs.getLong("mine"); agg[3] += rs.getLong("raised"); agg[4] += rs.getLong("awaiting");
-            agg[5] += rs.getLong("critical"); agg[6] += rs.getLong("unassigned"); agg[7] += rs.getLong("on_hold"); agg[8] += rs.getLong("closed_month");
+            agg[5] += rs.getLong("critical"); agg[6] += rs.getLong("unassigned"); agg[7] += rs.getLong("on_hold");
             return n;
         });
+        agg[8] = java.util.Objects.requireNonNullElse(jdbc.queryForObject(ticketsSql(CLOSED_MONTH, s.sql()), params(s, c), Long.class), 0L);
         long active = List.of("Open", "Assigned", "In Progress", "On Hold").stream().mapToLong((k) -> by.getOrDefault(k, 0L)).sum();
         List<Late> late = jdbc.query(MOST_OVERDUE.formatted(s.sql()), params(s, c), (rs, i) -> new Late(rs.getObject("id", java.util.UUID.class), rs.getString("short_id"), rs.getString("title"),
             rs.getString("category"), rs.getString("unit_no"), rs.getString("assignee"), rs.getDate("sla") == null ? null : rs.getDate("sla").toLocalDate()));

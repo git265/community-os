@@ -217,7 +217,7 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
   const { ask: askPrompt, node: promptNode } = usePrompt();
   const myCreatableTypes = useMemo(() => (isResident ? [] : creatableTaskTypes(taskTypes, role)), [taskTypes, role, isResident]);
   const showTabs = !isResident && (!isHandymanRole || roleId === 'handyman_mep');
-  const showWishTab = isResident || showTabs || isHandymanRole; // everyone can see (and vote on) the wishlist
+  const showWishTab = isEC || roleId === 'super_admin'; // the wishlist is the committee's: ideas it weighs, estimates and decides
   // a role whose Tickets tab was switched off lands on the first tab it may open
   const firstTab = ['tickets', 'wishlist', 'coverage', 'approvers', 'types'].find((t) => tabAllowed(`tickets.${t}`)) || 'tickets';
   const tab = showTabs && !tabAllowed(`tickets.${tabRaw}`) ? firstTab : tabRaw;
@@ -434,7 +434,8 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
   const criticalOpen = tickets.filter((t) => t.status !== 'Closed' && t.status !== 'Cancelled' && (t.priority === 'High' || t.priority === 'Critical')).length;
   const awaitingParts = tickets.filter((t) => t.awaitingParts);
   // a tile on the Command Center can open this list already filtered
-  const [cardKey, setCardKey] = useState(() => { try { const k = sessionStorage.getItem('communityos:ticketCard'); sessionStorage.removeItem('communityos:ticketCard'); return k && SUMMARY_FILTERS[k] ? k : ''; } catch { return ''; } });
+  // the list opens on the open tasks (tap "All" for everything); a link from elsewhere may ask for another tile
+  const [cardKey, setCardKey] = useState(() => { try { const k = sessionStorage.getItem('communityos:ticketCard'); sessionStorage.removeItem('communityos:ticketCard'); return k && SUMMARY_FILTERS[k] ? k : 'open'; } catch { return 'open'; } });
   const overdueIds = tickets.filter((t) => LIVE_STATUSES.includes(t.status) && t.slaDueAt && t.slaDueAt < new Date().toISOString().slice(0, 10)).map((t) => t.id);
   const [resetToken, setResetToken] = useState(0);
   const serverSum = useTicketSummary();
@@ -455,7 +456,7 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
     { key: 'closed', label: 'Closed' },
   ].map((c) => ({ ...c, count: serverSum?.byStatus ? (c.key === 'all' ? Number(serverSum.total) : serverCount(c.key)) : c.key === 'all' ? visibleTickets.length : countOf(c.key) }));
   function resetAllFilters() {
-    setCardKey(''); setApprovalOnly(false); setConfirmOnly(false); setFinancialOnly(false); setScope('all'); setResetToken((n) => n + 1);
+    setCardKey('open'); setApprovalOnly(false); setConfirmOnly(false); setFinancialOnly(false); setScope('all'); setResetToken((n) => n + 1);
   }
   const materialsCost = awaitingParts.reduce((s, t) => s + (Number(t.materialsCost) || 0), 0);
 
@@ -773,10 +774,10 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
         </div>
       </div>
 
-      {showWishTab && (
+      {(showWishTab || showTabs) && (
         <div className="tabs">
           {(!showTabs || tabAllowed('tickets.tickets')) && <button className={tab === 'tickets' ? 'active' : ''} onClick={() => setTab('tickets')}>Tickets</button>}
-          {(!showTabs || tabAllowed('tickets.wishlist')) && <button data-testid="tab-wishlist" className={tab === 'wishlist' ? 'active' : ''} onClick={() => setTab('wishlist')}>Wishlist</button>}
+          {showWishTab && (!showTabs || tabAllowed('tickets.wishlist')) && <button data-testid="tab-wishlist" className={tab === 'wishlist' ? 'active' : ''} onClick={() => setTab('wishlist')}>Wishlist</button>}
           {showTabs && tabAllowed('tickets.coverage') && <button className={tab === 'coverage' ? 'active' : ''} onClick={() => setTab('coverage')}>Category coverage</button>}
           {showTabs && canEditApprovers && tabAllowed('tickets.approvers') && <button className={tab === 'approvers' ? 'active' : ''} onClick={() => setTab('approvers')}>Final approvers</button>}
           {showTabs && canManageTypes && tabAllowed('tickets.types') && <button className={tab === 'types' ? 'active' : ''} onClick={() => setTab('types')}>Task Types</button>}
@@ -838,12 +839,6 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
                 <div className="approval-banner confirm">
                   <span>✅ <b>{confirmMine.length}</b> ticket{confirmMine.length === 1 ? ' is' : 's are'} marked completed — please check and close {confirmMine.length === 1 ? 'it' : 'them'}</span>
                   <button type="button" className="btn secondary" onClick={() => { setConfirmOnly((v) => !v); setApprovalOnly(false); }}>{confirmOnly ? 'Show all tasks' : 'Review now'}</button>
-                </div>
-              )}
-              {isResident && (
-                <div className="tk-scope">
-                  <Segmented label="Which requests" value={resScope} onChange={setResScope}
-                    options={[{ value: 'all', label: 'All' }, { value: 'mine', label: 'My villa' }]} />
                 </div>
               )}
               {(!isResident && !isHandymanRole) || canSeeFinance ? (

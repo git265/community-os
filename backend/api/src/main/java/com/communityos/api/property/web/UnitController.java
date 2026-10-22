@@ -54,6 +54,12 @@ public class UnitController {
         return PageResponse.of(units.list(CallerHolder.require(), new UnitRepository.Filter(q, block == null ? null : new BlockId(block), occupancy, archived),
             PageQuery.of(limit, offset)).map(UnitResponse::of));
     }
+    /** The community's contact directory (every member may read it): unit, block, type and who to call there. */
+    @GetMapping("/directory")
+    public PageResponse<com.communityos.api.property.application.port.PropertySetup.DirectoryEntry> directory(@RequestParam(required = false) @Size(max = 100) String q,
+            @RequestParam(required = false) @Size(max = 40) String type, @RequestParam(required = false) Integer limit, @RequestParam(required = false) Integer offset) {
+        return PageResponse.of(units.directory(CallerHolder.require(), q, type, PageQuery.of(limit, offset)));
+    }
     @GetMapping("/{id}")
     public ResponseEntity<UnitResponse> get(@PathVariable UUID id) {
         Unit u = units.get(CallerHolder.require(), new UnitId(id));

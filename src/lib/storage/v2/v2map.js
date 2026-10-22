@@ -33,6 +33,10 @@ export function propertyOf(u) {
     version: u.version, updatedAt: u.updatedAt,
   };
 }
+/** A home in the contact directory (GET /units/directory): the unit and who to call there - all a resident sees of other homes. */
+export function directoryOf(d) {
+  return { id: d.unitId, unit: d.unitNo, zone: d.blockName || '', type: d.unitType || '', owner: d.name || '', ownerPhone: d.phone || '', contactRelation: d.relation || '', directoryOnly: true };
+}
 // ---- blocks ---------------------------------------------------------------------------------------------------------------------------------------
 // The server's block kinds and the app's words for them.
 const KIND_IN = { Tower: 'Tower', Phase: 'Phase', Lane: 'Villa lane / cluster', Block: 'Wing', Zone: 'Other' };
@@ -54,7 +58,7 @@ export function newUnitBody(rec, blocks = []) {
 
 const UNIT_FIELDS = { unit: 'unitNo', type: 'unitType', occupancy: 'occupancy', areaSqft: 'areaSqft', maintenancePlan: 'maintenancePlan', sanctionedKw: 'sanctionedKw' };
 const UNIT_FIXED = new Set(['id', 'shortId', 'zone', 'blockId', 'status', 'version', 'updatedAt', 'createdAt', 'createdBy', 'lastUpdatedAt', 'lastUpdatedBy',
-  'owner', 'ownerPhone', 'ownerEmail', 'tenant', 'tenantPhone', 'tenantEmail', 'people', 'secondaryOwner', 'secondaryOwnerPhone', 'billTo', 'outstanding']);
+  'owner', 'ownerPhone', 'ownerEmail', 'tenant', 'tenantPhone', 'tenantEmail', 'people', 'secondaryOwner', 'secondaryOwnerPhone', 'billTo', 'outstanding', 'contactRelation', 'directoryOnly']);
 /** Only what changed, as the PATCH body (null when nothing the server accepts changed). Unknown keys go to `custom` (the server checks them). */
 export function unitPatch(before, after) {
   const body = {}; const custom = {};

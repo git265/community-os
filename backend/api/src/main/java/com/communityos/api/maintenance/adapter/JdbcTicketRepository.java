@@ -76,9 +76,27 @@ public final class JdbcTicketRepository implements TicketRepository {
         WHERE id = CAST(:id AS uuid) AND version = :version RETURNING version""";
 
     public static String listSql(String scopeSql) { return listSql(scopeSql, "created"); }
+    /**
+     * One page, read through the order's index (newest first: (community_id, created_at)). The total is counted on its own (countSql):
+     * a count in the page query (count(*) OVER ()) made every page read every matching ticket - over a second for "All" at 300 a day for three years.
+     */
     public static String listSql(String scopeSql, String order) {
-        return COLUMNS + ", count(*) OVER () AS total\n" + FROM + "\n" + FILTER + "\n  AND " + scopeSql + "\nORDER BY " + ORDERS.getOrDefault(order == null ? "created" : order, ORDERS.get("created"))
+        return COLUMNS + "\n" + FROM + "\n" + FILTER + "\n  AND " + scopeSql + "\nORDER BY " + ORDERS.getOrDefault(order == null ? "created" : order, ORDERS.get("created"))
             + " LIMIT :limit OFFSET :offset";
+    }
+    /**
+     * How many tickets the list's filters match. Only what the access rule needs is joined (the task type for residents, the unit for staff
+     * limited to blocks): row-level security keeps the planner from dropping an unused join, and the bare count is answered from an index.
+     */
+    public static String countSql(String scopeSql) {
+        String filter = FILTER.replace("(CAST(:taskType AS text) IS NULL OR lower(tt.name) = lower(:taskType))",
+            "(CAST(:taskType AS text) IS NULL OR EXISTS (SELECT 1 FROM maintenance.task_type x WHERE x.community_id = t.community_id AND x.id = t.task_type_id AND lower(x.name) = lower(:taskType)))");
+        return "SELECT count(*) AS total\nFROM maintenance.ticket t\n" + scopeJoins(scopeSql) + filter + "\n  AND " + scopeSql;
+    }
+    /** The joins an access rule needs (its SQL names tt. or u.), nothing more. */
+    public static String scopeJoins(String scopeSql) {
+        return (scopeSql.contains("tt.") ? "LEFT JOIN maintenance.task_type tt ON tt.community_id = t.community_id AND tt.id = t.task_type_id\n" : "")
+            + (scopeSql.contains("u.") ? "LEFT JOIN property.unit u ON u.community_id = t.community_id AND u.id = t.unit_id\n" : "");
     }
     public static String getSql(String scopeSql) { return COLUMNS + "\n" + FROM + "\nWHERE t.id = CAST(:id AS uuid) AND " + scopeSql; }
 
@@ -92,9 +110,11 @@ public final class JdbcTicketRepository implements TicketRepository {
         p.put("q", f.q() == null || f.q().isBlank() ? null : Rows.like(f.q().strip())); p.put("limit", page.limit()); p.put("offset", page.offset());
         p.put("statuses", joined(f.statuses())); p.put("priorities", joined(f.priorities())); p.put("taskType", blank(f.taskType()) ? null : f.taskType());
         p.put("financial", f.financial()); p.put("scope", blank(f.scope()) ? null : f.scope());
-        long[] total = {0};
-        List<Ticket> rows = jdbc.query(listSql(scope.sql(), f.order()), p, (rs, i) -> { total[0] = rs.getLong("total"); return map(rs); });
-        return new Page<>(rows, total[0], page.limit(), page.offset());
+        List<Ticket> rows = jdbc.query(listSql(scope.sql(), f.order()), p, (rs, i) -> map(rs));
+        // a first page that is not full is the whole list: no need to count
+        long total = page.offset() == 0 && rows.size() < page.limit() ? rows.size()
+            : java.util.Objects.requireNonNullElse(jdbc.queryForObject(countSql(scope.sql()), p, Long.class), 0L);
+        return new Page<>(rows, total, page.limit(), page.offset());
     }
     private static boolean blank(String s) { return s == null || s.isBlank(); }
     private static String joined(List<String> xs) {

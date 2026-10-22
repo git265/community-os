@@ -15,7 +15,9 @@ import RichTextEditor from '../../components/RichTextEditor.jsx';
 import RichText from '../../components/RichText.jsx';
 import NoticeList from '../../components/NoticeList.jsx';
 import { TagsInput } from '../../components/DynamicForm.jsx';
-import { isEmptyHtml } from '../../lib/richtext/sanitize.js';
+import { isEmptyHtml, htmlToText } from '../../lib/richtext/sanitize.js';
+import { isRead, markRead, markAllRead } from '../../lib/noticeReads.js';
+import { isApiMode } from '../../lib/storage/dataSource.js';
 
 const TYPES = ['Announcement', 'Emergency alert', 'Notice', 'Scheduled maintenance', 'Poll'];
 const timeLabel = (t) => { if (!t) return ''; const [h, m] = t.split(':').map(Number); return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`; };
@@ -164,6 +166,16 @@ export default function CommunicationsModule() {
   }
 
   const isResidentRole = roleId === 'owner' || roleId === 'resident' || !!currentUser?.unit;   // an owner on the committee signs and votes for their unit too
+  // read marks: a notice sent to me (not my own, not a draft) is "new" until I open it
+  const me = currentUser?.name || roleId || '';
+  const [openIds, setOpenIds] = useState(() => new Set());
+  const [, setReadTick] = useState(0);
+  const readable = (b) => b.status === 'Sent' && (b.sentBy || '') !== me;
+  const unread = broadcasts.filter((b) => readable(b) && !isRead(b, me));
+  function toggle(b) {
+    setOpenIds((s) => { const n = new Set(s); if (n.has(b.id)) n.delete(b.id); else n.add(b.id); return n; });
+    if (readable(b) && !isRead(b, me)) markRead(b, me).then(() => setReadTick((n) => n + 1)).catch(() => {});
+  }
   const reachNote = pickerKind ? `${draft.audienceUnits.length} selected` : draft.audience === 'Selected blocks' ? `${(draft.audienceBlocks || []).length} block(s)` : draft.audience;
 
   return (
@@ -344,26 +356,35 @@ export default function CommunicationsModule() {
           )}
 
           <div className="card" style={{ marginTop: 16 }}>
-            <h2>{canBroadcast ? 'Recent broadcasts' : 'Announcements for you'}</h2>
+            <div className="notice-head">
+              <h2>{canBroadcast ? 'Recent broadcasts' : 'Announcements for you'}{unread.length > 0 && <span className="tag blue notice-unread-count" data-testid="notice-unread">{unread.length} new</span>}</h2>
+              {unread.length > 0 && <button type="button" className="btn secondary sm" data-testid="notice-read-all" onClick={async () => { await markAllRead(unread, me); setReadTick((n) => n + 1); }}>Mark all as read</button>}
+            </div>
             {broadcasts.length === 0 ? (
               <div className="empty">Nothing sent yet.</div>
             ) : (
-              <ul className="list">
+              <ul className="list notice-list">
                 {[...broadcasts].reverse().map((b) => {
                   const signedNames = (b.signedBy || '').split(',').map((s) => s.trim()).filter(Boolean);
                   const iSigned = currentUser && signedNames.includes(currentUser.name);
+                  const fresh = readable(b) && !isRead(b, me);
+                  const open = openIds.has(b.id);
                   return (
-                    <li key={b.id} style={{ alignItems: 'flex-start' }}>
-                      <span style={{ flex: 1 }}>
-                        <b>{b.type === 'Poll' ? '📊 ' : ''}{b.subject}</b><br />
-                        <small className="muted">{b.type}{b.eventDate ? ` · ${whenText(b)}` : ''} · {b.audience === 'Selected villas' || b.audience === 'Selected apartments' ? `${b.audience} (${(b.audienceUnits || []).length})` : b.audience} · {b.sentAt}</small>
-                        {b.message && <RichText html={b.message} />}
-                        {b.type === 'Poll' && b.status === 'Sent' && <PollCard poll={b} canSeeVoters={canBroadcast} />}
+                    <li key={b.id} className={`notice-item${fresh ? ' unread' : ''}${open ? ' open' : ''}`} style={{ alignItems: 'flex-start' }} data-testid="notice-item" data-read={fresh ? 'no' : 'yes'}>
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        <button type="button" className="notice-toggle" aria-expanded={open} data-testid="notice-open" onClick={() => toggle(b)}>
+                          {fresh && <span className="notice-dot" aria-label="New" />}
+                          <b>{b.type === 'Poll' ? '📊 ' : ''}{b.subject}</b>{fresh && <span className="tag blue" style={{ marginLeft: 6 }}>New</span>}
+                          <small className="muted" style={{ display: 'block' }}>{b.type}{b.eventDate ? ` · ${whenText(b)}` : ''} · {b.audience === 'Selected villas' || b.audience === 'Selected apartments' ? `${b.audience} (${(b.audienceUnits || []).length})` : b.audience} · {b.sentAt}{!fresh && readable(b) && <> · <span data-testid="notice-read-mark">✓ Read</span></>}</small>
+                          {!open && b.message && <span className="notice-preview">{htmlToText(b.message).slice(0, 140)}</span>}
+                        </button>
+                        {open && b.message && <RichText html={b.message} />}
+                        {open && b.type === 'Poll' && b.status === 'Sent' && <PollCard poll={b} canSeeVoters={canBroadcast} />}
                         {b.status === 'Sent' && canBroadcast && (
                           <div className="muted" style={{ marginTop: 4 }}>
                             {b.recipients ?? 0} sent · {b.viewed ?? 0} viewed · {b.pushDelivered ?? 0} push delivered
                             {' · '}
-                            <button className="btn secondary" style={{ padding: '3px 8px', fontSize: 12 }} onClick={() => saveBroadcast({ ...b, viewed: Math.min((b.recipients ?? 0), (b.viewed ?? 0) + 1) })}>+1 viewed</button>
+                            {!isApiMode() && <button className="btn secondary" style={{ padding: '3px 8px', fontSize: 12 }} onClick={() => saveBroadcast({ ...b, viewed: Math.min((b.recipients ?? 0), (b.viewed ?? 0) + 1) })}>+1 viewed (demo)</button>}
                           </div>
                         )}
                         {b.requiresSignature && (

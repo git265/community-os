@@ -227,10 +227,10 @@ export default function DocumentsModule() {
         </Modal>
       )}
       {editing && (
-        <Modal title={editing.title || 'Document'} subtitle="Document details, version and access." onClose={() => setEditing(null)}>
+        <Modal title={editing.title || 'Document'} subtitle={canUpload ? 'Document details, version and access.' : 'Document details. Only the people who manage documents change them.'} onClose={() => setEditing(null)}>
           {canUpload && <div className="field" style={{ marginBottom: 10 }}><label>Folder</label><select aria-label="Move to folder" data-testid="move-folder" value={editing.folderId || ''} onChange={async (e) => { const d = await saveDoc({ ...editing, folderId: e.target.value }); if (d) setEditing(d); }}><option value="">Not in a folder</option>{flatTree(folders).map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}</select></div>}
           {editing.fileId && <p><button className="btn secondary" onClick={() => setViewing({ fileId: editing.fileId, name: editing.fileName || editing.title, mime: editing.mime || '', size: (editing.fileSize || 0) * 1024 })}>👁 Preview {editing.fileName}</button></p>}
-          <DynamicForm schema={schema} roleId={roleId} record={editing} onSave={async (d) => { const s = await save(d); if (s) setEditing(null); }} onCancel={() => setEditing(null)} />
+          <DynamicForm schema={schema} roleId={roleId} record={editing} readOnly={!canUpload} noDelete={!canUpload} onSave={async (d) => { const s = await save(d); if (s) setEditing(null); }} onCancel={() => setEditing(null)} />
         </Modal>
       )}
     </div>
