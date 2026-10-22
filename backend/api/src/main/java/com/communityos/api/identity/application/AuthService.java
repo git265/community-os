@@ -57,6 +57,7 @@ public final class AuthService {
     }
 
     public CodeRequested requestCode(String rawPhone, Client client) {
+        io.micrometer.core.instrument.Metrics.counter("cos.auth.codes_requested").increment();
         Phone phone = Phone.parse(rawPhone, settings.defaultCountryCode());
         limiter.hit("otp-ip:" + client.ip(), settings.requestsPerIp(), settings.window());
         limiter.hit("otp-phone:" + phone.e164(), settings.codesPerPhone(), settings.window());

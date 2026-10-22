@@ -78,6 +78,8 @@ public final class FinanceResources {
                 Checks.between(f.approvalLimit(), "Approval limit", 0, 1_000_000_000);
                 lateFeeRules(f.lateFeeRules());
                 Checks.rule(old.lockedUntil() == null || (f.lockedUntil() != null && !f.lockedUntil().isBefore(old.lockedUntil())) || c.isSuperAdmin(), "lock-back", "Only the Super Admin moves the books lock back");
+                // the books close up to yesterday at the latest: today's receipts and the provider's payments must still post
+                Checks.rule(f.lockedUntil() == null || f.lockedUntil().isBefore(LocalDate.now()), "lock-today", "Close the books up to yesterday at the latest - today's payments are still coming in");
                 return f;
             }
             @Override public boolean deletable(SettingsFields f) { return false; }

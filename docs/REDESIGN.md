@@ -93,6 +93,10 @@ In total there are 156 tables. 150 of them are tenant tables.
 | V33 | Meter readings, rate cards and utility types on the back end (`/billing/readings`, `/billing/rate-cards`, `/billing/utility-types`): a reading names its unit by id, once per unit, utility and month; a published one points at its bill; meter photos are files attached to the reading (`billing.reading`) |
 | V34 | A naming pattern may list alternatives joined by "or" (`Villa {n} or {block}-{floor}{n:2}`, up to 4, 120 characters): a number follows it when it fits any of them; bulk add numbers by the alternative chosen |
 | V35 | Staff at the gate: a staff visit names its member; the badge is signed by the server with the community's random key (`gate.badge_key`) and each code is accepted once (`gate.badge_use`). `GET /workforce/attendance/report` puts each session's badge-in / badge-out beside its clock-in / clock-out and flags what does not add up |
+| V36 | Every POST is idempotent through one filter (`IdempotencyFilter`); the kept reply carries its ETag / Location / Content-Type |
+| V37 | Reconciliation: `billing.recon_issue` (money checks), one pending refund per booking part, closed orders asked about again (`checked_at`) |
+| V38 | Meter photos (`billing.reading`) allowed by the files table |
+| V39 | Late fees on the server: `late_fee_no`, one fee per bill and month (unique) |
 | V13 | Amenities: unique, checked amenity types (rates, GST, limits, JSON cancellation tiers, own slots); items and bookings point at their amenity by id; a booking carries its whole money life (price, deposit, the policy it was booked under, payment, refund, deposit settlement), each state checked. Payments open to bookings and donations: allocations have a target, a prepayment is claimed once, unit credit has new kinds; accounts 2200 Security deposits held and 2400 Refunds payable (`provision_amenities`). |
 | V12 | Money on tasks: quotations / invoices always belong to a ticket, with checked kinds, GST modes, amounts and approval slots; the ticket's money summary is checked; releases have a checked status (and a reason when cancelled); approval rules have unique names and valid ranges; finance settings and approver lists are one row per community (`provision_finance`); wishes, service notices and event work have checked statuses. |
 
@@ -282,13 +286,20 @@ Errors are RFC 9457 problem+json with a stable `code`. A 500 carries only an err
   - the oldest bill is paid first;
   - the rest goes to unit credit, so it is never lost and never refused.
 - **The same provider payment is recorded once** (unique key). If the app's confirm and the webhook race, the second one returns the first one's receipt.
-- **Idempotency-Key** on `POST /dues`, `/members` and `/payments`:
-  - the same key with the same body replays the stored answer;
-  - the same key with a different body gives 422;
-  - while the first request is still running, a second gives 409.
+- **Idempotency-Key** on every POST (`IdempotencyFilter`, after sign-in; webhooks, sign-in, the demo and file bytes left out):
+  - the same key with the same body replays the stored answer (status, body, ETag / Location), marked `Idempotent-Replayed`;
+  - the same key with a different body gives 422; while the first request is still running, a second gives 409;
+  - only a success is kept: a refusal frees the key for the corrected retry;
+  - a POST that records or moves money (`/payments`, `/payment-orders`, `/finance/cash-book`, `/finance/pay-requests`, `/cultural/donations`, `/cultural/expenses`, `/dues`) without a key is refused (428).
+- **Reconciliation** (`PaymentReconciler`, every reconcile tick and "Check now"): receipts against what they paid and left as credit, bills against their receipts, paid orders against the provider's capture (amount, and more than one capture), refunds the provider has not answered for an hour, the books' balance, the units' credit against the unit-credit account. Each disagreement is an issue (`billing.recon_issue`), told to the treasurer once, resolved or ignored with a note (MANAGE_LEDGER, audited); an open one no longer found is cleared. Orders that expired or failed are asked about again hourly for a week: money captured late is recorded and filed as an issue.
+- **Refunds:** one in flight per booking part (unique index); a provider that does not answer leaves it Pending and the job sends it again under the same idempotency key; a processed refund updates the payment's refunded amount and status.
+- **Meter bills and late fees are priced by the server:** `POST /billing/readings/publish` (rate card; bill and reading in one transaction per reading), `GET/POST /dues/late-fees` and the daily job (one fee per bill and month, enforced by the database; none on paid, cancelled or waived bills).
+- **Paid once:** an event expense is paid directly or through releases, never both.
 - **Bills are never edited.** A bill is cancelled (only if nothing has been paid) or waived, always with a reason. A correction is a new bill.
 
 ## 7. Network latency, retries and resilience
+
+**At the edge** (`RequestGuardFilter`, before sign-in): a request id (the caller's `X-Request-Id` when it is a plain token, else a new one) is echoed, put in every log line (ECS JSON logs, `COS_LOG_FORMAT`) and in the audit rows; bodies are capped per path (files 26 MB, site plans 13 MB, webhooks 256 KB, anything else 2 MB; 413, also for chunked bodies); `/actuator/*` other than health needs the scraper's basic-auth secret (`COS_METRICS_TOKEN`, user `metrics`), else 404. The client address comes from X-Forwarded-For only through a trusted proxy (Tomcat's remote-IP valve). Framework refusals keep their status (404/405/415/400, 503 `busy` on lock or statement time-outs); no parser text or SQL values reach the client or the log. Development helpers (codes in the log, the simulated bank and scanner, the demo sign-in, throw-away keys) are refused unless a `dev` or `test` profile is active; the image runs with `prod`. Metrics: `cos.payments.recorded`, `cos.payments.amount_mismatch`, `cos.webhooks`, `cos.webhooks.rejected`, `cos.refunds`, `cos.recon.issues.found`, `cos.auth.codes_requested`, `cos.auth.refused`, `cos.rate_limited`, `cos.access.denied`, `cos.errors.unexpected`, plus Spring's HTTP and JVM metrics.
 
 **What the person sees while it works** (`src/lib/net/activity.js`). Every back-end call and every write goes through `track()`: the button that was clicked is busy (no second click; a spinner after 1 s) until what it started has settled; a write or clicked action still going after 1 s shows a thin bar and "Working…" ("Still working…" after 12 s); "You are offline" while the browser has no network. A write that fails always ends in a message and never leaves a screen "Saving…" (`useCollection` save/remove return null/false and say why: denied, conflict, timeout, no network, server error); a failure nobody handled is still shown (unhandled-rejection toast).
 
@@ -524,6 +535,7 @@ The adapter SQL check found two real bugs in the composed list and detail SQL (`
 1. Run `mvn verify` and the Spring context test.
 2. Port the remaining modules onto their V6 tables, one at a time (workflows as services, registers as resources), each with tests and a v2 mapping: done for every module.
 4. Add endpoints for the app's configuration collections (field definitions, settings).
-5. Add refunds, late fees and bill runs: a bulk `POST /dues:batch`, keyset-paged.
+5. Bill runs: a bulk `POST /dues:batch`, keyset-paged (refunds, late fees and meter bills are done).
+8. Provider payouts: post settlements (Dr bank / fees, Cr gateway clearing) so bank matching can pair them; apply unit credit to new bills on the server.
 6. Add ShedLock if a job must run on exactly one instance.
 7. Move the rate limits to Redis when traffic needs it. The interface is already a port.

@@ -35,9 +35,10 @@ public class ProblemHandler {
         log.warn("access denied: {}", e.getMessage());
         return problem(HttpStatus.FORBIDDEN, "forbidden", e.getMessage());
     }
-    @ExceptionHandler(Unauthenticated.class) public ProblemDetail unauthenticated(Unauthenticated e) { return problem(HttpStatus.UNAUTHORIZED, "unauthenticated", e.getMessage()); }
-    @ExceptionHandler(BadSignature.class) public ProblemDetail badSignature(BadSignature e) { return problem(HttpStatus.UNAUTHORIZED, "bad-signature", "Signature does not match"); }
+    @ExceptionHandler(Unauthenticated.class) public ProblemDetail unauthenticated(Unauthenticated e) { io.micrometer.core.instrument.Metrics.counter("cos.auth.refused").increment(); return problem(HttpStatus.UNAUTHORIZED, "unauthenticated", e.getMessage()); }
+    @ExceptionHandler(BadSignature.class) public ProblemDetail badSignature(BadSignature e) { log.warn("bad signature refused"); io.micrometer.core.instrument.Metrics.counter("cos.webhooks.rejected").increment(); return problem(HttpStatus.UNAUTHORIZED, "bad-signature", "Signature does not match"); }
     @ExceptionHandler(TooManyAttempts.class) public ResponseEntity<ProblemDetail> tooMany(TooManyAttempts e) {
+        io.micrometer.core.instrument.Metrics.counter("cos.rate_limited").increment();
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).header("Retry-After", String.valueOf(e.retryAfterSeconds()))
             .body(problem(HttpStatus.TOO_MANY_REQUESTS, "rate-limited", e.getMessage()));
     }

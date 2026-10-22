@@ -57,7 +57,11 @@ public abstract class Settlement<R> {
     public final Receipt settle(Caller caller, R request) {
         Verified v = verify(caller, request);
         if (!v.amount().isPositive()) throw new DomainException.RuleViolated("bad-amount", "The amount must be more than zero");
-        try { return record(caller, request, v); }
+        try {
+            Receipt r = record(caller, request, v);
+            io.micrometer.core.instrument.Metrics.counter("cos.payments.recorded", "via", v.provider() == null ? "office" : v.provider()).increment();
+            return r;
+        }
         catch (PaymentRepository.AlreadyRecorded e) {
             // the webhook and the app's confirm raced and the other one committed first: answer with its receipt (fresh transaction)
             return tx.inTx(() -> payments.findByProviderRef(v.provider(), v.providerRef())).orElseThrow(() -> e);

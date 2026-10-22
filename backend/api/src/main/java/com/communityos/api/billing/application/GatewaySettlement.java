@@ -37,8 +37,10 @@ public final class GatewaySettlement extends Settlement<GatewaySettlement.Reques
             throw new DomainException.RuleViolated("payment-mismatch", "This payment does not belong to this order");
         if (!p.captured()) throw new DomainException.RuleViolated("not-captured", "The payment has not been completed");
         if (!o.currency().equals(p.currency())) throw new DomainException.RuleViolated("payment-mismatch", "Currency does not match the order");
-        if (p.amount().compareTo(o.amount()) != 0)                                         // still recorded: the money is real; the difference becomes credit or stays owed
+        if (p.amount().compareTo(o.amount()) != 0) {        // still recorded: the money is real; the difference becomes credit or stays owed, and reconciliation files it
             log.warn("order {} priced {} but provider captured {}", o.id(), o.amount(), p.amount());
+            io.micrometer.core.instrument.Metrics.counter("cos.payments.amount_mismatch").increment();
+        }
         return new Verified(o.unit(), o.id(), p.amount(), methodLabel(p.method()), r.gateway().name(), p.providerPaymentRef(), clock.instant(),
             o.items().stream().map(PaymentOrder.Item::due).filter(java.util.Objects::nonNull).toList(), p.paidVia(), o.purpose(), null);
     }

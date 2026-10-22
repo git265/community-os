@@ -46,7 +46,9 @@ public class FinanceController {
                                @Size(max = 60) String billNo, BigDecimal baseAmount, BigDecimal gstRate, @Size(max = 20) String tdsSection, BigDecimal tdsRate, @Size(max = 60) String fund,
                                @Size(max = 30) String itcStatus, @Size(max = 500) String itcNote) {
         Books.Entry entry() {
-            if (sourceType != null && List.of("release", "reversal").contains(sourceType)) throw new DomainException.RuleViolated("bad-source", "That kind of entry is written by the server");
+            // money the server books itself (bill payments, bookings, donations, releases, reversals) is never typed in: it would count twice or fake its origin
+            if (sourceType != null && List.of("release", "reversal", "due", "duePayment", "booking", "donation", "payment").contains(sourceType))
+                throw new DomainException.RuleViolated("bad-source", "That kind of entry is written by the server");
             Books.Entry e = new Books.Entry();
             e.date = date; e.account = account; e.description = description; e.category = category; e.subCategory = subCategory; e.type = type; e.amount = amount; e.vendor = vendor;
             e.taskRef = taskRef; e.noTask = noTask; e.module = module; e.sourceType = sourceType; e.sourceLabel = sourceLabel; e.sourceId = sourceId; e.mode = mode; e.ref = ref; e.unitId = unitId;

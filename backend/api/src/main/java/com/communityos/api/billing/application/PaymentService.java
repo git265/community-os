@@ -139,7 +139,8 @@ public final class PaymentService {
         Optional<PaymentGateway.WebhookEvent> read = g.readWebhook(headers, rawBody);
         if (read.isEmpty()) return;
         PaymentGateway.WebhookEvent e = read.get();
-        if (inbound.alreadyProcessed(provider, e.eventId())) return;
+        if (inbound.alreadyProcessed(provider, e.eventId())) { io.micrometer.core.instrument.Metrics.counter("cos.webhooks", "provider", provider, "result", "duplicate").increment(); return; }
+        io.micrometer.core.instrument.Metrics.counter("cos.webhooks", "provider", provider, "result", e.refund() ? "refund" : "payment").increment();
         if (e.refund()) {                                                    // a refund's news: the refund service fetches the provider's record and tells the owner
             inbound.received(provider, e.eventId(), null, e.type());
             if (refunds != null) refunds.webhook(provider, e.providerRefundRef());
