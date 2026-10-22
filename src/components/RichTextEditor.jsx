@@ -1,10 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { sanitizeHtml, linkify, isEmptyHtml } from '../lib/richtext/sanitize.js';
 import { shrinkImage } from '../lib/files/attachments.js';
 
 const toDataUrl = (blob) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(blob); });
+const ZW = '​';   // a zero-width space: where the cursor waits after a word made bold, so the next letters are plain again (never saved)
+const touch = () => { try { return window.matchMedia('(pointer: coarse)').matches; } catch { return false; } };
 
-/* Icons: 20px strokes that read the same on every platform (emoji and letter glyphs did not). */
+/* Icons: 18px strokes that read the same on every platform. */
 const I = {
   bold: <path d="M7 5h6a3.5 3.5 0 0 1 0 7H7zM7 12h7a3.5 3.5 0 0 1 0 7H7z" />,
   italic: <path d="M14 5h-4M14 19h-4M14.5 5 9.5 19" />,
@@ -20,12 +23,19 @@ const I = {
 const Icon = ({ name }) => (
   <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{I[name]}</svg>
 );
-
-const GROUPS = [
-  [{ cmd: 'bold', icon: 'bold', title: 'Bold', keys: 'B' }, { cmd: 'italic', icon: 'italic', title: 'Italic', keys: 'I' }, { cmd: 'underline', icon: 'underline', title: 'Underline', keys: 'U' }, { cmd: 'strikeThrough', icon: 'strike', title: 'Strikethrough' }],
-  [{ cmd: 'insertUnorderedList', icon: 'ul', title: 'Bullet list' }, { cmd: 'insertOrderedList', icon: 'ol', title: 'Numbered list' }, { cmd: 'quote', icon: 'quote', title: 'Quote' }],
+/** The menu over a selection, as WhatsApp shows it (with the markers that do the same while typing). */
+const MENU = [
+  { cmd: 'bold', icon: 'bold', title: 'Bold', hint: '*text*' }, { cmd: 'italic', icon: 'italic', title: 'Italic', hint: '_text_' },
+  { cmd: 'strikeThrough', icon: 'strike', title: 'Strikethrough', hint: '~text~' }, { cmd: 'underline', icon: 'underline', title: 'Underline' }, { sep: true },
+  { cmd: 'insertUnorderedList', icon: 'ul', title: 'Bullet list', hint: '- at the start of a line' }, { cmd: 'insertOrderedList', icon: 'ol', title: 'Numbered list', hint: '1. at the start of a line' },
+  { cmd: 'quote', icon: 'quote', title: 'Quote', hint: '> at the start of a line' }, { cmd: 'link', icon: 'link', title: 'Link' }, { cmd: 'clear', icon: 'clear', title: 'Clear formatting' },
 ];
-/** The cursor as a count of characters from the start of the box, and back: survives the browser rebuilding the line into a list. */
+const STATEFUL = ['bold', 'italic', 'underline', 'strikeThrough', 'insertUnorderedList', 'insertOrderedList'];
+const MARK = { '*': 'b', _: 'i', '~': 's' };   // WhatsApp's markers
+const markRe = (ch) => { const q = `\\${ch}`; return new RegExp(`(^|[\\s(\\u00a0\\u200B])${q}([^\\s${q}](?:[^${q}\\n]*[^\\s${q}])?)${q}$`); };
+const MARK_RE = Object.fromEntries(Object.keys(MARK).map((c) => [c, markRe(c)]));
+
+/** The cursor as a count of characters from the start of the box, and back: survives the browser rebuilding a line into a list. */
 function caretAt(root) {
   const sel = document.getSelection();
   if (!sel || !sel.rangeCount) return null;
@@ -38,24 +48,42 @@ function placeCaret(root, n) {
   while (t) { if (left <= t.length) { document.getSelection().collapse(t, left); return; } left -= t.length; lastText = t; t = walk.nextNode(); }
   if (lastText) document.getSelection().collapse(lastText, lastText.length);
 }
-const STATEFUL = ['bold', 'italic', 'underline', 'strikeThrough', 'insertUnorderedList', 'insertOrderedList'];
-const mac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '');
-const keyHint = (k) => (k ? ` (${mac ? '⌘' : 'Ctrl+'}${k})` : '');
+/** The current line up to the cursor (for "- ", "1. ", "> " at the start of a line): null when it cannot be told. */
+function lineBefore(root) {
+  const sel = document.getSelection();
+  if (!sel?.rangeCount) return null;
+  let block = sel.anchorNode;
+  while (block && block !== root && !/^(P|DIV|LI|BLOCKQUOTE)$/.test(block.nodeName)) block = block.parentNode;
+  if (!block) return null;
+  const r = document.createRange(); r.selectNodeContents(block); r.setEnd(sel.anchorNode, sel.anchorOffset);
+  // the text since the last line break (Shift+Enter puts a <br>; a new line can also be a block)
+  let text = '';
+  const walk = document.createTreeWalker(r.cloneContents(), NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
+  for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+    if (n.nodeType === 3) text += n.data; else if (/^(BR|DIV|P|LI|BLOCKQUOTE|UL|OL)$/.test(n.nodeName)) text = '';
+  }
+  return { text, block };
+}
 
 /**
- * The rich-text box used for every comment, description and note: bold / italic / underline / strikethrough, lists, quote, link,
- * pictures (unless images={false}) and "clear formatting". The value is sanitized HTML; pasted text is flattened (links kept).
- * Built for touch as much as for a mouse: one toolbar row that scrolls sideways on a phone, 40 px targets, the buttons show which
- * formats are on where the cursor is, and links are added in the toolbar itself (no browser pop-up, which phones handle badly).
+ * The rich-text box used for every message, comment, description and note - it behaves like WhatsApp's:
+ *   - a clean box that grows as you type (no toolbar); a picture button inside it unless images={false}
+ *   - select text and a small menu appears over it: bold, italic, strikethrough, underline, lists, quote, link, clear
+ *   - WhatsApp's own markers work as you type: *bold*  _italic_  ~strikethrough~, and "- " / "1. " / "> " at the start of a line
+ *   - onEnter (chat boxes): Enter sends on a computer, Shift+Enter is a new line; on a phone Enter is a new line, as in WhatsApp
+ * The value is sanitized HTML; pasted text is flattened (links kept).
  */
-export default function RichTextEditor({ value, onChange, placeholder = 'Write a comment…', minHeight = 72, id, images = true }) {
+export default function RichTextEditor({ value, onChange, placeholder = 'Write a comment…', minHeight = 72, maxHeight = 320, id, images = true, onEnter }) {
   const ref = useRef(null);
   const last = useRef('');
   const saved = useRef(null);       // the selection, kept while the link box has the focus
   const fileRef = useRef(null);
   const linkRef = useRef(null);
+  const linkOpenRef = useRef(false);
   const [active, setActive] = useState({});
-  const [linkOpen, setLinkOpen] = useState(false);
+  const [menu, setMenu] = useState(null);       // { top, left, below } of the selection menu, or null
+  const [linkOpen, setLinkOpenState] = useState(false);
+  const setLinkOpen = (v) => { linkOpenRef.current = v; setLinkOpenState(v); };
   const [url, setUrl] = useState('');
   const [empty, setEmpty] = useState(() => isEmptyHtml(value || ''));
 
@@ -66,29 +94,40 @@ export default function RichTextEditor({ value, onChange, placeholder = 'Write a
   }, [value]);
 
   const emit = useCallback(() => {
-    const clean = sanitizeHtml(ref.current.innerHTML);
+    const clean = sanitizeHtml(ref.current.innerHTML.split(ZW).join(''));
     last.current = clean; setEmpty(isEmptyHtml(clean)); onChange(clean);
+    return clean;
   }, [onChange]);
 
-  // which formats are on at the cursor (only while the cursor is in this box)
+  // the selection menu and which formats are on - only while the selection is in this box
   const refresh = useCallback(() => {
+    if (linkOpenRef.current) return;   // typing a link: the menu stays where it is
     const sel = typeof document !== 'undefined' ? document.getSelection() : null;
-    if (!ref.current || !sel || !sel.anchorNode || !ref.current.contains(sel.anchorNode)) return;
+    const inside = ref.current && sel && sel.rangeCount && ref.current.contains(sel.anchorNode) && ref.current.contains(sel.focusNode);
+    if (!inside) { setMenu(null); return; }
     const next = {};
     for (const c of STATEFUL) { try { next[c] = document.queryCommandState(c); } catch { next[c] = false; } }
     let n = sel.anchorNode; next.quote = false; next.link = false;
     while (n && n !== ref.current) { if (n.nodeName === 'BLOCKQUOTE') next.quote = true; if (n.nodeName === 'A') next.link = true; n = n.parentNode; }
     setActive((a) => (Object.keys(next).some((k) => a[k] !== next[k]) ? next : a));
+    if (sel.isCollapsed || !sel.toString().replace(new RegExp(ZW, 'g'), '').trim()) { setMenu(null); return; }
+    const r = sel.getRangeAt(0).getBoundingClientRect();
+    if (!r.width && !r.height) return;
+    const below = touch() || r.top < 70;   // on a phone the system's copy / paste bubble sits above the selection: ours goes under it
+    const half = Math.min((below && touch() ? 36 : 34) * 9 + 22, window.innerWidth - 16) / 2;   // the menu's own half width (it scrolls when the screen is narrower)
+    setMenu({ top: below ? r.bottom + 10 : r.top - 10, left: Math.min(Math.max(r.left + r.width / 2, half + 8), window.innerWidth - half - 8), below });
   }, []);
   useEffect(() => {
     document.addEventListener('selectionchange', refresh);
-    return () => document.removeEventListener('selectionchange', refresh);
+    window.addEventListener('scroll', refresh, true); window.addEventListener('resize', refresh);
+    return () => { document.removeEventListener('selectionchange', refresh); window.removeEventListener('scroll', refresh, true); window.removeEventListener('resize', refresh); };
   }, [refresh]);
 
   function run(cmd) {
-    if (document.activeElement !== ref.current) ref.current.focus();   // focusing it again would put the cursor back at the start
-    // the browser may move the cursor to the start of the line (Chromium does for lists): put it back where it was
+    if (cmd === 'link') { openLink(); return; }
+    if (document.activeElement !== ref.current) ref.current.focus();
     const sel = document.getSelection();
+    // the browser may move the cursor to the start of the line (Chromium does for lists): put it back where it was
     const at = sel && sel.rangeCount && ref.current.contains(sel.anchorNode) && sel.isCollapsed ? caretAt(ref.current) : null;
     if (cmd === 'quote') document.execCommand('formatBlock', false, active.quote ? '<p>' : '<blockquote>');
     else if (cmd === 'clear') { document.execCommand('removeFormat', false, null); document.execCommand('unlink', false, null); if (active.quote) document.execCommand('formatBlock', false, '<p>'); }
@@ -104,18 +143,47 @@ export default function RichTextEditor({ value, onChange, placeholder = 'Write a
     setUrl(''); setLinkOpen(true);
     setTimeout(() => linkRef.current?.focus(), 0);
   }
+  function closeLink() { setLinkOpen(false); setMenu(null); ref.current?.focus(); }
   function addLink(e) {
     e?.preventDefault();
     const raw = url.trim();
-    setLinkOpen(false);
+    setLinkOpen(false); setMenu(null);
     if (!raw) return;
     const href = /^(https?:|mailto:|tel:)/i.test(raw) ? raw : /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw) ? `mailto:${raw}` : `https://${raw}`;
     ref.current.focus();
     const sel = document.getSelection();
     if (saved.current) { sel.removeAllRanges(); sel.addRange(saved.current); }
     if (sel.isCollapsed) document.execCommand('insertHTML', false, `<a href="${href.replace(/"/g, '&quot;')}">${raw.replace(/[<>&"]/g, '')}</a>&nbsp;`);
-    else document.execCommand('createLink', false, href);
+    else { document.execCommand('createLink', false, href); sel.collapseToEnd(); }
     emit(); refresh();
+  }
+
+  /** WhatsApp's markers, as they are typed: *word* -> bold, _word_ -> italic, ~word~ -> strikethrough; "- " "1. " "> " start a list or a quote. */
+  function shortcuts(ie) {
+    if (ie?.inputType !== 'insertText' || !ie.data) return;
+    const sel = document.getSelection();
+    if (!sel?.isCollapsed || sel.anchorNode?.nodeType !== 3) return;
+    const node = sel.anchorNode; const end = sel.anchorOffset; const before = node.data.slice(0, end);
+    if (ie.data === ' ') {
+      const line = lineBefore(ref.current);
+      const t = (line?.text || '').replace(/ /g, ' ').split(ZW).join('');
+      const cmd = t === '- ' || t === '* ' ? 'insertUnorderedList' : /^1[.)] $/.test(t) ? 'insertOrderedList' : t === '> ' ? 'quote' : null;
+      if (!cmd || (line.block.nodeName === 'LI' && cmd !== 'quote')) return;
+      const typed = before.replace(/ /g, ' ').split(ZW).join('');
+      if (!typed.endsWith(t)) return;
+      for (let i = 0; i < before.length - before.lastIndexOf(t[0]); i++) document.execCommand('delete', false, null);   // the browser's own delete keeps the line a line
+      run(cmd);
+      return;
+    }
+    if (!MARK[ie.data]) return;
+    const m = MARK_RE[ie.data].exec(before);
+    if (!m) return;
+    const r = document.createRange(); r.setStart(node, end - m[2].length - 2); r.setEnd(node, end);
+    r.deleteContents();
+    const el = document.createElement(MARK[ie.data]); el.textContent = m[2];
+    const after = document.createTextNode(ZW);
+    r.insertNode(after); r.insertNode(el);
+    sel.collapse(after, 1);
   }
 
   async function addImages(files) {
@@ -144,38 +212,42 @@ export default function RichTextEditor({ value, onChange, placeholder = 'Write a
     if (e.dataTransfer?.files?.length && [...e.dataTransfer.files].some((f) => /^image\//.test(f.type))) { e.preventDefault(); if (images) addImages(e.dataTransfer.files); }
   }
   function onKeyDown(e) {
-    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); openLink(); }
+    const k = (e.key || '').toLowerCase();
+    if ((e.metaKey || e.ctrlKey) && !e.altKey) {
+      if (k === 'k') { e.preventDefault(); openLink(); return; }
+      if (e.shiftKey && k === 'x') { e.preventDefault(); run('strikeThrough'); return; }
+    }
+    // a new line is its own line (not a break inside the one above), so "- " on it makes a list of that line only
+    if (e.key === 'Enter' && e.shiftKey && !e.isComposing && !active.insertUnorderedList && !active.insertOrderedList) { e.preventDefault(); document.execCommand('insertParagraph', false, null); emit(); return; }
+    // a chat box sends on Enter (computer); Shift+Enter, a phone's Enter, or Enter inside a list is a new line
+    if (onEnter && e.key === 'Enter' && !e.shiftKey && !e.isComposing && !touch() && !active.insertUnorderedList && !active.insertOrderedList) {
+      e.preventDefault(); onEnter(emit()); return;   // the text as it is now (the parent's state catches up after)
+    }
+    if (e.key === 'Escape' && menu) setMenu(null);
   }
-  // a toolbar press must not take the focus (and the selection) away from the text
+  // a menu press must not take the focus (and the selection) away from the text
   const keep = (e) => e.preventDefault();
-  const Btn = ({ cmd, icon, title, keys, on, onClick, testid }) => (
-    <button type="button" className={`rte-btn${on ? ' on' : ''}`} title={title + keyHint(keys)} aria-label={title} aria-pressed={on === undefined ? undefined : !!on}
-      data-testid={testid} onMouseDown={keep} onClick={onClick || (() => run(cmd))}><Icon name={icon} /></button>
+
+  const pop = menu && typeof document !== 'undefined' && createPortal(
+    <div className={`rte-pop${menu.below ? ' below' : ''}`} style={{ top: menu.top, left: menu.left }} role="toolbar" aria-label="Formatting" data-testid="rte-menu" onPointerDown={keep} onMouseDown={keep}>
+      {linkOpen ? (
+        <div className="rte-pop-link" data-testid="rte-linkbar">
+          <input ref={linkRef} type="url" inputMode="url" autoCapitalize="none" autoCorrect="off" placeholder="Paste a link…" aria-label="Link address" value={url}
+            onPointerDown={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} onChange={(e) => setUrl(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') addLink(e); if (e.key === 'Escape') { e.preventDefault(); closeLink(); } }} />
+          <button type="button" className="rte-pop-btn text" data-testid="rte-link-add" disabled={!url.trim()} onClick={addLink}>Add</button>
+          <button type="button" className="rte-pop-btn" onClick={closeLink} aria-label="Cancel">✕</button>
+        </div>
+      ) : MENU.map((b, i) => (b.sep ? <span key={i} className="rte-pop-sep" /> : (
+        <button key={b.cmd} type="button" className={`rte-pop-btn${(b.cmd === 'link' ? active.link : b.cmd === 'quote' ? active.quote : active[b.cmd]) ? ' on' : ''}`}
+          title={b.hint ? `${b.title} (or type ${b.hint})` : b.title} aria-label={b.title} data-testid={`rte-${b.icon}`} onClick={() => run(b.cmd)}><Icon name={b.icon} /></button>
+      )))}
+    </div>,
+    document.body,
   );
 
   return (
-    <div className="rte rte-x">
-      <div className="rte-bar" role="toolbar" aria-label="Formatting">
-        {GROUPS.map((g, gi) => (
-          <div className="rte-group" key={gi}>
-            {g.map((b) => <Btn key={b.cmd} {...b} testid={`rte-${b.icon}`} on={!!active[b.cmd]} />)}
-          </div>
-        ))}
-        <div className="rte-group">
-          <Btn icon="link" title={active.link ? 'Remove link' : 'Add link'} keys="K" on={!!active.link || linkOpen} onClick={openLink} testid="rte-link" />
-          {images && <Btn icon="image" title="Insert a picture" onClick={() => fileRef.current?.click()} testid="rte-image" />}
-          <Btn icon="clear" title="Clear formatting" onClick={() => run('clear')} testid="rte-clear" />
-        </div>
-        {images && <input ref={fileRef} type="file" accept="image/*" multiple hidden data-testid="rte-image-input" onChange={(e) => { addImages(e.target.files); e.target.value = ''; }} />}
-      </div>
-      {linkOpen && (
-        <div className="rte-linkbar" role="group" aria-label="Add a link" data-testid="rte-linkbar">
-          <input ref={linkRef} type="url" inputMode="url" autoCapitalize="none" autoCorrect="off" placeholder="Paste or type a link (https://…)" aria-label="Link address"
-            value={url} onChange={(e) => setUrl(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') addLink(e); if (e.key === 'Escape') { e.preventDefault(); setLinkOpen(false); ref.current?.focus(); } }} />
-          <button type="button" className="btn sm" data-testid="rte-link-add" disabled={!url.trim()} onClick={addLink}>Add</button>
-          <button type="button" className="btn secondary sm" onClick={() => { setLinkOpen(false); ref.current?.focus(); }}>Cancel</button>
-        </div>
-      )}
+    <div className={`rte rte-wa${images ? ' has-pic' : ''}`}>
       <div
         id={id}
         ref={ref}
@@ -185,16 +257,20 @@ export default function RichTextEditor({ value, onChange, placeholder = 'Write a
         aria-multiline="true"
         aria-placeholder={placeholder}
         data-placeholder={placeholder}
-        style={{ minHeight }}
-        onInput={emit}
-        onBlur={emit}
+        style={{ minHeight, maxHeight }}
+        onInput={(e) => { shortcuts(e.nativeEvent); emit(); }}
+        onBlur={() => { emit(); setTimeout(() => { if (!linkOpenRef.current && document.activeElement !== ref.current) setMenu(null); }, 150); }}
         onPaste={onPaste}
         onDrop={onDrop}
         onKeyDown={onKeyDown}
         onKeyUp={refresh}
         onMouseUp={refresh}
+        onTouchEnd={() => setTimeout(refresh, 60)}
         suppressContentEditableWarning
       />
+      {images && <button type="button" className="rte-pic" title="Add a picture" aria-label="Add a picture" data-testid="rte-image" onMouseDown={keep} onClick={() => fileRef.current?.click()}><Icon name="image" /></button>}
+      {images && <input ref={fileRef} type="file" accept="image/*" multiple hidden data-testid="rte-image-input" onChange={(e) => { addImages(e.target.files); e.target.value = ''; }} />}
+      {pop}
     </div>
   );
 }

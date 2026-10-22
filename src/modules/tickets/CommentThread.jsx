@@ -26,8 +26,10 @@ export default function CommentThread({ comments, ticketId, author, authorRoleId
 
   const visible = visibleCommentsFor(comments, ticketId, { isFieldStaff });
 
-  async function submit(e) {
-    e.preventDefault();
+  async function submit(e, text = body) {
+    e?.preventDefault?.();
+    if (busy) return;
+    const body = text;   // Enter sends what is in the box this moment (the state may not have caught up)
     if (isEmptyHtml(body) && !pending.length) return;
     setBusy(true);
     try {
@@ -84,7 +86,7 @@ export default function CommentThread({ comments, ticketId, author, authorRoleId
       )}
       {canPost && (
         <form onSubmit={submit} className="composer">
-          <RichTextEditor value={body} onChange={setBody} placeholder={internal ? 'Add an internal note…' : 'Message the team…'} minHeight={48} />
+          <RichTextEditor value={body} onChange={setBody} placeholder={internal ? 'Add an internal note…' : 'Message the team…'} minHeight={44} maxHeight={160} onEnter={(html) => submit(null, html)} />
           <button type="submit" className="btn send" disabled={busy}>{busy ? 'Posting…' : 'Post'}</button>
         </form>
       )}
