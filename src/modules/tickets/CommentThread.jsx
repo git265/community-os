@@ -5,7 +5,7 @@ import RichText from '../../components/RichText.jsx';
 import { Segmented } from '../../components/ui.jsx';
 import { isEmptyHtml } from '../../lib/richtext/sanitize.js';
 import { AttachmentList, AttachmentPicker } from '../../components/Attachments.jsx';
-import { persistPending } from '../../lib/files/attachments.js';
+import { persistPending, inlineImagesToFiles, screenFiles } from '../../lib/files/attachments.js';
 import { tell } from '../../lib/net/activity.js';
 
 /**
@@ -32,9 +32,12 @@ export default function CommentThread({ comments, ticketId, author, authorRoleId
     setBusy(true);
     try {
       let attachments = [];
-      if (pending.length) {
+      const inline = inlineImagesToFiles(body);
+      const pictures = inline.files.length ? (await screenFiles(inline.files)).accepted : [];
+      const all = [...pending, ...pictures];
+      if (all.length) {
         // internal notes keep their files away from residents too
-        const metas = await persistPending(pending, { ownerType: internal ? 'ticketInternal' : 'ticket', ownerId: ticketId });
+        const metas = await persistPending(all, { ownerType: internal ? 'ticketInternal' : 'ticket', ownerId: ticketId });
         if (!metas) { setBusy(false); return; }
         attachments = metas;
       }
@@ -43,7 +46,7 @@ export default function CommentThread({ comments, ticketId, author, authorRoleId
         author,
         authorRoleId,
         visibility: internal ? 'Internal' : 'Public',
-        body: isEmptyHtml(body) ? '<p>(attachment)</p>' : body,
+        body: isEmptyHtml(inline.html) ? '<p>(attachment)</p>' : inline.html,
         attachments,
         createdAt: new Date().toISOString(),
       });

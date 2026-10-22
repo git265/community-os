@@ -43,6 +43,17 @@ public final class Json {
                 return new Money(new BigDecimal(s));
             }
         });
+        // a decimal may come as a number or as a plain decimal string ("1180.00" - how the apps send amounts); nothing else is coerced
+        money.addDeserializer(BigDecimal.class, new JsonDeserializer<>() {
+            @Override public BigDecimal deserialize(JsonParser p, DeserializationContext c) throws IOException {
+                if (p.currentToken() == JsonToken.VALUE_NUMBER_INT || p.currentToken() == JsonToken.VALUE_NUMBER_FLOAT) return p.getDecimalValue();
+                if (p.currentToken() != JsonToken.VALUE_STRING) return (BigDecimal) c.handleUnexpectedToken(BigDecimal.class, p);
+                String s = p.getText().trim();
+                if (s.isEmpty()) return null;
+                if (!s.matches("-?[0-9]{1,15}(\\.[0-9]{1,6})?")) throw c.weirdStringException(s, BigDecimal.class, "a decimal number");
+                return new BigDecimal(s);
+            }
+        });
         for (Class<?> id : Ids.class.getDeclaredClasses()) money.addSerializer(id, ToStringSerializer.instance);   // ids travel as plain strings
         return JsonMapper.builder()
             .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)

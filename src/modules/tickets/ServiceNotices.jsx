@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Modal from '../../components/Modal.jsx';
 import { useApp, useCollection } from '../../context/AppContext.jsx';
 import { COLLECTIONS as C } from '../../lib/storage/index.js';
@@ -16,12 +16,14 @@ export function useMyBlock() {
  * Active service notices as banners at the top of Maintenance. Everyone sees the ones that cover them; staff also get
  * "Post a service notice", "Resolved", and a nudge when several villas report the same thing.
  */
-export default function ServiceNotices({ tickets = [], canPost }) {
+export default function ServiceNotices({ tickets = [], canPost, postAsk = 0 }) {
   const { currentUser } = useApp();
   const { records: notices, save } = useCollection(C.SERVICE_NOTICES, 'Service Notices');
   const { records: props } = useCollection(C.PROPERTIES, 'Properties & Residents');
   const block = useMyBlock();
   const [dlg, setDlg] = useState(null);
+  const asked = useRef(postAsk);   // "Service notice" in the page header asks for the dialog; a remount does not ask again
+  useEffect(() => { if (postAsk !== asked.current) { asked.current = postAsk; if (canPost) setDlg({}); } }, [postAsk, canPost]);
   const mine = notices.filter((n) => isActive(n) && (canPost || covers(n, block)));
   const hints = useMemo(() => (canPost ? suggest(tickets, notices) : []), [canPost, tickets, notices]);
   const blocks = useMemo(() => [...new Set(props.map((p) => p.zone).filter(Boolean))].sort(), [props]);
@@ -30,7 +32,7 @@ export default function ServiceNotices({ tickets = [], canPost }) {
     const out = await save({ ...n, status: 'Resolved', resolvedAt: new Date().toISOString() });
     if (out) await tell(n, `${iconOf(n.kind)} ${n.kind} restored`, `${n.kind} is back${n.scope === 'Selected blocks' ? ` in ${(n.blocks || []).join(', ')}` : ''}. Thank you for your patience. If something in your villa is still not working, please raise a request.`, props, currentUser).catch(() => {});
   }
-  if (!mine.length && !hints.length && !canPost) return null;
+  if (!mine.length && !hints.length && !dlg) return null;   // nothing in force: nothing above the tickets
   return (
     <div data-testid="service-notices" style={{ marginBottom: 10 }}>
       {mine.map((n) => (
@@ -51,7 +53,6 @@ export default function ServiceNotices({ tickets = [], canPost }) {
           <button type="button" className="btn sm" data-testid="svc-suggest-post" onClick={() => setDlg({ kind: h.kind })}>Post a notice</button>
         </div>
       ))}
-      {canPost && <button type="button" className="btn secondary sm" data-testid="svc-post" onClick={() => setDlg({})}>📢 Post a service notice</button>}
       {dlg && <PostDialog start={dlg} blocks={blocks} onClose={() => setDlg(null)} onPost={async (n) => {
         const out = await save({ ...n, status: 'Active', startedAt: new Date().toISOString(), postedBy: currentUser?.name || '' });
         if (out) await tell(out, `${iconOf(n.kind)} ${n.kind}${n.scope === 'Selected blocks' ? ` · ${n.blocks.join(', ')}` : ''}`, `${n.message}${n.expectedBy ? ` Expected back ${fmtWhen(n.expectedBy)}.` : ''}`, props, currentUser).catch(() => {});

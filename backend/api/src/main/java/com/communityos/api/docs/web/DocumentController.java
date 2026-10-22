@@ -36,7 +36,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @Tag(name = "Documents and files")
 public class DocumentController {
-    public record AttachRequest(@NotNull @Pattern(regexp = "maintenance\\.ticket|maintenance\\.comment|maintenance\\.quotation|amenity\\.booking|docs\\.document|cultural\\.photo|cultural\\.brochure") String ownerType,
+    /** The owner type is checked against the registered kinds (FileService) - one list, so a new kind (meter readings, vendors, meetings, assets) is attachable. */
+    public record AttachRequest(@NotNull @Pattern(regexp = "[a-z]{2,20}\\.[a-z_]{2,30}") String ownerType,
                                 @NotNull UUID ownerId) {}
     /** A document as a manager files it; its file was uploaded first. */
     public record DocumentRequest(@NotNull UUID fileId, @NotBlank @Size(max = 200) String title, @Size(max = 60) String category, @Size(max = 40) String edition,

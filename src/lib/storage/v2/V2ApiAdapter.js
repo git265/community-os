@@ -43,6 +43,8 @@ export const LOCAL_COLLECTIONS = ['schema', 'communityConfig', 'roleGroups'];
 
 export class NotOnV2Error extends Error { constructor(collection) { super(`"${collection}" is not on the v2 back end yet - this screen works with the Browser session or the v1 back end.`); this.name = 'NotOnV2Error'; } }
 
+/** A list read: a list the server does not have (404) is empty - a screen never fails on null.map. */
+const many = async (path) => (await call(path)) || [];
 async function call(path, init = {}) {
   const res = await apiFetch(`/v1${path}`, init);
   if (res.status === 404 && (init.method || 'GET') === 'GET') return null;
@@ -110,19 +112,19 @@ const readers = {
     get: async (id) => { const m = await call(`/members/${encodeURIComponent(id)}`); if (!m) return null; const { noById } = await unitIndex(); return userOf(m, noById); },
   },
   dues: { list: async () => (await all('/dues')).map((d) => dueOf(d)), get: async (id) => { const d = await call(`/dues/${encodeURIComponent(id)}`); return d && dueOf(d); } },
-  roles: { list: async () => (await call('/roles')).map(roleOf), get: async (id) => (await readers.roles.list()).find((r) => r.id === id) || null },
+  roles: { list: async () => (await many('/roles')).map(roleOf), get: async (id) => (await readers.roles.list()).find((r) => r.id === id) || null },
   tickets: {
     list: async () => { const { noById } = await unitIndex(); return (await all('/tickets')).map((t) => ticketOf(t, noById)); },
     get: async (id) => { const t = await call(`/tickets/${encodeURIComponent(id)}`); if (!t) return null; const { noById } = await unitIndex(); return ticketOf(t, noById); },
   },
-  ticketComments: { list: async () => (await call('/ticket-comments?limit=1000')).map(commentOf), get: async (id) => (await readers.ticketComments.list()).find((c) => c.id === id) || null },
-  handymen: { list: async () => (await call('/field-staff')).map(fieldStaffOf), get: async (id) => (await readers.handymen.list()).find((h) => h.id === id) || null },
-  quotations: { list: async () => (await call('/quotations')).map(quotationOf), get: async (id) => { if (!isUuid(id)) return null; const q = await call(`/quotations/${id}`); return q && quotationOf(q); } },
+  ticketComments: { list: async () => (await many('/ticket-comments?limit=1000')).map(commentOf), get: async (id) => (await readers.ticketComments.list()).find((c) => c.id === id) || null },
+  handymen: { list: async () => (await many('/field-staff')).map(fieldStaffOf), get: async (id) => (await readers.handymen.list()).find((h) => h.id === id) || null },
+  quotations: { list: async () => (await many('/quotations')).map(quotationOf), get: async (id) => { if (!isUuid(id)) return null; const q = await call(`/quotations/${id}`); return q && quotationOf(q); } },
 };
 // bookings: a resident gets their own, plus the other bookings as "taken" only (so the calendar can show what is full)
 readers.amenities = {
   list: async () => {
-    const own = (await call('/amenities/bookings')).map(bookingOf);
+    const own = (await many('/amenities/bookings')).map(bookingOf);
     if (getAuthUser()?.category !== 'Resident') return own;
     const from = new Date(Date.now() - 86400e3).toISOString().slice(0, 10); const to = new Date(Date.now() + 120 * 86400e3).toISOString().slice(0, 10);
     const [taken, types] = await Promise.all([call(`/amenities/availability?from=${from}&to=${to}`), call('/amenities/types')]);
@@ -139,12 +141,12 @@ readers.amenities = {
 const oversees = () => { const u = getAuthUser(); return u && u.category !== 'Resident'; };
 const byId = (list) => async (id) => (await list()).find((x) => x.id === id) || null;
 const oneOf = (path, map) => async (id) => { if (!isUuid(id)) return null; try { const x = await call(`${path}/${id}`); return x && map(x); } catch (e) { if (e instanceof AuthzError || /not found|404/i.test(e.message)) return null; throw e; } };
-readers.gatePasses = { list: async () => (await call('/gate/passes')).map(gatePassOf), get: oneOf('/gate/passes', gatePassOf) };
-readers.gateVisits = { list: async () => (await call('/gate/visits')).map(gateVisitOf), get: oneOf('/gate/visits', gateVisitOf) };
-readers.gateApprovals = { list: async () => (await call('/gate/approvals')).map(gateApprovalOf), get: oneOf('/gate/approvals', gateApprovalOf) };
-readers.gateFlags = { list: async () => { if (!oversees()) return []; const { noById } = await unitIndex(); return (await call('/gate/flags')).map((f) => gateFlagOf(f, noById)); } };
+readers.gatePasses = { list: async () => (await many('/gate/passes')).map(gatePassOf), get: oneOf('/gate/passes', gatePassOf) };
+readers.gateVisits = { list: async () => (await many('/gate/visits')).map(gateVisitOf), get: oneOf('/gate/visits', gateVisitOf) };
+readers.gateApprovals = { list: async () => (await many('/gate/approvals')).map(gateApprovalOf), get: oneOf('/gate/approvals', gateApprovalOf) };
+readers.gateFlags = { list: async () => { if (!oversees()) return []; const { noById } = await unitIndex(); return (await many('/gate/flags')).map((f) => gateFlagOf(f, noById)); } };
 readers.gateFlags.get = byId(readers.gateFlags.list);
-readers.gateScans = { list: async () => (oversees() ? (await call('/gate/scans')).map(gateScanOf) : []) }; readers.gateScans.get = byId(readers.gateScans.list);
+readers.gateScans = { list: async () => (oversees() ? (await many('/gate/scans')).map(gateScanOf) : []) }; readers.gateScans.get = byId(readers.gateScans.list);
 readers.gatePulse = { list: async () => [], get: async () => null };   // the server keeps the console heartbeats
 // notices, the inbox, polls and the forum
 const myName = () => getPrincipal()?.name || getAuthUser()?.name || '';
@@ -156,7 +158,7 @@ async function placeIndex() {
     blockNameById: Object.fromEntries(units.filter((u) => u.blockId).map((u) => [u.blockId, u.blockName])), blockIdByName: byName(units.filter((u) => u.blockId).map((u) => [u.blockName, u.blockId])),
   };
 }
-readers.notifications = { list: async () => (await call('/notifications?limit=200')).map((n) => notificationOf(n, myName())) };
+readers.notifications = { list: async () => (await many('/notifications?limit=200')).map((n) => notificationOf(n, myName())) };
 readers.notifications.get = byId(readers.notifications.list);
 readers.broadcasts = {
   list: async () => { const [rows, ix] = await Promise.all([call('/comms/broadcasts'), placeIndex()]); return rows.map((b) => broadcastOf(b, { ...ix, myName: myName() })); },
@@ -183,24 +185,24 @@ readers.forum = {
   get: async (id) => { if (!isUuid(id)) return null; const t = await call(`/comms/forum/topics/${id}`); return t && topicOf(t, t.kind === 'Poll' ? await call(`/comms/forum/topics/${id}/results`) : null, myName()); },
 };
 readers.forumPosts = {
-  list: async () => (await call('/comms/forum/posts')).map(postOf),   // every post of every topic in one call
+  list: async () => (await many('/comms/forum/posts')).map(postOf),   // every post of every topic in one call
 };
 readers.forumPosts.get = byId(readers.forumPosts.list);
 // every register of the resource kit reads the same way
 for (const [c, spec] of Object.entries(RESOURCES)) {
   readers[c] = {
-    list: async () => (await call(`/${spec.path}`)).map((r) => resourceOf(r, spec)),
+    list: async () => ((await call(`/${spec.path}`)) || []).map((r) => resourceOf(r, spec)),   // a list that is not there is empty, never a crash
     get: async (id) => { if (!isUuid(id)) return null; const r = await call(`/${spec.path}/${id}`); return r && resourceOf(r, spec); },
   };
 }
 // files: bytes go up as the request body; a record's attachments are the files attached to it on the server
-async function filesOf(ownerType, ownerId) { return (await call(`/files?ownerType=${ownerType}${ownerId ? `&ownerId=${ownerId}` : ''}`)).map(fileMeta); }
+async function filesOf(ownerType, ownerId) { return ((await call(`/files?ownerType=${ownerType}${ownerId ? `&ownerId=${ownerId}` : ''}`)) || []).map(fileMeta); }
 /** Add each record's attachments (files attached to it) under `field`. */
 function withFiles(reader, ownerType, field, extra = () => ({})) {
   const group = async (rows) => {
     if (!rows.length) return rows;
     const by = {};
-    for (const f of await call(`/files?ownerType=${ownerType}`)) (by[f.ownerId] ||= []).push(fileMeta(f));
+    for (const f of (await call(`/files?ownerType=${ownerType}`)) || []) (by[f.ownerId] ||= []).push(fileMeta(f));
     return rows.map((r) => (by[r.id] ? { ...r, [field]: by[r.id], ...extra(by[r.id]) } : r));
   };
   // one record: only its own files (not every file of its kind)
@@ -228,18 +230,18 @@ const withAudience = async (rows) => {
 };
 readers.reportSchedules = { list: async () => withAudience(await scheduleReader.list()), get: async (id) => { const r = await scheduleReader.get(id); return r ? (await withAudience([r]))[0] : r; } };
 // the service directory: ratings and counts are worked out by the server
-readers.serviceContacts = { list: async () => (await call('/vendors/directory')).map(contactOf), get: async (id) => { if (!isUuid(id)) return null; const c = await call(`/vendors/directory/${id}`); return c && contactOf(c); } };
-readers.contactReviews = { list: async () => (await Promise.all((await call('/vendors/directory')).map((c) => call(`/vendors/directory/${c.id}/reviews`)))).flat().map(reviewOf) };
+readers.serviceContacts = { list: async () => (await many('/vendors/directory')).map(contactOf), get: async (id) => { if (!isUuid(id)) return null; const c = await call(`/vendors/directory/${id}`); return c && contactOf(c); } };
+readers.contactReviews = { list: async () => (await Promise.all((await many('/vendors/directory')).map((c) => call(`/vendors/directory/${c.id}/reviews`)))).flat().map(reviewOf) };
 readers.contactReviews.get = byId(readers.contactReviews.list);
 // governance: meetings with their papers; ballots with the frozen roll, the marks (which units voted) and, once closed, the box
-readers.meetings = withFiles(withFiles({ list: async () => (await call('/governance/meetings')).map(meetingOf),
+readers.meetings = withFiles(withFiles({ list: async () => (await many('/governance/meetings')).map(meetingOf),
   get: async (id) => { if (!isUuid(id)) return null; const m = await call(`/governance/meetings/${id}`); return m && meetingOf(m); } }, 'governance.agenda', 'agendaFiles'), 'governance.minutes', 'minutesFiles');
 const rollOf = async (b) => (b.status === 'Draft' ? [] : (await call(`/governance/ballots/${b.id}/roll`)) || []);
 readers.ballots = {
-  list: async () => Promise.all((await call('/governance/ballots')).map(async (b) => ballotOf(b, await rollOf(b)))),
+  list: async () => Promise.all((await many('/governance/ballots')).map(async (b) => ballotOf(b, await rollOf(b)))),
   get: async (id) => { if (!isUuid(id)) return null; const b = await call(`/governance/ballots/${id}`); return b && ballotOf(b, await rollOf(b)); },
 };
-readers.voteRoll = { list: async () => (await Promise.all((await call('/governance/ballots')).map(async (b) => voteMarksOf(b.id, await rollOf(b))))).flat() };
+readers.voteRoll = { list: async () => (await Promise.all((await many('/governance/ballots')).map(async (b) => voteMarksOf(b.id, await rollOf(b))))).flat() };
 readers.voteRoll.get = byId(readers.voteRoll.list);
 readers.ballotBox = { list: async () => (await Promise.all((await call('/governance/ballots')).filter((b) => b.status === 'Closed')
   .map(async (b) => ((await call(`/governance/ballots/${b.id}/box`))?.rows || []).map((r) => boxRowOf(b.id, r))))).flat() };
@@ -251,10 +253,10 @@ export const evote = {
   async request(ballot, unitNo) { const r = await call(`/governance/ballots/${ballot.id}/code`, json('POST', { unitId: voteUnit(ballot, unitNo) })); return { code: r.code || '', phoneLast4: r.phoneLast4 || '' }; },
   async verify(ballot, unitNo, code) { return (await call(`/governance/ballots/${ballot.id}/code/verify`, json('POST', { unitId: voteUnit(ballot, unitNo), code: String(code || '').trim() }))).proof; },
 };
-readers.attendance = { list: async () => (await call('/workforce/attendance')).map(attendanceOf) }; readers.attendance.get = byId(readers.attendance.list);
-readers.workforce = { list: async () => (await call('/workforce/teams')).map(teamOf) }; readers.workforce.get = byId(readers.workforce.list);
+readers.attendance = { list: async () => (await many('/workforce/attendance')).map(attendanceOf) }; readers.attendance.get = byId(readers.attendance.list);
+readers.workforce = { list: async () => (await many('/workforce/teams')).map(teamOf) }; readers.workforce.get = byId(readers.workforce.list);
 readers.files = {
-  list: async () => (await call('/files?ownerType=upload')).map((f) => fileRowOf(f)),
+  list: async () => (await many('/files?ownerType=upload')).map((f) => fileRowOf(f)),
   get: async (id) => {
     if (!isUuid(id)) return null;
     const f = await call(`/files/${id}`); if (!f) return null;
@@ -263,7 +265,7 @@ readers.files = {
   },
 };
 // ---- the layout: blocks and the unit naming pattern ---------------------------------------------------------------------------------------------
-readers.blocks = { list: async () => (await call('/blocks')).map(blockOf) };
+readers.blocks = { list: async () => (await many('/blocks')).map(blockOf) };
 readers.blocks.get = async (id) => (await readers.blocks.list()).find((b) => b.id === id) || null;
 async function putBlock(rec) {
   const before = isUuid(rec.id) ? await readers.blocks.get(rec.id) : null;
@@ -293,19 +295,19 @@ readers.audit = {
   list: async () => { const { noById } = await unitIndex(); return (await latest('/audit', 2000)).map((a) => auditOf(a, noById)); },
   get: async (id) => (await readers.audit.list()).find((a) => a.id === id) || null,
 };
-readers.documents = { list: async () => (await call('/documents')).map(documentOf), get: async (id) => { if (!isUuid(id)) return null; const d = await call(`/documents/${id}`); return d && documentOf(d); } };
+readers.documents = { list: async () => (await many('/documents')).map(documentOf), get: async (id) => { if (!isUuid(id)) return null; const d = await call(`/documents/${id}`); return d && documentOf(d); } };
 // cultural: donations (a unit's own, or all for the committee), expenses (the committee and the accounts)
-readers.culturalDonations = { list: async () => (await call('/cultural/donations')).map(donationOf), get: async (id) => { if (!isUuid(id)) return null; const d = await call(`/cultural/donations/${id}`); return d && donationOf(d); } };
+readers.culturalDonations = { list: async () => (await many('/cultural/donations')).map(donationOf), get: async (id) => { if (!isUuid(id)) return null; const d = await call(`/cultural/donations/${id}`); return d && donationOf(d); } };
 readers.culturalExpenses = {
-  list: async () => { try { return (await call('/cultural/expenses')).map(expenseOf); } catch (e) { if (e instanceof AuthzError) return []; throw e; } },
+  list: async () => { try { return (await many('/cultural/expenses')).map(expenseOf); } catch (e) { if (e instanceof AuthzError) return []; throw e; } },
   get: async (id) => { if (!isUuid(id)) return null; const x = await call(`/cultural/expenses/${id}`); return x && expenseOf(x); },
 };
 // finance: the cash book, releases, pay requests, bank lines (each read only by who may)
 const orEmpty = (f) => async (...a) => { try { return await f(...a); } catch (e) { if (e instanceof AuthzError) return []; throw e; } };
-readers.ledger = { list: orEmpty(async () => (await call('/finance/cash-book')).map(ledgerOf)), get: async (id) => { if (!isUuid(id)) return null; const e = await call(`/finance/cash-book/${id}`); return e && ledgerOf(e); } };
-readers.releases = { list: orEmpty(async () => (await call('/finance/releases')).map(releaseOf)), get: async (id) => { if (!isUuid(id)) return null; const r = await call(`/finance/releases/${id}`); return r && releaseOf(r); } };
-readers.payRequests = { list: orEmpty(async () => (await call('/finance/pay-requests')).map(payRequestOf)) }; readers.payRequests.get = byId(readers.payRequests.list);
-readers.bankTxns = { list: orEmpty(async () => (await call('/finance/bank-lines')).map(bankTxnOf)) }; readers.bankTxns.get = byId(readers.bankTxns.list);
+readers.ledger = { list: orEmpty(async () => (await many('/finance/cash-book')).map(ledgerOf)), get: async (id) => { if (!isUuid(id)) return null; const e = await call(`/finance/cash-book/${id}`); return e && ledgerOf(e); } };
+readers.releases = { list: orEmpty(async () => (await many('/finance/releases')).map(releaseOf)), get: async (id) => { if (!isUuid(id)) return null; const r = await call(`/finance/releases/${id}`); return r && releaseOf(r); } };
+readers.payRequests = { list: orEmpty(async () => (await many('/finance/pay-requests')).map(payRequestOf)) }; readers.payRequests.get = byId(readers.payRequests.list);
+readers.bankTxns = { list: orEmpty(async () => (await many('/finance/bank-lines')).map(bankTxnOf)) }; readers.bankTxns.get = byId(readers.bankTxns.list);
 // task types also say which ones this person may raise (the ticket form offers only those)
 const taskTypeList = readers.taskTypes.list;
 readers.taskTypes.list = async () => {
@@ -317,7 +319,7 @@ readers.taskTypes.list = async () => {
 let metaCache = null;
 /** collection -> the fields its request type carries (from the server, once per session). */
 async function resourceFields(c) {
-  if (!metaCache) metaCache = Object.fromEntries((await call('/meta/resources')).map((m) => [m.collection, m]));
+  if (!metaCache) metaCache = Object.fromEntries((await many('/meta/resources')).map((m) => [m.collection, m]));
   const m = metaCache[c];
   if (!m) throw new NotOnV2Error(c);
   return m.fields;
@@ -458,7 +460,7 @@ async function putResource(c, rec) {
   if (!before && spec.singleton) before = (await call(`/${spec.path}`))[0] || null;
   const { idByNo } = spec.unit || spec.units ? await unitIndex() : { idByNo: {} };
   const refIds = {};
-  for (const [appKey, r] of Object.entries(spec.refs || {})) refIds[appKey] = Object.fromEntries((await call(`/${r.path || RESOURCES[r.collection].path}`)).map((x) => [x[r.key], x.id]));
+  for (const [appKey, r] of Object.entries(spec.refs || {})) refIds[appKey] = Object.fromEntries(((await call(`/${r.path || RESOURCES[r.collection].path}`)) || []).map((x) => [x[r.key], x.id]));
   const merged = before ? { ...resourceOf(before, spec), ...rec } : rec;          // a write is the whole record: keep what the app did not send
   const body = resourceBody(merged, spec, fields, idByNo, refIds);
   const out = before
@@ -876,7 +878,7 @@ async function serverPage(c, params) {
   let rows = await spec.rows(res.items || []);
   if (spec.files && rows.length) {
     const by = {};
-    for (const f of await call(`/files?ownerType=${spec.files}`)) (by[f.ownerId] ||= []).push(fileMeta(f));
+    for (const f of (await call(`/files?ownerType=${spec.files}`)) || []) (by[f.ownerId] ||= []).push(fileMeta(f));
     rows = rows.map((r) => (by[r.id] ? { ...r, attachments: by[r.id], hasPhotos: by[r.id].some((m) => /^image\//.test(m.mime)) } : r));
   }
   return { rows: revs(rows), total: res.total, page: p, pageSize: size, pages: Math.max(1, Math.ceil(res.total / size)) };

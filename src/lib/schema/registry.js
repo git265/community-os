@@ -1089,7 +1089,7 @@ const RAW_SCHEMAS = [
       { key: 'subCategories', label: 'Sub-categories (managed by Super Admin; required when raising a non-resident task)', type: 'tags', viewableBy: COORD, editableBy: ['super_admin'], showInTable: true },
       { key: 'assetLink', label: 'Asset on tasks of this category', type: 'select', options: ['Optional', 'Required', 'Hidden'], viewableBy: COORD, editableBy: STAFF },
       { key: 'coordinator', label: 'Coordinated by (roles)', type: 'roles', groups: true, viewableBy: COORD, editableBy: STAFF, showInTable: true },
-      { key: 'notes', label: 'Notes', type: 'richtext', viewableBy: COORD, editableBy: STAFF },
+      { key: 'notes', label: 'Notes', type: 'richtext', noImages: true, viewableBy: COORD, editableBy: STAFF },
     ],
   },
   {

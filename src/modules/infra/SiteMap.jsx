@@ -69,6 +69,15 @@ function MapTab({ areaFilter, setAreaFilter, startCalibrate, onSetup, onNavigate
   const [editing, setEditing] = useState(null);
   const [focus, setFocus] = useState(null);
   const [q, setQ] = useState('');
+  const [findOpen, setFindOpen] = useState(false);
+  const findRef = useRef(null);
+  useEffect(() => {
+    if (!findOpen) return undefined;
+    const away = (e) => { if (findRef.current && !findRef.current.contains(e.target)) setFindOpen(false); };
+    const esc = (e) => { if (e.key === 'Escape') setFindOpen(false); };
+    document.addEventListener('pointerdown', away, true); document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('pointerdown', away, true); document.removeEventListener('keydown', esc); };
+  }, [findOpen]);
   const [notice, setNotice] = useState(null);
   const [fade, setFade] = useState(0.6);
   const [perf, setPerf] = useState(0);
@@ -223,9 +232,9 @@ function MapTab({ areaFilter, setAreaFilter, startCalibrate, onSetup, onNavigate
       {/* one toolbar row: find, filters and the view on the left; adding and the tools on the right. Everything else lives in the ⋯ menu. */}
       <div className="sm-bar infra-toolbar sm-toolbar" data-testid="sm-toolbar">
         {sorted.length > 1 && <select aria-label="Plan" value={plan.id} onChange={(e) => { setPlanId(e.target.value); setSelectedId(''); }}>{sorted.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>}
-        <div className="infra-search">
-          <input type="search" placeholder="Find an asset…" aria-label="Find an asset" data-testid="lf-find" value={q} onChange={(e) => setQ(e.target.value)} />
-          {found.length > 0 && <div className="infra-found" role="listbox">{found.map((a) => <button key={a.id} type="button" role="option" onClick={() => (parseShape(a) ? jump(a) : select(a.id))}><span className="dot" style={{ background: COND_COLOR[effectiveCondition(a, open)] }} />{a.name}<small>{a.area}{parseShape(a) ? '' : ' · not on plan'}</small></button>)}</div>}
+        <div className="infra-search" ref={findRef}>
+          <input type="search" placeholder="Find an asset…" aria-label="Find an asset" data-testid="lf-find" value={q} onFocus={() => setFindOpen(true)} onChange={(e) => { setQ(e.target.value); setFindOpen(true); }} />
+          {findOpen && found.length > 0 && <div className="infra-found" role="listbox">{found.map((a) => <button key={a.id} type="button" role="option" onClick={() => { setFindOpen(false); if (parseShape(a)) jump(a); else select(a.id); }}><span className="dot" style={{ background: COND_COLOR[effectiveCondition(a, open)] }} />{a.name}<small>{a.area}{parseShape(a) ? '' : ' · not on plan'}</small></button>)}</div>}
         </div>
         <button type="button" className={`btn secondary sm${filtersOpen ? ' on' : ''}`} data-testid="sm-filters-btn" aria-expanded={filtersOpen} onClick={() => { setFiltersOpen((o) => !o); setToolsOpen(false); }}>⚲ Filters{activeFilters ? <span className="seg-badge">{activeFilters}</span> : null}</button>
         {!narrow && (

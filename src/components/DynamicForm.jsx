@@ -176,7 +176,7 @@ export default function DynamicForm({ schema, roleId, record, onSave, onCancel, 
     }
     if (field.type === 'richtext') {
       return editable
-        ? <RichTextEditor value={draft[field.key] || ''} onChange={(h) => setValue(field.key, h)} placeholder={field.placeholder || ''} minHeight={90} />
+        ? <RichTextEditor value={draft[field.key] || ''} onChange={(h) => setValue(field.key, h)} placeholder={field.placeholder || ''} minHeight={90} images={!field.noImages} />
         : (draft[field.key] ? <RichText html={draft[field.key]} /> : <div className="ro-value">—</div>);
     }
     if (!editable) {

@@ -17,7 +17,7 @@ const BUTTONS = [
  * every comment box in the portal. Value is sanitized HTML; pasted content is
  * flattened to plain text so no foreign markup gets in.
  */
-export default function RichTextEditor({ value, onChange, placeholder = 'Write a comment…', minHeight = 72, id }) {
+export default function RichTextEditor({ value, onChange, placeholder = 'Write a comment…', minHeight = 72, id, images = true }) {
   const ref = useRef(null);
   const last = useRef('');
   const [open, setOpen] = useState(false); // formatting menu is collapsed until the glyph is clicked
@@ -54,7 +54,7 @@ export default function RichTextEditor({ value, onChange, placeholder = 'Write a
   }
   function onPaste(e) {
     const cd = e.clipboardData;
-    if (cd.files && cd.files.length && [...cd.files].some((f) => /^image\//.test(f.type))) { e.preventDefault(); addImages(cd.files); return; }
+    if (cd.files && cd.files.length && [...cd.files].some((f) => /^image\//.test(f.type))) { e.preventDefault(); if (images) addImages(cd.files); return; }
     e.preventDefault();
     const html = cd.getData('text/html');
     const text = cd.getData('text/plain');
@@ -64,7 +64,7 @@ export default function RichTextEditor({ value, onChange, placeholder = 'Write a
     emit();
   }
   function onDrop(e) {
-    if (e.dataTransfer?.files?.length && [...e.dataTransfer.files].some((f) => /^image\//.test(f.type))) { e.preventDefault(); addImages(e.dataTransfer.files); }
+    if (e.dataTransfer?.files?.length && [...e.dataTransfer.files].some((f) => /^image\//.test(f.type))) { e.preventDefault(); if (images) addImages(e.dataTransfer.files); }
   }
   const fileRef = useRef(null);
 
@@ -72,8 +72,8 @@ export default function RichTextEditor({ value, onChange, placeholder = 'Write a
     <div className="rte">
       <div className={`rte-bar${open ? ' open' : ''}`} role="toolbar" aria-label="Formatting">
         <button type="button" className="rte-toggle" data-testid="rte-toggle" aria-expanded={open} title={open ? 'Hide formatting' : 'Show formatting'} aria-label={open ? 'Hide formatting' : 'Show formatting'} onMouseDown={(e) => e.preventDefault()} onClick={() => setOpen((v) => !v)}>{open ? '✕' : 'Aa'}</button>
-        <button type="button" className="rte-img" data-testid="rte-image" title="Insert a picture" aria-label="Insert a picture" onMouseDown={(e) => e.preventDefault()} onClick={() => fileRef.current?.click()}>🖼</button>
-        <input ref={fileRef} type="file" accept="image/*" multiple hidden data-testid="rte-image-input" onChange={(e) => { addImages(e.target.files); e.target.value = ''; }} />
+        {images && <button type="button" className="rte-img" data-testid="rte-image" title="Insert a picture" aria-label="Insert a picture" onMouseDown={(e) => e.preventDefault()} onClick={() => fileRef.current?.click()}>🖼</button>}
+        {images && <input ref={fileRef} type="file" accept="image/*" multiple hidden data-testid="rte-image-input" onChange={(e) => { addImages(e.target.files); e.target.value = ''; }} />}
         {open && BUTTONS.map((b) => (
           <button key={b.cmd} type="button" title={b.title} aria-label={b.title} style={b.style} onMouseDown={(e) => e.preventDefault()} onClick={() => run(b.cmd)}>{b.label}</button>
         ))}

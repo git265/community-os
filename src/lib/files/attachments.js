@@ -44,6 +44,25 @@ export async function screenFiles(fileList) {
   return { accepted, rejected };
 }
 
+/**
+ * Pictures put inside a message (pasted or inserted) come out as files: the message keeps its words, the pictures travel as attachments
+ * (scanned and stored like any upload, and a message stays within the server's length).
+ */
+export function inlineImagesToFiles(html) {
+  const files = [];
+  const out = String(html || '').replace(/<img\b[^>]*\bsrc="(data:image\/[a-z0-9.+-]+;base64,[^"]+)"[^>]*>(\s*<br\s*\/?>)?/gi, (_, url) => {
+    try {
+      const [head, b64] = url.split(',');
+      const mime = head.slice(5, head.indexOf(';'));
+      const bin = atob(b64); const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      files.push(new File([bytes], `picture-${files.length + 1}.${(mime.split('/')[1] || 'png').replace('jpeg', 'jpg')}`, { type: mime }));
+    } catch { /* not a readable picture: dropped */ }
+    return '';
+  });
+  return { html: out, files };
+}
+
 /** Store the pending files; returns metadata for the owning record. Returns null if any write was denied. */
 export async function persistPending(pending, { ownerType, ownerId }) {
   const metas = [];

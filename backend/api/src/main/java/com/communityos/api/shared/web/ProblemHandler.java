@@ -25,6 +25,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  * the client; a 500 carries only an error id that is also in the log.
  */
 @RestControllerAdvice
+@org.springframework.core.annotation.Order(org.springframework.core.Ordered.HIGHEST_PRECEDENCE)   // ahead of Spring's own problem-details handler ("Failed to read request")
 public class ProblemHandler {
     private static final Logger log = LoggerFactory.getLogger(ProblemHandler.class);
 
@@ -49,7 +50,17 @@ public class ProblemHandler {
     }
     @ExceptionHandler(HttpMessageNotReadableException.class) public ProblemDetail unreadable(HttpMessageNotReadableException e) {
         for (Throwable t = e; t != null; t = t.getCause()) if (t instanceof RequestGuardFilter.PayloadTooLarge) return problem(HttpStatus.PAYLOAD_TOO_LARGE, "too-large", "The request is too large");
-        return problem(HttpStatus.BAD_REQUEST, "bad-request", "The request body is not valid: unknown, misspelt or wrongly typed fields are refused");
+        String field = null;
+        for (Throwable t = e; t != null; t = t.getCause())
+            if (t instanceof com.fasterxml.jackson.databind.JsonMappingException jm && !jm.getPath().isEmpty()) {
+                field = jm.getPath().stream().map((r) -> r.getFieldName() != null ? r.getFieldName() : "[" + r.getIndex() + "]").collect(java.util.stream.Collectors.joining("."));
+                break;
+            }
+        log.info("unreadable body{}", field == null ? "" : " at " + field);
+        ProblemDetail p = problem(HttpStatus.BAD_REQUEST, "bad-request", field == null ? "The request body is not valid: unknown, misspelt or wrongly typed fields are refused"
+            : "The request has a field the server does not accept, or a value of the wrong type: " + field);
+        if (field != null) p.setProperty("field", field);
+        return p;
     }
     @ExceptionHandler(MethodArgumentNotValidException.class) public ProblemDetail invalid(MethodArgumentNotValidException e) {
         ProblemDetail p = problem(HttpStatus.BAD_REQUEST, "validation", "Some fields are not valid");

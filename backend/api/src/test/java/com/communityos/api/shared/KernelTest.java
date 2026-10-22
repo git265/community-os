@@ -90,6 +90,17 @@ class KernelTest {
         assertEquals("\"" + Fixtures.UNIT_A.value() + "\"", m.writeValueAsString(Fixtures.UNIT_A), "ids as plain strings");
     }
 
+    record Dec(java.math.BigDecimal amount, Integer count) {}
+    @Test void jsonReadsADecimalWrittenAsAStringButNothingLooser() throws Exception {
+        ObjectMapper m = Json.mapper();
+        assertEquals(new java.math.BigDecimal("1180.00"), m.readValue("{\"amount\":\"1180.00\"}", Dec.class).amount(), "how the apps send amounts");
+        assertEquals(new java.math.BigDecimal("18"), m.readValue("{\"amount\":18}", Dec.class).amount());
+        assertNull(m.readValue("{\"amount\":\"\"}", Dec.class).amount());
+        assertThrows(Exception.class, () -> m.readValue("{\"amount\":\"1,180\"}", Dec.class), "not a plain decimal");
+        assertThrows(Exception.class, () -> m.readValue("{\"amount\":\"NaN\"}", Dec.class));
+        assertThrows(Exception.class, () -> m.readValue("{\"count\":\"5\"}", Dec.class), "other numbers stay strict");
+    }
+
     @Test void idempotencyReplaysSameRequestAndRefusesADifferentOne() {
         Map<String, Idempotency.Stored> store = new HashMap<>();
         Idempotency.Store s = new Idempotency.Store() {

@@ -236,6 +236,7 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
   const canDecideTreasurer = roleId === 'super_admin' || finalRoleIds.includes(roleId);
   const canEditApprovers = canWriteCollection(COLLECTIONS.APPROVER_SETTINGS, getPrincipal());
   const canPostNotice = canWriteCollection(COLLECTIONS.SERVICE_NOTICES, getPrincipal());
+  const [svcAsk, setSvcAsk] = useState(0);
   const { records: svcNotices } = useCollection(COLLECTIONS.SERVICE_NOTICES, 'Service Notices');
   const myBlock = useMyBlock();
   const awaitingMe = useMemo(() => (canSeeFinance ? tickets.filter((t) => {
@@ -763,6 +764,7 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
               + <span className="m-hide">Raise </span>Maintenance Request{!isResident ? ` (${ownerUnit})` : ''}
             </button>
           )}
+          {!isResident && canPostNotice && (tab === 'tickets' || !showTabs) && <button type="button" className="btn secondary" data-testid="svc-post" onClick={() => setSvcAsk((n) => n + 1)}>📢 <span className="m-hide">Service </span>notice</button>}
           {myCreatableTypes.length > 0 && (
             <button className="btn" onClick={() => { const first = myCreatableTypes[0]; setRaiseForm({ ...blankRaiseForm(), taskType: first?.name || '', financial: first?.quotationStage === 'Yes' }); setRaisePending([]); setRaiseErrors({}); setRaising('task'); }}>
               + New task
@@ -797,7 +799,7 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
         />
       ) : (
         <>
-          <ServiceNotices tickets={isResident ? [] : tickets} canPost={!isResident && canPostNotice} />
+          <ServiceNotices tickets={isResident ? [] : tickets} canPost={!isResident && canPostNotice} postAsk={svcAsk} />
           {!isHandymanRole && (
             <StatTiles label="Ticket summary — tap a tile to filter the list" value={cardKey || 'all'}
               items={summaryCards}
