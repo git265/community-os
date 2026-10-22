@@ -1,0 +1,9 @@
+# HTTPS in front of the app (docker-compose.prod.yml). Caddy gets and renews the certificate for COS_DOMAIN by itself; the DNS name must
+# already point at this server, and ports 80 and 443 must be open.
+{$COS_DOMAIN} {
+	encode zstd gzip
+	header Strict-Transport-Security "max-age=31536000"
+	reverse_proxy web:80 {
+		flush_interval -1   # the live notification stream is passed on as it is written
+	}
+}

@@ -1,0 +1,53 @@
+# One server, on the internet (AWS Lightsail, a VPS ...): the stack of docker-compose.yml plus HTTPS, closed ports and restarts.
+# Run from backend/ (docs/DEPLOY-LIGHTSAIL.md):
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+# Settings come from backend/.env (copy .env.example): COS_DOMAIN and the production secrets.
+#   caddy   the only service the internet reaches: ports 80 and 443, a free Let's Encrypt certificate for COS_DOMAIN, renewed by itself
+#   web     the app (nginx), reached through caddy only;   api, postgres, clamav: inside the stack only
+#   demo    not run here (a trial loads the sample data with:  --profile demo)
+
+services:
+  postgres:
+    ports: !reset []                     # the database is reachable only from the stack (backups: docker compose exec postgres ...)
+    restart: unless-stopped
+
+  clamav:
+    restart: unless-stopped
+
+  api:
+    ports: !reset []
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
+      COS_AUTH_ISSUER: https://${COS_DOMAIN:?set COS_DOMAIN in .env}
+      COS_ALLOWED_ORIGINS: https://${COS_DOMAIN}
+      COS_OTP_PEPPER: ${COS_OTP_PEPPER:-}
+      COS_SMS_ENDPOINT: ${COS_SMS_ENDPOINT:-}
+      COS_SMS_API_KEY: ${COS_SMS_API_KEY:-}
+      COS_SMS_TEMPLATE: ${COS_SMS_TEMPLATE:-}
+      COS_SMS_SENDER: ${COS_SMS_SENDER:-COSAPP}
+      COS_PUSH_PROVIDER: ${COS_PUSH_PROVIDER:-webpush}
+      COS_PUSH_VAPID_PUBLIC_KEY: ${COS_PUSH_VAPID_PUBLIC_KEY:-}
+      COS_PUSH_VAPID_PRIVATE_KEY: ${COS_PUSH_VAPID_PRIVATE_KEY:-}
+      COS_PUSH_SUBJECT: ${COS_PUSH_SUBJECT:-mailto:admin@example.com}
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=35   # about 1.4 GB of a 4 GB server; Postgres and ClamAV need the rest
+
+  web:
+    ports: !reset []
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2.8
+    depends_on: [web]
+    ports: ["80:80", "443:443", "443:443/udp"]
+    environment: { COS_DOMAIN: "${COS_DOMAIN}", TRIAL_USER: "${TRIAL_USER:-}", TRIAL_HASH: "${TRIAL_HASH:-}" }
+    volumes:
+      - ./${CADDYFILE:-Caddyfile}:/etc/caddy/Caddyfile:ro   # Caddyfile.trial for a trial: the whole site behind one login
+      - caddy_data:/data                 # the certificate (keep it: Let's Encrypt limits how often one is issued)
+      - caddy_config:/config
+    restart: unless-stopped
+
+  demo:
+    profiles: ["demo"]                   # the sample data: only when asked for (a trial with SPRING_PROFILES_ACTIVE=dev)
+
+volumes: { caddy_data: {}, caddy_config: {} }

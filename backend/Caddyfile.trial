@@ -1,0 +1,11 @@
+# The trial (SPRING_PROFILES_ACTIVE=dev, sample data): the same HTTPS, behind one shared login, because the dev profile lets anyone sign
+# in from the demo roster without a code. Use it with CADDYFILE=Caddyfile.trial, TRIAL_USER and TRIAL_HASH in .env.
+{$COS_DOMAIN} {
+	encode zstd gzip
+	basic_auth {
+		{$TRIAL_USER} {$TRIAL_HASH}
+	}
+	reverse_proxy web:80 {
+		flush_interval -1
+	}
+}

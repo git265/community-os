@@ -7,6 +7,7 @@ One service: **`api/`** — Spring Boot 3.5 on Java 25, PostgreSQL 18, typed `/a
 api/                the service (Maven)                       cd api && mvn verify
 api/src/main/resources/db/migration   the schema (Flyway)     api/tools/migrate-local.sh <db>, api/tools/test-schema.sh
 docker-compose.yml  postgres + api + seed + demo + web        docker compose up -d --build     (http://localhost:8081)
+docker-compose.prod.yml  + HTTPS (Caddy), closed ports, restarts   on a server: docs/DEPLOY-LIGHTSAIL.md
 .env.example        the settings docker compose passes
 ```
 
