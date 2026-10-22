@@ -39,6 +39,8 @@ public final class Ticket extends AggregateRoot {
         public int reopenCount; public UUID asset; public String assetName; public Map<String, Object> custom = Map.of(); public Instant createdAt, updatedAt; public long version;
         /** Where the money side stands (written by the quotation workflow, read-only here). */
         public Approval approval = Approval.NONE;
+        /** Who gave the committee's approval and when (the task's own sign-off, or the one mirrored from its quotation). */
+        public String ecApprovedBy; public java.time.Instant ecApprovedAt;
     }
 
     /** The money side of a task: the selected quotation / invoice and their approvals (two-slot summary), and the approved amount. */

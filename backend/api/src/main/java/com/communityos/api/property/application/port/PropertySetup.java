@@ -39,5 +39,6 @@ public interface PropertySetup {
     /** One home in the community directory: the unit and who to call there (its primary owner, else an owner, else the tenant). */
     record DirectoryEntry(UUID unitId, String unitNo, String blockName, String unitType, String name, String phone, String relation) {}
     /** Every active unit, by number; `q` matches the unit number or the name, `type` the unit type. */
-    com.communityos.api.shared.web.Page<DirectoryEntry> directory(String q, String type, int limit, int offset);
+    /** `q`: a unit number, or a contact's name or phone; `block`: one block's homes. */
+    com.communityos.api.shared.web.Page<DirectoryEntry> directory(String q, String type, java.util.UUID block, int limit, int offset);
 }

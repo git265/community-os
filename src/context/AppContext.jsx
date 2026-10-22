@@ -6,7 +6,7 @@ import { COLLECTIONS } from '../lib/storage/index.js';
 import { secureStorage } from '../lib/storage/secureStorage.js';
 import { setPrincipal, setSchemaCache } from '../lib/security/principal.js';
 import { AuthzError } from '../lib/security/authz.js';
-import { ConflictError } from '../lib/security/errors.js';
+import { ConflictError, PartialSaveError } from '../lib/security/errors.js';
 import { loadSchemas } from '../lib/schema/schemaStore.js';
 import { loadRoles } from '../lib/access/roleStore.js';
 import { getCommunity } from '../lib/community.js';
@@ -15,12 +15,30 @@ import { storage } from '../lib/storage/index.js';
 import { setCommunityConfig } from '../lib/locale.js';
 import { isApiMode } from '../lib/storage/index.js';
 import { loadAuthConfig, publicCommunity, whoAmI } from '../lib/auth/authApi.js';
-import { authProviderFor } from '../lib/auth/providers.js';
+import { authProviderFor, setPendingSignOut } from '../lib/auth/providers.js';
 import { getAuthConfig, getAuthUser } from '../lib/auth/session.js';
 import { getDataSource } from '../lib/storage/dataSource.js';
 import { disablePush } from '../lib/push.js';
 
 const AppCtx = createContext(null);
+
+const ACTIVE_ROLE_KEY = 'communityos:activeRole';
+/** After a reload: the role and unit picked at sign-in (when they are still the member's), not whichever role the server lists first. */
+function rememberedRole(u) {
+  try {
+    const r = JSON.parse(sessionStorage.getItem(ACTIVE_ROLE_KEY) || 'null');
+    if (!r || (r.id && u.id && r.id !== u.id)) return u;
+    return { ...u, roleId: (u.roleIds || [u.roleId]).includes(r.roleId) ? r.roleId : u.roleId, unit: r.unit && (u.units || []).includes(r.unit) ? r.unit : u.unit };
+  } catch { return u; }
+}
+
+/** The per-tab traces of a signed-in visit (open tab, the ticket to reopen, the picked role ...). The sign-in notice for the next screen stays. */
+function forgetTabTraces() {
+  try {
+    const keep = new Set(['communityos:loginNotice']);
+    for (const k of Object.keys(sessionStorage)) if (k.startsWith('communityos:') && !keep.has(k)) sessionStorage.removeItem(k);
+  } catch { /* storage blocked: nothing kept there either */ }
+}
 
 export function AppProvider({ children }) {
   const [roles, setRoles] = useState([]);
@@ -44,6 +62,9 @@ export function AppProvider({ children }) {
 
   /** A person the SERVER has signed in ({ id, name, roleId, roleIds, units, unit, blocks, email, phone }) becomes the current user. */
   const signedInAs = useCallback(async (u) => {
+    // the role (and unit) this visit works as, kept for this tab so a reload stays in it (the server's session carries all the member's roles)
+    setPendingSignOut(false);
+    try { sessionStorage.setItem(ACTIVE_ROLE_KEY, JSON.stringify({ id: u.id || '', roleId: u.roleId, unit: u.unit || '' })); } catch { /* ignore */ }
     await loadAfterSignIn();
     setCurrentUser({ roleId: u.roleId, name: u.name, phone: u.phone || '', unit: u.unit || u.units?.[0] || '', email: u.email || '', userId: u.id || '', blocks: u.blocks || [], units: u.units || [], roleIds: u.roleIds || [u.roleId] });
     setReady(true);
@@ -66,7 +87,7 @@ export function AppProvider({ children }) {
             if (cfg.provider === 'oidc') await provider.finishCallback();
             let user = await provider.restore();          // a reload: the refresh cookie (or the identity provider's session) gives the session back
             if (user && !user.roleId) user = await whoAmI();
-            if (user) { await signedInAs(user); return; }
+            if (user) { await signedInAs(rememberedRole(user)); return; }
           } catch { /* not signed in: show the sign-in screen */ }
           setReady(true);
           return;
@@ -169,8 +190,22 @@ export function AppProvider({ children }) {
     logEvent({ who, what: 'Sign-in', action: 'Sign-in', summary: `${who} signed in${unit ? ` · ${unit}` : ''}`, unit: unit || '' });
   }
   function logout() {
-    if (enforced) { disablePush().finally(() => authProviderFor(getAuthConfig()).signOut()); setCurrentUser(null); return; }   // this device stops getting their push first
+    if (enforced) {
+      // Signing out leaves nothing behind: this device stops getting their push, the server revokes the session (refresh token), the
+      // tab's own traces (open tabs, drafts' places, the picked role) go, and the page starts again - so no copy of the community's data,
+      // no cache and no half-done screen survives in memory for the next person on this device.
+      setCurrentUser(null);
+      (async () => {
+        await disablePush().catch(() => {});
+        let leaving = false;
+        try { leaving = !!(await authProviderFor(getAuthConfig()).signOut()); } catch { /* signed out here at least */ }
+        forgetTabTraces();
+        if (!leaving) window.location.replace(`${window.location.pathname}${window.location.search}`);   // the identity provider's sign-out page takes over otherwise
+      })();
+      return;
+    }
     if (currentUser) { const who = `${currentUser.name} (${roleFor(currentUser.roleId)?.name || currentUser.roleId})`; logEvent({ who, what: 'Sign-in', action: 'Sign-out', summary: `${who} signed out`, unit: currentUser.unit || '' }); }
+    forgetTabTraces();
     setCurrentUser(null);
   }
   /** Name and phone are what other people (and the poll / audit trail) see you as, so only the Super Admin changes them; everyone else asks the office. Role, villa, e-mail and id can never be changed here. */
@@ -241,9 +276,13 @@ export function useCollection(collection, sectionLabel = collection, { enabled =
 
   const refresh = useCallback(async () => {
     loaded.current = true;
-    setRecords(await secureStorage.list(collection));
-    setLoading(false);
-  }, [collection, currentUser, roleId]);
+    try { setRecords(await secureStorage.list(collection)); }
+    catch (err) {
+      // a list this person may not read is simply empty for them (no error screen); any other failure is said once and the rows on screen stay
+      if (err instanceof AuthzError && !(err instanceof ConflictError)) setRecords([]);
+      else window.dispatchEvent(new CustomEvent('communityos:denied', { detail: { message: `${sectionLabel} could not be loaded: ${err?.message || 'error'}`, kind: err?.name === 'NetworkError' || err?.name === 'TimeoutError' ? 'network' : 'error' } }));
+    } finally { setLoading(false); }
+  }, [collection, currentUser, roleId, sectionLabel]);
 
   // a new person, role or collection: what was read for the old one no longer counts
   useEffect(() => { loaded.current = false; }, [refresh]);
@@ -281,6 +320,9 @@ export function useCollection(collection, sectionLabel = collection, { enabled =
         return saved;
       } catch (err) {
         refresh();
+        // part of a several-step change went through: the record IS saved (so the form closes and a second Save does not make a second one),
+        // and the person is told exactly what did not go through
+        if (err instanceof PartialSaveError) { sayWhy(err); return err.saved || null; }
         // every failure ends here as a message and null, so no screen is left "Saving…": denied, conflict, timeout, no network, a server error
         sayWhy(err);
         return null;

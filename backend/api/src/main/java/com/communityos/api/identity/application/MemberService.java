@@ -106,8 +106,10 @@ public final class MemberService {
             if (!members.setStatus(id, "Inactive", expectedVersion)) throw new DomainException.Conflict("This member");
             audit.write(c, AuditWriter.Action.Update, "identity.membership", id.value(), null, null, "Deactivated " + before.displayName(),
                 List.of(new AuditWriter.Change("status", before.status(), "Inactive")));
+            // signed out everywhere at the next refresh - before the deactivation commits: if revoking fails nothing is deactivated (and the
+            // manager is told), so a deactivated member can never keep a live session; a revoke followed by a rollback only asks for a new sign-in
+            refreshTokens.revokeAllOfMembership(id.value(), "deactivated", clock.instant());
         });
-        refreshTokens.revokeAllOfMembership(id.value(), "deactivated", clock.instant());   // signed out everywhere at the next refresh
         callers.evict(id);                                                                  // and refused on the very next call on this instance
         return get(c, id);
     }

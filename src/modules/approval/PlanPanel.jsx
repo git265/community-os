@@ -48,6 +48,9 @@ function OverrideDialog({ plan, kit, onClose, onSave }) {
  *   open     whether decisions are allowed at all right now
  * Test ids kept from the old two-step block: ec-decide (first step), final-approve / final-reject (later steps), ec-undo.
  */
+/** A decision's time as a date ("22 Oct 2026"); a plain date stays as it is. */
+const when = (at) => { const t = String(at || ''); if (!/^\d{4}-\d{2}-\d{2}/.test(t)) return at; const d = new Date(/T\d/.test(t) ? t : `${t.slice(0, 10)}T00:00:00`); return Number.isNaN(d.getTime()) ? at : d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }); };
+
 export default function PlanPanel({ title, plan, kit, rec, open = true, onSave, entry, note, tagLabel, tagTone, waitingText, footer }) {
   const [override, setOverride] = useState(false);
   const st = planState(plan);
@@ -71,7 +74,7 @@ export default function PlanPanel({ title, plan, kit, rec, open = true, onSave, 
           <div key={s.id + i} className={`ap-step ${ss === 'approved' ? 'ok' : ss === 'rejected' ? 'no' : ss === 'skipped' ? 'ok' : ''}`}>
             <span className="ap-title">{s.name}<small className="muted ap-hint"> {stepWho(s, kit.roleName)}</small></span>
             {tag(ss)}
-            {ss !== 'pending' && ss !== 'skipped' && last && <small className="muted">{(s.decisions || []).filter((d) => d.value === 'Approved').map((d) => d.by).join(', ') || last.by}{last.at ? ` · ${last.at}` : ''}{last.comment ? ` · “${last.comment}”` : ''}</small>}
+            {ss !== 'pending' && ss !== 'skipped' && last && <small className="muted">{(s.decisions || []).filter((d) => d.value === 'Approved').map((d) => d.by).join(', ') || last.by}{last.at ? ` · ${when(last.at)}` : ''}{last.comment ? ` · “${last.comment}”` : ''}</small>}
             {ss === 'pending' && (s.decisions || []).length > 0 && <small className="muted">{decidedBy(s).length} of {s.needed} so far</small>}
             {ss === 'skipped' && <small className="muted">The earlier step was the last one</small>}
             {here && may && (

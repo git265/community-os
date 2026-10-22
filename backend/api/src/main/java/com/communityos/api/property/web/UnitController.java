@@ -14,6 +14,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.springframework.http.ResponseEntity;
@@ -38,10 +39,11 @@ public class UnitController {
     public record UnitPatch(@Size(max = 60) String unitNo, @Size(max = 40) String unitType, @Size(max = 20) String occupancy, BigDecimal areaSqft, @Size(max = 20) String maintenancePlan,
                             BigDecimal sanctionedKw, @Size(max = 50) Map<String, Object> custom) {}
     public record UnitResponse(UUID id, String shortId, String unitNo, UUID blockId, String blockName, String unitType, String occupancy, BigDecimal areaSqft,
-                               String maintenancePlan, BigDecimal sanctionedKw, String status, Map<String, Object> custom, Instant updatedAt, long version) {
+                               String maintenancePlan, BigDecimal sanctionedKw, String status, Map<String, Object> custom, Instant updatedAt, long version,
+                               String contactName, String contactPhone, String contactRelation) {
         static UnitResponse of(Unit u) {
             return new UnitResponse(u.id().value(), u.shortId(), u.unitNo(), u.block() == null ? null : u.block().value(), u.blockName(), u.unitType(), u.occupancy(),
-                u.areaSqft(), u.maintenancePlan(), u.sanctionedKw(), u.status(), u.custom(), u.updatedAt(), u.version());
+                u.areaSqft(), u.maintenancePlan(), u.sanctionedKw(), u.status(), u.custom(), u.updatedAt(), u.version(), u.contactName(), u.contactPhone(), u.contactRelation());
         }
     }
 
@@ -49,16 +51,33 @@ public class UnitController {
     public UnitController(UnitService units) { this.units = units; }
 
     @GetMapping
-    public PageResponse<UnitResponse> list(@RequestParam(required = false) String q, @RequestParam(required = false) UUID block, @RequestParam(required = false) String occupancy,
+    public PageResponse<UnitResponse> list(@RequestParam(required = false) @Size(max = 100) String q, @RequestParam(required = false) @Size(max = 40) String block,
+                                           @RequestParam(required = false) @Size(max = 40) String occupancy, @RequestParam(required = false) @Size(max = 40) String type,
                                            @RequestParam(defaultValue = "false") boolean archived, @RequestParam(required = false) Integer limit, @RequestParam(required = false) Integer offset) {
-        return PageResponse.of(units.list(CallerHolder.require(), new UnitRepository.Filter(q, block == null ? null : new BlockId(block), occupancy, archived),
-            PageQuery.of(limit, offset)).map(UnitResponse::of));
+        // block: a block's id, or "none" for the units in no block
+        boolean none = "none".equalsIgnoreCase(block);
+        BlockId b = block == null || block.isBlank() || none ? null : new BlockId(blockId(block));
+        return PageResponse.of(units.list(CallerHolder.require(), new UnitRepository.Filter(q, b, occupancy, archived, type, none), PageQuery.of(limit, offset)).map(UnitResponse::of));
     }
+    /** "No block" as a block id (the directory's filter): no block has it. */
+    static final UUID NO_BLOCK = new UUID(0, 0);
+    static UUID blockId(String s) {
+        try { return UUID.fromString(s.strip()); } catch (IllegalArgumentException e) { throw new com.communityos.api.shared.domain.DomainException.RuleViolated("bad-block", "Block: a block's id, or none"); }
+    }
+    /** Every unit's number and block, in one answer (the app names the units other records point at from it - one call, however many units). */
+    @GetMapping("/index")
+    public List<UnitRepository.Entry> index() { return units.index(CallerHolder.require()); }
+    /** The directory's block list: every block with its homes and how they are lived in (the units in no block last, with no block id). */
+    @GetMapping("/by-block")
+    public List<UnitRepository.BlockCount> byBlock() { return units.countByBlock(CallerHolder.require()); }
     /** The community's contact directory (every member may read it): unit, block, type and who to call there. */
     @GetMapping("/directory")
     public PageResponse<com.communityos.api.property.application.port.PropertySetup.DirectoryEntry> directory(@RequestParam(required = false) @Size(max = 100) String q,
-            @RequestParam(required = false) @Size(max = 40) String type, @RequestParam(required = false) Integer limit, @RequestParam(required = false) Integer offset) {
-        return PageResponse.of(units.directory(CallerHolder.require(), q, type, PageQuery.of(limit, offset)));
+            @RequestParam(required = false) @Size(max = 40) String type, @RequestParam(required = false) @Size(max = 40) String block, @RequestParam(required = false) Integer limit,
+            @RequestParam(required = false) Integer offset) {
+        // block: a block's id, or "none" for the homes in no block
+        UUID b = block == null || block.isBlank() ? null : "none".equalsIgnoreCase(block) ? NO_BLOCK : blockId(block);
+        return PageResponse.of(units.directory(CallerHolder.require(), q, type, b, PageQuery.of(limit, offset)));
     }
     @GetMapping("/{id}")
     public ResponseEntity<UnitResponse> get(@PathVariable UUID id) {

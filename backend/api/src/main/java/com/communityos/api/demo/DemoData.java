@@ -218,6 +218,25 @@ public final class DemoData {
                 return m.id().value();
             });
         }
+        // the homes' owners, co-owners and tenants the sample names without an account: members too (Owner / Resident), so on the v2 back end the unit
+        // directory, the owners' list and the voter roll name them as the browser demo does
+        for (JsonNode p : collections.path("properties")) {
+            UUID unit = unitIds.get(p.path("unit").asText());
+            if (unit == null) continue;
+            List<String[]> people = new ArrayList<>();   // name, phone, role, relation
+            people.add(new String[] {p.path("owner").asText(), p.path("ownerPhone").asText(), "owner", "Owner"});
+            for (JsonNode x : p.path("people")) if (x.path("relation").asText().toLowerCase().contains("owner")) people.add(new String[] {x.path("name").asText(), x.path("phone").asText(), "owner", "Co-owner"});
+            people.add(new String[] {p.path("tenant").asText(), p.path("tenantPhone").asText(), "resident", "Tenant"});
+            for (String[] w : people) {
+                String ph = phone(w[1]);
+                if (w[0].isBlank() || ph == null || ph.isBlank() || byName.containsKey(w[0])) continue;
+                attempt("owners & tenants (as members)", p, () -> {
+                    MemberView m = as(admin, () -> s.members().add(admin, new MemberService.AddMember(ph, w[0], null, w[2], new UnitId(unit), w[3])));
+                    remember(m);
+                    return m.id().value();
+                });
+            }
+        }
         // field staff: the members who work the trades (a handyman without an account becomes a member with the trade's role)
         for (JsonNode h : collections.path("handymen")) {
             attempt("handymen", h, () -> {

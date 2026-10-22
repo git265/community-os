@@ -66,4 +66,9 @@ public final class Unit extends AggregateRoot {
     public String blockName() { return blockName; } public String unitType() { return unitType; } public String occupancy() { return occupancy; }
     public BigDecimal areaSqft() { return areaSqft; } public String maintenancePlan() { return maintenancePlan; } public BigDecimal sanctionedKw() { return sanctionedKw; }
     public String status() { return status; } public Map<String, Object> custom() { return custom; } public Instant updatedAt() { return updatedAt; }
+
+    /** Who to call there (the primary owner, else a co-owner, else the tenant) - read with the unit for the lists, never changed through it. */
+    private String contactName, contactPhone, contactRelation;
+    public Unit contact(String name, String phone, String relation) { contactName = name; contactPhone = phone; contactRelation = relation; return this; }
+    public String contactName() { return contactName; } public String contactPhone() { return contactPhone; } public String contactRelation() { return contactRelation; }
 }

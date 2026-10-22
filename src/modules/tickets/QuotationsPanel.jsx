@@ -76,6 +76,13 @@ function ApprovalBlock({ title, st, open, ec, fin, hint, canEC, canFinal, finalR
  *  - Invoice: uploaded directly (no quotation needed). The amount and GST are captured so the Payments Cross-check can
  *    show the GST input credit. Adding one restarts the approval chain via `onAdded`.
  */
+/** Who decided a task's quotation and when: on the back end the quotation keeps it (the task mirrors only the outcome). */
+const withNames = (t, q) => ({
+  ...t,
+  ecApprovedBy: q?.ecApprovedBy || t.ecApprovedBy || '', ecApprovedAt: q?.ecApprovedAt || t.ecApprovedAt || '',   // the quotation's own decision first
+  treasurerApprovedBy: t.treasurerApprovedBy || q?.finalApprovedBy || '', treasurerApprovedAt: t.treasurerApprovedAt || q?.finalApprovedAt || '',
+});
+
 export default function QuotationsPanel({ kind = 'Quotation', ticket, selectedIds = [], onSelect, onAdded, canEdit, vendors, defaultVendor, invoiceTools, quoteTools, invoicesExist, quotesExist }) {
   const isInvoice = kind === 'Invoice';
   const { records, save } = useCollection(COLLECTIONS.QUOTATIONS, isInvoice ? 'Invoices' : 'Quotations');
@@ -238,7 +245,7 @@ export default function QuotationsPanel({ kind = 'Quotation', ticket, selectedId
             {!isInvoice && quoteTools && q.id === primaryId && quoteTools.kit && (
               <PlanPanel
                 title={selectedIds.length > 1 ? `Quotation approval · ${selectedIds.length} quotations, ${inr(selectedIds.reduce((n, id) => n + (Number(docs.find((d) => d.id === id)?.amount) || 0), 0))} in total` : 'Quotation approval'}
-                plan={quoteTools.kit.planOf(ticket, quoteTools.planCtx, 'ticket')} kit={quoteTools.kit} rec={ticket} open={quoteTools.open}
+                plan={quoteTools.kit.planOf(withNames(ticket, q), quoteTools.planCtx, 'ticket')} kit={quoteTools.kit} rec={ticket} open={quoteTools.open}
                 tagLabel={quoteTools.state.label} tagTone={quoteTools.state.tone} note={quoteTools.note} onSave={quoteTools.savePlan}
                 entry={quoteTools.ledgerFor(q) || null} />
             )}

@@ -30,6 +30,14 @@ public final class UnitService {
     }
 
     public Page<Unit> list(Caller c, UnitRepository.Filter f, PageQuery page) { return units.find(policy.readScope(c), f, page); }
+    /** The directory's block list: each block's homes and how they are lived in (only the units this caller may see are counted). */
+    public List<UnitRepository.BlockCount> countByBlock(Caller c) {
+        // a resident sees every home in the contact directory, so the blocks' sizes are counted over the whole community for them too
+        if (c.membership() != null && c.category() == Caller.Category.Resident) return units.countByBlock(com.communityos.api.shared.access.Spec.all());
+        return units.countByBlock(policy.readScope(c));
+    }
+    /** Every unit's number and block (the units this caller may see), in one answer. */
+    public List<UnitRepository.Entry> index(Caller c) { return units.index(policy.readScope(c)); }
     public Unit get(Caller c, UnitId id) { return units.findById(id, policy.readScope(c)).orElseThrow(AccessDenied.NotVisible::new); }
 
     public Unit change(Caller c, UnitId id, long expectedVersion, Unit.Changes changes, Map<String, Object> custom) { return change(c, id, expectedVersion, null, changes, custom); }
@@ -119,9 +127,10 @@ public final class UnitService {
      * The community's contact directory: every home with who to call there - for every member, residents included (a resident's own
      * unit list shows only their units; the directory is how they reach a neighbour). Vendors and a caller with no membership get none.
      */
-    public com.communityos.api.shared.web.Page<com.communityos.api.property.application.port.PropertySetup.DirectoryEntry> directory(Caller c, String q, String type, PageQuery page) {
+    public com.communityos.api.shared.web.Page<com.communityos.api.property.application.port.PropertySetup.DirectoryEntry> directory(Caller c, String q, String type, PageQuery page) { return directory(c, q, type, null, page); }
+    public com.communityos.api.shared.web.Page<com.communityos.api.property.application.port.PropertySetup.DirectoryEntry> directory(Caller c, String q, String type, java.util.UUID block, PageQuery page) {
         if (c.membership() == null || c.category() == Caller.Category.Vendor || c.category() == Caller.Category.System) throw new AccessDenied("The directory is for the community's members");
-        return setup.directory(q, type, page.limit(), page.offset());
+        return setup.directory(q, type, block, page.limit(), page.offset());
     }
     /** The community's pattern for unit numbers. Units already there keep their numbers; new and renamed ones follow it. */
     public com.communityos.api.property.application.port.PropertySetup.Setting setNaming(Caller c, String pattern, long version) {

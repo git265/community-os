@@ -13,13 +13,22 @@ import { clearSession, setSession, setRefresher, getAccessToken } from './sessio
 
 export class LocalOtpProvider {
   id = 'local';
-  async restore() { const r = await renew(); return r?.user || null; }
+  async restore() {
+    // a sign-out the server did not hear about (offline at the time): tell it now, and do not quietly sign back in with the old cookie
+    if (pendingSignOut()) { if (await signOutRemote()) setPendingSignOut(false); return null; }
+    const r = await renew(); return r?.user || null;
+  }
   requestCode(target) { return requestCode(target); }
   verify(target, code, extra) { return verifyCode(target, code, extra).then((r) => r.user); }
   demo(body) { return demoSignIn(body).then((r) => r.user); }
   switchRole(body) { return switchRoleApi(body).then((r) => r.user); }
-  async signOut() { await signOutRemote(); clearSession(); }
+  async signOut() { const told = await signOutRemote(); setPendingSignOut(!told); clearSession(); return false; }
 }
+
+// kept in localStorage (every tab of this browser shares the refresh cookie); cleared by the next sign-in
+const PENDING_SIGN_OUT = 'communityos:pendingSignOut';
+const pendingSignOut = () => { try { return localStorage.getItem(PENDING_SIGN_OUT) === '1'; } catch { return false; } };
+export function setPendingSignOut(on) { try { if (on) localStorage.setItem(PENDING_SIGN_OUT, '1'); else localStorage.removeItem(PENDING_SIGN_OUT); } catch { /* ignore */ } }
 
 const b64u = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const rnd = (n = 32) => b64u(crypto.getRandomValues(new Uint8Array(n)));
@@ -63,7 +72,8 @@ export class OidcProvider {
   }
   async signOut() {
     sessionStorage.removeItem(KEYS.refresh); clearSession();
-    try { const m = await this.#meta(); if (m.end_session_endpoint) window.location.assign(`${m.end_session_endpoint}?post_logout_redirect_uri=${encodeURIComponent(this.cfg.redirectUri)}&client_id=${this.cfg.clientId}`); } catch { /* signed out here at least */ }
+    try { const m = await this.#meta(); if (m.end_session_endpoint) { window.location.assign(`${m.end_session_endpoint}?post_logout_redirect_uri=${encodeURIComponent(this.cfg.redirectUri)}&client_id=${this.cfg.clientId}`); return true; } } catch { /* signed out here at least */ }
+    return false;
   }
 }
 

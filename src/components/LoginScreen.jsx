@@ -28,13 +28,12 @@ export default function LoginScreen() {
     if (signing) return undefined;
     setSigning(true);
     try {
-      if (serverUser.current) {                       // signed in by phone: the server already holds the session; tell it which role / unit this visit is for
-        let u = serverUser.current;
-        if (roleId !== u.roleId || (unit && unit !== u.unit)) u = await provider.switchRole({ roleId, unit: unit || undefined });
-        return await signedInAs(u);
-      }
+      // The server signs in the member with all their roles; the role (and unit) picked here is the one this visit works as - so a member who
+      // is an owner and on a committee, picking "Owner", sees the owner's screens (not whichever role sorts first).
+      const asPicked = (u) => ({ ...u, roleId: roleId && (u.roleIds || [u.roleId]).includes(roleId) ? roleId : u.roleId, unit: unit && (u.units || []).includes(unit) ? unit : u.unit });
+      if (serverUser.current) return await signedInAs(asPicked(serverUser.current));   // signed in by phone: the server already holds the session
       const person = users.find((x) => x.id === who.current.userId);   // demo roster: "People" tab or "Demo roles"
-      return await signedInAs(await provider.demo({ roleId, name, units: unit ? [unit] : [], unit, userId: who.current.userId || undefined, blocks: person?.blocks || [] }));
+      return await signedInAs(asPicked(await provider.demo({ roleId, name, units: unit ? [unit] : [], unit, userId: who.current.userId || undefined, blocks: person?.blocks || [] })));
     } catch (e) { setOtp((o) => ({ ...o, error: e.message })); setStep(null); return undefined; } finally { setSigning(false); }
   };
   const [notice] = useState(() => { try { return sessionStorage.getItem('communityos:loginNotice') || ''; } catch { return ''; } });

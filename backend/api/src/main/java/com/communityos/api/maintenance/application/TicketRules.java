@@ -57,7 +57,8 @@ public final class TicketRules {
         } else if (coordinator(c)) {
             allowed = new ArrayList<>(List.of("title", "description", "category", "subCategory", "priority", "location", "preferredTime", "awaitingParts", "materialsCost", "workDone"));
             if (c.isSuperAdmin() || c.category() == Caller.Category.EC) allowed.add("slaDueAt");                         // once raised, only the EC moves the SLA
-            if (c.isSuperAdmin() || c.has(Permission.SET_FINANCIAL_FLAG)) allowed.add("financial");
+            // money on a task is the committee's call (EC members and the Super Admin), and anyone the permission is granted to
+            if (c.isSuperAdmin() || c.category() == Caller.Category.EC || c.has(Permission.SET_FINANCIAL_FLAG)) allowed.add("financial");
         } else throw new AccessDenied("You cannot change tickets");
         List<String> refused = asked.stream().filter((f) -> !allowed.contains(f)).toList();
         if (!refused.isEmpty()) {

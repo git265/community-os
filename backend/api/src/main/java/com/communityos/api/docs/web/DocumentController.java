@@ -95,18 +95,18 @@ public class DocumentController {
     public List<DocumentResponse> documents(@RequestParam(required = false) UUID folderId, @RequestParam(required = false) UUID unitId, @RequestParam(required = false) String access) {
         return documents.list(CallerHolder.require(), new DocumentRepository.Filter(folderId, unitId, access)).stream().map(DocumentResponse::of).toList();
     }
-    @GetMapping("/api/v1/documents/{id}")
+    @GetMapping("/api/v1/documents/{id:[0-9a-fA-F-]{36}}")
     public ResponseEntity<DocumentResponse> document(@PathVariable UUID id) { return tagged(documents.get(CallerHolder.require(), id)); }
     @PostMapping("/api/v1/documents")
     public ResponseEntity<DocumentResponse> file(@Valid @RequestBody DocumentRequest b) {
         Document d = documents.file(CallerHolder.require(), b.fileId(), new DocumentService.Fields(b.title(), b.category(), b.edition(), b.access(), b.unitId(), b.expiry(), b.folderId()));
         return ResponseEntity.status(201).header("ETag", ETags.of(d.version)).body(DocumentResponse.of(d));
     }
-    @PutMapping("/api/v1/documents/{id}")
+    @PutMapping("/api/v1/documents/{id:[0-9a-fA-F-]{36}}")
     public ResponseEntity<DocumentResponse> change(@PathVariable UUID id, @Valid @RequestBody DocumentChange b, @RequestHeader(name = "If-Match", required = false) String ifMatch) {
         return tagged(documents.change(CallerHolder.require(), id, ETags.require(ifMatch), new DocumentService.Fields(b.title(), b.category(), b.edition(), b.access(), b.unitId(), b.expiry(), b.folderId())));
     }
-    @DeleteMapping("/api/v1/documents/{id}")
+    @DeleteMapping("/api/v1/documents/{id:[0-9a-fA-F-]{36}}")
     public ResponseEntity<Void> remove(@PathVariable UUID id, @RequestHeader(name = "If-Match", required = false) String ifMatch) {
         documents.remove(CallerHolder.require(), id, ETags.require(ifMatch));
         return ResponseEntity.noContent().build();

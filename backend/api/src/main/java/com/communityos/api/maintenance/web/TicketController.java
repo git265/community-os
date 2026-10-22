@@ -16,6 +16,7 @@ import com.communityos.api.maintenance.web.TicketDtos.FieldStaffResponse;
 import com.communityos.api.maintenance.web.TicketDtos.MeTooRequest;
 import com.communityos.api.maintenance.web.TicketDtos.RaiseRequest;
 import com.communityos.api.maintenance.web.TicketDtos.RatingRequest;
+import com.communityos.api.maintenance.web.TicketDtos.SignOffRequest;
 import com.communityos.api.maintenance.web.TicketDtos.StatusRequest;
 import com.communityos.api.maintenance.web.TicketDtos.TaskTypeResponse;
 import com.communityos.api.maintenance.web.TicketDtos.TicketResponse;
@@ -93,6 +94,11 @@ public class TicketController {
     @DeleteMapping("/api/v1/tickets/{id}/me-too")
     public ResponseEntity<TicketResponse> leave(@PathVariable UUID id, @RequestParam(required = false) UUID unit) {
         return tagged(tickets.meToo(CallerHolder.require(), id, unit == null ? null : new UnitId(unit), false), 200);
+    }
+    /** The committee's sign-off on a task that asks for one but moves no money (Approved / Rejected / Pending to undo). */
+    @PostMapping("/api/v1/tickets/{id}/sign-off")
+    public ResponseEntity<TicketResponse> signOff(@PathVariable UUID id, @Valid @RequestBody SignOffRequest b, @RequestHeader(name = "If-Match", required = false) String ifMatch) {
+        return tagged(tickets.signOff(CallerHolder.require(), id, ETags.require(ifMatch), b.value()), 200);
     }
     @PostMapping("/api/v1/tickets/{id}/rating")
     public ResponseEntity<TicketResponse> rate(@PathVariable UUID id, @Valid @RequestBody RatingRequest b) { return tagged(tickets.rate(CallerHolder.require(), id, b.rating()), 200); }

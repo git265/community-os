@@ -64,6 +64,11 @@ class MaintenanceTest {
         int n = 1050;
         public void insert(Ticket t) { t.numbered("TKT-" + (++n)); t.stored(1); t.state().version = 1; rows.put(t.id(), t); }
         public boolean save(Ticket t) { t.stored(t.version() + 1); t.state().version = t.version(); return true; }
+        public boolean signOff(UUID id, long version, String value, UUID by) {
+            Ticket t = rows.get(id); Ticket.Approval a = t.state().approval;
+            t.state().approval = new Ticket.Approval(a.quotationStatus(), a.invoiceStatus(), a.approvedAmount(), a.selectedQuotationId(), a.selectedInvoiceId(), value, a.treasurerApproval(), a.finalRequired());
+            return save(t);
+        }
     };
     final CommentRepository comments = new CommentRepository() {
         public List<Comment> ofTicket(UUID id, boolean internal) { return posted.stream().filter((c) -> c.ticketId().equals(id) && (internal || !c.internal())).toList(); }
@@ -183,7 +188,23 @@ class MaintenanceTest {
         assertThrows(AccessDenied.class, () -> svc().edit(fm, t.id(), p.version(), new Ticket.Changes(null, null, null, null, null, null, null, null, null, null, true, null)), "financial flag");
         Ticket ec = svc().edit(treasurer, t.id(), p.version(), new Ticket.Changes(null, null, null, null, "Critical", null, null, LocalDate.of(2026, 12, 1), null, null, null, null));
         assertEquals("Critical", ec.state().priority);
-        assertThrows(DomainException.class, () -> svc().edit(treasurer, t.id(), ec.version(), new Ticket.Changes(null, null, null, null, null, null, null, LocalDate.of(2020, 1, 1), null, null, null, null)), "past SLA");
+        Ticket money = svc().edit(treasurer, t.id(), ec.version(), new Ticket.Changes(null, null, null, null, null, null, null, null, null, null, true, null));
+        assertTrue(money.state().financial, "the treasurer (a committee member) marks a task financial");
+        assertThrows(DomainException.class, () -> svc().edit(treasurer, t.id(), money.version(), new Ticket.Changes(null, null, null, null, null, null, null, LocalDate.of(2020, 1, 1), null, null, null, null)), "past SLA");
+    }
+
+    @Test void theCommitteeSignsOffATaskThatMovesNoMoney() {
+        Ticket t = svc().raise(fm, new TicketService.RaiseTicket(PURCHASE.id(), "Pool chairs", null, null, "Community", "Pool deck", "General", null, null, null, LocalDate.of(2026, 11, 1)));
+        assertThrows(AccessDenied.class, () -> svc().signOff(fm, t.id(), t.version(), "Approved"), "the committee signs off");
+        assertThrows(DomainException.class, () -> svc().signOff(treasurer, t.id(), t.version(), "Maybe"), "a known value");
+        long first = t.version();
+        Ticket ok = svc().signOff(treasurer, t.id(), first, "Approved");
+        assertEquals("Approved", ok.state().approval.ecApproval());
+        assertThrows(DomainException.Conflict.class, () -> svc().signOff(treasurer, t.id(), first, "Rejected"), "an old version");
+        Ticket f = svc().edit(treasurer, t.id(), ok.version(), new Ticket.Changes(null, null, null, null, null, null, null, null, null, null, true, null));
+        assertThrows(DomainException.RuleViolated.class, () -> svc().signOff(treasurer, t.id(), f.version(), "Rejected"), "money in it: the quotation is approved instead");
+        Ticket r = leak(owner);
+        assertThrows(DomainException.RuleViolated.class, () -> svc().signOff(treasurer, r.id(), r.version(), "Approved"), "a resident request asks for no sign-off");
     }
 
     @Test void whoSeesWhatAndMeToo() {

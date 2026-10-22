@@ -33,7 +33,8 @@ public final class JdbcTicketRepository implements TicketRepository {
                t.assigned_at, t.started_at, t.completed_at, t.closed_at, t.cancelled_at, t.cancel_reason, t.reopen_count, t.custom::text AS custom, t.asset_id,
                (SELECT e.name FROM assets.equipment e WHERE e.community_id = t.community_id AND e.id = t.asset_id) AS asset_name,
                t.created_at, t.updated_at, t.version, t.quotation_status, t.invoice_status, t.approved_amount, t.selected_quotation_id, t.selected_invoice_id,
-               t.ec_approval, t.treasurer_approval, t.final_required,
+               t.ec_approval, t.treasurer_approval, t.final_required, t.ec_approved_at,
+               (SELECT m.display_name FROM identity.membership m WHERE m.community_id = t.community_id AND m.id = t.ec_approved_by_id) AS ec_approved_by,
                tt.id AS tt_id, tt.name AS tt_name, tt.icon AS tt_icon, tt.creator_scope, tt.assignment_mode, tt.quotation_stage, tt.ec_approval_stage, tt.treasurer_stage,
                tt.invoice_stage, tt.payment_stage, tt.resident_visible, tt.resident_default, tt.active AS tt_active""";
     static final String FROM = """
@@ -136,6 +137,14 @@ public final class JdbcTicketRepository implements TicketRepository {
         p.put("preferredTime", s.preferredTime); p.put("raisedBy", s.raisedBy.toString()); p.put("raisedByRole", s.raisedByRole); p.put("custom", write(s.custom)); p.put("asset", s.asset == null ? null : s.asset.toString());
         jdbc.query(INSERT, p, (rs, i) -> { t.numbered(rs.getString("short_id")); t.stored(rs.getLong("version")); s.version = t.version(); return null; });
     }
+    static final String SIGN_OFF = """
+        UPDATE maintenance.ticket SET ec_approval = :value, ec_approved_by_id = CAST(:by AS uuid), ec_approved_at = CASE WHEN :by IS NULL THEN NULL ELSE now() END
+        WHERE id = CAST(:id AS uuid) AND version = :version RETURNING version""";
+    @Override public boolean signOff(UUID id, long version, String value, UUID by) {
+        Map<String, Object> p = new HashMap<>();
+        p.put("id", id.toString()); p.put("version", version); p.put("value", value); p.put("by", by == null ? null : by.toString());
+        return !jdbc.query(SIGN_OFF, p, (rs, i) -> rs.getLong("version")).isEmpty();
+    }
     @Override public boolean save(Ticket t) {
         Ticket.State s = t.state();
         Map<String, Object> p = new HashMap<>();
@@ -168,6 +177,7 @@ public final class JdbcTicketRepository implements TicketRepository {
         s.assignedAt = Rows.instant(rs, "assigned_at"); s.startedAt = Rows.instant(rs, "started_at"); s.completedAt = Rows.instant(rs, "completed_at");
         s.closedAt = Rows.instant(rs, "closed_at"); s.cancelledAt = Rows.instant(rs, "cancelled_at"); s.cancelReason = rs.getString("cancel_reason"); s.reopenCount = rs.getInt("reopen_count");
         s.asset = rs.getObject("asset_id", UUID.class); s.assetName = rs.getString("asset_name");
+        s.ecApprovedBy = rs.getString("ec_approved_by"); s.ecApprovedAt = Rows.instant(rs, "ec_approved_at");
         try { s.custom = json.readValue(rs.getString("custom"), new TypeReference<Map<String, Object>>() {}); } catch (java.io.IOException e) { throw new SQLException(e); }
         s.createdAt = Rows.instant(rs, "created_at"); s.updatedAt = Rows.instant(rs, "updated_at"); s.version = rs.getLong("version");
         s.approval = new Ticket.Approval(rs.getString("quotation_status"), rs.getString("invoice_status"), Rows.money(rs, "approved_amount"), Rows.uuid(rs, "selected_quotation_id"),

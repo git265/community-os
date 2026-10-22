@@ -30,6 +30,9 @@ export function propertyOf(u) {
     ...(u.custom || {}),
     id: u.id, shortId: u.shortId, unit: u.unitNo, type: u.unitType, zone: u.blockName || '', blockId: u.blockId || null, occupancy: u.occupancy,
     areaSqft: num(u.areaSqft), maintenancePlan: u.maintenancePlan || '', sanctionedKw: num(u.sanctionedKw), status: u.status,
+    // who to call there (the server's primary contact): an owner, or the tenant when no owner lives there
+    ...(u.contactName && u.contactRelation !== 'Tenant' ? { owner: u.contactName, ownerPhone: u.contactPhone || '' } : {}),
+    ...(u.contactName && u.contactRelation === 'Tenant' ? { tenant: u.contactName, tenantPhone: u.contactPhone || '' } : {}),
     version: u.version, updatedAt: u.updatedAt,
   };
 }
@@ -137,7 +140,7 @@ export function ticketOf(t, unitNoById = {}) {
     financial: !!t.financial, workDone: t.workDone || '', cancelReason: t.cancelReason || '', reopenCount: t.reopenCount || 0,
     createdAt: t.createdAt, recordCreatedAt: t.createdAt, updatedAt: t.updatedAt, attachments: [], hasPhotos: false, paymentStatus: 'Not Paid', version: t.version,
     quotationStatus: t.quotationStatus || 'None', invoiceStatus: t.invoiceStatus || 'None', approvedAmount: num(t.approvedAmount) || 0,
-    selectedQuotationId: t.selectedQuotationId || '', selectedInvoiceId: t.selectedInvoiceId || '', ecApproval: t.ecApproval || '', treasurerApproval: t.treasurerApproval || '',
+    selectedQuotationId: t.selectedQuotationId || '', selectedInvoiceId: t.selectedInvoiceId || '', ecApproval: t.ecApproval || '', ecApprovedBy: t.ecApprovedBy || '', ecApprovedAt: t.ecApprovedAt ? String(t.ecApprovedAt).slice(0, 10) : '', treasurerApproval: t.treasurerApproval || '',
     finalRequired: !!t.finalRequired,
   };
 }

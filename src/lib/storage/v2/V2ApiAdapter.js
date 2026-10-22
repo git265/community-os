@@ -25,7 +25,7 @@
 //   app configuration (schema, communityConfig, roleGroups): kept in this browser until the v2 API has endpoints for them
 //   everything else: not on the v2 API yet - reads answer empty, writes are refused with a clear message (nothing is silently dropped)
 import { apiFetch } from '../../net/request.js';
-import { AuthzError, ConflictError } from '../../security/errors.js';
+import { AuthzError, ConflictError, PartialSaveError } from '../../security/errors.js';
 import { SessionStorageAdapter } from '../SessionStorageAdapter.js';
 import { propertyOf, directoryOf, unitPatch, userOf, dueOf, raiseBody, roleOf, ticketOf, ticketPatch, raiseTicketBody, commentOf, fieldStaffOf, quotationOf, addDocumentBody,
   quotationCommands, RESOURCES, resourceOf, resourceBody, isUuid, bookingOf, busyOf, bookBody, bookingCommand, gatePassOf, gateVisitOf, gateApprovalOf, gateFlagOf, gateScanOf,
@@ -75,6 +75,14 @@ async function all(path) {
 }
 /** The counts above a page (GET /summary/{kind}): worked out by the server from the rows this person may see. */
 export async function v2Summary(kind) { return call(`/summary/${kind}`); }
+/**
+ * The unit directory's blocks: each with its homes and how they are lived in ({ name, total, ownerOccupied, tenantOccupied, vacant }; name '' is
+ * the units in no block). Staff get the counts of the units they may see; a resident, every block of the directory (totals only).
+ */
+export async function unitsByBlock() {
+  const rows = ((await call('/units/by-block')) || []).map((r) => ({ name: r.name || '', total: Number(r.total) || 0, ownerOccupied: Number(r.ownerOccupied) || 0, tenantOccupied: Number(r.tenantOccupied) || 0, vacant: Number(r.vacant) || 0 }));
+  return getAuthUser()?.category === 'Resident' ? rows.map(({ name, total }) => ({ name, total })) : rows;   // a resident's directory: how many homes, not who lives where
+}
 /** The tasks I raised that are still open (the "Needs attention" card): one filtered page, not every ticket. */
 export async function myOpenTickets() {
   const { noById } = await unitIndex();
@@ -93,7 +101,16 @@ function allUnits() {
   unitsP = all('/units').catch((e) => { unitsP = null; throw e; });
   return unitsP;
 }
-function dropUnits() { unitsP = null; }
+function dropUnits() { unitsP = null; indexP = null; }
+// The names of the units (number, block) for the records that point at them: one call to /units/index, however many units (an older
+// server without it: the whole list, a page at a time).
+let indexAt = 0; let indexP = null;
+function unitNames() {
+  if (indexP && Date.now() - indexAt < UNIT_TTL) return indexP;
+  indexAt = Date.now();
+  indexP = call('/units/index').then((r) => (Array.isArray(r) ? r : allUnits())).catch((e) => { indexP = null; throw e; });
+  return indexP;
+}
 if (typeof window !== 'undefined') window.addEventListener?.('communityos:changed', (e) => { if (e?.detail?.collection === 'properties') dropUnits(); });
 /** A lookup by name that ignores case and spacing ("villa  12" finds "Villa 12"), keeping the names' own spelling as its keys. */
 export function byName(entries) {
@@ -101,7 +118,7 @@ export function byName(entries) {
   return new Proxy(exact, { get: (t, k) => (typeof k === 'string' && !(k in t) ? loose.get(nameKey(k)) : t[k]) });
 }
 async function unitIndex() {
-  const units = await allUnits();
+  const units = await unitNames();
   return { noById: Object.fromEntries(units.map((u) => [u.id, u.unitNo])), idByNo: byName(units.map((u) => [u.unitNo, u.id])) };
 }
 
@@ -130,7 +147,7 @@ const readers = {
   },
   ticketComments: { list: async () => (await many('/ticket-comments?limit=1000')).map(commentOf), get: async (id) => (await readers.ticketComments.list()).find((c) => c.id === id) || null },
   handymen: { list: async () => (await many('/field-staff')).map(fieldStaffOf), get: async (id) => (await readers.handymen.list()).find((h) => h.id === id) || null },
-  quotations: { list: async () => (await many('/quotations')).map(quotationOf), get: async (id) => { if (!isUuid(id)) return null; const q = await call(`/quotations/${id}`); return q && quotationOf(q); } },
+  quotations: { list: async () => { try { return (await many('/quotations')).map(quotationOf); } catch (e) { if (e instanceof AuthzError) return []; throw e; } }, get: async (id) => { if (!isUuid(id)) return null; const q = await call(`/quotations/${id}`); return q && quotationOf(q); } },
 };
 // bookings: a resident gets their own, plus the other bookings as "taken" only (so the calendar can show what is full)
 readers.amenities = {
@@ -163,7 +180,7 @@ readers.gatePulse = { list: async () => [], get: async () => null };   // the se
 const myName = () => getPrincipal()?.name || getAuthUser()?.name || '';
 const publisher = () => { const u = getAuthUser(); return !!u && (u.category === 'EC' || (u.roleIds || []).includes('super_admin') || (u.permissions || []).some((x) => x === 'MANAGE_NOTICE_TEMPLATES' || x === 'MANAGE_GOVERNANCE')); };
 async function placeIndex() {
-  const units = await allUnits();
+  const units = await unitNames();
   return {
     unitNoById: Object.fromEntries(units.map((u) => [u.id, u.unitNo])), unitIdByNo: Object.fromEntries(units.map((u) => [u.unitNo, u.id])),
     blockNameById: Object.fromEntries(units.filter((u) => u.blockId).map((u) => [u.blockId, u.blockName])), blockIdByName: byName(units.filter((u) => u.blockId).map((u) => [u.blockName, u.blockId])),
@@ -355,13 +372,22 @@ async function putTicket(rec) {
     const resident = getAuthUser()?.category === 'Resident';
     let t = await call('/tickets', json('POST', raiseTicketBody(rec, { taskTypeIdByName: byName(types.map((x) => [x.name, x.id])), unitIdByNo: idByNo, resident })));
     if (rec.assignedTo && rec.assignedTo !== t.assigneeName) {
-      t = await call(`/tickets/${t.id}/assign`, json('POST', { assigneeId: await assigneeId(t.id, rec.assignedTo) }, ifMatch(t.version)));
+      const made = t;
+      t = await inSteps(async () => map(await call(`/tickets/${made.id}`)), async (did) => {
+        did(`the task (${made.shortId})`);
+        return call(`/tickets/${made.id}/assign`, json('POST', { assigneeId: await assigneeId(made.id, rec.assignedTo) }, ifMatch(made.version)));
+      });
     }
     return map(t);
   }
   // the money side (quotation / invoice status, approvals, approved amount) follows the quotations - it is never written on the ticket
+  return inSteps(async () => map(await call(`/tickets/${encodeURIComponent(rec.id)}`)), (did) => changeTicket(rec, before, did, { idByNo, map }));
+}
+/** The steps of one ticket change, in order; `did(what)` marks each that went through (a later refusal is then a partial save). */
+async function changeTicket(rec, before, did, { idByNo, map }) {
   let version = rec.version ?? before.version; let out = null;
-  const step = async (path, body) => { out = await call(`/tickets/${encodeURIComponent(rec.id)}${path}`, json(path ? 'POST' : 'PATCH', body, ifMatch(version))); version = out.version; };
+  const WHAT = { '': 'the details', '/assign': 'the assignment', '/status': 'the status', '/sign-off': 'the sign-off' };
+  const step = async (path, body) => { out = await call(`/tickets/${encodeURIComponent(rec.id)}${path}`, json(path ? 'POST' : 'PATCH', body, ifMatch(version))); version = out.version; did(WHAT[path] || 'a change'); };
   const patch = ticketPatch(before, rec);
   if (patch) await step('', patch);
   if ((rec.assignedTo || '') !== (before.assignedTo || '')) await step('/assign', { assigneeId: await assigneeId(rec.id, rec.assignedTo) });
@@ -370,13 +396,46 @@ async function putTicket(rec) {
     await step('/status', { status: to, reason: rec.cancelReason || rec.reason || null });
   }
   if (Number(rec.residentRating || 0) > 0 && Number(rec.residentRating) !== Number(before.residentRating || 0)) {
-    out = await call(`/tickets/${encodeURIComponent(rec.id)}/rating`, json('POST', { rating: Number(rec.residentRating) }));
+    out = await call(`/tickets/${encodeURIComponent(rec.id)}/rating`, json('POST', { rating: Number(rec.residentRating) })); version = out.version; did('the rating');
+  }
+  // the money side lives on the quotations: choosing one is POST /quotations/{id}/select, an approval is POST /quotations/{id}/decision
+  // (the server works out which step - EC or final - is the caller's and mirrors the result onto the ticket)
+  const chosen = (t) => (Array.isArray(t?.selectedQuotationIds) && t.selectedQuotationIds.length ? t.selectedQuotationIds : t?.selectedQuotationId ? [t.selectedQuotationId] : []).filter(isUuid);
+  let moneyMoved = false;
+  const picked = chosen(rec).filter((id) => !chosen(before).includes(id));
+  if ('selectedQuotationIds' in rec || 'selectedQuotationId' in rec) {
+    for (const id of picked.slice(-1)) {   // the server keeps one selected quotation a task
+      const q = await call(`/quotations/${encodeURIComponent(id)}`);
+      if (q && !q.selected) { await call(`/quotations/${encodeURIComponent(id)}/select`, json('POST', {}, ifMatch(q.version))); moneyMoved = true; did('the chosen quotation'); }
+    }
+  }
+  if (!picked.length) {
+    for (const k of ['ec', 'treasurer']) {
+      const was = before[`${k}Approval`] || 'Pending'; const now = rec[`${k}Approval`];
+      if (now === undefined || (now || 'Pending') === was) continue;
+      const qid = chosen(rec)[0] || before.selectedQuotationId;
+      const value = now === 'Approved' || now === 'Rejected' ? now : 'Pending';
+      if (!isUuid(qid) && k === 'ec' && !rec.financial && !before.financial) {
+        // a task that asks for the committee's sign-off but moves no money: the sign-off is kept on the task itself
+        out = await call(`/tickets/${encodeURIComponent(rec.id)}/sign-off`, json('POST', { value }, ifMatch(out ? out.version : version)));
+        version = out.version; did('the sign-off'); continue;
+      }
+      if (!isUuid(qid)) throw new Error('Select a quotation before approving it.');
+      const q = await call(`/quotations/${encodeURIComponent(qid)}`);
+      await call(`/quotations/${encodeURIComponent(qid)}/decision`, json('POST', { value, comment: rec.decisionNote || null, finish: k === 'ec' && value === 'Approved' && rec.finalRequired === false }, ifMatch(q.version)));
+      moneyMoved = true; did('the approval');
+    }
+  }
+  if (moneyMoved) {
+    out = await call(`/tickets/${encodeURIComponent(rec.id)}`);
+    // the quotation itself changed too (selected, who approved and when): its readers refresh
+    if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('communityos:changed', { detail: { collection: 'quotations' } }));
   }
   if (!sameList(rec.affectedUnits, before.affectedUnits)) {
     const added = (rec.affectedUnits || []).filter((u) => !(before.affectedUnits || []).includes(u));
     const removed = (before.affectedUnits || []).filter((u) => !(rec.affectedUnits || []).includes(u));
-    for (const u of added) out = await call(`/tickets/${encodeURIComponent(rec.id)}/me-too`, json('POST', { unitId: idByNo[u] || null }));
-    for (const u of removed) out = await call(`/tickets/${encodeURIComponent(rec.id)}/me-too${idByNo[u] ? `?unit=${idByNo[u]}` : ''}`, { method: 'DELETE' });
+    for (const u of added) { out = await call(`/tickets/${encodeURIComponent(rec.id)}/me-too`, json('POST', { unitId: idByNo[u] || null })); did('me too'); }
+    for (const u of removed) { out = await call(`/tickets/${encodeURIComponent(rec.id)}/me-too${idByNo[u] ? `?unit=${idByNo[u]}` : ''}`, { method: 'DELETE' }); did('me too'); }
   }
   return out ? map(out) : before;
 }
@@ -521,14 +580,16 @@ async function putBroadcast(rec) {
   const ix = await placeIndex();
   const map = (b) => broadcastOf(b, { ...ix, myName: myName() });
   if (!before) return map(await call('/comms/broadcasts', json('POST', { notice: broadcastDraft(rec, ix), send: rec.status === 'Sent', scheduleFor: rec.scheduledFor || null })));
-  let version = before.version; let out = null;
-  for (const cmd of broadcastCommands(before, rec, myName())) {
-    const path = `/comms/broadcasts/${rec.id}${cmd.path ? `/${cmd.path}` : ''}`;
-    const body = cmd.draft ? broadcastDraft(rec, ix) : (cmd.body || {});
-    out = await call(path, json(cmd.draft ? 'PUT' : 'POST', body, cmd.versioned ? ifMatch(version) : {}));
-    version = out.version;
-  }
-  return out ? map(out) : before;
+  return inSteps(async () => readers.broadcasts.get(rec.id), async (did) => {
+    let version = before.version; let out = null;
+    for (const cmd of broadcastCommands(before, rec, myName())) {
+      const path = `/comms/broadcasts/${rec.id}${cmd.path ? `/${cmd.path}` : ''}`;
+      const body = cmd.draft ? broadcastDraft(rec, ix) : (cmd.body || {});
+      out = await call(path, json(cmd.draft ? 'PUT' : 'POST', body, cmd.versioned ? ifMatch(version) : {}));
+      version = out.version; did(cmd.draft ? 'the notice' : `the ${cmd.path || 'change'}`);
+    }
+    return out ? map(out) : before;
+  });
 }
 async function putPollVote(rec) {
   if (!isUuid(rec.broadcastId)) throw new Error('A vote answers a poll.');
@@ -584,15 +645,29 @@ async function putDocument(rec) {
  * After a record is written: attach the files it lists that are not on it yet, and take off the ones the person removed (`_detach`: their ids).
  * Only files named in `_detach` go - a file someone else added meanwhile is never dropped because this copy of the list did not have it.
  */
+/** A change made of several calls: once one has gone through, a later refusal is a partial save (PartialSaveError) with the record as it now is. */
+async function inSteps(reread, work) {
+  const done = [];
+  try { return await work((what) => done.push(what)); } catch (e) {
+    if (!done.length || e instanceof PartialSaveError) throw e;
+    const now = await reread().catch(() => null);
+    if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('communityos:partial'));
+    throw new PartialSaveError(now, e, done.join(', '));
+  }
+}
 const attaching = (put, ownerType, field) => async (rec) => {
   const wanted = (rec[field] || []).map((m) => m.fileId).filter(isUuid);
   const gone = (rec._detach || []).filter(isUuid);
   const out = await put(rec);
   if (!out?.id || (!wanted.length && !gone.length)) return out;
-  const had = (await filesOf(ownerType, out.id)).map((m) => m.fileId);   // what is on the record now (a new one has none)
-  for (const id of wanted) if (!had.includes(id)) await call(`/files/${id}/attach`, json('POST', { ownerType, ownerId: out.id }));
-  for (const id of gone) if (had.includes(id) && !wanted.includes(id)) await call(`/files/${id}`, { method: 'DELETE' });
-  return { ...out, [field]: await filesOf(ownerType, out.id) };
+  // the record is saved: a file that then cannot be attached does not undo it (a second Save would make a second record) - it is said
+  return inSteps(async () => ({ ...out, [field]: await filesOf(ownerType, out.id) }), async (did) => {
+    did(isUuid(rec.id) ? 'the changes' : 'the record');
+    const had = (await filesOf(ownerType, out.id)).map((m) => m.fileId);   // what is on the record now (a new one has none)
+    for (const id of wanted) if (!had.includes(id)) await call(`/files/${id}/attach`, json('POST', { ownerType, ownerId: out.id }));
+    for (const id of gone) if (had.includes(id) && !wanted.includes(id)) await call(`/files/${id}`, { method: 'DELETE' });
+    return { ...out, [field]: await filesOf(ownerType, out.id) };
+  });
 };
 async function putContact(rec) {
   const before = isUuid(rec.id) ? await readers.serviceContacts.get(rec.id) : null;
@@ -694,13 +769,15 @@ async function putDonation(rec) {
 async function putExpense(rec) {
   const before = isUuid(rec.id) ? await readers.culturalExpenses.get(rec.id) : null;
   if (!before) return expenseOf(await call(`/cultural/events/${encodeURIComponent(rec.eventId)}/expenses`, json('POST', expenseBody(rec))));
-  let version = before.version; let out = null;
-  for (const cmd of expenseCommands(before, rec)) {
-    out = cmd.put ? await call(`/cultural/expenses/${rec.id}`, json('PUT', expenseBody({ ...before, ...rec }), ifMatch(version)))
-      : await call(`/cultural/expenses/${rec.id}/${cmd.path}`, json('POST', cmd.body || {}, ifMatch(version)));
-    version = out.version;
-  }
-  return out ? expenseOf(out) : before;
+  return inSteps(async () => readers.culturalExpenses.get(rec.id), async (did) => {
+    let version = before.version; let out = null;
+    for (const cmd of expenseCommands(before, rec)) {
+      out = cmd.put ? await call(`/cultural/expenses/${rec.id}`, json('PUT', expenseBody({ ...before, ...rec }), ifMatch(version)))
+        : await call(`/cultural/expenses/${rec.id}/${cmd.path}`, json('POST', cmd.body || {}, ifMatch(version)));
+      version = out.version; did(cmd.put ? 'the details' : `the ${cmd.path}`);
+    }
+    return out ? expenseOf(out) : before;
+  });
 }
 /** Seva / programme rows: the register's fields through the kit; joining or leaving the list is a sign-up command. */
 const signing = (c, list, key) => async (rec) => {
@@ -781,13 +858,15 @@ async function putRelease(rec) {
   const before = isUuid(rec.id) ? await readers.releases.get(rec.id) : null;
   if (!before) return releaseOf(await call('/finance/releases', json('POST', { ticketId: isUuid(rec.ticketId) ? rec.ticketId : null, expenseId: isUuid(rec.expenseId) ? rec.expenseId : null,
     kind: rec.kind || 'Release', amount: Number(rec.amount), vendor: rec.vendor || null, note: rec.note || null })));
-  let version = before.version; let out = null;
-  for (const cmd of releaseCommands(before, rec)) {
-    out = cmd.put ? await call(`/finance/releases/${rec.id}`, json('PUT', { kind: rec.kind || null, amount: n2v(rec.amount), vendor: rec.vendor || null, note: rec.note || null }, ifMatch(version)))
-      : await call(`/finance/releases/${rec.id}/${cmd.path}`, json('POST', cmd.body || {}, ifMatch(version)));
-    version = out.version;
-  }
-  return out ? releaseOf(out) : before;
+  return inSteps(async () => readers.releases.get(rec.id), async (did) => {
+    let version = before.version; let out = null;
+    for (const cmd of releaseCommands(before, rec)) {
+      out = cmd.put ? await call(`/finance/releases/${rec.id}`, json('PUT', { kind: rec.kind || null, amount: n2v(rec.amount), vendor: rec.vendor || null, note: rec.note || null }, ifMatch(version)))
+        : await call(`/finance/releases/${rec.id}/${cmd.path}`, json('POST', cmd.body || {}, ifMatch(version)));
+      version = out.version; did(cmd.put ? 'the details' : `the ${cmd.path}`);
+    }
+    return out ? releaseOf(out) : before;
+  });
 }
 const n2v = (x) => (x === '' || x == null ? null : Number(x));
 async function putPayRequest(rec) {
@@ -843,10 +922,15 @@ const notYet = (c) => { if (!warned.has(c)) { warned.add(c); console.info(`[v2] 
 // A page that sorts, filters or searches in a way the server does not is answered the old way (the whole list, then paged here), so the screen
 // never shows something different from before - only faster.
 const unitParam = async (no) => { const id = (await unitIndex()).idByNo[no]; return id || '__unknown__'; };
+/** A block's id by its name (the lists filter on the block's name, the server on its id). */
+let blocksSeen = { at: 0, list: [] };
+const blockParam = async (name) => { if (Date.now() - blocksSeen.at > 60000) blocksSeen = { at: Date.now(), list: await readers.blocks.list() }; const b = blocksSeen.list.find((x) => String(x.name).trim().toLowerCase() === String(name).trim().toLowerCase()); return b ? b.id : '__unknown__'; };
 const PAGED = {
-  properties: { path: '/units', order: ['unit:asc'], search: 'q', filters: {}, rows: async (items) => items.map(propertyOf) },
+  // the units: by block ("none": the units in no block), type and occupancy; the search finds a unit number, or anyone living there by name or phone
+  properties: { path: '/units', order: ['unit:asc'], search: 'q', none: { zone: ['block', 'none'] },
+    filters: { zone: async (v) => ['block', await blockParam(v)], type: (v) => ['type', v], occupancy: (v) => ['occupancy', v] }, rows: async (items) => items.map(propertyOf) },
   // a resident's page of homes is the contact directory (every home, who to call there)
-  directory: { path: '/units/directory', order: ['unit:asc'], search: 'q', filters: { type: (v) => ['type', v] }, rows: async (items) => items.map(directoryOf) },
+  directory: { path: '/units/directory', order: ['unit:asc'], search: 'q', none: { zone: ['block', 'none'] }, filters: { type: (v) => ['type', v], zone: async (v) => ['block', await blockParam(v)] }, rows: async (items) => items.map(directoryOf) },
   users: { path: '/members', order: ['name:asc'], search: 'q', filters: { status: (v) => ['status', v] },
     rows: async (items) => { const { noById } = await unitIndex(); return items.map((m) => userOf(m, noById)); } },
   dues: { path: '/dues', order: ['dueDate:desc'], search: null, filters: { unit: async (v) => ['unit', await unitParam(v)] }, rows: async (items) => items.map((d) => dueOf(d)) },
@@ -874,6 +958,7 @@ async function serverPage(c, params) {
   const q = new URLSearchParams();
   for (const [k, v] of Object.entries(filters)) {
     if (v === '' || v == null || (Array.isArray(v) && v.length === 0)) continue;
+    if (v === '__none__' && spec.none?.[k]) { q.set(...spec.none[k]); continue; }   // "not set" where the server has a word for it
     if ((Array.isArray(v) && !spec.multi?.includes(k)) || v === '__none__' || (Array.isArray(v) && v.includes('__none__')) || !spec.filters[k]) return null;   // lists of values, "not set", or a filter the server lacks
     const pair = await spec.filters[k](v);
     if (!pair) return null;

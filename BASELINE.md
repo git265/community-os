@@ -25,6 +25,11 @@ Git tag `baseline-r76`. This is the reference version: later changes are compare
   flags (no gate entry, clocked in before the gate, left before clocking out, inside after clocking out). Built by the server on the back end.
 - Site map is map first: one toolbar row (plan, search, Filters, ⋯ Tools), the map fills the screen, the side panel can be hidden;
   on phones the panel is a bottom sheet (summary line, tap to open) and the tabs scroll in one row.
+- Unit Directory is block first: a card per block (homes, owner / tenant / vacant), "Go to unit", search by unit, name or phone - every list
+  one server page (10 blocks of 1 000 units read as 50 rows); the Owners tab the same. The app names units from one `/units/index` call.
+- Signing out leaves nothing behind: the server revokes the session (retried at the next start if the device was offline), the tab's traces
+  are cleared and the page starts again. A change made of several calls that goes part of the way is saved as far as it went and says what
+  was refused (no second record on a second Save). The role picked at sign-in is the one used (and kept across a reload).
 - The r76 description below is kept as the record of that baseline.
 
 ## What is in it (r76)

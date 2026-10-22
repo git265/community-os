@@ -177,14 +177,16 @@ public final class PaymentService {
         if (o == null || o.providerOrderRef() == null) return;
         PaymentGateway g = gateways.get(o.provider());
         String was = o.status().label();
+        List<com.communityos.api.billing.domain.Recon.Finding> found = new java.util.ArrayList<>();
         for (PaymentGateway.ProviderPayment p : g.paymentsOf(o.providerOrderRef())) {
             if (!p.captured()) continue;
-            settlement.settle(system, new GatewaySettlement.Request(id, g, p));
-            if (reconciler != null) tx.run(() -> reconciler.file(system, new com.communityos.api.billing.domain.Recon.Finding(com.communityos.api.billing.domain.Recon.LATE_CAPTURE, "payment_order", id.value(),
+            settlement.settle(system, new GatewaySettlement.Request(id, g, p));   // each capture is recorded once (by its provider reference), in its own transaction
+            found.add(new com.communityos.api.billing.domain.Recon.Finding(com.communityos.api.billing.domain.Recon.LATE_CAPTURE, "payment_order", id.value(),
                 o.shortId(), p.providerPaymentRef(), o.amount().amount(), p.amount().amount(), "Order " + o.shortId() + " was " + was.toLowerCase(java.util.Locale.ROOT)
-                    + " but the provider captured " + p.amount().amount().toPlainString() + " on it - recorded now; check the receipt")));
+                    + " but the provider captured " + p.amount().amount().toPlainString() + " on it - recorded now; check the receipt"));
         }
-        tx.run(() -> orders.checked(id));
+        // the findings and "checked" together: a failure leaves the order unchecked AND unfiled, so the next run files it once
+        tx.run(() -> { if (reconciler != null) for (var f : found) reconciler.file(system, f); orders.checked(id); });
     }
     /** Captured payments on an open order: every one is recorded (a second capture becomes credit, and reconciliation flags it). */
 

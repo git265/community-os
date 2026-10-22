@@ -25,4 +25,6 @@ public interface TicketRepository {
     void insert(Ticket t);
     /** false when the version no longer matches. */
     boolean save(Ticket t);
+    /** The committee's sign-off on a task that moves no money (value Approved / Rejected / Pending, by whom - null for Pending). false when the version no longer matches. */
+    default boolean signOff(UUID id, long version, String value, UUID by) { throw new UnsupportedOperationException("sign-off"); }
 }

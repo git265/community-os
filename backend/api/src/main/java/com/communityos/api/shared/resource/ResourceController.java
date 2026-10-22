@@ -28,7 +28,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @Tag(name = "Resources")
 public class ResourceController {
-    static final String MODULES = "maintenance|amenities|gate|comms|docs|cultural|finance|governance|vendors|assets|workforce|reports|property";
+    static final String MODULES = "maintenance|amenities|gate|comms|docs|documents|cultural|finance|governance|vendors|assets|workforce|reports|property|billing";
     private final ResourceRegistry registry; private final ResourceService service; private final ObjectMapper json;
     public ResourceController(ResourceRegistry registry, ResourceService service, ObjectMapper json) {
         this.registry = registry; this.service = service; this.json = json;

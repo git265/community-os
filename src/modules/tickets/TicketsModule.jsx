@@ -163,7 +163,9 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
   const { records: vendors } = useCollection(COLLECTIONS.VENDORS, 'Vendors');
   const { records: coverage } = useCollection(COLLECTIONS.CATEGORY_MAP, 'Category Coverage');
   const allCategories = useMemo(() => [...new Set([...TICKET_CATEGORIES, ...coverage.map((c) => c.category).filter(Boolean)])], [coverage]);
-  const { records: allDocs, save: saveDoc } = useCollection(COLLECTIONS.QUOTATIONS, 'Quotations');
+  // owners, residents and the trades' handymen never see a task's money side, so its lists are not read for them (the server refuses them anyway)
+  const moneyReader = role?.category !== 'Resident' && !(String(roleId || '').startsWith('handyman_') && roleId !== 'handyman_mep');
+  const { records: allDocs, save: saveDoc } = useCollection(COLLECTIONS.QUOTATIONS, 'Quotations', { enabled: moneyReader });
   const { records: handymen, save: saveHandyman } = useCollection(COLLECTIONS.HANDYMEN, 'Field Staff');
   const { records: quickPhrases } = useCollection(COLLECTIONS.QUICK_PHRASES, 'Ticket Quick Phrases');
 
@@ -181,7 +183,7 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
   const [raising, setRaising] = useState(null); // null | 'task' | 'request'
   // read only when needed: people to assign (raising a task or one task open), and the payments and chat of the open task
   const { records: users } = useCollection(COLLECTIONS.USERS, 'Users', { enabled: !!raising || !!selectedId });
-  const { records: ledgerAll } = useCollection(COLLECTIONS.LEDGER, 'Payments Cross-check', { enabled: !!selectedId });
+  const { records: ledgerAll } = useCollection(COLLECTIONS.LEDGER, 'Payments Cross-check', { enabled: !!selectedId && moneyReader });
   const { records: comments, save: saveComment } = useCollection(COLLECTIONS.TICKET_COMMENTS, 'Ticket Discussion', { enabled: !!selectedId });
   const [raiseForm, setRaiseForm] = useState(blankRaiseForm());
   const [raisePending, setRaisePending] = useState([]);
@@ -229,8 +231,8 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
   // Approval chain: EC first, then the roles set under Maintenance -> Final approvers (default Treasurer + President).
   const canDecideEC = isEC;
   const kit = useApprovalKit();
-  const { records: allReleases } = useCollection(COLLECTIONS.RELEASES, 'Fund releases');
-  const { records: ledgerRows } = useCollection(COLLECTIONS.LEDGER, 'Payments Cross-check', { enabled: !!selectedId });   // the money position of the open task only
+  const { records: allReleases } = useCollection(COLLECTIONS.RELEASES, 'Fund releases', { enabled: moneyReader });
+  const { records: ledgerRows } = useCollection(COLLECTIONS.LEDGER, 'Payments Cross-check', { enabled: !!selectedId && moneyReader });   // the money position of the open task only
   const finalRoleIds = finalApproverRoleIds(approverRows);
   const finalRoleNames = finalRoleIds.map((id) => roles.find((r) => r.id === id)?.name || id).join(', ');
   const canDecideTreasurer = roleId === 'super_admin' || finalRoleIds.includes(roleId);
@@ -268,6 +270,19 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
     if (!ownerForm && (raiseType?.assignmentMode === 'Direct assign' || isInternalType(raiseType)) && !raiseForm.assignedTo) errs.assignedTo = 'Assigned to is required';
     if (!ownerForm && !raiseForm.slaDueAt) errs.slaDueAt = 'SLA due is required';
     else if (!ownerForm && raiseForm.slaDueAt < todayIso()) errs.slaDueAt = 'SLA due must be today or a future date';
+    // a staff task's "Location" is a villa / unit (a unit task) or a place (a community task: a plant room, a lawn, an asset's spot)
+    let place = null;
+    if (!ownerForm) {
+      const typed = String(raiseForm.unit || '').trim();
+      if (!typed) place = { scope: 'Community', unit: '', location: raiseForm.assetId ? (raiseForm.assetName || 'Common area') : 'Common area' };
+      else {
+        const hits = (await secureStorage.query(COLLECTIONS.PROPERTIES, { page: 1, pageSize: 10, search: typed }).catch(() => null))?.rows || [];
+        const unit = hits.find((u) => String(u.unit).trim().toLowerCase() === typed.toLowerCase());
+        if (unit) place = { scope: 'Unit', unit: unit.unit, location: '' };
+        else if (/^(villa|flat|apt|apartment|unit)\s*[\w-]+$|^[a-z]{1,3}-?\d{2,5}$/i.test(typed)) errs.unit = `There is no unit "${typed}" - check the number, or leave it blank for a common area`;
+        else place = { scope: 'Community', unit: '', location: typed };
+      }
+    }
     setRaiseErrors(errs);
     if (Object.keys(errs).length) return;
     const tt = taskTypes.find((t) => t.name === typeName);
@@ -299,7 +314,7 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
       taskType: typeName,
       title: !ownerForm && raiseForm.assetId ? `${raiseForm.assetName}: ${raiseForm.title.trim()}` : raiseForm.title.trim(),
       description: raiseForm.description,
-      unit: ownerForm ? ownerUnit : raiseForm.unit,
+      unit: ownerForm ? ownerUnit : place.unit,
       category: raiseForm.category,
       subCategory: ownerForm ? '' : raiseForm.subCategory || '',
       priority: raiseForm.priority || 'Medium',
@@ -307,8 +322,8 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
       assignedTo,
       slaDueAt: raiseForm.slaDueAt || defaultSla(raiseForm.priority),
       preferredTime: raiseForm.preferredTime || '',
-      scope: isCommunity ? 'Community' : 'Unit',
-      location: isCommunity ? String(raiseForm.location || '').trim() : '',
+      scope: ownerForm ? (isCommunity ? 'Community' : 'Unit') : place.scope,
+      location: ownerForm ? (isCommunity ? String(raiseForm.location || '').trim() : '') : place.location,
       ...(!ownerForm && assetMode !== 'Hidden' && raiseForm.assetId ? { assetId: raiseForm.assetId, assetName: raiseForm.assetName } : {}),
       affectedUnits: isCommunity ? [ownerUnit] : [],
       ...Object.fromEntries(customKeys.filter((k) => raiseForm[k] !== undefined && raiseForm[k] !== '').map((k) => [k, raiseForm[k]])),
@@ -435,7 +450,9 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
   const awaitingParts = tickets.filter((t) => t.awaitingParts);
   // a tile on the Command Center can open this list already filtered
   // the list opens on the open tasks (tap "All" for everything); a link from elsewhere may ask for another tile
-  const [cardKey, setCardKey] = useState(() => { try { const k = sessionStorage.getItem('communityos:ticketCard'); sessionStorage.removeItem('communityos:ticketCard'); return k && SUMMARY_FILTERS[k] ? k : 'open'; } catch { return 'open'; } });
+  // a handyman has no tiles: their queue opens on every task not yet closed (the ones they are working on too), not just the new ones
+  const firstCard = isHandymanRole ? 'live' : 'open';
+  const [cardKey, setCardKey] = useState(() => { try { const k = sessionStorage.getItem('communityos:ticketCard'); sessionStorage.removeItem('communityos:ticketCard'); return k && SUMMARY_FILTERS[k] ? k : firstCard; } catch { return firstCard; } });
   const overdueIds = tickets.filter((t) => LIVE_STATUSES.includes(t.status) && t.slaDueAt && t.slaDueAt < new Date().toISOString().slice(0, 10)).map((t) => t.id);
   const [resetToken, setResetToken] = useState(0);
   const serverSum = useTicketSummary();
@@ -456,7 +473,7 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
     { key: 'closed', label: 'Closed' },
   ].map((c) => ({ ...c, count: serverSum?.byStatus ? (c.key === 'all' ? Number(serverSum.total) : serverCount(c.key)) : c.key === 'all' ? visibleTickets.length : countOf(c.key) }));
   function resetAllFilters() {
-    setCardKey('open'); setApprovalOnly(false); setConfirmOnly(false); setFinancialOnly(false); setScope('all'); setResetToken((n) => n + 1);
+    setCardKey(firstCard); setApprovalOnly(false); setConfirmOnly(false); setFinancialOnly(false); setScope('all'); setResetToken((n) => n + 1);
   }
   const materialsCost = awaitingParts.reduce((s, t) => s + (Number(t.materialsCost) || 0), 0);
 
@@ -507,7 +524,10 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
 
   async function act(patch) {
     if (!confirmLoseChanges()) return false;
-    const saved = await saveTicket({ ...selected, ...patch });
+    // an action (a status step, what a new quotation sets) applies to the ticket as it is NOW: adding a quotation or an approval moves the
+    // ticket on the server, so the copy on screen is already a version behind
+    const latest = (await secureStorage.get(COLLECTIONS.TICKETS, selected.id).catch(() => null)) || selected;
+    const saved = await saveTicket({ ...latest, ...patch });
     if (saved && ['Completed', 'Closed'].includes(patch.status) && selected.assetId) setAssetAsk({ ...selected, ...patch });
     return !!saved;
   }
@@ -574,20 +594,20 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
   /** Quotations chosen for this task: one or several vendors (e.g. materials from one, labour from another). */
   const chosenQuoteIds = (t) => (Array.isArray(t?.selectedQuotationIds) && t.selectedQuotationIds.length ? t.selectedQuotationIds : t?.selectedQuotationId ? [t.selectedQuotationId] : []);
 
-  /** Choosing (or unchoosing) a quotation: the amount to approve is the total of all chosen ones, and approval starts again. */
-  function chooseQuote(q) {
-    setDraft((d) => {
-      const cur = chosenQuoteIds(d);
-      const ids = !q ? [] : cur.includes(q.id) ? cur.filter((x) => x !== q.id) : [...cur, q.id];
-      const total = ids.reduce((n, id) => n + (Number(selDocs.find((x) => x.id === id)?.amount) || 0), 0);
-      return {
-        ...d,
-        selectedQuotationIds: ids,
-        selectedQuotationId: ids[0] || '',
-        approvedAmount: total,
-        approvalStage: ids.length ? 'Quotation' : d.selectedInvoiceId ? 'Invoice' : '',
-        ...RESET_APPROVALS,
-      };
+  /**
+   * Choosing (or unchoosing) a quotation: the amount to approve is the total of all chosen ones, and approval starts again. It is an action,
+   * saved at once like an approval (not an edit waiting for "Save changes" that approving would then throw away).
+   */
+  async function chooseQuote(q) {
+    const cur = chosenQuoteIds(selected);
+    const ids = !q ? [] : cur.includes(q.id) ? cur.filter((x) => x !== q.id) : [...cur, q.id];
+    const total = ids.reduce((n, id) => n + (Number(selDocs.find((x) => x.id === id)?.amount) || 0), 0);
+    return act({
+      selectedQuotationIds: ids,
+      selectedQuotationId: ids[0] || '',
+      approvedAmount: total,
+      approvalStage: ids.length ? 'Quotation' : selected.selectedInvoiceId ? 'Invoice' : '',
+      ...RESET_APPROVALS,
     });
   }
 
@@ -971,7 +991,8 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
               </>
             ) : (
               <>
-                <div className="field"><label>Location (villa, or blank for a common area)</label>
+                <div className={`field${raiseErrors.unit ? ' invalid' : ''}`}><label>Location (a villa / unit, a place such as "Pump room", or blank for the common area)</label>
+                  {raiseErrors.unit && <div className="field-error" data-testid="task-unit-error">{raiseErrors.unit}</div>}
                   <input value={raiseForm.unit} onChange={(e) => setRaiseForm((f) => ({ ...f, unit: e.target.value }))} placeholder="Blank for common area" />
                 </div>
                 {raiseType?.assignmentMode === 'Direct assign' || raiseInternal ? (
@@ -1056,11 +1077,11 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
               <div className="ap-head"><b>EC approval</b><span className={`tag ${selected.ecApproval === 'Approved' ? 'green' : selected.ecApproval === 'Rejected' ? 'red' : 'orange'}`}>{selected.ecApproval || 'Pending'}</span></div>
               <div className="ap-step">
                 <span className="ap-title">EC<small className="muted ap-hint"></small></span>
-                {selected.ecApproval && selected.ecApproval !== 'Pending' && <small className="muted">{selected.ecApprovedBy || '—'}{selected.ecApprovedAt ? ` · ${selected.ecApprovedAt}` : ''}</small>}
+                {selected.ecApproval && selected.ecApproval !== 'Pending' && <small className="muted">{selected.ecApprovedBy || '—'}{selected.ecApprovedAt ? ` · ${/^\d{4}-\d{2}-\d{2}/.test(selected.ecApprovedAt) ? new Date(`${String(selected.ecApprovedAt).slice(0, 10)}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : selected.ecApprovedAt}` : ''}</small>}
                 {open && isEC && (
                   <span className="ap-actions">
-                    <button type="button" className="btn good sm" onClick={approveEcOnly}>Approve</button>
-                    {selected.ecApproval !== 'Rejected' && <button type="button" className="btn secondary sm" onClick={() => decideNow('ec', 'Rejected')}>Reject</button>}
+                    {selected.ecApproval !== 'Approved' && <button type="button" className="btn good sm" onClick={approveEcOnly}>Approve</button>}
+                    {selected.ecApproval !== 'Rejected' && <button type="button" className="btn secondary sm" onClick={() => decideNow('ec', 'Rejected')}>{selected.ecApproval === 'Approved' ? 'Change to rejected' : 'Reject'}</button>}
                   </span>
                 )}
               </div>

@@ -26,8 +26,9 @@ public final class JdbcPropertySetup implements PropertySetup {
           WHERE x.community_id = u.community_id AND x.unit_id = u.id AND x.to_date IS NULL AND x.relation IN ('Owner', 'Co-owner', 'Tenant')
           ORDER BY (x.relation = 'Owner' AND x.is_primary) DESC, (x.relation = 'Owner') DESC, (x.relation = 'Co-owner') DESC, x.created_at LIMIT 1) o ON true
         WHERE u.status = 'Active'
-          AND (CAST(:q AS text) IS NULL OR u.unit_no ILIKE :q ESCAPE '\\' OR o.full_name ILIKE :q ESCAPE '\\')
+          AND (CAST(:q AS text) IS NULL OR u.unit_no ILIKE :q ESCAPE '\\' OR o.full_name ILIKE :q ESCAPE '\\' OR (CAST(:qDigits AS text) IS NOT NULL AND o.phone_e164 LIKE :qDigits))
           AND (CAST(:type AS text) IS NULL OR u.unit_type = :type)
+          AND (CAST(:block AS uuid) IS NULL OR u.block_id = CAST(:block AS uuid) OR (CAST(:block AS uuid) = '00000000-0000-0000-0000-000000000000' AND u.block_id IS NULL))
         ORDER BY lower(u.unit_no), u.id LIMIT :limit OFFSET :offset""";
     static final String BLOCKS = """
         SELECT b.id, b.short_id, b.name, b.code, b.kind, b.sort_order, b.unit_pattern, b.custom::text AS custom, b.version,
@@ -112,8 +113,10 @@ public final class JdbcPropertySetup implements PropertySetup {
         return jdbc.query(INSERT_UNITS, Map.of("rows", body), (rs, i) -> new Added(Rows.uuid(rs, "id"), rs.getString("short_id"), rs.getString("unit_no")));
     }
 
-    @Override public com.communityos.api.shared.web.Page<DirectoryEntry> directory(String q, String type, int limit, int offset) {
+    @Override public com.communityos.api.shared.web.Page<DirectoryEntry> directory(String q, String type, UUID block, int limit, int offset) {
         Map<String, Object> p = new HashMap<>();
+        String digits = q == null ? "" : q.replaceAll("[^0-9]", "");
+        p.put("qDigits", digits.length() >= 4 ? "%" + digits + "%" : null); p.put("block", block == null ? null : block.toString());
         p.put("q", q == null || q.isBlank() ? null : Rows.like(q.strip())); p.put("type", type == null || type.isBlank() ? null : type.strip());
         p.put("limit", limit); p.put("offset", offset);
         long[] total = {0};

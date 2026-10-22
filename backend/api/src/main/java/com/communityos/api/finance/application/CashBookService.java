@@ -48,7 +48,7 @@ public final class CashBookService {
     /** An entry another step already approved (a paid release, an approved pay request): no limit, the same lock and books. */
     public Books.Entry recordApproved(Caller c, Books.Entry e) {
         e.check();
-        return write(c, e, "Recorded (approved)");
+        return tx.inTx(() -> write(c, e, "Recorded (approved)"));   // the entry, its posting and its audit together (joins the caller's transaction)
     }
     public Books.Entry reverse(Caller c, UUID id, long version, String reason) {
         requireWriter(c);

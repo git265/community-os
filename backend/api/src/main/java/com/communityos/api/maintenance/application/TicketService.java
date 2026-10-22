@@ -166,6 +166,28 @@ public final class TicketService {
         });
     }
 
+    /**
+     * The committee's sign-off on a task whose type asks for one (EC approval stage "Yes") but that moves no money - there is no quotation or invoice
+     * to approve, so the sign-off is recorded on the task itself. A task with money in it is approved on its quotation or invoice instead.
+     */
+    public Ticket signOff(Caller c, UUID id, long version, String value) {
+        if (!(c.isSuperAdmin() || c.category() == Caller.Category.EC)) throw new AccessDenied("Only the committee signs off a task");
+        if (!List.of("Approved", "Rejected", "Pending").contains(value)) throw new DomainException.RuleViolated("bad-value", "Sign-off: Approved, Rejected or Pending");
+        return tx.inTx(() -> {
+            Ticket t = tickets.findById(id, policy.readScope(c)).orElseThrow(AccessDenied.NotVisible::new);
+            if (t.version() != version) throw new DomainException.Conflict("Ticket " + t.shortId());
+            Ticket.State s = t.state();
+            if (s.financial) throw new DomainException.RuleViolated("financial", "This task has money in it - approve its quotation or invoice instead");
+            if (s.taskType == null || !"Yes".equals(s.taskType.ecApprovalStage())) throw new DomainException.RuleViolated("no-sign-off", "This kind of task does not ask for the committee's sign-off");
+            if (s.status.finished()) throw new DomainException.RuleViolated("finished", "The task is " + s.status.label().toLowerCase() + " - reopen it first");
+            String before = s.approval.ecApproval();
+            if (!tickets.signOff(t.id(), version, value, "Pending".equals(value) ? null : c.membership().value())) throw new DomainException.Conflict("Ticket " + t.shortId());
+            audit.write(c, AuditWriter.Action.Update, "maintenance.ticket", t.id(), t.shortId(), unitValue(t), "Committee sign-off on " + t.shortId() + ": " + value,
+                List.of(new AuditWriter.Change("ecApproval", before, value)));
+            return tickets.findById(id, policy.readScope(c)).orElseThrow(AccessDenied.NotVisible::new);
+        });
+    }
+
     private Ticket change(Caller c, UUID id, long version, String what, Consumer<Ticket> work) {
         return tx.inTx(() -> {
             Ticket t = tickets.findById(id, policy.readScope(c)).orElseThrow(AccessDenied.NotVisible::new);

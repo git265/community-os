@@ -22,6 +22,7 @@ import SettleDues from './SettleDues.jsx';
 import DocumentPreview from '../../components/DocumentPreview.jsx';
 import { unitStatement } from '../../lib/documents/builders.js';
 import { fyStartMonth } from '../../lib/locale.js';
+import BlockNavigator, { NO_BLOCK, useBlockCounts } from './BlockNavigator.jsx';
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -281,24 +282,68 @@ function useUnitRows(collection, unit) {
   return rows;
 }
 
+/** One unit, read by id (and again when units change): the list's row is only a page of a list. */
+function useUnit(id) {
+  const [row, setRow] = useState(null);
+  useEffect(() => {
+    let on = true;
+    const go = () => secureStorage.get(COLLECTIONS.PROPERTIES, id).then((r) => { if (on) setRow(r || null); }).catch(() => { if (on) setRow(null); });
+    if (id) go(); else setRow(null);
+    const h = (e) => { if (e.detail?.collection === COLLECTIONS.PROPERTIES && id) go(); };
+    window.addEventListener('communityos:changed', h);
+    return () => { on = false; window.removeEventListener('communityos:changed', h); };
+  }, [id]);
+  return row;
+}
+
+/** "Go to unit": type a number, open it (a name or phone filters the list instead). */
+function UnitJump({ onOpen }) {
+  const [text, setText] = useState('');
+  const [msg, setMsg] = useState('');
+  async function go(e) {
+    e.preventDefault();
+    const t = text.trim(); setMsg('');
+    if (!t) return;
+    const r = await secureStorage.query(COLLECTIONS.PROPERTIES, { page: 1, pageSize: 20, search: t, searchKeys: ['unit'] }).catch(() => null);
+    const rows = r?.rows || [];
+    const hit = rows.find((u) => String(u.unit).trim().toLowerCase() === t.toLowerCase()) || (rows.length === 1 ? rows[0] : null);
+    if (hit) { onOpen(hit); setText(''); } else setMsg(rows.length ? `${rows.length}${rows.length === 20 ? '+' : ''} units match - type the full number` : `No unit “${t}”`);
+  }
+  return (
+    <form className="ud-jump" onSubmit={go} data-testid="unit-jump">
+      <input value={text} onChange={(e) => { setText(e.target.value); setMsg(''); }} placeholder="Go to unit, e.g. A-1204" aria-label="Go to unit" />
+      <button type="submit" className="btn secondary">Open</button>
+      {msg && <small className="muted" role="status">{msg}</small>}
+    </form>
+  );
+}
+
 export default function PropertiesModule({ onNavigate }) {
   const { roleId, role, currentUser, schemaFor, tabAllowed } = useApp();
-  const { records: properties, save } = useCollection(COLLECTIONS.PROPERTIES, 'Properties & Residents');
+  const isResident = role?.category === 'Resident';
+  // A resident's own home is read from their (small) list; staff never read the whole register - every list below is one server page.
+  const homes = useCollection(COLLECTIONS.PROPERTIES, 'Properties & Residents', { enabled: isResident });
+  const { save } = homes;
   const [selectedId, setSelectedId] = useState(null);
   const [editing, setEditing] = useState(null); // null | {} | record
   const [viewRaw, setView] = useState('units');
   const view = tabAllowed(`properties.${viewRaw}`) ? viewRaw : (tabAllowed('properties.units') ? 'units' : 'owners');
   const [showDirectory, setShowDirectory] = useState(false);
+  const [block, setBlock] = useState(() => { try { return sessionStorage.getItem('communityos:unitBlock') || ''; } catch { return ''; } });
+  const pickBlock = (b) => { setBlock(b); try { sessionStorage.setItem('communityos:unitBlock', b); } catch { /* ignore */ } };
+  const counts = useBlockCounts();
 
-  const isResident = role?.category === 'Resident';
   const schema = schemaFor(COLLECTIONS.PROPERTIES);
   const canCreate = canWriteCollection(COLLECTIONS.PROPERTIES, getPrincipal());
-  const myProperty = useMemo(() => properties.find((p) => p.unit === currentUser?.unit) ?? null, [properties, currentUser]);
+  const myProperty = isResident ? (homes.records.find((p) => p.unit === currentUser?.unit && !p.directoryOnly) ?? homes.records.find((p) => p.unit === currentUser?.unit) ?? null) : null;
+  const selected = useUnit(isResident ? null : selectedId);
   if (!schema) return null;
-  const selected = isResident ? null : properties.find((p) => p.id === selectedId) ?? null;
+  const blockFilter = block ? { zone: block } : {};
+  const blockName = block === NO_BLOCK ? 'Not in a block' : block;
 
   const directoryColumns = [
     { key: 'unit', label: 'Unit', render: (p) => <b>{p.unit}</b> },
+    { key: 'zone', label: 'Block', render: (p) => p.zone || '—' },
     { key: 'owner', label: 'Owner', render: (p) => <span>{p.owner}</span> },
     { key: 'ownerPhone', label: 'Phone', render: (p) => phoneLink(p.ownerPhone) },
     { key: 'call', label: '', sortable: false, render: (p) => (p.ownerPhone ? <a className="call-btn" href={`tel:${p.ownerPhone}`} aria-label={`Call ${p.owner || p.ownerPhone}`} title="Call" onClick={(e) => e.stopPropagation()}>📞</a> : null) },
@@ -318,7 +363,7 @@ export default function PropertiesModule({ onNavigate }) {
       <div className="page-head">
         <div>
           <h1>{isResident ? 'My home & directory' : 'Properties & residents'}</h1>
-          <p>{isResident ? 'Your home and the community contact directory.' : 'A unified record for every villa and apartment.'}</p>
+          <p>{isResident ? 'Your home and the community contact directory.' : 'A unified record for every villa and apartment - pick a block, then search within it.'}</p>
         </div>
         {canCreate && <button className="btn" onClick={() => setEditing({})}>+ Add property</button>}
       </div>
@@ -342,12 +387,16 @@ export default function PropertiesModule({ onNavigate }) {
             </div>
             {showDirectory && (
               <div style={{ marginTop: 12 }}>
+                <BlockNavigator counts={counts} value={block} onChange={pickBlock} />
                 <ServerTable
+                  key={`dir-${block}`}
                   collection={COLLECTIONS.PROPERTIES}
                   columns={directoryColumns}
+                  baseFilters={blockFilter}
                   baseSort={{ key: 'unit', dir: 'asc' }}
                   searchKeys={['unit', 'owner', 'ownerPhone', 'zone']}
                   filters={[{ key: 'type', label: 'All types', options: ['Villa', 'Apartment'] }]}
+                  emptyText={block ? `No homes in ${blockName} match.` : 'No homes match.'}
                 />
               </div>
             )}
@@ -362,32 +411,46 @@ export default function PropertiesModule({ onNavigate }) {
             {tabAllowed('properties.owners') && <button className={view === 'owners' ? 'active' : ''} onClick={() => setView('owners')}>Owners</button>}
           </div>
           <div className="card">
+            <BlockNavigator counts={counts} value={block} onChange={pickBlock} />
+            <div className="ud-bar-row">
+              {block ? <span className="tag blue" data-testid="block-chip">{blockName} <button type="button" className="link-btn" aria-label="Show all blocks" onClick={() => pickBlock('')}>✕</button></span> : <span className="muted">All blocks</span>}
+              <UnitJump onOpen={(u) => setSelectedId(u.id)} />
+            </div>
             {view === 'units' ? (
               <ServerTable
+                key={`units-${block}`}
                 collection={COLLECTIONS.PROPERTIES}
                 schema={schema}
                 showId
+                baseFilters={blockFilter}
                 baseSort={{ key: 'unit', dir: 'asc' }}
+                searchKeys={['unit', 'owner', 'ownerPhone', 'tenant', 'tenantPhone']}
                 filters={[
                   { key: 'type', label: 'All property types' },
                   { key: 'occupancy', label: 'All occupancy' },
-                  { key: 'zone', label: 'All zones', options: [...new Set(properties.map((p) => p.zone).filter(Boolean))].sort() },
                 ]}
                 dateFields={[{ key: 'possessionDate', label: 'Possession date' }]}
                 onRowClick={(r) => setSelectedId(r.id)}
+                emptyText={block ? `No units in ${blockName} match.` : 'No units match.'}
               />
             ) : (
               <ServerTable
+                key={`owners-${block}`}
                 collection={COLLECTIONS.PROPERTIES}
                 columns={[
-                  { key: 'owner', label: 'Primary owner', render: (p) => <b>{p.owner}</b> },
-                  { key: 'ownerPhone', label: 'Phone', render: (p) => phoneLink(p.ownerPhone) },
-                  { key: 'tenant', label: 'Tenant', render: (p) => (p.tenant ? <span>{p.tenant} <small className="muted">{p.tenantPhone}</small></span> : '—') },
+                  { key: 'owner', label: 'Primary owner', sortable: false, render: (p) => (p.owner ? <b>{p.owner}</b> : <span className="muted">No owner recorded</span>) },
+                  { key: 'ownerPhone', label: 'Phone', sortable: false, render: (p) => phoneLink(p.ownerPhone) },
+                  { key: 'tenant', label: 'Tenant', sortable: false, render: (p) => (p.tenant ? <span>{p.tenant} <small className="muted">{p.tenantPhone}</small></span> : '—') },
                   { key: 'people', label: 'Additional owners / contacts', sortable: false, render: (p) => ((p.people || []).length ? (p.people || []).map((x) => x.name).join(', ') : (p.secondaryOwner || '—')) },
                   { key: 'unit', label: 'Unit' },
+                  { key: 'zone', label: 'Block', sortable: false, render: (p) => p.zone || '—' },
                 ]}
-                baseSort={{ key: 'owner', dir: 'asc' }}
-                searchKeys={['owner', 'tenant', 'unit', 'ownerPhone']}
+                baseFilters={blockFilter}
+                baseSort={{ key: 'unit', dir: 'asc' }}
+                searchKeys={['owner', 'tenant', 'unit', 'ownerPhone', 'tenantPhone']}
+                filters={[{ key: 'occupancy', label: 'All occupancy', options: ['Owner occupied', 'Tenant occupied', 'Vacant'] }]}
+                onRowClick={(r) => setSelectedId(r.id)}
+                emptyText={block ? `No owners in ${blockName} match.` : 'No owners match.'}
               />
             )}
           </div>

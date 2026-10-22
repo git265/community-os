@@ -35,6 +35,7 @@ public final class TicketDtos {
     public record StatusRequest(@NotBlank @Size(max = 20) String status, @Size(max = 500) String reason) {}
     public record MeTooRequest(UUID unitId) {}
     public record RatingRequest(@NotNull @Min(1) @Max(5) Integer rating) {}
+    public record SignOffRequest(@NotBlank @Size(max = 20) String value) {}
     public record CommentRequest(@NotBlank @Size(max = 5000) String body, @Size(max = 10) String visibility) {}
     public record FieldStaffRequest(@NotNull UUID membershipId, @NotBlank @Size(max = 40) String trade, @Size(max = 20) String shift, @Size(max = 20) String phone) {}
     public record ClockRequest(@NotNull Boolean clockedIn) {}
@@ -45,7 +46,7 @@ public final class TicketDtos {
                                  boolean awaitingParts, Money materialsCost, boolean financial, LocalDate workDone, Instant assignedAt, Instant startedAt, Instant completedAt,
                                  Instant closedAt, Instant cancelledAt, String cancelReason, int reopenCount, Instant createdAt, Instant updatedAt, long version,
                                  String quotationStatus, String invoiceStatus, Money approvedAmount, UUID selectedQuotationId, UUID selectedInvoiceId, String ecApproval,
-                                 String treasurerApproval, Boolean finalRequired, UUID assetId, String assetName) {
+                                 String treasurerApproval, Boolean finalRequired, UUID assetId, String assetName, String ecApprovedBy, Instant ecApprovedAt) {
         static TicketResponse of(Ticket t) {
             Ticket.State s = t.state();
             return new TicketResponse(s.id, s.shortId, s.taskType == null ? null : s.taskType.id(), s.taskType == null ? null : s.taskType.name(), s.title, s.description,
@@ -54,7 +55,7 @@ public final class TicketDtos {
                 s.residentRating, s.raisedBy.value(), s.raisedByName, s.raisedByRole, s.awaitingParts, s.materialsCost, s.financial, s.workDone, s.assignedAt, s.startedAt,
                 s.completedAt, s.closedAt, s.cancelledAt, s.cancelReason, s.reopenCount, s.createdAt, s.updatedAt, t.version(),
                 s.approval.quotationStatus(), s.approval.invoiceStatus(), s.approval.approvedAmount(), s.approval.selectedQuotationId(), s.approval.selectedInvoiceId(),
-                s.approval.ecApproval(), s.approval.treasurerApproval(), s.approval.finalRequired(), s.asset, s.assetName);
+                s.approval.ecApproval(), s.approval.treasurerApproval(), s.approval.finalRequired(), s.asset, s.assetName, s.ecApprovedBy, s.ecApprovedAt);
         }
     }
     public record TaskTypeResponse(UUID id, String name, String icon, String creatorScope, String assignmentMode, String quotationStage, String ecApprovalStage,

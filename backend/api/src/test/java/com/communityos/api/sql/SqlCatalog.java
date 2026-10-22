@@ -42,7 +42,7 @@ public final class SqlCatalog {
             CLASSES.put(c, "cos_platform");
     }
     /** fragments that are only valid once composed */
-    static final Set<String> FRAGMENTS = Set.of("JdbcRefunds.COLS", "AuditLog.TZ", "JdbcMemberRepository.SELECT", "JdbcMemberRepository.FILTER", "JdbcUnitRepository.SELECT", "JdbcUnitRepository.FILTER",
+    static final Set<String> FRAGMENTS = Set.of("JdbcRefunds.COLS", "AuditLog.TZ", "JdbcMemberRepository.SELECT", "JdbcMemberRepository.FILTER", "JdbcUnitRepository.COLUMNS", "JdbcUnitRepository.JOINS", "JdbcUnitRepository.FILTER", "JdbcUnitRepository.BY_BLOCK", "JdbcUnitRepository.INDEX",
         "JdbcDueRepository.COLUMNS", "JdbcDueRepository.FROM", "JdbcDueRepository.FILTER",
         "JdbcTicketRepository.COLUMNS", "JdbcTicketRepository.FROM", "JdbcTicketRepository.FILTER", "JdbcMaintenanceDirectory.STAFF", "JdbcMaintenanceDirectory.RECENT_COMMENTS",
         "JdbcQuotationRepository.COLUMNS", "JdbcQuotationRepository.LIVE", "JdbcBookingRepository.COLUMNS", "JdbcBookingRepository.FROM", "JdbcBookingRepository.FILTER",
@@ -78,6 +78,8 @@ public final class SqlCatalog {
             out.add(new Stmt("cos_app", "members.get." + i, com.communityos.api.identity.adapter.JdbcMemberRepository.getSql(ms.sql())));
             out.add(new Stmt("cos_app", "units.list." + i, com.communityos.api.property.adapter.JdbcUnitRepository.listSql(us.sql())));
             out.add(new Stmt("cos_app", "units.get." + i, com.communityos.api.property.adapter.JdbcUnitRepository.getSql(ws.sql())));
+            out.add(new Stmt("cos_app", "units.byBlock." + i, com.communityos.api.property.adapter.JdbcUnitRepository.byBlockSql(us.sql())));
+            out.add(new Stmt("cos_app", "units.index." + i, com.communityos.api.property.adapter.JdbcUnitRepository.indexSql(us.sql())));
             out.add(new Stmt("cos_app", "dues.list." + i, com.communityos.api.billing.adapter.JdbcDueRepository.listSql(ds.sql())));
             out.add(new Stmt("cos_app", "dues.get." + i, com.communityos.api.billing.adapter.JdbcDueRepository.getSql(ds.sql())));
             Spec<?> ts = new com.communityos.api.maintenance.application.TicketPolicy().readScope(c);

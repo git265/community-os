@@ -45,7 +45,8 @@ export async function v2Verify(target, code) {
 export async function v2Renew() {
   try { return await signedIn(await post('/auth/refresh', { client: 'web' })); } catch { return null; }
 }
-export const v2Logout = () => post('/auth/logout', {}).catch(() => {});
+/** End the session on the server (the refresh token is revoked and its cookie cleared). Resolves false when the server could not be told. */
+export const v2Logout = () => post('/auth/logout', {}).then(() => true, (e) => !!e?.status && e.status < 500);
 
 // ---- the demo (a development server with cos.demo.enabled only; a production server answers 404 and none of this shows) ----------------------
 let roster = null;

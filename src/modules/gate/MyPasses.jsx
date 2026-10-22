@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useApp, useCollection } from '../../context/AppContext.jsx';
 import { COLLECTIONS } from '../../lib/storage/index.js';
 import { makeCode, passLink, passMessage, passQrText, shareLinks } from '../../lib/gate/engine.js';
@@ -13,23 +13,50 @@ const todayStr = () => ld(new Date());
 const plus = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return ld(d); };
 const blank = (goods = false) => ({ kind: goods ? 'Goods' : 'Guest', visitorName: '', phone: '', type: goods ? 'Goods' : 'One-time', validFrom: todayStr(), validTo: todayStr(), fromTime: '', toTime: '', days: [], vehicle: '', guestCap: 20, photo: '', goodsKind: GOODS_KINDS[0], peopleCount: 2, material: '', carryingOut: false, outItems: '' });
 
-/** The pass, ready to hand over: QR, PIN and one tap to send it by WhatsApp or SMS. */
+/**
+ * The pass, ready to hand over: QR, PIN and one tap to send it. A wa.me / sms: link carries text only, so the QR picture goes with it another way:
+ * on a phone the share sheet attaches it (pick WhatsApp or Messages); on a computer it is put on the clipboard as a picture, ready to paste into
+ * the WhatsApp chat that opens. The message always carries a link that opens the QR and the code too.
+ */
 export function PassShare({ pass, template, community, host }) {
   const link = passLink(pass, { community, host });
   const text = passMessage(template, pass, { community, host, link });
   const links = shareLinks(pass.phone, text);
   const [copied, setCopied] = useState(false);
-  // the phone's share sheet takes the QR as a picture with the message (WhatsApp, SMS/MMS, mail ...); where it cannot, the message (with the QR link) is shared or copied
-  async function nativeShare() {
+  const [hint, setHint] = useState('');
+  // the picture is made ahead, so a tap can hand it to the share sheet straight away (browsers allow sharing only right after a tap)
+  const [file, setFile] = useState(null);
+  useEffect(() => {
+    let live = true; setFile(null);
+    qrDataUrl(passQrText(pass)).then((u) => fetch(u)).then((r) => r.blob())
+      .then((png) => { if (live) setFile(new File([png], `gate-pass-${pass.code}.png`, { type: 'image/png' })); }).catch(() => {});
+    return () => { live = false; };
+  }, [pass.code]); // eslint-disable-line react-hooks/exhaustive-deps
+  const sheetTakesPicture = () => !!(file && navigator.canShare?.({ files: [file], text }));
+  async function viaSheet() {
+    try { await navigator.share({ title: 'Gate pass', text, files: [file] }); return true; } catch (e) { return e?.name === 'AbortError'; }
+  }
+  // put the QR picture on the clipboard (computers): the person pastes it into the chat
+  function pictureToClipboard() {
     try {
-      const png = await qrDataUrl(passQrText(pass)).then((u) => fetch(u)).then((r) => r.blob()).catch(() => null);
-      const file = png ? new File([png], `gate-pass-${pass.code}.png`, { type: 'image/png' }) : null;
-      if (file && navigator.canShare?.({ files: [file] })) { await navigator.share({ title: 'Gate pass', text, files: [file] }); return; }
-      if (navigator.share) { await navigator.share({ title: 'Gate pass', text }); return; }
-    } catch (e) { if (e?.name === 'AbortError') return; }
+      if (!file || !window.ClipboardItem || !navigator.clipboard?.write) return Promise.resolve(false);
+      return navigator.clipboard.write([new window.ClipboardItem({ 'image/png': file })]).then(() => true, () => false);
+    } catch { return Promise.resolve(false); }
+  }
+  async function send(kind, e) {
+    if (kind === 'wa' && sheetTakesPicture()) { e.preventDefault(); if (await viaSheet()) return; window.open(links.whatsapp, '_blank', 'noopener'); return; }
+    if (kind === 'wa') {
+      const pasted = await pictureToClipboard();   // the link opens WhatsApp itself (the <a>); the picture waits on the clipboard
+      setHint(pasted ? 'The QR picture is copied - paste it into the WhatsApp chat (Ctrl+V / ⌘V) to send it with the message.' : '');
+    }
+  }
+  async function nativeShare() {
+    if (sheetTakesPicture() && await viaSheet()) return;
+    try { if (navigator.share) { await navigator.share({ title: 'Gate pass', text }); return; } } catch (e) { if (e?.name === 'AbortError') return; }
     copy();
   }
   async function copy() { try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch { /* ignore */ } }
+  async function copyPicture() { const ok = await pictureToClipboard(); setHint(ok ? 'The QR picture is copied - paste it into any chat.' : 'This browser cannot copy pictures - use “Share QR…” or save the QR from the pass link.'); }
   return (
     <div className="gg-share" data-testid="pass-share">
       <QrImage text={passQrText(pass)} size={170} testid="pass-qr" />
@@ -37,12 +64,14 @@ export function PassShare({ pass, template, community, host }) {
         <div className="muted">PIN</div>
         <div style={{ fontSize: 30, letterSpacing: 6, fontWeight: 700 }} data-testid="pass-pin">{pass.code}</div>
         <div className="pass-share-actions">
-          <a className="btn" data-testid="share-wa" href={links.whatsapp} target="_blank" rel="noreferrer">WhatsApp</a>
+          <a className="btn" data-testid="share-wa" href={links.whatsapp} target="_blank" rel="noreferrer" onClick={(e) => send('wa', e)}>WhatsApp</a>
           <a className="btn secondary" data-testid="share-sms" href={links.sms}>SMS</a>
           <button type="button" className="btn secondary" data-testid="share-native" onClick={nativeShare}>Share QR…</button>
           <button type="button" className="btn secondary" data-testid="share-copy" onClick={copy}>{copied ? 'Copied' : 'Copy text'}</button>
+          <button type="button" className="btn secondary" data-testid="share-copy-qr" onClick={copyPicture}>Copy QR picture</button>
         </div>
-        <small className="muted">The message carries a link that opens the QR and the code. “Share QR…” also attaches the QR picture where the phone allows it.</small>
+        {hint && <small className="pass-share-hint" role="status" data-testid="share-hint">{hint}</small>}
+        <small className="muted">WhatsApp attaches the QR picture on a phone (choose WhatsApp in the share sheet); on a computer the picture is copied for you to paste. SMS carries text, so it sends the link that opens the QR and the code.</small>
         {!pass.phone && <small className="muted">Add the guest's mobile number and WhatsApp opens straight to them.</small>}
       </div>
     </div>
