@@ -168,3 +168,75 @@ export async function runDutyWatch(open, settings = {}) {
   }
   return null;
 }
+
+// ---- the gate beside the clock (the same rules as the server's Attendance.withGate) ----
+export const GATE_FLAGS = { NO_GATE: 'No gate entry', BEFORE_GATE: 'Clocked in before the gate', LEFT_EARLY: 'Left the gate before clocking out', LEFT_CLOCKED: 'Left without clocking out', STAYED: 'Inside after clocking out', GATE_ONLY: 'At the gate, not clocked in' };
+const hoursBetween = (a, b) => Math.round(((new Date(b) - new Date(a)) / 3600000) * 100) / 100;
+/** A staff member's badge visits as stays: who (member id or, for older records, "user:<id>"), name, in and out. */
+export const gateStays = (visits) => visits.filter((v) => (v.memberId || String(v.personId || '').startsWith('user:')) && v.inAt && ['Inside', 'Exited', 'Auto-closed'].includes(v.state))
+  .map((v) => ({ memberId: v.memberId || String(v.personId).slice(5), name: v.name, in: v.inAt, out: v.state === 'Inside' ? '' : v.outAt || '' }));
+const NEAR_MS = 4 * 3600000;   // a badge up to four hours before or after a session still belongs to it
+/**
+ * Each badge stay goes to the person's session it falls in or near (the closest clock-in wins), so a night shift across midnight keeps its
+ * gate times; stays near no session are days seen only at the gate. People are matched by member id, else by name (browser sessions carry
+ * the name). "No gate entry" only from the first staff badge on.
+ */
+export function withGate(sessions, stays, toleranceMin = 15, now = Date.now()) {
+  const tol = Math.max(0, Number(toleranceMin) || 0) * 60000; const t = (x) => new Date(x).getTime();
+  const same = (s, g) => (s.memberId && g.memberId ? s.memberId === g.memberId : String(s.staffName || '').trim().toLowerCase() === String(g.name || '').trim().toLowerCase());
+  const mine = new Map(sessions.map((s) => [s, []])); const loose = new Map();
+  for (const g of stays) {
+    if (!g.in) continue;
+    let best = null;
+    for (const s of sessions) {
+      if (!same(s, g)) continue;
+      const end = s.clockOut ? t(s.clockOut) : now;
+      if (t(g.in) < t(s.clockIn) - NEAR_MS || t(g.in) > end + NEAR_MS) continue;
+      if (!best || Math.abs(t(g.in) - t(s.clockIn)) < Math.abs(t(g.in) - t(best.clockIn))) best = s;
+    }
+    if (best) mine.get(best).push(g);
+    else { const k = `${String(g.name || g.memberId).toLowerCase()}|${localDate(new Date(g.in))}`; (loose.get(k) || loose.set(k, []).get(k)).push(g); }
+  }
+  const span = (g) => {
+    if (!g.length) return { gateIn: '', gateOut: '', gateInside: false, gateHours: null };
+    const inside = g.some((x) => !x.out);
+    return { gateIn: g.map((x) => x.in).sort()[0], gateOut: inside ? '' : g.map((x) => x.out).sort().slice(-1)[0], gateInside: inside,
+      gateHours: Math.round(g.reduce((n, x) => n + hoursBetween(x.in, x.out || now), 0) * 100) / 100 };
+  };
+  const firstBadge = stays.reduce((m, g) => (g.in && (!m || t(g.in) < m) ? t(g.in) : m), 0); const out = [];   // the gate records staff from its first badge on
+  for (const [s, g] of mine) {
+    const sp = span(g); const flags = [];
+    if (!g.length) { if (firstBadge && t(s.clockIn) >= firstBadge - NEAR_MS) flags.push(GATE_FLAGS.NO_GATE); } else {
+      if (t(s.clockIn) < t(sp.gateIn) - tol) flags.push(GATE_FLAGS.BEFORE_GATE);
+      if (s.clockOut && sp.gateOut && t(sp.gateOut) < t(s.clockOut) - tol) flags.push(GATE_FLAGS.LEFT_EARLY);
+      if (!s.clockOut && sp.gateOut) flags.push(GATE_FLAGS.LEFT_CLOCKED);
+      if (s.clockOut && ((sp.gateInside && now > t(s.clockOut) + tol) || (sp.gateOut && t(sp.gateOut) > t(s.clockOut) + tol))) flags.push(GATE_FLAGS.STAYED);
+    }
+    out.push({ ...s, ...sp, flags });
+  }
+  for (const [k, g] of loose) out.push({ id: `gate-${k}`, memberId: g[0].memberId, staffName: g[0].name, date: k.split('|').pop(), clockIn: '', clockOut: '', gateOnly: true, ...span(g), flags: [GATE_FLAGS.GATE_ONLY] });
+  return out.sort((a, b) => `${b.date}${b.clockIn || b.gateIn}`.localeCompare(`${a.date}${a.clockIn || a.gateIn}`));
+}
+
+/**
+ * The attendance report for a period: on the back end the server builds it (its own scope: supervisors everyone, staff themselves);
+ * in the browser demo the same rules run here over the sessions and the gate's staff visits.
+ */
+export async function loadReport({ from, to, memberId = '', mineOnly = false } = {}) {
+  const { getDataSource } = await import('./storage/dataSource.js');
+  if (getDataSource().mode === 'v2') {
+    const { apiFetch } = await import('./net/request.js'); const { reportLineOf } = await import('./storage/v2/v2map.js');
+    const q = new URLSearchParams(Object.entries({ from, to, memberId }).filter(([, v]) => v));
+    const res = await apiFetch(`/v1/workforce/attendance/report?${q}`);
+    const body = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(body?.detail || `Attendance report: ${res.status}`);
+    return body.map(reportLineOf);
+  }
+  const { storage } = await import('./storage/index.js');
+  const me = getPrincipal()?.name;
+  const [sessions, visits, settings] = await Promise.all([secureStorage.list(C.ATTENDANCE), storage.list(C.GATE_VISITS).catch(() => []), loadSettings().catch(() => ({}))]);
+  const inPeriod = (d, slack = 0) => { const day = (x, n) => localDate(new Date(new Date(`${x}T12:00:00`).getTime() + n * 86400000)); return (!from || d >= day(from, -slack)) && (!to || d <= day(to, slack)); };
+  // badges a day either side, so a night shift's gate times are found; days seen only at the gate stay inside the period
+  const stays = gateStays(visits).filter((g) => inPeriod(localDate(new Date(g.in)), 1) && (!mineOnly || g.name === me));
+  return withGate(sessions.filter((s) => inPeriod(s.date) && (!mineOnly || s.staffName === me)), stays, settings.graceMinutes ?? 15).filter((l) => !l.gateOnly || inPeriod(l.date));
+}

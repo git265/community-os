@@ -38,6 +38,13 @@ public final class JdbcAttendanceStore implements AttendanceStore {
         WHERE (CAST(:from AS date) IS NULL OR a.date >= CAST(:from AS date)) AND (CAST(:to AS date) IS NULL OR a.date <= CAST(:to AS date))
           AND (CAST(:member AS uuid) IS NULL OR a.member_id = CAST(:member AS uuid))
         ORDER BY a.clock_in DESC LIMIT 5000""";
+    static final String GATE_STAYS = """
+        SELECT v.member_id, v.name, v.in_at, v.out_at FROM gate.visit v
+        WHERE v.member_id IS NOT NULL AND v.in_at IS NOT NULL AND v.state IN ('Inside', 'Exited', 'Auto-closed')
+          AND (CAST(:from AS date) IS NULL OR v.in_at >= CAST(:from AS date)::timestamp AT TIME ZONE :zone)
+          AND (CAST(:to AS date) IS NULL OR v.in_at < (CAST(:to AS date) + 1)::timestamp AT TIME ZONE :zone)
+          AND (CAST(:member AS uuid) IS NULL OR v.member_id = CAST(:member AS uuid))
+        ORDER BY v.in_at LIMIT 10000""";
     static final String INSERT = """
         INSERT INTO workforce.attendance_session (community_id, id, member_id, staff_name, role_name, date, clock_in, note, in_lat, in_lng, in_acc, in_site, in_dist, source, shift_type, late_min)
         VALUES (platform.current_community(), CAST(:id AS uuid), CAST(:member AS uuid), :name, :role, CAST(:date AS date), CAST(:clockIn AS timestamptz), :note, :lat, :lng, :acc, :site, :dist,
@@ -79,6 +86,10 @@ public final class JdbcAttendanceStore implements AttendanceStore {
     @Override public List<Attendance.Session> sessions(LocalDate from, LocalDate to, UUID memberId) {
         Map<String, Object> p = new HashMap<>(); p.put("from", s(from)); p.put("to", s(to)); p.put("member", s(memberId));
         return jdbc.query(LIST, p, (rs, i) -> session(rs));
+    }
+    @Override public List<Attendance.GateStay> gateStays(LocalDate from, LocalDate to, UUID memberId, java.time.ZoneId zone) {
+        Map<String, Object> p = new HashMap<>(); p.put("from", s(from)); p.put("to", s(to)); p.put("member", s(memberId)); p.put("zone", zone.getId());
+        return jdbc.query(GATE_STAYS, p, (rs, i) -> new Attendance.GateStay(Rows.uuid(rs, "member_id"), rs.getString("name"), Rows.instant(rs, "in_at"), Rows.instant(rs, "out_at")));
     }
     @Override public void insert(Attendance.Session x) {
         if (x.id == null) x.id = UUID.randomUUID();

@@ -7,6 +7,10 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -49,4 +53,72 @@ public final class Attendance {
         return late > 0 && at.isAfter(t) ? (int) late : 0;
     }
     public static BigDecimal hours(Instant in, Instant out) { return BigDecimal.valueOf(Duration.between(in, out).getSeconds()).divide(BigDecimal.valueOf(3600), 2, RoundingMode.HALF_UP); }
+
+    // ---- the gate beside the clock ------------------------------------------------------------------------------------------------------------
+    /** A staff member's stay inside the gate (their badge in and out; out is null while still inside). */
+    public record GateStay(UUID memberId, String name, Instant in, Instant out) {}
+    /** One line of the report: a session (null for a day seen only at the gate), that day's gate times, and what does not add up. */
+    public record ReportLine(Session session, UUID memberId, String staffName, LocalDate date, Instant gateIn, Instant gateOut, boolean gateInside, BigDecimal gateHours, List<String> flags) {}
+    public static final String NO_GATE = "No gate entry", BEFORE_GATE = "Clocked in before the gate", LEFT_EARLY = "Left the gate before clocking out",
+        LEFT_CLOCKED = "Left without clocking out", STAYED = "Inside after clocking out", GATE_ONLY = "At the gate, not clocked in";
+
+    /** How far from a session a badge still belongs to it (an early arrival, a late leaving). */
+    public static final Duration NEAR = Duration.ofHours(4);
+
+    /**
+     * The attendance report with the gate. Each badge stay goes to the person's session it falls in or near (within four hours either side;
+     * the closest clock-in wins), so a night shift across midnight keeps its gate times; stays near no session are days seen only at the gate.
+     * A session's first badge-in and last badge-out are set beside its clock-in and clock-out with `toleranceMin` either way. "No gate entry"
+     * is only said from the first staff badge on (a community that does not use badges, or did not yet, gets no such flags). Any order in, newest first out.
+     */
+    public static List<ReportLine> withGate(List<Session> sessions, List<GateStay> stays, ZoneId zone, int toleranceMin, Instant now) {
+        Duration tol = Duration.ofMinutes(Math.max(0, toleranceMin));
+        Map<Session, List<GateStay>> mine = new LinkedHashMap<>();
+        for (Session x : sessions) mine.put(x, new ArrayList<>());
+        record Key(UUID member, LocalDate date) {}
+        Map<Key, List<GateStay>> loose = new LinkedHashMap<>();
+        for (GateStay g : stays) {
+            if (g.in() == null || g.memberId() == null) continue;
+            Session best = null;
+            for (Session x : sessions) {
+                if (!g.memberId().equals(x.memberId)) continue;
+                Instant end = x.clockOut == null ? now : x.clockOut;
+                if (g.in().isBefore(x.clockIn.minus(NEAR)) || g.in().isAfter(end.plus(NEAR))) continue;
+                if (best == null || Duration.between(x.clockIn, g.in()).abs().compareTo(Duration.between(best.clockIn, g.in()).abs()) < 0) best = x;
+            }
+            if (best != null) mine.get(best).add(g);
+            else loose.computeIfAbsent(new Key(g.memberId(), LocalDate.ofInstant(g.in(), zone)), (k) -> new ArrayList<>()).add(g);
+        }
+        // the gate records staff from its first badge on: sessions before that are not "missing" a badge
+        Instant firstBadge = stays.stream().filter((g) -> g.memberId() != null).map(GateStay::in).filter(java.util.Objects::nonNull).min(Comparator.naturalOrder()).orElse(null);
+        List<ReportLine> out = new ArrayList<>();
+        for (Map.Entry<Session, List<GateStay>> e : mine.entrySet()) {
+            Session x = e.getKey(); List<GateStay> g = e.getValue();
+            Span s = span(g, now);
+            List<String> flags = new ArrayList<>();
+            if (g.isEmpty()) { if (firstBadge != null && !x.clockIn.isBefore(firstBadge.minus(NEAR))) flags.add(NO_GATE); }
+            else {
+                if (x.clockIn.isBefore(s.in().minus(tol))) flags.add(BEFORE_GATE);
+                if (x.clockOut != null && s.out() != null && s.out().isBefore(x.clockOut.minus(tol))) flags.add(LEFT_EARLY);
+                if (x.clockOut == null && s.out() != null) flags.add(LEFT_CLOCKED);
+                if (x.clockOut != null && ((s.inside() && now.isAfter(x.clockOut.plus(tol))) || (s.out() != null && s.out().isAfter(x.clockOut.plus(tol))))) flags.add(STAYED);
+            }
+            out.add(new ReportLine(x, x.memberId, x.staffName, x.date, s.in(), s.out(), s.inside(), s.hours(), List.copyOf(flags)));
+        }
+        for (Map.Entry<Key, List<GateStay>> e : loose.entrySet()) {
+            Span s = span(e.getValue(), now);
+            out.add(new ReportLine(null, e.getKey().member(), e.getValue().get(0).name(), e.getKey().date(), s.in(), s.out(), s.inside(), s.hours(), List.of(GATE_ONLY)));
+        }
+        out.sort(Comparator.comparing(ReportLine::date).reversed().thenComparing(ReportLine::staffName, Comparator.nullsLast(Comparator.naturalOrder())));
+        return out;
+    }
+    /** First in, last out (none while still inside), hours inside (an open stay up to now). */
+    private record Span(Instant in, Instant out, boolean inside, BigDecimal hours) {}
+    private static Span span(List<GateStay> g, Instant now) {
+        if (g.isEmpty()) return new Span(null, null, false, null);
+        boolean inside = g.stream().anyMatch((x) -> x.out() == null);
+        return new Span(g.stream().map(GateStay::in).min(Comparator.naturalOrder()).orElseThrow(),
+            inside ? null : g.stream().map(GateStay::out).max(Comparator.naturalOrder()).orElseThrow(), inside,
+            g.stream().map((x) -> hours(x.in(), x.out() == null ? now : x.out())).reduce(BigDecimal.ZERO, BigDecimal::add));
+    }
 }

@@ -44,6 +44,17 @@ class GateTest {
         e.type = "Event"; e.guestCap = 2; e.usedCount = 2; assertEquals("Guest limit of 2 reached", e.problem(TUE_10));
     }
 
+    @Test void staffBadge() {
+        byte[] key = new byte[32]; byte[] other = new byte[32]; other[0] = 1;
+        java.util.UUID m = java.util.UUID.randomUUID(); java.time.Instant t = java.time.Instant.parse("2026-10-20T04:00:10Z");
+        String text = com.communityos.api.gate.domain.StaffBadge.text(key, m, t);
+        assertEquals(m, com.communityos.api.gate.domain.StaffBadge.check(key, text, t.plusSeconds(25)).member(), "the next window is accepted (clock skew)");
+        assertEquals("badge-old", assertThrows(DomainException.RuleViolated.class, () -> com.communityos.api.gate.domain.StaffBadge.check(key, text, t.plusSeconds(95))).code());
+        assertEquals("badge-invalid", assertThrows(DomainException.RuleViolated.class, () -> com.communityos.api.gate.domain.StaffBadge.check(other, text, t)).code(), "another community's key");
+        assertEquals("not-a-badge", assertThrows(DomainException.RuleViolated.class, () -> com.communityos.api.gate.domain.StaffBadge.check(key, "GGB|x|1|ab", t)).code());
+        String forged = text.replace("|" + com.communityos.api.gate.domain.StaffBadge.window(t) + "|", "|" + (com.communityos.api.gate.domain.StaffBadge.window(t) + 1) + "|");
+        assertEquals("badge-invalid", assertThrows(DomainException.RuleViolated.class, () -> com.communityos.api.gate.domain.StaffBadge.check(key, forged, t)).code(), "the window is signed");
+    }
     @Test void visitStates() {
         Gate.Visit v = new Gate.Visit();
         v.state = Gate.VisitState.AWAITING;

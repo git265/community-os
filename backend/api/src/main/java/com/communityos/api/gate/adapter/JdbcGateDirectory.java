@@ -32,6 +32,14 @@ public final class JdbcGateDirectory implements GateDirectory {
     static final String PERSON = """
         SELECT p.id, p.name, p.person_class, p.phone, p.photo, p.status, p.vendor, p.delivery_company, p.licence_expiry, p.police_expiry, p.vehicle_no, p.status_reason
         FROM gate.person p WHERE p.id = CAST(:id AS uuid)""";
+    static final String STAFF = """
+        SELECT m.id, m.display_name, m.status, r.name AS role_name, coalesce(bool_or(g.category = 'Staff'), false) AS staff
+        FROM identity.membership m
+        LEFT JOIN identity.membership_role mr ON mr.community_id = m.community_id AND mr.membership_id = m.id
+        LEFT JOIN identity.role r ON r.community_id = mr.community_id AND r.id = mr.role_id AND mr.is_primary
+        LEFT JOIN identity.role rr ON rr.community_id = mr.community_id AND rr.id = mr.role_id
+        LEFT JOIN identity.role_group g ON g.community_id = rr.community_id AND g.id = rr.group_id
+        WHERE m.id = CAST(:id AS uuid) GROUP BY m.id, m.display_name, m.status, r.name""";
     static final String LINKS = """
         SELECT l.person_id, l.unit_id, u.unit_no, l.days, l.from_time::text AS from_time, l.to_time::text AS to_time, l.status
         FROM gate.household_link l JOIN property.unit u ON u.community_id = l.community_id AND u.id = l.unit_id WHERE l.person_id = CAST(:person AS uuid)""";
@@ -55,6 +63,10 @@ public final class JdbcGateDirectory implements GateDirectory {
                 n(rs, "patrol_min_seconds", 20), d, Rows.list(rs, "approved_companies", String::valueOf));
         });
         return s.isEmpty() ? new Gate.Settings(60, "Hold at gate", 30, 10, 2, null, null, "Hold at gate", "Block until the guard confirms", 20, Map.of(), List.of()) : s.get(0);
+    }
+    @Override public Optional<Gate.Staff> staff(UUID memberId) {
+        return jdbc.query(STAFF, Map.of("id", memberId.toString()), (rs, i) -> new Gate.Staff(Rows.uuid(rs, "id"), rs.getString("display_name"), rs.getString("role_name"),
+            "Active".equals(rs.getString("status")), rs.getBoolean("staff"))).stream().findFirst();
     }
     @Override public Gate.UnitRule unitRule(UnitId unit) {
         return jdbc.query(UNIT_RULE, Map.of("unit", unit.toString()), (rs, i) -> new Gate.UnitRule(unit, rs.getString("delivery_mode"), Rows.list(rs, "companies", String::valueOf),

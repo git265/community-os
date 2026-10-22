@@ -47,6 +47,7 @@ public class GateController {
                                   @Size(max = 40) String gate, @Size(max = 20) String vehicle) {}
     public record OverrideRequest(@Size(max = 120) String name, @NotBlank @Size(max = 300) String reason, @Size(max = PHOTO) String photo, UUID unitId, @Size(max = 40) String gate, @Size(max = 20) String vehicle) {}
     public record AdmitApprovedRequest(@Size(max = 300) String manualReason) {}
+    public record BadgeRequest(@NotBlank @Size(max = 120) String code, @Size(max = 40) String gate) {}
     public record NoteRequest(@Size(max = 300) String note) {}
     public record ExitRequest(@Size(max = 30) String method) {}
     public record ExitGoodsRequest(@NotNull @Min(0) @Max(200) Integer people, Boolean itemsChecked) {}
@@ -131,6 +132,14 @@ public class GateController {
     }
     @PostMapping("/api/v1/gate/people/{id}/exit")
     public Gate.Visit exitPerson(@PathVariable UUID id, @Valid @RequestBody ExitRequest b) { return gate.exitPerson(CallerHolder.require(), id, b.method()); }
+
+    // ---- staff badges ----------------------------------------------------------------------------------------------------------------------------
+    @GetMapping("/api/v1/gate/badge/mine")
+    public GateService.Badge myBadge() { return gate.myBadge(CallerHolder.require()); }
+    @PostMapping("/api/v1/gate/badge/check")
+    public GateService.BadgeHolder checkBadge(@Valid @RequestBody BadgeRequest b) { return gate.checkBadge(CallerHolder.require(), b.code()); }
+    @PostMapping("/api/v1/gate/badge")
+    public GateService.Outcome badge(@Valid @RequestBody BadgeRequest b) { return gate.badge(CallerHolder.require(), b.code(), b.gate()); }
 
     // ---- approvals, flags, patrols ----------------------------------------------------------------------------------------------------------------
     @GetMapping("/api/v1/gate/approvals")

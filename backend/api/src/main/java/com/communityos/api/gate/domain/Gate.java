@@ -24,7 +24,7 @@ public final class Gate {
     public static final List<String> PERSON_CLASSES = List.of("Maid / cook", "Nanny / caretaker", "Driver", "Delivery rider", "Daily worker", "Landscaper", "Vendor staff", "Contractor", "Other");
     public static final List<String> PERSON_STATUS = List.of("Invited", "Documents pending", "Under review", "Active", "Suspended", "Blocked");
     public static final List<String> VETTED = List.of("Active", "Under review", "Suspended", "Blocked");
-    public static final List<String> KINDS = List.of("Guest", "Delivery", "Cab", "Maid / cook", "Driver", "Crew", "Resident vehicle", "Goods vehicle", "Emergency", "Other");
+    public static final List<String> KINDS = List.of("Guest", "Delivery", "Cab", "Maid / cook", "Driver", "Crew", "Staff", "Resident vehicle", "Goods vehicle", "Emergency", "Other");
     public static final List<String> PASS_TYPES = List.of("One-time", "Recurring", "Event", "Goods");
     public static final List<String> RESOLUTIONS = List.of("Registered late", "False alarm", "Escorted out", "Escalated to manager");
     public static final List<String> GATES = List.of("Main gate", "Service gate", "Gate 3");
@@ -56,6 +56,8 @@ public final class Gate {
     /** A person in the vetted registry. */
     public record Person(UUID id, String name, String personClass, String phone, String photo, String status, String vendor, String deliveryCompany, LocalDate licenceExpiry,
                          LocalDate policeExpiry, String vehicleNo, String statusReason) {}
+    /** A staff member scanned at the gate: still a member, and on the staff. */
+    public record Staff(UUID memberId, String name, String roleName, boolean active, boolean staff) {}
     /** A household-staff link: this person works for this unit on these days and hours. */
     public record Link(UUID personId, UnitId unit, String unitNo, List<String> days, LocalTime fromTime, LocalTime toTime, String status) {}
     /** A crew work order with its roster. */
@@ -102,6 +104,8 @@ public final class Gate {
     public static final class Visit {
         public UUID id; public String shortId; public String name, kind = "Guest"; public UnitId unit; public String unitNo; public String gate = "Main gate"; public String company, vehicle, phone, purpose;
         public VisitState state = VisitState.INSIDE; public String method = "Guard manual"; public Instant inAt, outAt, expectedUntil; public String photo; public UUID personId, passId, workOrderId, approvalId;
+        /** A staff member's own visit (their badge): the membership. */
+        public UUID memberId;
         public String note; public Integer headcountExpected, headcountIn, headcountOut; public String material; public boolean carryingOut; public String outItems, openReason, outMethod;
         public UUID verifiedBy; public String verifiedByName; public Instant createdAt; public long version;
         public void move(VisitState to) {

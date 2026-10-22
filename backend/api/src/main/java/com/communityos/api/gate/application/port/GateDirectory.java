@@ -18,6 +18,8 @@ public interface GateDirectory {
     /** Add a company to a villa's allow-list ("always allow" on a delivery). */
     void allowCompany(UnitId unit, String company);
     Optional<Gate.Person> person(UUID id);
+    /** A membership as the gate sees it (name, role, still active, on the staff). */
+    Optional<Gate.Staff> staff(UUID memberId);
     List<Gate.Link> links(UUID personId);
     List<Gate.WorkOrder> activeWorkOrders();
     Optional<UnitRef> unit(UnitId unit);

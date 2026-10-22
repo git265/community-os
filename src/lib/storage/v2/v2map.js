@@ -438,7 +438,7 @@ export function gateVisitOf(v) {
   return {
     id: v.id, shortId: v.shortId, name: v.name, kind: v.kind, unit: v.unitNo || (v.unit ? '' : 'Common area'), unitId: v.unit || '', gate: v.gate || '', company: v.company || '', vehicle: v.vehicle || '',
     phone: v.phone || '', purpose: v.purpose || '', state: v.state, method: v.method || '', inAt: isoOr(v.inAt), outAt: isoOr(v.outAt), expectedUntil: isoOr(v.expectedUntil), photo: v.photo || '',
-    personId: v.personId || '', passId: v.passId || '', workOrderId: v.workOrderId || '', approvalId: v.approvalId || '', note: v.note || '', headcountExpected: v.headcountExpected ?? '',
+    personId: v.personId || '', memberId: v.memberId || '', passId: v.passId || '', workOrderId: v.workOrderId || '', approvalId: v.approvalId || '', note: v.note || '', headcountExpected: v.headcountExpected ?? '',
     headcountIn: v.headcountIn ?? '', headcountOut: v.headcountOut ?? '', material: v.material || '', carryingOut: !!v.carryingOut, outItems: v.outItems || '', openReason: v.openReason || '',
     outMethod: v.outMethod || '', verifiedBy: v.verifiedByName || '', version: v.version,
   };
@@ -750,4 +750,7 @@ export const attendanceOf = (a) => ({ id: a.id, shortId: a.shortId, memberId: a.
   note: a.note || '', inLat: num(a.in?.lat), inLng: num(a.in?.lng), inAcc: num(a.in?.acc), inSite: a.in?.site || '', inDist: num(a.in?.dist), outLat: num(a.out?.lat), outLng: num(a.out?.lng),
   outAcc: num(a.out?.acc), outSite: a.out?.site || '', outDist: num(a.out?.dist), hours: num(a.hours) ?? '', source: a.source, shiftType: a.shiftType || '', lateMin: a.lateMin ?? 0,
   correctionNote: a.correctionNote || '', version: a.version });
+/** A line of the attendance report (GET /workforce/attendance/report): the session (null on a day seen only at the gate) and the gate beside it. */
+export const reportLineOf = (l) => ({ ...(l.session ? attendanceOf(l.session) : { id: `gate-${l.memberId}-${l.date}`, memberId: l.memberId, staffName: l.staffName, date: l.date, clockIn: '', clockOut: '', gateOnly: true }),
+  gateIn: l.gateIn || '', gateOut: l.gateOut || '', gateInside: !!l.gateInside, gateHours: num(l.gateHours) ?? null, flags: l.flags || [] });
 export const teamOf = (t) => ({ id: t.team, team: t.team, onDuty: t.onDuty, total: t.total });

@@ -48,6 +48,17 @@ public class WorkforceController {
     public List<SessionResponse> list(@RequestParam(required = false) LocalDate from, @RequestParam(required = false) LocalDate to, @RequestParam(required = false) UUID memberId) {
         return attendance.list(CallerHolder.require(), from, to, memberId).stream().map(SessionResponse::of).toList();
     }
+    public record ReportLineResponse(SessionResponse session, UUID memberId, String staffName, LocalDate date, Instant gateIn, Instant gateOut, boolean gateInside, BigDecimal gateHours,
+                                     List<String> flags) {
+        static ReportLineResponse of(Attendance.ReportLine l) {
+            return new ReportLineResponse(l.session() == null ? null : SessionResponse.of(l.session()), l.memberId(), l.staffName(), l.date(), l.gateIn(), l.gateOut(), l.gateInside(), l.gateHours(), l.flags());
+        }
+    }
+    /** Attendance with the gate: each session with that day's badge-in and badge-out, days seen only at the gate, and what does not add up. */
+    @GetMapping("/api/v1/workforce/attendance/report")
+    public List<ReportLineResponse> report(@RequestParam(required = false) LocalDate from, @RequestParam(required = false) LocalDate to, @RequestParam(required = false) UUID memberId) {
+        return attendance.report(CallerHolder.require(), from, to, memberId).stream().map(ReportLineResponse::of).toList();
+    }
     @GetMapping("/api/v1/workforce/attendance/mine")
     public ResponseEntity<SessionResponse> mine() { Attendance.Session x = attendance.mine(CallerHolder.require()); return x == null ? ResponseEntity.noContent().build() : ResponseEntity.ok(SessionResponse.of(x)); }
     @PostMapping("/api/v1/workforce/attendance/clock-in")

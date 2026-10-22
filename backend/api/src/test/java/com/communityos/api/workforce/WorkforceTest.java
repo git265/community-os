@@ -84,6 +84,58 @@ class WorkforceTest {
         assertEquals(new BigDecimal("12.00"), closed.hours); assertTrue(closed.note.contains("no clock-out"));
     }
 
+    static Attendance.Session session(UUID m, String name, String in, String out) {
+        Attendance.Session x = new Attendance.Session(); x.id = UUID.randomUUID(); x.memberId = m; x.staffName = name; x.clockIn = Instant.parse(in); x.clockOut = out == null ? null : Instant.parse(out);
+        x.date = LocalDate.ofInstant(x.clockIn, IST); return x;
+    }
+    @Test void gateBesideTheClock() {
+        UUID ravi = UUID.randomUUID(), meena = UUID.randomUUID(), arun = UUID.randomUUID();
+        Instant now = Instant.parse("2026-10-20T14:00:00Z");   // 19:30 IST
+        // Ravi: gate 09:00-17:40, clock 08:40-18:00 (clocked in before the gate, left the gate before clocking out)
+        // Meena: gate 08:55-still inside, clock 09:00-17:00 (still inside after clocking out)
+        // Arun: at the gate 10:00-12:00, never clocked in
+        var sessions = List.of(session(ravi, "Ravi", "2026-10-20T03:10:00Z", "2026-10-20T12:30:00Z"), session(meena, "Meena", "2026-10-20T03:30:00Z", "2026-10-20T11:30:00Z"));
+        var stays = List.of(new Attendance.GateStay(ravi, "Ravi", Instant.parse("2026-10-20T03:30:00Z"), Instant.parse("2026-10-20T12:10:00Z")),
+            new Attendance.GateStay(meena, "Meena", Instant.parse("2026-10-20T03:25:00Z"), null),
+            new Attendance.GateStay(arun, "Arun", Instant.parse("2026-10-20T04:30:00Z"), Instant.parse("2026-10-20T06:30:00Z")));
+        var lines = Attendance.withGate(sessions, stays, IST, 15, now);
+        assertEquals(3, lines.size());
+        var r = lines.stream().filter((l) -> l.memberId().equals(ravi)).findFirst().orElseThrow();
+        assertEquals(List.of(Attendance.BEFORE_GATE, Attendance.LEFT_EARLY), r.flags()); assertEquals(new BigDecimal("8.67"), r.gateHours());
+        var m = lines.stream().filter((l) -> l.memberId().equals(meena)).findFirst().orElseThrow();
+        assertTrue(m.gateInside()); assertEquals(List.of(Attendance.STAYED), m.flags());
+        var a = lines.stream().filter((l) -> l.memberId().equals(arun)).findFirst().orElseThrow();
+        assertNull(a.session()); assertEquals(List.of(Attendance.GATE_ONLY), a.flags()); assertEquals(new BigDecimal("2.00"), a.gateHours());
+        // within the tolerance: nothing to say
+        var fine = Attendance.withGate(List.of(session(ravi, "Ravi", "2026-10-20T03:25:00Z", "2026-10-20T12:00:00Z")), List.of(stays.get(0)), IST, 15, now);
+        assertEquals(List.of(), fine.get(0).flags());
+        // a community that does not use badges: no "no gate entry" flags at all; one that does: said for the day without a badge
+        assertEquals(List.of(), Attendance.withGate(sessions, List.of(), IST, 15, now).get(0).flags());
+        var none = Attendance.withGate(sessions, List.of(stays.get(2)), IST, 15, now);
+        assertTrue(none.stream().filter((l) -> l.session() != null).allMatch((l) -> l.flags().equals(List.of(Attendance.NO_GATE))));
+        assertEquals(List.of(), Attendance.withGate(List.of(session(meena, "Meena", "2026-10-17T03:30:00Z", "2026-10-17T11:30:00Z")), List.of(stays.get(2)), IST, 15, now).stream()
+            .filter((l) -> l.session() != null).findFirst().orElseThrow().flags(), "before the gate recorded any staff, nothing is missing");
+        // clocked in, badge out already: left without clocking out
+        var open = Attendance.withGate(List.of(session(ravi, "Ravi", "2026-10-20T03:25:00Z", null)), List.of(stays.get(0)), IST, 15, now);
+        assertEquals(List.of(Attendance.LEFT_CLOCKED), open.get(0).flags());
+        // a night shift across midnight keeps its gate times (22:00 to 06:00 IST); a badge far from any session is a day at the gate
+        var night = session(ravi, "Ravi", "2026-10-20T16:30:00Z", "2026-10-21T00:30:00Z");
+        var nl = Attendance.withGate(List.of(night), List.of(new Attendance.GateStay(ravi, "Ravi", Instant.parse("2026-10-20T16:25:00Z"), Instant.parse("2026-10-21T00:35:00Z")),
+            new Attendance.GateStay(ravi, "Ravi", Instant.parse("2026-10-21T10:00:00Z"), Instant.parse("2026-10-21T11:00:00Z"))), IST, 15, Instant.parse("2026-10-21T12:00:00Z"));
+        assertEquals(2, nl.size()); assertEquals(List.of(), nl.stream().filter((l) -> l.session() != null).findFirst().orElseThrow().flags());
+        assertEquals(List.of(Attendance.GATE_ONLY), nl.stream().filter((l) -> l.session() == null).findFirst().orElseThrow().flags());
+    }
+    @Test void reportScope() {
+        Store store = new Store(); MovingClock clock = new MovingClock();
+        AttendanceService svc = new AttendanceService(store, new Fixtures.Audit(), Tx.direct(), clock);
+        Caller ravi = Fixtures.caller(Caller.Category.Staff, Set.of("handyman_plumber"), Set.of(), Set.of());
+        UUID other = UUID.randomUUID();
+        store.rows.put(UUID.randomUUID(), session(ravi.membership().value(), "Ravi", "2026-10-20T03:25:00Z", null));
+        store.rows.put(UUID.randomUUID(), session(other, "Meena", "2026-10-20T03:25:00Z", null));
+        assertEquals(1, svc.report(ravi, null, null, other).size(), "staff see their own, whoever they ask for");
+        assertThrows(AccessDenied.class, () -> svc.report(Fixtures.owner(Fixtures.UNIT_A), null, null, null));
+        assertEquals("bad-period", assertThrows(DomainException.RuleViolated.class, () -> svc.report(ravi, LocalDate.of(2026, 10, 2), LocalDate.of(2026, 10, 1), null)).code());
+    }
     static final class Store implements AttendanceStore {
         Attendance.Settings settings = WorkforceTest.settings(Attendance.RECORD); String shift; final Map<UUID, Attendance.Session> rows = new LinkedHashMap<>(); final Map<UUID, Boolean> onDuty = new LinkedHashMap<>();
         @Override public Attendance.Settings settings() { return settings; }
@@ -98,5 +150,7 @@ class WorkforceTest {
         @Override public void onDuty(UUID memberId, boolean on) { onDuty.put(memberId, on); }
         @Override public String roleName(UUID memberId) { return "Plumber"; }
         @Override public List<Team> teams() { return List.of(); }
+        final List<Attendance.GateStay> stays = new ArrayList<>();
+        @Override public List<Attendance.GateStay> gateStays(LocalDate from, LocalDate to, UUID memberId, ZoneId zone) { return stays.stream().filter((g) -> memberId == null || g.memberId().equals(memberId)).toList(); }
     }
 }

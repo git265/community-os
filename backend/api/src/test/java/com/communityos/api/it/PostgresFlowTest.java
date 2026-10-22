@@ -1116,6 +1116,23 @@ class PostgresFlowTest {
             assertThrows(AccessDenied.class, () -> as(ownerC, () -> attSvc.list(ownerC, null, null, null)));
             assertTrue(as(admin, () -> attSvc.teams(admin)).stream().anyMatch((t) -> t.total() >= 1));
 
+            // ---- 6n'. the gate beside the clock: the plumber's own badge (signed on the server, each code once), in and out, the report ----------------
+            var badge = as(plumberC, () -> gateSvc.myBadge(plumberC));
+            assertTrue(badge.text().matches("GGB\\|" + plumberMember + "\\|\\d+\\|[0-9a-f]{16}"), badge.text());
+            assertThrows(AccessDenied.class, () -> as(ownerC, () -> gateSvc.myBadge(ownerC)), "residents have no badge");
+            assertThrows(AccessDenied.class, () -> as(plumberC, () -> gateSvc.badge(plumberC, badge.text(), null)), "the desk scans it, not the holder");
+            assertEquals("badge-invalid", assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> gateSvc.badge(admin, badge.text().substring(0, badge.text().length() - 16) + "0000000000000000", null))).code());
+            assertEquals("In", as(admin, () -> gateSvc.checkBadge(admin, badge.text())).direction());
+            var badgeIn = as(admin, () -> gateSvc.badge(admin, badge.text(), "Main gate"));
+            assertEquals("Staff", badgeIn.visit().kind); assertEquals(plumberMember, badgeIn.visit().memberId);
+            assertEquals("badge-used", assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> gateSvc.badge(admin, badge.text(), null))).code(), "a code is used once");
+            var gateLater = new com.communityos.api.gate.application.GateService(new com.communityos.api.gate.adapter.JdbcGateStore(app), new com.communityos.api.gate.adapter.JdbcGateDirectory(app, json),
+                events, audit, app, Clock.offset(clock, java.time.Duration.ofSeconds(31)));
+            var badgeOut = as(admin, () -> gateLater.badge(admin, as(plumberC, () -> gateLater.myBadge(plumberC)).text(), "Main gate"));
+            assertEquals("out", badgeOut.outcome()); assertEquals(com.communityos.api.gate.domain.Gate.VisitState.EXITED, badgeOut.visit().state);
+            var lines = as(admin, () -> attSvc.report(admin, today.minusDays(1), today.plusDays(1), plumberMember));
+            assertTrue(lines.stream().anyMatch((l) -> l.gateIn() != null && l.gateOut() != null), "the badge times are in the report");
+
             // ---- 6o. reports: built on the server from the community's data, a resident's own unit only, a schedule sent to a unit and kept --------------
             var repSvc = new com.communityos.api.reports.application.ReportService(new com.communityos.api.reports.adapter.JdbcReportData(app), inbox, json, audit, app, clock);
             for (String type : List.of("bookings", "dues", "collections", "water", "tasks", "audits", "infra", "eventwork"))

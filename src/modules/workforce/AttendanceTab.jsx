@@ -1,10 +1,10 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useApp, useCollection } from '../../context/AppContext.jsx';
 import { COLLECTIONS as C } from '../../lib/storage/index.js';
 import { canWriteCollection } from '../../lib/security/authz.js';
 import { getPrincipal } from '../../lib/security/principal.js';
 import Modal from '../../components/Modal.jsx';
-import { hhmm, mapLink, summarise } from '../../lib/attendance.js';
+import { hhmm, mapLink, summarise, loadReport } from '../../lib/attendance.js';
 import { iso, addDays, weekStart, monthStart, monthEnd } from '../../lib/shifts.js';
 
 const dshort = (s) => (s ? new Date(`${s}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '');
@@ -70,13 +70,23 @@ export default function AttendanceTab() {
     if (k === 'today') { setFrom(today); setTo(today); } else if (k === 'week') { setFrom(weekStart(today)); setTo(addDays(weekStart(today), 6)); } else if (k === 'month') { setFrom(monthStart(today)); setTo(monthEnd(today)); } else if (k === 'last30') { setFrom(addDays(today, -29)); setTo(today); }
   }
   const names = [...new Set([...records.map((r) => r.staffName), ...crew.map((c) => c.name)])].filter(Boolean).sort();
-  const rows = useMemo(() => records.filter((r) => r.date >= from && r.date <= to && (!who || r.staffName === who)
-    && (!flag || (flag === 'late' && r.lateMin > 0) || (flag === 'outside' && (r.inSite === 'Outside site' || r.outSite === 'Outside site')) || (flag === 'nogps' && r.inSite === 'Location unavailable') || (flag === 'open' && !r.clockOut)))
-    .sort((a, b) => `${b.date}${b.clockIn}`.localeCompare(`${a.date}${a.clockIn}`)), [records, from, to, who, flag]);
-  const totals = useMemo(() => summarise(rows), [rows]);
+  // the report: each session with the gate's badge-in / badge-out beside it (built by the server on the back end), reloaded when punches change
+  const [lines, setLines] = useState(null); const [loadErr, setLoadErr] = useState('');
+  useEffect(() => {
+    let live = true;
+    loadReport({ from, to, mineOnly: !manager }).then((l) => { if (live) { setLines(l); setLoadErr(''); } }).catch((e) => { if (live) { setLines([]); setLoadErr(e.message || 'The report could not be loaded'); } });
+    return () => { live = false; };
+  }, [records, from, to, manager]);
+  const rows = useMemo(() => (lines || []).filter((r) => (!who || r.staffName === who)
+    && (!flag || (flag === 'late' && r.lateMin > 0) || (flag === 'outside' && (r.inSite === 'Outside site' || r.outSite === 'Outside site')) || (flag === 'nogps' && r.inSite === 'Location unavailable') || (flag === 'open' && !r.gateOnly && !r.clockOut)
+      || (flag === 'gate' && r.flags?.length > 0) || (flag === 'gateonly' && r.gateOnly))), [lines, who, flag]);
+  const sessionsOnly = useMemo(() => rows.filter((r) => !r.gateOnly), [rows]);
+  const gateIssues = useMemo(() => rows.reduce((m, r) => (r.flags?.length ? m.set(r.staffName, (m.get(r.staffName) || 0) + 1) : m), new Map()), [rows]);
+  const totals = useMemo(() => summarise(sessionsOnly).map((t) => ({ ...t, gate: gateIssues.get(t.name) || 0 })), [sessionsOnly, gateIssues]);
+  const anyGate = rows.some((r) => r.gateIn);
   const onDuty = records.filter((r) => !r.clockOut && r.date >= addDays(today, -1));
-  const hrs = (r) => (r.clockOut ? Number(r.hours) || 0 : Math.max(0, (Date.now() - new Date(r.clockIn)) / 3600000));
-  const sessionCsv = () => rows.map((r) => ({ Date: r.date, Staff: r.staffName, Role: r.roleName, Shift: r.shiftType, 'Clock in': hhmm(r.clockIn), 'Clock out': hhmm(r.clockOut), Hours: hrs(r).toFixed(2), 'Late (min)': r.lateMin || 0, 'In location': r.inSite, 'In lat': r.inLat, 'In lng': r.inLng, 'In accuracy (m)': r.inAcc, 'Out location': r.outSite, 'Out lat': r.outLat, 'Out lng': r.outLng, Note: r.note }));
+  const hrs = (r) => (r.gateOnly ? 0 : r.clockOut ? Number(r.hours) || 0 : Math.max(0, (Date.now() - new Date(r.clockIn)) / 3600000));
+  const sessionCsv = () => rows.map((r) => ({ Date: r.date, Staff: r.staffName, Role: r.roleName, Shift: r.shiftType, 'Clock in': hhmm(r.clockIn), 'Clock out': hhmm(r.clockOut), Hours: hrs(r).toFixed(2), 'Late (min)': r.lateMin || 0, 'In location': r.inSite, 'In lat': r.inLat, 'In lng': r.inLng, 'In accuracy (m)': r.inAcc, 'Out location': r.outSite, 'Out lat': r.outLat, 'Out lng': r.outLng, 'Gate in': hhmm(r.gateIn), 'Gate out': r.gateInside ? 'inside' : hhmm(r.gateOut), 'Gate hours': r.gateHours ?? '', 'Gate check': (r.flags || []).join('; '), Note: r.note || '' }));
 
   return (
     <div data-testid="attendance-tab">
@@ -93,24 +103,27 @@ export default function AttendanceTab() {
           <input type="date" aria-label="From" value={from} onChange={(e) => { setPreset('custom'); setFrom(e.target.value); }} style={{ width: 'auto' }} />
           <input type="date" aria-label="To" value={to} onChange={(e) => { setPreset('custom'); setTo(e.target.value); }} style={{ width: 'auto' }} />
           {manager && <select aria-label="Person" value={who} onChange={(e) => setWho(e.target.value)} style={{ width: 'auto' }}><option value="">Everyone</option>{names.map((n) => <option key={n}>{n}</option>)}</select>}
-          {manager && <select aria-label="Exceptions" value={flag} onChange={(e) => setFlag(e.target.value)} style={{ width: 'auto' }}><option value="">All punches</option><option value="late">Late arrivals</option><option value="outside">Outside the site</option><option value="nogps">No location</option><option value="open">Still clocked in</option></select>}
+          {manager && <select aria-label="Exceptions" value={flag} onChange={(e) => setFlag(e.target.value)} style={{ width: 'auto' }}><option value="">All punches</option><option value="late">Late arrivals</option><option value="outside">Outside the site</option><option value="nogps">No location</option><option value="open">Still clocked in</option><option value="gate">Gate and clock disagree</option><option value="gateonly">At the gate, not clocked in</option></select>}
           <button type="button" className="btn secondary sm" data-testid="att-csv" disabled={!rows.length} onClick={() => csv(`attendance-${from}-to-${to}.csv`, sessionCsv())}>⬇ CSV</button>
-          {manager && <button type="button" className="btn secondary sm" disabled={!totals.length} onClick={() => csv(`attendance-summary-${from}-to-${to}.csv`, totals.map((t) => ({ Staff: t.name, Role: t.role, 'Days present': t.days, Sessions: t.sessions, 'Total hours': t.hours, 'Late arrivals': t.late, 'Outside site': t.outside, 'No location': t.noGps })))}>⬇ Summary CSV</button>}
+          {manager && <button type="button" className="btn secondary sm" disabled={!totals.length} onClick={() => csv(`attendance-summary-${from}-to-${to}.csv`, totals.map((t) => ({ Staff: t.name, Role: t.role, 'Days present': t.days, Sessions: t.sessions, 'Total hours': t.hours, 'Late arrivals': t.late, 'Outside site': t.outside, 'No location': t.noGps, 'Gate checks': t.gate })))}>⬇ Summary CSV</button>}
           {canEdit && <button type="button" className="btn sm" data-testid="att-add" onClick={() => setModal({ date: today, source: 'Manager entry' })}>+ Manual entry</button>}
         </div>
 
         {manager && totals.length > 0 && (
-          <table className="table" data-testid="att-summary" style={{ marginBottom: 12 }}><thead><tr><th>Staff</th><th>Days present</th><th>Total hours</th><th>Late</th><th>Outside site</th><th>No location</th></tr></thead>
-            <tbody>{totals.map((t) => <tr key={t.name}><td data-label="Staff"><b>{t.name}</b><br /><small className="muted">{t.role}</small></td><td data-label="Days">{t.days}</td><td data-label="Hours">{t.hours.toFixed(1)}</td><td data-label="Late">{t.late || '—'}</td><td data-label="Outside">{t.outside || '—'}</td><td data-label="No location">{t.noGps || '—'}</td></tr>)}</tbody></table>
+          <table className="table" data-testid="att-summary" style={{ marginBottom: 12 }}><thead><tr><th>Staff</th><th>Days present</th><th>Total hours</th><th>Late</th><th>Outside site</th><th>No location</th><th>Gate checks</th></tr></thead>
+            <tbody>{totals.map((t) => <tr key={t.name}><td data-label="Staff"><b>{t.name}</b><br /><small className="muted">{t.role}</small></td><td data-label="Days">{t.days}</td><td data-label="Hours">{t.hours.toFixed(1)}</td><td data-label="Late">{t.late || '—'}</td><td data-label="Outside">{t.outside || '—'}</td><td data-label="No location">{t.noGps || '—'}</td><td data-label="Gate checks">{t.gate ? <span className="tag orange">{t.gate}</span> : '—'}</td></tr>)}</tbody></table>
         )}
 
-        {rows.length === 0 ? <div className="empty">No punches in this period.</div> : (
-          <table className="table" data-testid="att-rows"><thead><tr><th>Date</th>{manager && <th>Staff</th>}<th>Shift</th><th>In</th><th>Out</th><th>Hours</th><th>Clock-in place</th><th>Clock-out place</th>{canEdit && <th />}</tr></thead>
+        {loadErr && <div className="field-error" role="alert">{loadErr}</div>}
+        {lines === null ? <div className="muted">Loading…</div> : rows.length === 0 ? <div className="empty">No punches in this period.</div> : (
+          <table className="table" data-testid="att-rows"><thead><tr><th>Date</th>{manager && <th>Staff</th>}<th>Shift</th><th>In</th><th>Out</th><th>Hours</th><th>Gate in / out</th><th>Clock-in place</th><th>Clock-out place</th>{canEdit && <th />}</tr></thead>
             <tbody>{rows.map((r) => (
               <tr key={r.id} data-testid="att-row"><td data-label="Date">{dshort(r.date)}</td>{manager && <td data-label="Staff"><b>{r.staffName}</b></td>}<td data-label="Shift">{r.shiftType || '—'}{r.lateMin > 0 ? <small className="tag orange" style={{ marginLeft: 4 }}>{r.lateMin} min late</small> : null}</td>
-                <td data-label="In">{hhmm(r.clockIn) || '—'}</td><td data-label="Out">{r.clockOut ? hhmm(r.clockOut) : <span className="tag green">on duty</span>}</td><td data-label="Hours">{hrs(r).toFixed(2)}</td>
-                <td data-label="In place"><Place site={r.inSite} lat={r.inLat} lng={r.inLng} dist={r.inDist} /></td><td data-label="Out place">{r.clockOut ? <Place site={r.outSite} lat={r.outLat} lng={r.outLng} dist={r.outDist} /> : '—'}</td>
-                {canEdit && <td><button type="button" className="btn secondary sm" onClick={() => setModal(r)}>Correct</button></td>}</tr>
+                <td data-label="In">{r.gateOnly ? <span className="muted">not clocked in</span> : hhmm(r.clockIn) || '—'}</td><td data-label="Out">{r.gateOnly ? '—' : r.clockOut ? hhmm(r.clockOut) : <span className="tag green">on duty</span>}</td><td data-label="Hours">{r.gateOnly ? '—' : hrs(r).toFixed(2)}</td>
+                <td data-label="Gate" data-testid="att-gate">{r.gateIn ? <>{hhmm(r.gateIn)} – {r.gateInside ? <span className="tag green">inside</span> : hhmm(r.gateOut)}{r.gateHours != null ? <small className="muted"> · {Number(r.gateHours).toFixed(1)} h</small> : null}</> : <span className="muted">{anyGate ? 'no badge' : '—'}</span>}
+                  {(r.flags || []).map((f) => <div key={f}><small className="tag orange" data-testid="att-flag">{f}</small></div>)}</td>
+                <td data-label="In place">{r.gateOnly ? '—' : <Place site={r.inSite} lat={r.inLat} lng={r.inLng} dist={r.inDist} />}</td><td data-label="Out place">{r.clockOut ? <Place site={r.outSite} lat={r.outLat} lng={r.outLng} dist={r.outDist} /> : '—'}</td>
+                {canEdit && <td>{!r.gateOnly && <button type="button" className="btn secondary sm" onClick={() => setModal(records.find((x) => x.id === r.id) || r)}>Correct</button>}</td>}</tr>
             ))}</tbody></table>
         )}
       </div>

@@ -23,6 +23,12 @@ public interface GateStore {
     // visits
     List<Gate.Visit> visits(Spec<Gate.Visit> scope, VisitFilter f);
     Optional<Gate.Visit> visit(UUID id, Spec<Gate.Visit> scope);
+    /** A staff member's open visit. */
+    Optional<Gate.Visit> insideByMember(UUID member);
+    /** The community's badge key (made on first use). */
+    byte[] badgeKey();
+    /** Mark a badge window used for this member; false when it (or a later one) was used already. Locks the member's row. */
+    boolean useBadge(UUID member, long window);
     Optional<Gate.Visit> insideByPerson(UUID personId);
     Optional<Gate.Visit> insideByPass(UUID passId);
     /** Inside and past the time they were expected out. */

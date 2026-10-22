@@ -625,9 +625,12 @@ async function badgeMac(userId, win) {
   const sig = await crypto.subtle.sign('HMAC', await badgeKey(userId), new TextEncoder().encode(String(win)));
   return [...new Uint8Array(sig)].slice(0, 5).map((b) => b.toString(16).padStart(2, '0')).join('');
 }
-export async function badgeText(userId, at = Date.now()) { const win = Math.floor(at / BADGE_STEP); return `GGB|${userId}|${win}|${await badgeMac(userId, win)}`; }
+export async function badgeText(userId, at = Date.now()) {
+  if (v2.onV2()) return v2.badgeText(userId, at);
+  const win = Math.floor(at / BADGE_STEP); return `GGB|${userId}|${win}|${await badgeMac(userId, win)}`; }
 /** Check a scanned badge: right person, current code (this 30 s or the one before), and still an active user. */
 export async function verifyBadge(text, at = Date.now()) {
+  if (v2.onV2()) return v2.verifyBadge(text);
   const m = /^GGB\|([^|]+)\|(\d+)\|([0-9a-f]+)$/.exec(String(text || '').trim());
   if (!m) return { ok: false, reason: 'This is not a staff badge' };
   const win = Number(m[2]); const now = Math.floor(at / BADGE_STEP);
@@ -640,9 +643,10 @@ export async function verifyBadge(text, at = Date.now()) {
 }
 /** Badge scanned at the gate: opens a Crew visit, or closes the open one. */
 export async function badgeEntry(user, { gate = 'Main gate' } = {}) {
-  const visits = await list(C.GATE_VISITS); const pid = `user:${user.id}`;
-  const open = visits.find((v) => v.personId === pid && v.state === 'Inside');
+  if (v2.onV2()) return v2.badgeEntry(user, { gate });
+  const visits = await list(C.GATE_VISITS);
+  const open = visits.find((v) => v.memberId === user.id && v.state === 'Inside');
   if (open) { await closeVisit(open, 'Staff badge'); return { ok: true, direction: 'Out', visit: open }; }
-  const v = await newVisit({ kind: 'Crew', name: user.name, unit: 'Common area', gate, personId: pid, photo: avatar(user.name), method: 'Staff badge', purpose: 'Staff' });
+  const v = await newVisit({ kind: 'Staff', name: user.name, unit: 'Common area', gate, memberId: user.id, photo: avatar(user.name), method: 'Staff badge', purpose: 'Staff', expectedUntil: '' });
   return { ok: true, direction: 'In', visit: v };
 }

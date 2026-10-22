@@ -35,6 +35,17 @@ public final class AttendanceService {
         UUID who = WorkforcePolicy.supervisor(c) ? memberId : c.membership().value();
         return store.sessions(from, to, who);
     }
+    /** The report: sessions with the gate's badge-in and badge-out beside them (same scope as the list: supervisors all, staff their own). */
+    public List<Attendance.ReportLine> report(Caller c, LocalDate from, LocalDate to, UUID memberId) {
+        if (!WorkforcePolicy.reader(c)) throw new AccessDenied("Residents do not have attendance records");
+        if (from != null && to != null && to.isBefore(from)) throw new DomainException.RuleViolated("bad-period", "The period ends before it starts");
+        if (from != null && to != null && from.plusDays(366).isBefore(to)) throw new DomainException.RuleViolated("period-too-long", "Choose a period of up to a year");
+        UUID who = WorkforcePolicy.supervisor(c) ? memberId : c.membership().value();
+        // badges a day either side, so a night shift's gate times are found; days seen only at the gate stay inside the period
+        List<Attendance.GateStay> stays = store.gateStays(from == null ? null : from.minusDays(1), to == null ? null : to.plusDays(1), who, clock.getZone());
+        return Attendance.withGate(store.sessions(from, to, who), stays, clock.getZone(), store.settings().graceMinutes(), clock.instant()).stream()
+            .filter((l) -> l.session() != null || ((from == null || !l.date().isBefore(from)) && (to == null || !l.date().isAfter(to)))).toList();
+    }
     public Attendance.Session mine(Caller c) {
         if (c.membership() == null) throw new AccessDenied("Sign in first");
         return store.openSession(c.membership().value()).orElse(null);

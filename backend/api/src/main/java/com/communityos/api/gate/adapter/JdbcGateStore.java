@@ -42,7 +42,7 @@ public final class JdbcGateStore implements GateStore {
     // ---- visits ------------------------------------------------------------------------------------------------------------------------------
     static final String VISIT_COLUMNS = """
         SELECT v.id, v.short_id, v.name, v.kind, v.unit_id, u.unit_no, v.gate, v.company, v.vehicle, v.phone, v.purpose, v.state, v.method, v.in_at, v.out_at, v.expected_until,
-               v.photo, v.person_id, v.pass_id, v.work_order_id, v.approval_id, v.note, v.headcount_expected, v.headcount_in, v.headcount_out, v.material, v.carrying_out,
+               v.photo, v.person_id, v.member_id, v.pass_id, v.work_order_id, v.approval_id, v.note, v.headcount_expected, v.headcount_in, v.headcount_out, v.material, v.carrying_out,
                v.out_items, v.open_reason, v.out_method, v.verified_by_id, m.display_name AS verified_by_name, v.created_at, v.version
         FROM gate.visit v LEFT JOIN property.unit u ON u.community_id = v.community_id AND u.id = v.unit_id
         LEFT JOIN identity.membership m ON m.community_id = v.community_id AND m.id = v.verified_by_id""";
@@ -51,13 +51,14 @@ public final class JdbcGateStore implements GateStore {
           AND (CAST(:from AS date) IS NULL OR v.created_at >= CAST(:from AS date)) AND (CAST(:to AS date) IS NULL OR v.created_at < CAST(:to AS date) + 1)
           AND (CAST(:open AS boolean) IS FALSE OR v.state IN ('Inside', 'Awaiting approval', 'Approved', 'No answer'))""";
     static final String INSIDE_BY_PERSON = VISIT_COLUMNS + "\nWHERE v.person_id = CAST(:person AS uuid) AND v.state = 'Inside' LIMIT 1";
+    static final String INSIDE_BY_MEMBER = VISIT_COLUMNS + "\nWHERE v.member_id = CAST(:member AS uuid) AND v.state = 'Inside' LIMIT 1";
     static final String INSIDE_BY_PASS = VISIT_COLUMNS + "\nWHERE v.pass_id = CAST(:pass AS uuid) AND v.state = 'Inside' LIMIT 1";
     static final String OVERDUE = VISIT_COLUMNS + "\nWHERE v.state = 'Inside' AND v.expected_until < CAST(:before AS timestamptz) ORDER BY v.expected_until LIMIT 500";
     static final String VISIT_INSERT = """
-        INSERT INTO gate.visit (community_id, id, name, kind, unit_id, gate, company, vehicle, phone, purpose, state, method, in_at, out_at, expected_until, photo, person_id, pass_id,
+        INSERT INTO gate.visit (community_id, id, name, kind, unit_id, gate, company, vehicle, phone, purpose, state, method, in_at, out_at, expected_until, photo, person_id, member_id, pass_id,
                                 work_order_id, approval_id, note, headcount_expected, headcount_in, headcount_out, material, carrying_out, out_items, open_reason, out_method, verified_by_id)
         VALUES (platform.current_community(), CAST(:id AS uuid), :name, :kind, CAST(:unit AS uuid), :gate, :company, :vehicle, :phone, :purpose, :state, :method,
-                CAST(:inAt AS timestamptz), CAST(:outAt AS timestamptz), CAST(:expected AS timestamptz), :photo, CAST(:person AS uuid), CAST(:pass AS uuid), CAST(:workOrder AS uuid),
+                CAST(:inAt AS timestamptz), CAST(:outAt AS timestamptz), CAST(:expected AS timestamptz), :photo, CAST(:person AS uuid), CAST(:member AS uuid), CAST(:pass AS uuid), CAST(:workOrder AS uuid),
                 CAST(:approval AS uuid), :note, :hcExpected, :hcIn, :hcOut, :material, :carryingOut, :outItems, :openReason, :outMethod, CAST(:verifiedBy AS uuid))
         RETURNING short_id, version, created_at""";
     static final String VISIT_UPDATE = """
@@ -108,6 +109,15 @@ public final class JdbcGateStore implements GateStore {
         INSERT INTO gate.scan (community_id, checkpoint_id, checkpoint_name, guard_id, guard, at, round_id, round_name, day, note)
         VALUES (platform.current_community(), CAST(:cp AS uuid), :cpName, CAST(:guard AS uuid), :guardName, CAST(:at AS timestamptz), CAST(:round AS uuid), :roundName, CAST(:day AS date), :note)""";
 
+    // ---- staff badges ------------------------------------------------------------------------------------------------------------------------
+    static final String BADGE_KEY_MAKE = "INSERT INTO gate.badge_key (community_id) VALUES (platform.current_community()) ON CONFLICT (community_id) DO NOTHING";
+    static final String BADGE_KEY = "SELECT k.secret FROM gate.badge_key k";
+    /** Locks the member's row: a window newer than the last one used is accepted (one row comes back), the same or an older one is not. */
+    static final String BADGE_USE = """
+        INSERT INTO gate.badge_use (community_id, member_id, last_window) VALUES (platform.current_community(), CAST(:member AS uuid), :window)
+        ON CONFLICT (community_id, member_id) DO UPDATE SET last_window = excluded.last_window, used_at = now() WHERE gate.badge_use.last_window < excluded.last_window
+        RETURNING last_window""";
+
     private final NamedParameterJdbcTemplate jdbc;
     public JdbcGateStore(NamedParameterJdbcTemplate jdbc) { this.jdbc = jdbc; }
 
@@ -134,12 +144,18 @@ public final class JdbcGateStore implements GateStore {
     }
     @Override public Optional<Gate.Visit> visit(UUID id, Spec<Gate.Visit> scope) { Map<String, Object> p = new HashMap<>(scope.params()); p.put("id", id.toString()); return jdbc.query(visitSql(scope.sql()), p, (rs, i) -> visit(rs)).stream().findFirst(); }
     @Override public Optional<Gate.Visit> insideByPerson(UUID person) { return jdbc.query(INSIDE_BY_PERSON, Map.of("person", person.toString()), (rs, i) -> visit(rs)).stream().findFirst(); }
+    @Override public Optional<Gate.Visit> insideByMember(UUID member) { return jdbc.query(INSIDE_BY_MEMBER, Map.of("member", member.toString()), (rs, i) -> visit(rs)).stream().findFirst(); }
+    @Override public byte[] badgeKey() {
+        jdbc.update(BADGE_KEY_MAKE, Map.of());
+        return jdbc.query(BADGE_KEY, Map.of(), (rs, i) -> rs.getBytes("secret")).get(0);
+    }
+    @Override public boolean useBadge(UUID member, long window) { return !jdbc.query(BADGE_USE, Map.of("member", member.toString(), "window", window), (rs, i) -> rs.getLong(1)).isEmpty(); }
     @Override public Optional<Gate.Visit> insideByPass(UUID pass) { return jdbc.query(INSIDE_BY_PASS, Map.of("pass", pass.toString()), (rs, i) -> visit(rs)).stream().findFirst(); }
     @Override public List<Gate.Visit> overdue(Instant before) { return jdbc.query(OVERDUE, Map.of("before", Rows.ts(before)), (rs, i) -> visit(rs)); }
     @Override public void insert(Gate.Visit v) {
         Map<String, Object> p = visitParams(v);
         p.put("name", v.name); p.put("kind", v.kind); p.put("unit", uid(v.unit)); p.put("gate", v.gate); p.put("company", v.company); p.put("vehicle", v.vehicle); p.put("phone", v.phone);
-        p.put("purpose", v.purpose); p.put("photo", v.photo); p.put("person", s(v.personId)); p.put("pass", s(v.passId)); p.put("workOrder", s(v.workOrderId)); p.put("approval", s(v.approvalId));
+        p.put("purpose", v.purpose); p.put("photo", v.photo); p.put("person", s(v.personId)); p.put("member", s(v.memberId)); p.put("pass", s(v.passId)); p.put("workOrder", s(v.workOrderId)); p.put("approval", s(v.approvalId));
         p.put("hcExpected", v.headcountExpected); p.put("hcIn", v.headcountIn); p.put("material", v.material); p.put("carryingOut", v.carryingOut); p.put("outItems", v.outItems);
         p.put("verifiedBy", s(v.verifiedBy));
         jdbc.query(VISIT_INSERT, p, (rs, i) -> { v.shortId = rs.getString("short_id"); v.version = rs.getLong("version"); v.createdAt = Rows.instant(rs, "created_at"); return null; });
@@ -219,7 +235,7 @@ public final class JdbcGateStore implements GateStore {
         v.id = Rows.uuid(rs, "id"); v.shortId = rs.getString("short_id"); v.name = rs.getString("name"); v.kind = rs.getString("kind"); v.unit = unit(rs, "unit_id"); v.unitNo = rs.getString("unit_no");
         v.gate = rs.getString("gate"); v.company = rs.getString("company"); v.vehicle = rs.getString("vehicle"); v.phone = rs.getString("phone"); v.purpose = rs.getString("purpose");
         v.state = Gate.VisitState.of(rs.getString("state")); v.method = rs.getString("method"); v.inAt = Rows.instant(rs, "in_at"); v.outAt = Rows.instant(rs, "out_at");
-        v.expectedUntil = Rows.instant(rs, "expected_until"); v.photo = rs.getString("photo"); v.personId = Rows.uuid(rs, "person_id"); v.passId = Rows.uuid(rs, "pass_id");
+        v.expectedUntil = Rows.instant(rs, "expected_until"); v.photo = rs.getString("photo"); v.personId = Rows.uuid(rs, "person_id"); v.memberId = Rows.uuid(rs, "member_id"); v.passId = Rows.uuid(rs, "pass_id");
         v.workOrderId = Rows.uuid(rs, "work_order_id"); v.approvalId = Rows.uuid(rs, "approval_id"); v.note = rs.getString("note"); v.headcountExpected = i(rs, "headcount_expected");
         v.headcountIn = i(rs, "headcount_in"); v.headcountOut = i(rs, "headcount_out"); v.material = rs.getString("material"); v.carryingOut = rs.getBoolean("carrying_out");
         v.outItems = rs.getString("out_items"); v.openReason = rs.getString("open_reason"); v.outMethod = rs.getString("out_method"); v.verifiedBy = Rows.uuid(rs, "verified_by_id");

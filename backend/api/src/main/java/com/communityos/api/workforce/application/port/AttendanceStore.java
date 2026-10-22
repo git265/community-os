@@ -14,6 +14,8 @@ public interface AttendanceStore {
     List<Attendance.Session> overdue();
     Optional<Attendance.Session> session(UUID id, boolean lock);
     List<Attendance.Session> sessions(LocalDate from, LocalDate to, UUID memberId);
+    /** Staff members' stays inside the gate (badge in and out) that began in the period. */
+    List<Attendance.GateStay> gateStays(LocalDate from, LocalDate to, UUID memberId, java.time.ZoneId zone);
     void insert(Attendance.Session s);
     boolean update(Attendance.Session s);
     boolean delete(UUID id, long version);

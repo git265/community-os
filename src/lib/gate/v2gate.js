@@ -48,6 +48,21 @@ export const scanCheckpoint = (text, { note = '' } = {}) => soft(async () => {
   const r = await call('/gate/scans', { text, note: note || null });
   return { ok: true, checkpoint: { name: r.checkpoint }, round: r.round ? { name: r.round } : null, progress: r.round ? { done: Array(r.done).fill(0), total: r.total, complete: r.complete } : null };
 });
+// staff badges: signed by the server with the community's key; the code is fetched once per 30-second window
+let badgeCache = { window: -1, text: '' };
+export async function badgeText(_userId, at = Date.now()) {
+  const w = Math.floor(at / 30000);
+  if (badgeCache.window !== w) { const b = await call('/gate/badge/mine'); badgeCache = { window: w, text: b.text }; }
+  return badgeCache.text;
+}
+export async function verifyBadge(text) {
+  try { const h = await call('/gate/badge/check', { code: String(text || '').trim() }); return { ok: true, direction: h.direction, user: { id: h.memberId, name: h.name, roleId: h.roleName || 'Staff', code: String(text).trim() } }; }
+  catch (e) { if (e.status === 422 || e.status === 403) return { ok: false, reason: e.message }; throw e; }
+}
+export const badgeEntry = (user, { gate = 'Main gate' } = {}) => soft(async () => {
+  const o = outcome(await call('/gate/badge', { code: user.code, gate }));
+  return o.ok ? { ok: true, direction: o.outcome === 'out' ? 'Out' : 'In', visit: o.visit } : o;
+});
 export async function guardBeat() { try { await call('/gate/beat', {}); } catch { /* best effort */ } }
 /** The server sweeps every half minute; the console only re-reads. */
 export async function sweep() { return 0; }

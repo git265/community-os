@@ -452,6 +452,11 @@ globalThis.fetch = async (url, init = {}) => {
   // ---- attendance
   state.sessions ||= [];
   if (path === '/workforce/attendance' && method === 'GET') return ok(state.sessions);
+  if (path.startsWith('/workforce/attendance/report') && method === 'GET') return ok([{ session: state.sessions[0] || null, memberId: 'm1', staffName: 'Ravi', date: '2026-10-20', gateIn: '2026-10-20T03:30:00Z', gateOut: null, gateInside: true, gateHours: '2.50', flags: ['Clocked in before the gate'] },
+    { session: null, memberId: 'm2', staffName: 'Arun', date: '2026-10-20', gateIn: '2026-10-20T04:30:00Z', gateOut: '2026-10-20T06:30:00Z', gateInside: false, gateHours: '2.00', flags: ['At the gate, not clocked in'] }]);
+  if (path === '/gate/badge/mine') return ok({ text: 'GGB|m1|1|00112233aabbccdd', secondsLeft: 12 });
+  if (path === '/gate/badge/check') return body.code.endsWith('0000000000000000') ? ok({ detail: 'The badge code is not valid', code: 'badge-invalid' }, 422) : ok({ memberId: 'm1', name: 'Ravi', roleName: 'Plumber', direction: 'In' });
+  if (path === '/gate/badge') return ok({ ok: true, outcome: 'admitted', visit: { id: 'v9', name: 'Ravi', kind: 'Staff', state: 'Inside', memberId: 'm1', inAt: '2026-10-20T03:30:00Z', version: 1 } });
   if (path === '/workforce/attendance/clock-in') {
     if (state.sessions.some((x) => !x.clockOut)) return problem(422, 'already-in', 'You are clocked in');
     const x = { id: uuid(), shortId: 'ATT-1', memberId: 'm1', staffName: 'Ravi Plumber', date: '2026-10-20', clockIn: '2026-10-20T03:50:00Z', clockOut: null, in: { lat: body.lat, lng: body.lng, site: body.lat ? 'Inside site' : 'No location' }, out: {}, hours: null, source: 'Self', shiftType: body.shiftType || 'General', lateMin: 5, version: 1 };
@@ -1108,4 +1113,28 @@ test('units and blocks on the back end: add a block with its code and pattern, a
   await assert.rejects(saveCommunityPattern('Villa {num}', 0), /Use only/);
   await saveCommunityPattern('Villa {n}', 0);
   assert.equal(last('PUT', /^\/units\/naming$/).body.unitPattern, 'Villa {n}'); assert.equal((await loadCommunityPattern()).pattern, 'Villa {n}');
+});
+
+test('attendance with the gate: the matcher (same rules as the server), the report from the server, staff badges signed and checked by the server', async () => {
+  const { withGate, GATE_FLAGS: F, localDate } = await import('../../src/lib/attendance.js');
+  const now = Date.parse('2026-10-20T14:00:00Z');
+  const ses = (name, i, o) => ({ id: name, staffName: name, date: localDate(new Date(i)), clockIn: i, clockOut: o || '' });   // the day where the test runs
+  const lines = withGate([ses('Ravi', '2026-10-20T03:10:00Z', '2026-10-20T12:30:00Z'), ses('Meena', '2026-10-20T03:30:00Z', '2026-10-20T11:30:00Z')],
+    [{ memberId: 'r', name: 'Ravi', in: '2026-10-20T03:30:00Z', out: '2026-10-20T12:10:00Z' }, { memberId: 'm', name: 'Meena', in: '2026-10-20T03:25:00Z', out: '' }, { memberId: 'a', name: 'Arun', in: '2026-10-20T04:30:00Z', out: '2026-10-20T06:30:00Z' }], 15, now);
+  const by = (n) => lines.find((l) => l.staffName === n);
+  assert.deepEqual(by('Ravi').flags, [F.BEFORE_GATE, F.LEFT_EARLY]); assert.equal(by('Ravi').gateHours, 8.67);
+  assert.deepEqual(by('Meena').flags, [F.STAYED]); assert.ok(by('Meena').gateInside);
+  assert.ok(by('Arun').gateOnly); assert.deepEqual(by('Arun').flags, [F.GATE_ONLY]);
+  assert.deepEqual(withGate([ses('Ravi', '2026-10-20T03:10:00Z')], [], 15, now)[0].flags, [], 'no badges in use: nothing to flag');
+  const { loadReport } = await import('../../src/lib/attendance.js');
+  const rep = await loadReport({ from: '2026-10-01', to: '2026-10-31' });
+  assert.match(last('GET', /^\/workforce\/attendance\/report/).path, /from=2026-10-01&to=2026-10-31/);
+  assert.equal(rep[1].gateOnly, true); assert.equal(rep[1].gateHours, 2); assert.equal(rep[0].gateInside, true);
+  const g = await import('../../src/lib/gate/engine.js');
+  assert.equal(await g.badgeText('ignored', 30000 * 5), 'GGB|m1|1|00112233aabbccdd'); await g.badgeText('ignored', 30000 * 5 + 1000);
+  assert.equal(calls.filter((c) => c.path === '/gate/badge/mine').length, 1, 'one fetch per 30-second window');
+  assert.equal((await g.verifyBadge('GGB|m1|1|0000000000000000')).reason, 'The badge code is not valid');
+  const v = await g.verifyBadge('GGB|m1|1|00112233aabbccdd'); assert.equal(v.user.name, 'Ravi');
+  const e = await g.badgeEntry(v.user, { gate: 'Main gate' });
+  assert.deepEqual(last('POST', /^\/gate\/badge$/).body, { code: 'GGB|m1|1|00112233aabbccdd', gate: 'Main gate' }); assert.equal(e.direction, 'In'); assert.equal(e.visit.memberId, 'm1');
 });

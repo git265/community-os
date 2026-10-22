@@ -3,6 +3,7 @@ package com.communityos.api.gate.application;
 import com.communityos.api.gate.application.port.GateDirectory;
 import com.communityos.api.gate.application.port.GateStore;
 import com.communityos.api.gate.domain.Gate;
+import com.communityos.api.gate.domain.StaffBadge;
 import com.communityos.api.gate.domain.Gate.VisitState;
 import com.communityos.api.shared.audit.AuditWriter;
 import com.communityos.api.shared.domain.DomainEvent;
@@ -321,6 +322,54 @@ public final class GateService {
         desk(c);
         Gate.Visit v = store.insideByPerson(personId).orElseThrow(() -> new DomainException.RuleViolated("not-inside", "No open visit for this person"));
         return exit(c, v.id, v.version, method);
+    }
+
+    // ---- staff badges -----------------------------------------------------------------------------------------------------------------------------
+    public record Badge(String text, int secondsLeft) {}
+    public record BadgeHolder(UUID memberId, String name, String roleName, String direction) {}
+
+    /** My badge now: staff only, signed with the community's key on the server. */
+    public Badge myBadge(Caller c) {
+        if (c.membership() == null || c.category() != Caller.Category.Staff) throw new AccessDenied("Only staff have a gate badge");
+        Instant now = clock.instant();
+        return new Badge(StaffBadge.text(tx.inTx(store::badgeKey), c.membership().value(), now), StaffBadge.secondsLeft(now));
+    }
+    /** The guard scans a badge: whose it is and whether they are coming in or going out (nothing is recorded yet). */
+    public BadgeHolder checkBadge(Caller c, String text) {
+        desk(c);
+        return tx.inTx(() -> {
+            Gate.Staff who = badgeHolder(text).who();
+            return new BadgeHolder(who.memberId(), who.name(), who.roleName(), store.insideByMember(who.memberId()).isPresent() ? "Out" : "In");
+        });
+    }
+    /** Record the badge: opens the staff member's visit, or closes the open one. A code is used once. */
+    public Outcome badge(Caller c, String text, String gate) {
+        desk(c);
+        return tx.inTx(() -> {
+            Held held = badgeHolder(text); Gate.Staff who = held.who();
+            if (!store.useBadge(who.memberId(), held.window())) throw new DomainException.RuleViolated("badge-used", "This badge code was used already - ask for the next one");
+            Optional<Gate.Visit> open = store.insideByMember(who.memberId());
+            if (open.isPresent()) {
+                Gate.Visit v = open.get();
+                v.move(VisitState.EXITED); v.outAt = clock.instant(); v.outMethod = "Staff badge";
+                if (!store.save(v)) throw new DomainException.Conflict("Visit " + v.shortId);
+                done(c, "gate.staff.left", v.id, null, v.kind, v.state.label, AuditWriter.Action.Update, "gate.visit", v.shortId, who.name() + " out (staff badge)");
+                return new Outcome(true, "out", null, v, null);
+            }
+            Gate.Visit v = visit(c, "Staff", who.name(), null, gate, "Staff badge", VisitState.INSIDE);
+            v.memberId = who.memberId(); v.purpose = who.roleName() == null ? "Staff" : who.roleName(); v.expectedUntil = null;   // staff are not overstaying visitors
+            store.insert(v);
+            done(c, "gate.staff.arrived", v.id, null, v.kind, v.state.label, AuditWriter.Action.Create, "gate.visit", v.shortId, who.name() + " in (staff badge)");
+            return Outcome.in(v);
+        });
+    }
+    private record Held(Gate.Staff who, long window) {}
+    private Held badgeHolder(String text) {
+        StaffBadge.Code code = StaffBadge.check(store.badgeKey(), text, clock.instant());
+        Gate.Staff who = dir.staff(code.member()).orElseThrow(() -> new DomainException.RuleViolated("badge-unknown", "No such staff member"));
+        if (!who.active()) throw new DomainException.RuleViolated("badge-inactive", who.name() + " is no longer active");
+        if (!who.staff()) throw new DomainException.RuleViolated("badge-not-staff", who.name() + " is not on the staff");
+        return new Held(who, code.window());
     }
 
     /** A delivery for a unit: the unit's rule (away = leave at the gate; expecting = let in; listed companies) and the community's approved companies. */
