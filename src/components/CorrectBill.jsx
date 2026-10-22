@@ -14,8 +14,10 @@ export default function CorrectBill({ due, onClose }) {
   const units = useMemo(() => props.map((p) => p.unit).sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true })), [props]);
   async function go() {
     setBusy(true); setErr('');
-    const r = mode === 'reverse' ? await reverseBillPayment(due, reason) : mode === 'cancel' ? await cancelBill(due, reason) : await reissueBill(due, { unit, amount, dueDate }, reason);
-    setBusy(false);
+    let r;
+    try {
+      r = mode === 'reverse' ? await reverseBillPayment(due, reason) : mode === 'cancel' ? await cancelBill(due, reason) : await reissueBill(due, { unit, amount, dueDate }, reason);
+    } catch (e) { setErr(e.message); return; } finally { setBusy(false); }
     if (r.error) { setErr(r.error); return; }
     onClose(true);
   }

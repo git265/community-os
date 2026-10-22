@@ -115,34 +115,36 @@ export function PayDialog({ initial = {}, accounts, routing, onClose, onDone }) 
     if (!f.description.trim() && !picked) return setErr('Say what this payment is for');
     if (needsRef(f.mode) && !f.ref.trim()) return setErr(`Enter the ${f.mode === 'Cheque' ? 'cheque number' : 'UTR / reference'} - it is how the bank statement line is matched`);
     const extraRow = { ...(gst.hasGst ? { baseAmount: gst.base, gstRate: Number(f.gstRate), gstAmount: gst.gst } : {}), ...(f.subCategory ? { subCategory: f.subCategory } : {}), ...(f.fund ? { fund: f.fund } : {}), ...(tdsAmount > 0 ? { tdsSection: tds.section, tdsRate: Number(tds.rate), tdsAmount } : {}) };
-    if (limit > 0 && f.type === 'Debit' && gst.total > limit) {
+    try {
+      if (limit > 0 && f.type === 'Debit' && gst.total > limit) {
+        setBusy(true);
+        await submitPayRequest({ area: f.area, type: f.type, amount: netPaid, account, date: f.date, mode: f.mode, ref: f.ref.trim(), vendor: f.vendor, description: f.description.trim() || picked.label, sourceType: picked?.type || 'manual', sourceId: picked?.value || '', sourceLabel: picked?.label || '', taskRef: picked?.taskRef, unit: picked?.unit, allowDuplicate: sameRec.length > 0 && ack, extra: extraRow }, getPrincipal().name);
+        setBusy(false); setSent(true); return;
+      }
       setBusy(true);
-      await submitPayRequest({ area: f.area, type: f.type, amount: netPaid, account, date: f.date, mode: f.mode, ref: f.ref.trim(), vendor: f.vendor, description: f.description.trim() || picked.label, sourceType: picked?.type || 'manual', sourceId: picked?.value || '', sourceLabel: picked?.label || '', taskRef: picked?.taskRef, unit: picked?.unit, allowDuplicate: sameRec.length > 0 && ack, extra: extraRow }, getPrincipal().name);
-      setBusy(false); setSent(true); return;
-    }
-    setBusy(true);
-    const res = await recordPayment({
-      area: f.area, type: f.type, amount: netPaid, account, date: f.date, mode: f.mode, ref: f.ref.trim(), vendor: f.vendor, description: f.description.trim() || picked.label,
-      sourceType: picked?.type || 'manual', sourceId: picked?.value || '', sourceLabel: picked?.label || '', taskRef: picked?.taskRef, unit: picked?.unit, allowDuplicate: sameRec.length > 0 && ack,
-      extra: extraRow,
-    });
-    if (res.error) { setErr(res.error); setBusy(false); return; }
-    if (files.length && res.row && !res.existing) {
-      const metas = await persistPending(files, { ownerType: 'ledger', ownerId: res.row.id });
-      if (metas) { const { secureStorage } = await import('../../lib/storage/secureStorage.js'); await secureStorage.put(C.LEDGER, { ...res.row, attachments: metas }).catch(() => {}); }
-      else setErr('The payment was recorded but a file could not be stored. Open the payment and add it again.');
-    }
-    if (picked?.type === 'release' && !res.existing) {
-      const { secureStorage } = await import('../../lib/storage/secureStorage.js');
-      await secureStorage.put(C.RELEASES, { ...picked.release, status: 'Paid' }).catch(() => {});
-    }
-    if (picked?.type === 'culturalRelease' && !res.existing) await markReleasePaid(picked.release.id, `${f.mode} · ${account}${f.ref ? ` · ${f.ref}` : ''}`).catch(() => {});
-    if (picked?.type === 'culturalExpense' && !res.existing && picked.expense.status !== 'Paid') {
-      const { secureStorage } = await import('../../lib/storage/secureStorage.js');
-      await secureStorage.put(C.CULTURAL_EXPENSES, { ...picked.expense, status: 'Paid', paidBy: `${f.mode} · ${account}${f.ref ? ` · ${f.ref}` : ''}` });
-      await recomputeEventTotals(picked.expense.eventId).catch(() => {});
-    }
-    setBusy(false); onDone(res.row);
+      const res = await recordPayment({
+        area: f.area, type: f.type, amount: netPaid, account, date: f.date, mode: f.mode, ref: f.ref.trim(), vendor: f.vendor, description: f.description.trim() || picked.label,
+        sourceType: picked?.type || 'manual', sourceId: picked?.value || '', sourceLabel: picked?.label || '', taskRef: picked?.taskRef, unit: picked?.unit, allowDuplicate: sameRec.length > 0 && ack,
+        extra: extraRow,
+      });
+      if (res.error) { setErr(res.error); setBusy(false); return; }
+      if (files.length && res.row && !res.existing) {
+        const metas = await persistPending(files, { ownerType: 'ledger', ownerId: res.row.id });
+        if (metas) { const { secureStorage } = await import('../../lib/storage/secureStorage.js'); await secureStorage.put(C.LEDGER, { ...res.row, attachments: metas }).catch(() => {}); }
+        else setErr('The payment was recorded but a file could not be stored. Open the payment and add it again.');
+      }
+      if (picked?.type === 'release' && !res.existing) {
+        const { secureStorage } = await import('../../lib/storage/secureStorage.js');
+        await secureStorage.put(C.RELEASES, { ...picked.release, status: 'Paid' }).catch(() => {});
+      }
+      if (picked?.type === 'culturalRelease' && !res.existing) await markReleasePaid(picked.release.id, `${f.mode} · ${account}${f.ref ? ` · ${f.ref}` : ''}`).catch(() => {});
+      if (picked?.type === 'culturalExpense' && !res.existing && picked.expense.status !== 'Paid') {
+        const { secureStorage } = await import('../../lib/storage/secureStorage.js');
+        await secureStorage.put(C.CULTURAL_EXPENSES, { ...picked.expense, status: 'Paid', paidBy: `${f.mode} · ${account}${f.ref ? ` · ${f.ref}` : ''}` });
+        await recomputeEventTotals(picked.expense.eventId).catch(() => {});
+      }
+      setBusy(false); onDone(res.row);
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
   }
   if (sent) {
     return (

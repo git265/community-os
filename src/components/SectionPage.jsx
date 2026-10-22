@@ -27,6 +27,7 @@ export default function SectionPage({
   filters = [],
   dateFields = [],
   periodFilter = null,
+  defaultRange = '',
   baseSort = null,
   onBeforeSave,
   headerExtra,
@@ -96,6 +97,7 @@ export default function SectionPage({
           filters={filters}
           dateFields={dateFields}
           periodFilter={periodFilter}
+          defaultRange={defaultRange}
           baseSort={baseSort}
           showId
           consumeNavSearch

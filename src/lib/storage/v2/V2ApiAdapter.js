@@ -211,6 +211,7 @@ readers.ticketComments = withFiles(readers.ticketComments, 'maintenance.comment'
 readers.quotations = withFiles(readers.quotations, 'maintenance.quotation', 'attachments');
 readers.amenities = withFiles(readers.amenities, 'amenity.booking', 'depositPhotos');
 readers.vendors = withFiles(readers.vendors, 'vendor.vendor', 'attachments');
+readers.readings = withFiles(readers.readings, 'billing.reading', 'photos');
 // asset papers are files attached to the record
 const ASSET_FILES = { equipment: ['assets.equipment', 'files'], inventory: ['assets.inventory', 'attachments'], dgFuelLogs: ['assets.dg_fuel', 'bill'],
   electricityBills: ['assets.electricity_bill', 'billFile'], audits: ['assets.audit', 'report'], logEntries: ['assets.log_entry', 'attachments'] };
@@ -816,6 +817,7 @@ WRITERS.amenities = attaching(WRITERS.amenities, 'amenity.booking', 'depositPhot
 WRITERS.meetings = attaching(attaching(WRITERS.meetings, 'governance.agenda', 'agendaFiles'), 'governance.minutes', 'minutesFiles');
 for (const c of Object.keys(RESOURCES)) if (!WRITERS[c]) WRITERS[c] = (rec) => putResource(c, rec);
 WRITERS.vendors = attaching(WRITERS.vendors, 'vendor.vendor', 'attachments');
+WRITERS.readings = attaching(WRITERS.readings, 'billing.reading', 'photos');
 for (const [c, [owner, field]] of Object.entries(ASSET_FILES)) WRITERS[c] = attaching(WRITERS[c], owner, field);
 const warned = new Set();
 const notYet = (c) => { if (!warned.has(c)) { warned.add(c); console.info(`[v2] "${c}" is not on the v2 back end yet; showing it empty.`); } };
@@ -846,7 +848,7 @@ async function serverPage(c, params) {
   const spec = PAGED[c];
   if (!spec) return null;
   const { page = 1, pageSize = 50, sort, filters = {}, search = '', dateRange, period } = params;
-  if (pageSize > 200 || period?.year || period?.month) return null;
+  if (pageSize > 200 || period?.year || period?.month || period?.from || period?.to) return null;
   if ((dateRange?.from || dateRange?.to) && dateRange.key !== spec.dateKey) return null;      // a date range only on the list's own date
   if (sort?.key && !spec.order.includes(`${sort.key}:${sort.dir || 'asc'}`)) return null;
   if (search && !spec.search) return null;

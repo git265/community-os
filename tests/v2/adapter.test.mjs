@@ -48,6 +48,7 @@ const KIT_FIELDS = {
   'vendors/vendors': ['name', 'category', 'gstin', 'contractType', 'service', 'contactPhone', 'contactEmail', 'address', 'contractEnds', 'description'],
   'vendors/service-lines': ['vendorId', 'service', 'signedWorkers', 'shift', 'note', 'contractors'],
   'property/facilities': ['name', 'kind', 'blockId', 'active', 'notes'],
+  'billing/readings': ['unitId', 'utility', 'month', 'readingDate', 'previousReading', 'currentReading', 'unitsConsumed', 'notes', 'extras', 'status', 'publishedAt', 'dueId'],
   'assets/equipment': ['name', 'area', 'type', 'status', 'quantity', 'faulty', 'specs', 'lastInspected'],
   'assets/inventory': ['item', 'category', 'location', 'uom', 'minStock', 'vendor', 'notes'],
   'workforce/services': ['name', 'weekdays', 'active'],
@@ -57,7 +58,7 @@ const KIT_FIELDS = {
   'reports/schedules': ['name', 'reportType', 'period', 'format', 'frequency', 'time', 'audience', 'roleIds', 'unitIds', 'memberIds', 'recipe', 'channels', 'active'],
   'reports/runs': ['scheduleId', 'name', 'title', 'summary', 'columns', 'sentTo'],
 };
-const KIT_COLLECTION = { 'property/facilities': 'facilities', 'workforce/services': 'siteServices', 'amenities/settings': 'amenitySettings', 'finance/approval-policies': 'approvalPolicies', 'finance/budget-lines': 'budgetLines', 'amenities/types': 'amenityTypes', 'amenities/items': 'amenityItems', 'maintenance/task-types': 'taskTypes', 'maintenance/categories': 'categoryMap', 'maintenance/quick-phrases': 'quickPhrases', 'maintenance/wishes': 'wishes', 'finance/settings': 'financeSettings', 'cultural/events': 'culturalEvents', 'cultural/seva': 'culturalSevas', 'cultural/offerings': 'culturalOfferings', 'vendors/vendors': 'vendors', 'vendors/service-lines': 'vendorServices', 'assets/equipment': 'equipment', 'assets/inventory': 'inventory', 'reports/schedules': 'reportSchedules', 'reports/runs': 'reportRuns' };
+const KIT_COLLECTION = { 'property/facilities': 'facilities', 'billing/readings': 'readings', 'workforce/services': 'siteServices', 'amenities/settings': 'amenitySettings', 'finance/approval-policies': 'approvalPolicies', 'finance/budget-lines': 'budgetLines', 'amenities/types': 'amenityTypes', 'amenities/items': 'amenityItems', 'maintenance/task-types': 'taskTypes', 'maintenance/categories': 'categoryMap', 'maintenance/quick-phrases': 'quickPhrases', 'maintenance/wishes': 'wishes', 'finance/settings': 'financeSettings', 'cultural/events': 'culturalEvents', 'cultural/seva': 'culturalSevas', 'cultural/offerings': 'culturalOfferings', 'vendors/vendors': 'vendors', 'vendors/service-lines': 'vendorServices', 'assets/equipment': 'equipment', 'assets/inventory': 'inventory', 'reports/schedules': 'reportSchedules', 'reports/runs': 'reportRuns' };
 const TT = [{ id: 'tt-res', name: 'Resident Maintenance', icon: '🔧', creatorScope: 'Resident', assignmentMode: 'Role queue (staff accepts)', residentVisible: true, residentDefault: true, canRaise: true }];
 const page = (items) => ({ items, total: items.length, limit: 200, offset: 0 });
 const ok = (body, status = 200, headers = {}) => new Response(body == null ? null : JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...headers } });
@@ -193,7 +194,7 @@ globalThis.fetch = async (url, init = {}) => {
     if (m[2] === '/send-back') q.correctionNote = body.note;
     q.version++; return ok(q);
   }
-  if ((m = /^\/(maintenance|finance|amenities|cultural|vendors|assets|reports|workforce|property)\/([a-z-]+)(?:\/([^/]+))?$/.exec(path)) && KIT_FIELDS[`${m[1]}/${m[2]}`] && !/\/run$/.test(path)) {
+  if ((m = /^\/(maintenance|finance|amenities|cultural|vendors|assets|reports|workforce|property|billing)\/([a-z-]+)(?:\/([^/]+))?$/.exec(path)) && KIT_FIELDS[`${m[1]}/${m[2]}`] && !/\/run$/.test(path)) {
     const key = `${m[1]}/${m[2]}`; const rows = (state.kit[key] ||= []);
     if (!m[3] && method === 'GET') return ok(rows);
     if (!m[3] && method === 'POST') {
@@ -937,6 +938,15 @@ test('facilities: kept on the back end, the block named by name and sent by id (
   await storage.put('facilities', { ...(await storage.get('facilities', f.id)), block: '' });
   assert.equal(last('PUT', /^\/property\/facilities\//).body.blockId, null, 'the block cleared');
   await assert.rejects(storage.put('facilities', { name: 'Shed', kind: 'Other', block: 'Nowhere' }), /not known to the back end/);
+});
+
+test('meter readings on the back end: the unit by id, the meter photo attached to the reading', async () => {
+  const png = 'data:image/png;base64,' + Buffer.from([0x89, 0x50, 0x4e, 0x47, 9]).toString('base64');
+  const ph = await storage.put('files', { name: 'meter.png', mime: 'image/png', size: 5, dataUrl: png });
+  const r = await storage.put('readings', { unit: 'Villa 101', utility: 'Water', month: '2026-10', readingDate: '2026-10-21', previousReading: 100, currentReading: 130, unitsConsumed: 30, photos: [{ fileId: ph.id, name: 'meter.png', mime: 'image/png' }], notes: '', status: 'Draft', extras: { tank: 3 } });
+  const post = last('POST', /^\/billing\/readings$/).body;
+  assert.equal(post.unitId, A); assert.equal('unit' in post, false); assert.deepEqual(post.extras, { tank: 3 });
+  assert.deepEqual(last('POST', /\/attach$/).body, { ownerType: 'billing.reading', ownerId: r.id });
 });
 
 test('vendors: the register through the kit (a service line names its vendor by id); the directory: added and reviewed, the rating is the server\'s', async () => {

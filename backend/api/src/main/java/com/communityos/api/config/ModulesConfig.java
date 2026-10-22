@@ -120,6 +120,7 @@ public class ModulesConfig {
         FileKinds.registerGovernance(files, meetings);
         FileKinds.registerVendors(files, jdbc);
         FileKinds.registerAssets(files, jdbc);
+        FileKinds.registerUtilities(files, jdbc);
         return new Docs(files, documents);
     }
     @Bean com.communityos.api.docs.application.FileService fileService(Docs d) { return d.files(); }

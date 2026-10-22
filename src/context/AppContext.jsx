@@ -6,6 +6,7 @@ import { COLLECTIONS } from '../lib/storage/index.js';
 import { secureStorage } from '../lib/storage/secureStorage.js';
 import { setPrincipal, setSchemaCache } from '../lib/security/principal.js';
 import { AuthzError } from '../lib/security/authz.js';
+import { ConflictError } from '../lib/security/errors.js';
 import { loadSchemas } from '../lib/schema/schemaStore.js';
 import { loadRoles } from '../lib/access/roleStore.js';
 import { getCommunity } from '../lib/community.js';
@@ -220,6 +221,15 @@ export function useApp() {
  * save() resolves to the stored record, or null if the write was denied
  * (a "not permitted" toast is raised instead of throwing into the UI).
  */
+/** A failed write, said to the person (the app's toast) in words that fit what went wrong. */
+function sayWhy(err) {
+  const name = err?.name || '';
+  const kind = name === 'NetworkError' || name === 'TimeoutError' ? 'network' : err instanceof AuthzError && !(err instanceof ConflictError) ? 'denied' : 'error';
+  const message = err instanceof ConflictError ? err.message
+    : kind === 'network' ? `${err.message} Your change was not saved.` : err?.message || 'The change could not be saved.';
+  window.dispatchEvent(new CustomEvent('communityos:denied', { detail: { message, kind } }));
+}
+
 export function useCollection(collection, sectionLabel = collection, { enabled = true } = {}) {
   const { schemaFor, currentUser, roleId } = useApp();
   const [records, setRecords] = useState([]);
@@ -271,11 +281,9 @@ export function useCollection(collection, sectionLabel = collection, { enabled =
         return saved;
       } catch (err) {
         refresh();
-        if (err instanceof AuthzError) {
-          window.dispatchEvent(new CustomEvent('communityos:denied', { detail: { message: err.message } }));
-          return null;
-        }
-        throw err;
+        // every failure ends here as a message and null, so no screen is left "Saving…": denied, conflict, timeout, no network, a server error
+        sayWhy(err);
+        return null;
       }
     },
     [collection, sectionLabel, describeRecord, refresh]
@@ -287,11 +295,8 @@ export function useCollection(collection, sectionLabel = collection, { enabled =
         await secureStorage.remove(collection, id, { summaryOf: describeRecord, label: sectionLabel });
         return true;
       } catch (err) {
-        if (err instanceof AuthzError) {
-          window.dispatchEvent(new CustomEvent('communityos:denied', { detail: { message: err.message } }));
-          return false;
-        }
-        throw err;
+        sayWhy(err);
+        return false;
       }
     },
     [collection, sectionLabel, describeRecord]

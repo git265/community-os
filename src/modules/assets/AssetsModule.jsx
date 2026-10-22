@@ -139,7 +139,7 @@ function DgFuel() {
         formHelp="Fill the tank to full each time and tick “Partial fill” only when you could not; the readings are taken at the moment of refill."
         statCards={cards}
         filters={[{ key: 'generator', label: 'All generators' }]}
-        dateFields={[{ key: 'date', label: 'Refill date' }]}
+        dateFields={[{ key: 'date', label: 'Refill date' }]} defaultRange="last12"
         baseSort={{ key: 'date', dir: 'desc' }}
         onBeforeSave={before}
       />
@@ -212,7 +212,7 @@ function ElectricityBills() {
       formHelp="Copy the key facts from the bill. The total should match the charges; cost per unit is worked out for you."
       statCards={cards}
       filters={[{ key: 'service', label: 'All supplies' }, { key: 'status', label: 'All status' }]}
-      periodFilter={{ key: 'period', label: 'Bill' }}
+      periodFilter={{ key: 'period', label: 'Bill' }} defaultRange="last12"
       baseSort={{ key: 'dueDate', dir: 'desc' }}
       onBeforeSave={before}
     />
@@ -361,7 +361,7 @@ function VillaElectricity() {
         recordName="villa reading"
         statCards={cards}
         headerExtra={canWrite ? <button type="button" className="btn secondary" onClick={() => setImporting(true)}>Import Excel</button> : null}
-        periodFilter={{ key: 'month', label: 'Month' }}
+        periodFilter={{ key: 'month', label: 'Month' }} defaultRange="last12"
         baseSort={{ key: 'month', dir: 'desc' }}
         onBeforeSave={before}
       />

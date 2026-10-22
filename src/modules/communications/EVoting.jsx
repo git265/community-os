@@ -215,6 +215,7 @@ export default function EVoting() {
         {canManage && <button className="btn" onClick={() => setEditing(draftRecord)}>+ New ballot</button>}
       </div>
       {error && <div className="notice error" style={{ marginTop: 8 }}>{error}</div>}
+      {canManage && <VoterRegister properties={properties} />}
       {sorted.length === 0 && <div className="empty">No ballots yet.</div>}
       {sorted.map((b) => (
         <BallotCard key={b.id} ballot={b} roll={roll} box={box} canManage={canManage} principal={principal}
@@ -228,6 +229,7 @@ export default function EVoting() {
       {opening && (
         <Modal title={`Open voting · ${opening.title}`} subtitle="This freezes the list of voters." onClose={() => setOpening(null)}>
           <p><b>{rollPreview.length}</b> units have a registered owner and will be on the voter roll{noOwner ? `; ${noOwner} have no registered owner and cannot vote` : ''}.</p>
+          <details style={{ marginBottom: 8 }} data-testid="roll-preview"><summary>See who is on the roll</summary><RollTable roll={rollPreview} /></details>
           <ul className="muted" style={{ marginTop: 0 }}>
             <li>After opening, the question, options, dates and voter roll can no longer be edited by anyone.</li>
             <li>Each unit votes once; the owner gets a one-time code on the registered mobile.</li>
@@ -238,5 +240,30 @@ export default function EVoting() {
       )}
       {voting && <VoteFlow ballot={voting} onClose={() => { setVoting(null); refresh(); }} />}
     </div>
+  );
+}
+
+/** The registered voters today: one line per unit with a registered owner (who may vote for it, and the mobile the code goes to). */
+function VoterRegister({ properties }) {
+  const roll = buildRoll(properties);
+  const without = properties.filter((p) => p.unit && !p.owner).map((p) => p.unit).sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
+  return (
+    <details className="card" style={{ marginTop: 12 }} data-testid="voter-register">
+      <summary><b>Registered voters</b> <span className="muted">· {roll.length} unit{roll.length === 1 ? '' : 's'} can vote{without.length ? `, ${without.length} without a registered owner` : ''}</span></summary>
+      <p className="muted" style={{ margin: '6px 0' }}>Taken from the Unit Directory: the primary and additional owners of each unit (tenants and family contacts do not vote in owner ballots). The list is frozen into a ballot when voting opens.</p>
+      <RollTable roll={roll} />
+      {without.length > 0 && <p className="muted" data-testid="no-owner">No registered owner, so cannot vote: {without.join(', ')}. Add the owner in the Unit Directory.</p>}
+    </details>
+  );
+}
+function RollTable({ roll }) {
+  return (
+    <div className="table-wrap"><table className="resp-table" data-testid="roll-table">
+      <thead><tr><th>Unit</th><th>May vote</th><th>Code goes to</th></tr></thead>
+      <tbody>{roll.map((r) => (
+        <tr key={r.unit} style={{ cursor: 'default' }}><td data-label="Unit"><b>{r.unit}</b></td><td data-label="May vote">{r.owners.join(', ')}</td>
+          <td data-label="Code goes to">{r.owners.map((o) => (r.phones?.[o] ? `${o}: ••${r.phones[o]}` : `${o}: no mobile`)).join(' · ')}</td></tr>
+      ))}</tbody>
+    </table></div>
   );
 }

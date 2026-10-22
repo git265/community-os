@@ -11,6 +11,7 @@ import RichTextEditor from '../../components/RichTextEditor.jsx';
 import RichText from '../../components/RichText.jsx';
 import { AttachmentPicker, AttachmentList } from '../../components/Attachments.jsx';
 import { persistPending } from '../../lib/files/attachments.js';
+import { tell } from '../../lib/net/activity.js';
 import { cancellationQuote, inr, tiersOf, startAtOf, PAYMENT_MODES, ONLINE_MODES, parseExtras } from '../../lib/amenityEngine.js';
 
 import { PAYOUT_MODES, needsRef } from '../../lib/region/paymentModes.js';
@@ -110,8 +111,8 @@ export default function BookingDetail({ booking: b, amenity, settings, isStaff, 
 
   async function run(patch) {
     setBusy(true);
-    const ok = await onAction({ ...b, ...patch });
-    setBusy(false);
+    let ok = false;
+    try { ok = await onAction({ ...b, ...patch }); } catch (e) { tell(e?.message || String(e), e?.name === 'NetworkError' || e?.name === 'TimeoutError' ? 'network' : 'error'); } finally { setBusy(false); }
     if (ok) onClose();
   }
 
@@ -330,9 +331,9 @@ export default function BookingDetail({ booking: b, amenity, settings, isStaff, 
           <p style={{ margin: '8px 0' }}>Returned: <b data-testid="deposit-back">{inr(depBack)}</b> · {depBack <= 0 ? 'nothing to pay out' : depMode === 'Unit credit' ? 'credited to the unit account at once' : `to be paid by ${depMode} — you will record the payment next`}</p>
           <div className="bk-actions"><button className="btn good" disabled={busy || !settleOk} data-testid="confirm-settle" onClick={async () => {
             setBusy(true);
-            const metas = photos.length ? await persistPending(photos, { ownerType: 'amenityDeposit', ownerId: b.id }) : [];
-            if (!metas) { setBusy(false); return; }
-            setBusy(false);
+            let metas;
+            try { metas = photos.length ? await persistPending(photos, { ownerType: 'amenityDeposit', ownerId: b.id }) : []; } catch (e) { tell(e?.message || String(e), e?.name === 'NetworkError' || e?.name === 'TimeoutError' ? 'network' : 'error'); return; } finally { setBusy(false); }
+            if (!metas) return;
             run({ _action: 'settle_deposit', depositDeduction: Number(deduct) || 0, deductionReason: deductWhy, depositPhotos: metas, payoutMode: depBack > 0 ? depMode : '' });
           }}>Settle deposit</button><button className="btn secondary" onClick={() => setMode(null)}>Back</button></div>
         </div>

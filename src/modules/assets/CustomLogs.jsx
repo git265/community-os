@@ -87,12 +87,14 @@ function EntryDialog({ type, entry, onClose, save }) {
     if (!date) return setErr('Choose the date');
     for (const f of fields) if (f.required && (vals[f.key] === '' || vals[f.key] == null)) return setErr(`${f.label} is required`);
     setBusy(true);
-    let metas = files;
-    if (pending.length) { const added = await persistPending(pending, { ownerType: 'logEntry', ownerId: id }); if (!added) { setBusy(false); return; } metas = [...files, ...added]; }
-    const clean = Object.fromEntries(Object.entries(vals).filter(([, v]) => v !== '' && v != null).map(([k, v]) => [k, fields.find((f) => f.key === k)?.type === 'number' ? Number(v) : v]));
-    const rec = await save({ ...(entry || {}), id, logId: type.id, date, values: clean, note: note.trim(), attachments: metas });
-    setBusy(false);
-    if (rec) onClose();
+    try {
+      let metas = files;
+      if (pending.length) { const added = await persistPending(pending, { ownerType: 'logEntry', ownerId: id }); if (!added) { setBusy(false); return; } metas = [...files, ...added]; }
+      const clean = Object.fromEntries(Object.entries(vals).filter(([, v]) => v !== '' && v != null).map(([k, v]) => [k, fields.find((f) => f.key === k)?.type === 'number' ? Number(v) : v]));
+      const rec = await save({ ...(entry || {}), id, logId: type.id, date, values: clean, note: note.trim(), attachments: metas });
+      setBusy(false);
+      if (rec) onClose();
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
   }
   return (
     <Modal title={`${entry ? 'Edit' : 'New'} entry · ${type.name}`} onClose={onClose}>
@@ -120,12 +122,14 @@ export default function CustomLog({ type }) {
   const canWrite = canWriteCollection(C.LOG_ENTRIES, getPrincipal());
   const rows = useMemo(() => all.filter((e) => e.logId === type.id), [all, type.id]);
   const years = useMemo(() => [...new Set(rows.map((r) => String(r.date).slice(0, 4)))].sort().reverse(), [rows]);
-  const [year, setYear] = useState('');
+  const [year, setYear] = useState('last12');   // opens on the last 12 months of entries
   const [month, setMonth] = useState('');
   const [dlg, setDlg] = useState(null);
   const [n, setN] = useState(40);
   const y = year || years[0] || '';
-  const list = useMemo(() => rows.filter((r) => (!y || String(r.date).startsWith(y)) && (!month || String(r.date).slice(5, 7) === month)).sort((a, b) => String(b.date).localeCompare(String(a.date))), [rows, y, month]);
+  const since = useMemo(() => { const d = new Date(); d.setFullYear(d.getFullYear() - 1); return d.toISOString().slice(0, 10); }, []);
+  const inYear = (r) => (y === 'last12' ? String(r.date) >= since : !y || String(r.date).startsWith(y));
+  const list = useMemo(() => rows.filter((r) => inYear(r) && (!month || String(r.date).slice(5, 7) === month)).sort((a, b) => String(b.date).localeCompare(String(a.date))), [rows, y, month, since]); // eslint-disable-line react-hooks/exhaustive-deps
   const fields = fieldsOf(type);
   const more = useRef(null);
   useEffect(() => { setN(40); }, [y, month, type.id]);
@@ -134,7 +138,7 @@ export default function CustomLog({ type }) {
       <div className="card" style={{ marginBottom: 12 }}>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <div style={{ flex: 1, minWidth: 180 }}><h3 style={{ margin: 0 }}>{type.icon} {type.name}</h3><div className="muted" style={{ fontSize: 13 }}>{type.description || `${type.frequency} log`} · {rows.length} entr{rows.length === 1 ? 'y' : 'ies'}</div></div>
-          {years.length > 0 && <select aria-label="Year" data-testid="clog-year" value={y} onChange={(e) => setYear(e.target.value)} style={{ width: 'auto' }}>{years.map((v) => <option key={v}>{v}</option>)}</select>}
+          {years.length > 0 && <select aria-label="Year" data-testid="clog-year" value={y} onChange={(e) => setYear(e.target.value)} style={{ width: 'auto' }}><option value="last12">Last 12 months</option>{years.map((v) => <option key={v}>{v}</option>)}</select>}
           <select aria-label="Month" data-testid="clog-month" value={month} onChange={(e) => setMonth(e.target.value)} style={{ width: 'auto' }}><option value="">All months</option>{MON.map((m, i) => <option key={m} value={String(i + 1).padStart(2, '0')}>{m}</option>)}</select>
           {canWrite && <button className="btn" data-testid="add-log-entry" onClick={() => setDlg({})}>+ Add entry</button>}
         </div>

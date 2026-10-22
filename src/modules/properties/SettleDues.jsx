@@ -44,25 +44,27 @@ export default function SettleDues({ unit, dues, credit, resident, onClose }) {
     if (toPay > 0 && !resident && mode !== 'Cash' && !reference) return setErr(`Enter the ${mode === 'Cheque' ? 'cheque number' : 'transaction reference'}`);
     if (toPay > 0 && !resident && paidOn > today) return setErr('The payment date cannot be in the future');
     setBusy(true);
-    const ids = sel.map((d) => d.id);
-    if (resident && toPay > 0) { // owners pay through the payment gateway; the verified webhook marks the bills paid (and uses the advance first)
-      setAttempt(null);
-      const res = await gw.start({ purpose: 'due', refs: ids, amount: toPay, unit, payer: currentUser?.name || '', description: `${sel.length} bill(s) · ${unit}`, meta: { useCredit: adv > 0 } });
+    try {
+      const ids = sel.map((d) => d.id);
+      if (resident && toPay > 0) { // owners pay through the payment gateway; the verified webhook marks the bills paid (and uses the advance first)
+        setAttempt(null);
+        const res = await gw.start({ purpose: 'due', refs: ids, amount: toPay, unit, payer: currentUser?.name || '', description: `${sel.length} bill(s) · ${unit}`, meta: { useCredit: adv > 0 } });
+        setBusy(false);
+        if (res.status === 'Paid') setDone({ ids, count: sel.length, adv, paid: toPay, mode: res.order?.method || 'Online', reference: res.utr ? `UTR ${res.utr}${res.payerVpa ? ` · ${res.payerVpa}` : ''}` : res.paymentId });
+        else setAttempt(res);
+        return;
+      }
+      if (adv > 0) await applyCredits({ units: [unit], only: ids, actor: currentUser?.name || 'Billing' });
+      const fresh = (await storage.list(COLLECTIONS.DUES)).filter((d) => ids.includes(d.id) && !['Paid', 'Cancelled'].includes(d.status));
+      let paid = 0;
+      for (const d of fresh.sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)))) {
+        const out = await save({ ...d, status: 'Paid', paymentMode: mode, paymentRef: reference || '—', paidAt: resident ? today : paidOn, paidBy: currentUser?.name || '', receiptNo: `RCT-${String(d.shortId || '').replace(/^DUE-/, '') || Date.now()}` });
+        if (!out) { setBusy(false); return setErr(`Stopped at ${d.shortId || d.category}: ${paid} bill(s) were settled before that.`); }
+        paid += 1;
+      }
       setBusy(false);
-      if (res.status === 'Paid') setDone({ ids, count: sel.length, adv, paid: toPay, mode: res.order?.method || 'Online', reference: res.utr ? `UTR ${res.utr}${res.payerVpa ? ` · ${res.payerVpa}` : ''}` : res.paymentId });
-      else setAttempt(res);
-      return;
-    }
-    if (adv > 0) await applyCredits({ units: [unit], only: ids, actor: currentUser?.name || 'Billing' });
-    const fresh = (await storage.list(COLLECTIONS.DUES)).filter((d) => ids.includes(d.id) && !['Paid', 'Cancelled'].includes(d.status));
-    let paid = 0;
-    for (const d of fresh.sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)))) {
-      const out = await save({ ...d, status: 'Paid', paymentMode: mode, paymentRef: reference || '—', paidAt: resident ? today : paidOn, paidBy: currentUser?.name || '', receiptNo: `RCT-${String(d.shortId || '').replace(/^DUE-/, '') || Date.now()}` });
-      if (!out) { setBusy(false); return setErr(`Stopped at ${d.shortId || d.category}: ${paid} bill(s) were settled before that.`); }
-      paid += 1;
-    }
-    setBusy(false);
-    setDone({ ids, count: sel.length, adv, paid: toPay, mode, reference });
+      setDone({ ids, count: sel.length, adv, paid: toPay, mode, reference });
+    } catch (e) { setErr(e?.message || String(e)); } finally { setBusy(false); }
   }
 
   if (done) {

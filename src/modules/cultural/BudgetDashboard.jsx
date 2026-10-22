@@ -27,16 +27,18 @@ export function CreditDialog({ ev, onClose, onDone }) {
     if (!(a > 0)) return setErr('Enter the amount to credit');
     if (a > room + 0.5) return setErr(`Only ${inr(room)} is left unspent`);
     setBusy(true);
-    const out = await save({ ...ev, creditedAmount: creditedOf(ev) + a, creditedAt: new Date().toISOString().slice(0, 10), creditedBy: currentUser?.name || '', creditNote: note.trim() });
-    if (!out) { setBusy(false); return setErr('Not saved - only the Treasurer or the final approvers can credit unused budget.'); }
-    // leave a record in Payments (an internal entry: the money never left the account, so it has no bank statement line)
-    const route = await routingMap().catch(() => ({}));
-    const account = accounts.find((x) => x.name === ev.fund)?.name || route.Cultural || '';
-    const res = await recordPayment({ area: 'Cultural', type: 'Credit', amount: a, account, date: new Date().toISOString().slice(0, 10), mode: 'Internal', description: `Unused budget credited back · ${ev.name}${note.trim() ? ` · ${note.trim()}` : ''}`,
-      sourceType: 'culturalCredit', sourceId: `culturalCredit:${ev.id}:${Date.now()}`, sourceLabel: ev.name, vendor: ev.fund ? `${ev.fund} fund` : 'Cultural fund', allowDuplicate: true, extra: { internal: true, reconStatus: 'Not applicable' } });
-    setBusy(false);
-    if (res.error) { setSaved(out); return setErr(`The credit is saved, but its Payments record could not be created: ${res.error}`); }
-    onDone(out);
+    try {
+      const out = await save({ ...ev, creditedAmount: creditedOf(ev) + a, creditedAt: new Date().toISOString().slice(0, 10), creditedBy: currentUser?.name || '', creditNote: note.trim() });
+      if (!out) { setBusy(false); return setErr('Not saved - only the Treasurer or the final approvers can credit unused budget.'); }
+      // leave a record in Payments (an internal entry: the money never left the account, so it has no bank statement line)
+      const route = await routingMap().catch(() => ({}));
+      const account = accounts.find((x) => x.name === ev.fund)?.name || route.Cultural || '';
+      const res = await recordPayment({ area: 'Cultural', type: 'Credit', amount: a, account, date: new Date().toISOString().slice(0, 10), mode: 'Internal', description: `Unused budget credited back · ${ev.name}${note.trim() ? ` · ${note.trim()}` : ''}`,
+        sourceType: 'culturalCredit', sourceId: `culturalCredit:${ev.id}:${Date.now()}`, sourceLabel: ev.name, vendor: ev.fund ? `${ev.fund} fund` : 'Cultural fund', allowDuplicate: true, extra: { internal: true, reconStatus: 'Not applicable' } });
+      setBusy(false);
+      if (res.error) { setSaved(out); return setErr(`The credit is saved, but its Payments record could not be created: ${res.error}`); }
+      onDone(out);
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
   }
   return (
     <Modal title="Credit the unused budget" subtitle={`${ev.name} · ${ev.fund ? `${ev.fund} fund` : 'community fund'}`} onClose={onClose}>

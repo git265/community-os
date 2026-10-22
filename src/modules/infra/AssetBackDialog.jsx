@@ -35,14 +35,16 @@ export default function AssetBackDialog({ ticket, onClose }) {
 
   async function save() {
     setBusy(true); setErr('');
-    const f = choice === 'Working' ? 0 : (group ? Math.max(0, Math.min(units(asset), Math.floor(Number(faulty) || 0))) : 0);
-    const saved = await secureStorage.put(COLLECTIONS.EQUIPMENT, { ...asset, status: choice, faulty: f, lastInspected: today() });
-    if (!saved) { setBusy(false); setErr('Not saved. You may not be allowed to change this asset.'); return; }
-    await secureStorage.put(COLLECTIONS.INFRA_LOG, {
-      assetId: asset.id, assetName: asset.name, date: today(), condition: choice, source: ticket.status === 'Closed' ? 'Task closed' : 'Task completed',
-      note: [group && f ? `${f} of ${units(asset)} still faulty` : '', note.trim()].filter(Boolean).join('. '), by: currentUser?.name || role?.name || '', ticketId: ticket.id,
-    });
-    setBusy(false); onClose(choice);
+    try {
+      const f = choice === 'Working' ? 0 : (group ? Math.max(0, Math.min(units(asset), Math.floor(Number(faulty) || 0))) : 0);
+      const saved = await secureStorage.put(COLLECTIONS.EQUIPMENT, { ...asset, status: choice, faulty: f, lastInspected: today() });
+      if (!saved) { setBusy(false); setErr('Not saved. You may not be allowed to change this asset.'); return; }
+      await secureStorage.put(COLLECTIONS.INFRA_LOG, {
+        assetId: asset.id, assetName: asset.name, date: today(), condition: choice, source: ticket.status === 'Closed' ? 'Task closed' : 'Task completed',
+        note: [group && f ? `${f} of ${units(asset)} still faulty` : '', note.trim()].filter(Boolean).join('. '), by: currentUser?.name || role?.name || '', ticketId: ticket.id,
+      });
+      setBusy(false); onClose(choice);
+    } catch (e) { setErr(e?.message || String(e)); } finally { setBusy(false); }
   }
 
   return (

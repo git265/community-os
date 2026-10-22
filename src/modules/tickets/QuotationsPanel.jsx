@@ -4,6 +4,7 @@ import { COLLECTIONS } from '../../lib/storage/index.js';
 import Combobox from '../../components/Combobox.jsx';
 import { AttachmentList, AttachmentPicker } from '../../components/Attachments.jsx';
 import { persistPending } from '../../lib/files/attachments.js';
+import { tell } from '../../lib/net/activity.js';
 import { gstCheck } from '../../lib/paymentEngine.js';
 import { todayIso, gstSplit, GST_RATES, invoiceApproval, approvalState } from './ticketEngine.js';
 import Modal from '../../components/Modal.jsx';
@@ -172,20 +173,21 @@ export default function QuotationsPanel({ kind = 'Quotation', ticket, selectedId
     setFe(er);
     if (Object.keys(er).length) return;
     setBusy(true);
-    const id = uuid();
-    const metas = pending.length ? await persistPending(pending, { ownerType: 'quotation', ownerId: id }) : [];
-    if (metas) {
-      const rec = { id, kind, ticketId: ticket.id, vendor: form.vendor.trim(), amount: isInvoice ? split.total : Number(form.amount), quoteDate: form.quoteDate, note: form.note, attachments: metas };
-      const quoteOk = approvalState(ticket, null).key === 'approved';
-      const waived = isInvoice && (ticket.invoiceApprovalMode === 'Waived' || !!invoiceTools?.kit?.settings.skipWithinQuote) && quoteOk && Number(ticket.approvedAmount) > 0 && split.total <= Number(ticket.approvedAmount) * (1 + (Number(invoiceTools?.kit?.settings.tolerancePct) || 0) / 100) + 0.5;
-      if (isInvoice) Object.assign(rec, { approvalWaived: waived, selected: waived || !quotesExist, ecApproval: 'Pending', finalApproval: 'Pending', gstMode: form.gstMode, gstRate: form.gstMode === 'None' ? 0 : Number(form.gstRate), baseAmount: split.base, gstAmount: split.gst });
-      const saved = await save(rec);
-      if (saved) {
-        setAdding(false); setPending([]); setForm(blank());
-        if (onAdded) await onAdded(saved);
+    try {
+      const id = uuid();
+      const metas = pending.length ? await persistPending(pending, { ownerType: 'quotation', ownerId: id }) : [];
+      if (metas) {
+        const rec = { id, kind, ticketId: ticket.id, vendor: form.vendor.trim(), amount: isInvoice ? split.total : Number(form.amount), quoteDate: form.quoteDate, note: form.note, attachments: metas };
+        const quoteOk = approvalState(ticket, null).key === 'approved';
+        const waived = isInvoice && (ticket.invoiceApprovalMode === 'Waived' || !!invoiceTools?.kit?.settings.skipWithinQuote) && quoteOk && Number(ticket.approvedAmount) > 0 && split.total <= Number(ticket.approvedAmount) * (1 + (Number(invoiceTools?.kit?.settings.tolerancePct) || 0) / 100) + 0.5;
+        if (isInvoice) Object.assign(rec, { approvalWaived: waived, selected: waived || !quotesExist, ecApproval: 'Pending', finalApproval: 'Pending', gstMode: form.gstMode, gstRate: form.gstMode === 'None' ? 0 : Number(form.gstRate), baseAmount: split.base, gstAmount: split.gst });
+        const saved = await save(rec);
+        if (saved) {
+          setAdding(false); setPending([]); setForm(blank());
+          if (onAdded) await onAdded(saved);
+        }
       }
-    }
-    setBusy(false);
+    } catch (e) { tell(e?.message || String(e), e?.name === 'NetworkError' || e?.name === 'TimeoutError' ? 'network' : 'error'); } finally { setBusy(false); }
   }
 
   return (

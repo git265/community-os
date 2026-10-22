@@ -7,6 +7,7 @@ import { getPrincipal } from '../../lib/security/principal.js';
 import { activeObjectStore } from '../../lib/files/objectStore.js';
 import { uploadPhotos, publishToDocuments, removePhoto } from '../../lib/culturalPhotos.js';
 import { dateTime } from '../../lib/documents/templates.js';
+import { tell } from '../../lib/net/activity.js';
 
 /** Tile gallery for one event. Photos upload the moment they are chosen (no Save step). */
 export default function PhotoGallery({ ev, manager }) {
@@ -29,8 +30,9 @@ export default function PhotoGallery({ ev, manager }) {
   async function go(files) {
     if (!files?.length) return;
     setMsg(''); setProg({ done: 0, total: files.length });
-    const res = await uploadPhotos(files, { ev, caption: caption.trim(), toDocuments: toDocs && canFile, onProgress: setProg });
-    setProg(null); setCaption('');
+    let res;
+    try { res = await uploadPhotos(files, { ev, caption: caption.trim(), toDocuments: toDocs && canFile, onProgress: setProg }); } catch (e) { setMsg(e.message); return; } finally { setProg(null); }
+    setCaption('');
     if (input.current) input.current.value = '';
     await reload?.();
     window.dispatchEvent(new CustomEvent('communityos:changed', { detail: { collection: COLLECTIONS.CULTURAL_PHOTOS } }));
@@ -80,7 +82,7 @@ function Lightbox({ list, index, setIndex, ev, me, manager, canFile, save, onClo
   useEffect(() => { const k = (e) => { if (e.key === 'ArrowRight' && index < list.length - 1) setIndex(index + 1); if (e.key === 'ArrowLeft' && index > 0) setIndex(index - 1); }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [index, list.length]); // eslint-disable-line
   async function saveCap() { setBusy(true); await save({ ...ph, caption: cap.trim() }); setBusy(false); }
   async function toDocs() { setBusy(true); try { const d = await publishToDocuments(ph, ev); await save({ ...ph, documentId: d.shortId || d.id }); } catch (e) { window.dispatchEvent(new CustomEvent('communityos:denied', { detail: { message: e.message } })); } setBusy(false); }
-  async function del() { if (!window.confirm('Remove this photo?')) return; setBusy(true); await removePhoto(ph); await reload?.(); setBusy(false); onClose(); }
+  async function del() { if (!window.confirm('Remove this photo?')) return; setBusy(true); try { await removePhoto(ph); await reload?.(); } catch (e) { tell(e?.message || String(e), e?.name === 'NetworkError' || e?.name === 'TimeoutError' ? 'network' : 'error'); return; } finally { setBusy(false); } onClose(); }
   return (
     <Modal title={ph.caption || ph.fileName} subtitle={`${index + 1} of ${list.length}`} onClose={onClose} wide>
       <div className="lb-stage" data-testid="lightbox">

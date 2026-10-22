@@ -262,24 +262,25 @@ function Budget({ fy, fySelect, budget, txns, fixed = [] }) {
             {canWrite && <button type="button" className="btn" onClick={() => setEditing({ fy, kind, other: 0 })}>{inc ? '+ Add income' : '+ Add expense'}</button>}</div>
         </div>
         <div className="table-wrap" ref={tref}><table className="resp-table">
-          <thead><tr><th>Line</th><th>Budget</th><th>{inc ? 'Received (statements)' : 'Spent (statements)'}</th><th>{inc ? 'Received (others)' : 'Spent (others)'}</th><th>{inc ? 'Still to come' : 'To be paid'}</th>{hasPrev && <th>{pfy} actual</th>}<th className="noexport" /></tr></thead>
+          <thead><tr><th>Line</th>{!inc && <th>Vendor · category</th>}<th>Budget</th><th>{inc ? 'Received (statements)' : 'Spent (statements)'}</th><th>{inc ? 'Received (others)' : 'Spent (others)'}</th><th>{inc ? 'Still to come' : 'To be paid'}</th>{hasPrev && <th>{pfy} actual</th>}</tr></thead>
           <tbody>
             {rows.map((b) => {
               const p = prior(b);
               return (
-                <tr key={b.id}>
-                  <td data-label="Line"><b>{b.name}</b>{b.vendor && <><br /><span className="tag blue" data-testid="budget-vendor">{b.vendor}{b.vendorService ? ` · ${b.vendorService}` : ''}</span></>}{b.notes && <><br /><small className="muted">{snippet(b.notes)}</small></>}{!b.heads && !b.vendor && <><br /><small className="muted">not linked to statements</small></>}</td>
+                <tr key={b.id} data-testid="budget-row" tabIndex={canWrite ? 0 : undefined} title={canWrite ? `Edit ${b.name}` : undefined} style={canWrite ? undefined : { cursor: 'default' }}
+                  onClick={canWrite ? () => setEditing(b) : undefined} onKeyDown={canWrite ? (e) => { if (e.key === 'Enter') setEditing(b); } : undefined}>
+                  <td data-label="Line"><b>{b.name}</b>{b.notes && <><br /><small className="muted">{snippet(b.notes)}</small></>}{!b.heads && !b.vendor && <><br /><small className="muted">not linked to statements</small></>}</td>
+                  {!inc && <td data-label="Vendor · category">{b.vendor ? <span data-testid="budget-vendor">{b.vendor}{b.vendorService ? <><br /><small className="muted">{b.vendorService}</small></> : <><br /><small className="muted">all categories</small></>}</span> : <span className="muted">—</span>}</td>}
                   <td data-label="Budget">{amt(plan(b))}{Number(b.revised) > 0 && <><br /><small className="muted">revised from {amt(b.forecast)}</small></>}</td>
                   <td data-label="Statements">{b.heads || b.vendor ? <>{amt(stmt(b))}{!b.heads && b.vendor && <><br /><small className="muted">paid to the vendor</small></>}</> : <span className="muted">—</span>}</td>
                   <td data-label="Others">{amt(b.other)}</td>
                   <td data-label="Left">{amt(Math.max(0, plan(b) - total(b)))}{total(b) > plan(b) && plan(b) > 0 && <> <span className="tag orange">over by {amt(total(b) - plan(b))}</span></>}</td>
                   {hasPrev && <td data-label={`${pfy} actual`}>{p === null ? <span className="muted">—</span> : amt(p)}</td>}
-                  <td className="noexport">{canWrite && <button type="button" className="btn secondary" aria-label={`Edit ${b.name}`} onClick={() => setEditing(b)}>Edit</button>}</td>
                 </tr>
               );
             })}
             {!rows.length && <tr><td colSpan={7} className="muted">No {inc ? 'income' : 'expense'} lines for {fy} yet.</td></tr>}
-            <tr><td><b>Total</b></td><td><b>{amt(sumKind(kind, plan))}</b></td><td><b>{amt(sumKind(kind, stmt))}</b></td><td><b>{amt(sumKind(kind, (b) => b.other))}</b></td><td /><>{hasPrev && <td><b>{amt(rows.reduce((s, b) => s + (prior(b) || 0), 0))}</b></td>}</><td /></tr>
+            <tr style={{ cursor: 'default' }}><td><b>Total</b></td>{!inc && <td />}<td><b>{amt(sumKind(kind, plan))}</b></td><td><b>{amt(sumKind(kind, stmt))}</b></td><td><b>{amt(sumKind(kind, (b) => b.other))}</b></td><td /><>{hasPrev && <td><b>{amt(rows.reduce((s, b) => s + (prior(b) || 0), 0))}</b></td>}</></tr>
           </tbody>
         </table></div>
       </div>
@@ -383,24 +384,24 @@ function Fixed({ fy, fySelect, fixed, txns, accounts, settings, deposits }) {
             {canWrite && isCurrent && <button type="button" className="btn" onClick={() => setEditing({ months: 0, avg: 0 })}>+ Add expense</button>}</div>
         </div>
         <div className="table-wrap" ref={tref}><table className="resp-table">
-          <thead><tr><th>Expense</th><th>Vendor / department</th><th>Forecast avg / month</th>{isCurrent && <><th>Months to pay</th><th>Outstanding</th></>}<th>Paid in {fy} (statements)</th><th>Actual avg / month</th>{isCurrent && <th className="noexport" />}</tr></thead>
+          <thead><tr><th>Expense</th><th>Vendor / department · category</th><th>Forecast avg / month</th>{isCurrent && <><th>Months to pay</th><th>Outstanding</th></>}<th>Paid in {fy} (statements)</th><th>Actual avg / month</th></tr></thead>
           <tbody>
             {fixed.map((f) => {
               const paid = f.heads ? sumHeads(actuals, f.heads) : null;
               const avg = paid === null ? null : paid / monthsElapsed;
               return (
-                <tr key={f.id}>
+                <tr key={f.id} data-testid="fixed-row" tabIndex={canWrite && isCurrent ? 0 : undefined} title={canWrite && isCurrent ? `Edit ${f.name}` : undefined} style={canWrite && isCurrent ? undefined : { cursor: 'default' }}
+                  onClick={canWrite && isCurrent ? () => setEditing(f) : undefined} onKeyDown={canWrite && isCurrent ? (e) => { if (e.key === 'Enter') setEditing(f); } : undefined}>
                   <td data-label="Expense"><b>{f.name}</b></td>
-                  <td data-label="Vendor">{f.vendor || <span className="muted">—</span>}</td>
+                  <td data-label="Vendor">{f.vendor || <span className="muted">—</span>}{f.vendorService && <><br /><small className="muted">{f.vendorService}</small></>}</td>
                   <td data-label="Forecast avg">{amt(f.avg)}</td>
                   {isCurrent && <><td data-label="Months">{f.months}</td><td data-label="Outstanding">{amt(Number(f.avg) * Number(f.months))}</td></>}
                   <td data-label="Paid">{paid === null ? <span className="muted">not tracked</span> : amt(paid)}</td>
                   <td data-label="Actual avg">{avg === null ? '—' : <>{amt(avg)} {avg > Number(f.avg) * 1.15 && <span className="tag red">above forecast</span>}</>}</td>
-                  {isCurrent && <td className="noexport">{canWrite && <button type="button" className="btn secondary" aria-label={`Edit ${f.name}`} onClick={() => setEditing(f)}>Edit</button>}</td>}
                 </tr>
               );
             })}
-            <tr><td><b>Monthly fixed</b></td><td /><td><b>{amt(totalAvg)}</b></td>{isCurrent && <><td /><td><b>{amt(h.outstanding)}</b></td></>}<td /><td />{isCurrent && <td className="noexport" />}</tr>
+            <tr><td><b>Monthly fixed</b></td><td /><td><b>{amt(totalAvg)}</b></td>{isCurrent && <><td /><td><b>{amt(h.outstanding)}</b></td></>}<td /><td /></tr>
           </tbody>
         </table></div>
         <small className="muted">“Actual avg” divides statement payments by the {monthsElapsed.toFixed(1)} months of {fy} covered so far. The forecast and the months still to pay feed the headroom above; today’s list applies to the current year only.</small>

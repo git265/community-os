@@ -17,6 +17,7 @@ import { storage } from '../lib/storage/index.js';
 import { lateFeeSettings, finalDue, applyLateFees } from '../lib/finance/rules.js';
 import { quoteBills } from '../lib/payments/index.js';
 import { serverDecides } from '../lib/auth/session.js';
+import { tell } from '../lib/net/activity.js';
 
 const inr = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
 import { ONLINE_MODES as ONLINE, ALL_MODES } from '../lib/region/paymentModes.js';
@@ -78,9 +79,16 @@ export function PayDueModal({ due, onClose }) {
 
   async function payOnlineNow() {
     setBusy(true); setAttempt(null);
-    const fees = await feeDues(); setFeesPaid(fees.reduce((n, f) => n + Number(f.amount), 0));
-    const res = await gw.start({ purpose: 'due', includeLateFees: true, refs: [due.id, ...fees.map((f) => f.id)], amount: Math.round((Number(due.amount) + fees.reduce((n, f) => n + Number(f.amount), 0)) * 100) / 100, unit: due.unit, payer: currentUser?.name || '', description: `${due.category}${due.billedMonth ? ` · ${due.billedMonth}` : ''} · ${due.unit}` });
-    setBusy(false);
+    let res;
+    try {
+      const fees = await feeDues(); setFeesPaid(fees.reduce((n, f) => n + Number(f.amount), 0));
+      res = await gw.start({ purpose: 'due', includeLateFees: true, refs: [due.id, ...fees.map((f) => f.id)], amount: Math.round((Number(due.amount) + fees.reduce((n, f) => n + Number(f.amount), 0)) * 100) / 100, unit: due.unit, payer: currentUser?.name || '', description: `${due.category}${due.billedMonth ? ` · ${due.billedMonth}` : ''} · ${due.unit}` });
+    } catch (e) {
+      tell(e?.message || String(e), e?.name === 'NetworkError' || e?.name === 'TimeoutError' ? 'network' : 'error');
+      return;
+    } finally {
+      setBusy(false);
+    }
     if (res.status === 'Paid') { const fresh = await storage.get(COLLECTIONS.DUES, due.id); setReceipt(fresh || { ...due, status: 'Paid' }); } else setAttempt(res);
   }
 
@@ -95,10 +103,17 @@ export function PayDueModal({ due, onClose }) {
     if (Object.keys(er).length) return;
     setBusy(true);
     const receiptNo = `RCT-${String(due.shortId || '').replace(/^DUE-/, '') || Date.now()}`;
-    const fees = await feeDues(); setFeesPaid(fees.reduce((n, f) => n + Number(f.amount), 0));
-    for (const f of fees) await save({ ...f, status: 'Paid', paymentMode: mode, paymentRef: reference || '—', paidAt: resident ? todayIso() : paidOn, paidBy: currentUser?.name || '', receiptNo: `RCT-${String(f.shortId || '').replace(/^DUE-/, '')}` });
-    const saved = await save({ ...due, status: 'Paid', paymentMode: mode, paymentRef: reference || '—', paidAt: resident ? todayIso() : paidOn, paidBy: currentUser?.name || '', receiptNo });
-    setBusy(false);
+    let saved;
+    try {
+      const fees = await feeDues(); setFeesPaid(fees.reduce((n, f) => n + Number(f.amount), 0));
+      for (const f of fees) await save({ ...f, status: 'Paid', paymentMode: mode, paymentRef: reference || '—', paidAt: resident ? todayIso() : paidOn, paidBy: currentUser?.name || '', receiptNo: `RCT-${String(f.shortId || '').replace(/^DUE-/, '')}` });
+      saved = await save({ ...due, status: 'Paid', paymentMode: mode, paymentRef: reference || '—', paidAt: resident ? todayIso() : paidOn, paidBy: currentUser?.name || '', receiptNo });
+    } catch (e) {
+      tell(e?.message || String(e), e?.name === 'NetworkError' || e?.name === 'TimeoutError' ? 'network' : 'error');
+      return;
+    } finally {
+      setBusy(false);
+    }
     if (saved) setReceipt(saved);
   }
 

@@ -3,22 +3,22 @@ import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from
 /** A small ⓘ that shows help on mouse-over, keyboard focus or a tap (phones). The pop-up is placed to fit the screen: it never runs off the left, right or bottom edge. */
 export default function InfoTip({ children, label = 'More information' }) {
   const [open, setOpen] = useState(false);
-  const [style, setStyle] = useState({ visibility: 'hidden' });
+  const [style, setStyle] = useState({ display: 'none' });   // closed: out of the layout (a hidden 300 px box would widen a dialog into a scrollbar)
   const btn = useRef(null); const pop = useRef(null);
 
   const place = useCallback(() => {
     const b = btn.current; const p = pop.current; if (!b || !p) return;
     const r = b.getBoundingClientRect(); const vw = document.documentElement.clientWidth; const vh = window.innerHeight; const m = 8;
     const width = Math.min(300, vw - m * 2);
-    p.style.width = `${width}px`;
+    p.style.display = 'block'; p.style.position = 'fixed'; p.style.visibility = 'hidden'; p.style.width = `${width}px`;   // measured where it will be shown
     const h = p.offsetHeight;
     let left = r.left + r.width / 2 - width / 2; left = Math.max(m, Math.min(left, vw - width - m));
     const below = vh - r.bottom - m; const above = r.top - m;
     const top = h <= below || below >= above ? r.bottom + 6 : r.top - h - 6;
-    setStyle({ position: 'fixed', left, top: Math.max(m, top), width, maxHeight: Math.max(80, Math.max(below, above) - 6), overflowY: 'auto', visibility: 'visible' });
+    setStyle({ display: 'block', position: 'fixed', left, top: Math.max(m, top), width, maxHeight: Math.max(80, Math.max(below, above) - 6), overflowY: 'auto', visibility: 'visible' });
   }, []);
 
-  useLayoutEffect(() => { if (open) place(); else setStyle({ visibility: 'hidden' }); }, [open, place, children]);
+  useLayoutEffect(() => { if (open) place(); else setStyle({ display: 'none' }); }, [open, place, children]);
   useEffect(() => {
     if (!open) return undefined;
     const on = () => place(); window.addEventListener('resize', on); window.addEventListener('scroll', on, true);

@@ -48,8 +48,8 @@ export async function screenFiles(fileList) {
 export async function persistPending(pending, { ownerType, ownerId }) {
   const metas = [];
   for (const { file, validation } of pending) {
-    const dataUrl = await fileToBase64Url(file);
     try {
+      const dataUrl = await fileToBase64Url(file);   // reading the file can fail too (moved, too big for the browser): said, never left spinning
       const saved = await secureStorage.put(COLLECTIONS.FILES, {
         name: file.name, mime: file.type, size: file.size, scanStatus: validation.status, dataUrl, ownerType, ownerId,
       });
@@ -60,7 +60,8 @@ export async function persistPending(pending, { ownerType, ownerId }) {
         return null;
       }
       // anything else (storage full, blocked, ...) must never leave the form stuck on "Saving…"
-      window.dispatchEvent(new CustomEvent('communityos:denied', { detail: { message: `Could not store ${file.name}: ${err?.message || 'storage error'}. Nothing was saved.` } }));
+      const net = err?.name === 'NetworkError' || err?.name === 'TimeoutError';
+      window.dispatchEvent(new CustomEvent('communityos:denied', { detail: { kind: net ? 'network' : 'error', message: `Could not upload ${file.name}: ${err?.message || 'storage error'} Nothing was saved - press Save again.` } }));
       return null;
     }
   }

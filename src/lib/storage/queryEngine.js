@@ -24,6 +24,10 @@ export function runQuery(rows, params = {}) {
   const { page = 1, pageSize = DEFAULT_PAGE_SIZE, sort, filters = {}, search = '', searchKeys, dateRange, period } = params;
   let out = rows;
   // period: { key, year, month } on a 'YYYY-MM' text field - filter by year and/or calendar month
+  // or { key, from: 'YYYY-MM', to: 'YYYY-MM' }: the months in between (the last 12 months)
+  if (period?.key && (period.from || period.to)) {
+    rows = rows.filter((r) => { const v = String(r[period.key] ?? '').slice(0, 7); return !!v && (!period.from || v >= period.from) && (!period.to || v <= period.to); });
+  }
   if (period?.key && (period.year || period.month)) {
     out = out.filter((r) => {
       const [y = '', m = ''] = String(r[period.key] ?? '').split('-');

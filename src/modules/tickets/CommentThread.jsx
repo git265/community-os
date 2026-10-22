@@ -6,6 +6,7 @@ import { Segmented } from '../../components/ui.jsx';
 import { isEmptyHtml } from '../../lib/richtext/sanitize.js';
 import { AttachmentList, AttachmentPicker } from '../../components/Attachments.jsx';
 import { persistPending } from '../../lib/files/attachments.js';
+import { tell } from '../../lib/net/activity.js';
 
 /**
  * Generic discussion thread for one ticket/task, with a Public/Internal
@@ -29,23 +30,25 @@ export default function CommentThread({ comments, ticketId, author, authorRoleId
     e.preventDefault();
     if (isEmptyHtml(body) && !pending.length) return;
     setBusy(true);
-    let attachments = [];
-    if (pending.length) {
-      // internal notes keep their files away from residents too
-      const metas = await persistPending(pending, { ownerType: internal ? 'ticketInternal' : 'ticket', ownerId: ticketId });
-      if (!metas) { setBusy(false); return; }
-      attachments = metas;
-    }
-    await onAdd({
-      ticketId,
-      author,
-      authorRoleId,
-      visibility: internal ? 'Internal' : 'Public',
-      body: isEmptyHtml(body) ? '<p>(attachment)</p>' : body,
-      attachments,
-      createdAt: new Date().toISOString(),
-    });
-    setBody(''); setPending([]); setAttachOpen(false); setBusy(false);
+    try {
+      let attachments = [];
+      if (pending.length) {
+        // internal notes keep their files away from residents too
+        const metas = await persistPending(pending, { ownerType: internal ? 'ticketInternal' : 'ticket', ownerId: ticketId });
+        if (!metas) { setBusy(false); return; }
+        attachments = metas;
+      }
+      await onAdd({
+        ticketId,
+        author,
+        authorRoleId,
+        visibility: internal ? 'Internal' : 'Public',
+        body: isEmptyHtml(body) ? '<p>(attachment)</p>' : body,
+        attachments,
+        createdAt: new Date().toISOString(),
+      });
+      setBody(''); setPending([]); setAttachOpen(false); setBusy(false);
+    } catch (e) { tell(e?.message || String(e), e?.name === 'NetworkError' || e?.name === 'TimeoutError' ? 'network' : 'error'); } finally { setBusy(false); }
   }
 
   const shown = isFieldStaff ? visible.filter((c) => (c.visibility === 'Internal') === internal) : visible;

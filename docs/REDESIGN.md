@@ -90,6 +90,7 @@ In total there are 156 tables. 150 of them are tenant tables.
 | V30 | A vendor's service lines are its categories (one per category, unique whatever its case), each with employees (`signed_workers`) and `contractors`; gate people and fixed expenses may name the line (`vendor_service`) so attendance and cost are counted per category. Vendor GSTINs are checked against their check character (`Gstin`) |
 | V31 | Facilities & locations are on the back end (`/property/facilities`, resource kit), with a note; the kind is a short name (a listed one keeps the list's spelling) |
 | V32 | A budget expense line may name a vendor and one of its categories: what is paid to that vendor in that category counts against it |
+| V33 | Meter readings, rate cards and utility types on the back end (`/billing/readings`, `/billing/rate-cards`, `/billing/utility-types`): a reading names its unit by id, once per unit, utility and month; a published one points at its bill; meter photos are files attached to the reading (`billing.reading`) |
 | V13 | Amenities: unique, checked amenity types (rates, GST, limits, JSON cancellation tiers, own slots); items and bookings point at their amenity by id; a booking carries its whole money life (price, deposit, the policy it was booked under, payment, refund, deposit settlement), each state checked. Payments open to bookings and donations: allocations have a target, a prepayment is claimed once, unit credit has new kinds; accounts 2200 Security deposits held and 2400 Refunds payable (`provision_amenities`). |
 | V12 | Money on tasks: quotations / invoices always belong to a ticket, with checked kinds, GST modes, amounts and approval slots; the ticket's money summary is checked; releases have a checked status (and a reason when cancelled); approval rules have unique names and valid ranges; finance settings and approver lists are one row per community (`provision_finance`); wishes, service notices and event work have checked statuses. |
 
@@ -286,6 +287,8 @@ Errors are RFC 9457 problem+json with a stable `code`. A 500 carries only an err
 - **Bills are never edited.** A bill is cancelled (only if nothing has been paid) or waived, always with a reason. A correction is a new bill.
 
 ## 7. Network latency, retries and resilience
+
+**What the person sees while it works** (`src/lib/net/activity.js`). Every back-end call and every write goes through `track()`: the button that was clicked is busy (no second click; a spinner after 1 s) until what it started has settled; a write or clicked action still going after 1 s shows a thin bar and "Working…" ("Still working…" after 12 s); "You are offline" while the browser has no network. A write that fails always ends in a message and never leaves a screen "Saving…" (`useCollection` save/remove return null/false and say why: denied, conflict, timeout, no network, server error); a failure nobody handled is still shown (unhandled-rejection toast).
 
 | Concern | What the service does |
 |---|---|

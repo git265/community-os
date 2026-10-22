@@ -262,7 +262,8 @@ export const RESOURCES = {
   incidents: { path: 'gate/incidents' },
   gateSettings: { path: 'gate/settings', singleton: true, json: ['durations', 'events'] },
   docFolders: { path: 'documents/folders' },
-  culturalEvents: { path: 'cultural/events' },
+  // the event's totals are the server's money strings ("1200.00"): numbers in the app, so they add up (not "1200.00" + "300.00")
+  culturalEvents: { path: 'cultural/events', convert: Object.fromEntries(['collected', 'pledged', 'spent', 'budget', 'targetCollection', 'creditedAmount'].map((k) => [k, { read: (v) => Number(v) || 0, write: (v) => v }])) },
   culturalPrograms: { path: 'cultural/programme' },
   culturalSevas: { path: 'cultural/seva' },
   culturalOfferings: { path: 'cultural/offerings' },
@@ -279,6 +280,10 @@ export const RESOURCES = {
   assocBills: { path: 'finance/association-bills', json: ['billFile'] },
   financeSettings: { path: 'finance/settings', rename: { finalCanDecideEC: 'finalCanDecideEc' }, singleton: true },
   importantNumbers: { path: 'comms/important-numbers' },
+  // metered utilities: the utilities, their rate cards, and each unit's monthly reading (its meter photos are files attached to it)
+  utilityTypes: { path: 'billing/utility-types' },
+  billingTemplates: { path: 'billing/rate-cards' },
+  readings: { path: 'billing/readings', unit: true },
   // the block is shown by name; the server keeps its id (blocks are read from /blocks, not the resource kit)
   facilities: { path: 'property/facilities', rename: { block: 'blockName' }, refs: { block: { field: 'blockId', path: 'blocks', key: 'name' } } },
   vendors: { path: 'vendors/vendors' },

@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { screenFiles, loadFileData, isImageMeta } from '../lib/files/attachments.js';
 import FilePreview from './FilePreview.jsx';
 import { ATTACHMENT_ACCEPT, ATTACHMENT_HELP, MAX_BYTES } from '../lib/files/fileValidation.js';
+import { tell } from '../lib/net/activity.js';
 
 const kb = (n) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 const icon = (m) => (isImageMeta(m) ? '🖼' : /pdf/.test(m.mime || m.name) ? '📕' : /sheet|excel|xls|csv/.test(m.mime || m.name) ? '📊' : /word|doc/.test(m.mime || m.name) ? '📘' : '📄');
@@ -51,10 +52,15 @@ export function AttachmentPicker({ pending, onChange, label = 'Add files', compa
     const files = e.target.files;
     if (!files?.length) return;
     setBusy(true);
-    const { accepted, rejected: bad } = await screenFiles(files);
-    setRejected(bad);
-    if (accepted.length) onChange([...pending, ...accepted]);
-    setBusy(false);
+    try {
+      const { accepted, rejected: bad } = await screenFiles(files);
+      setRejected(bad);
+      if (accepted.length) onChange([...pending, ...accepted]);
+    } catch (e) {
+      tell(e?.message || String(e), e?.name === 'NetworkError' || e?.name === 'TimeoutError' ? 'network' : 'error');
+    } finally {
+      setBusy(false);
+    }
     if (ref.current) ref.current.value = '';
   }
 

@@ -54,21 +54,23 @@ function AuditForm({ record, area, areas, onClose, onSaved }) {
     if (!String(f.area).trim()) return setErr('Say what was audited');
     if (!f.auditDate) return setErr('Enter the audit date');
     setBusy(true);
-    // the auditor is a vendor record (category "Audit / inspection agency"); a new name creates one so it can be linked next time
-    let vendorId = f.auditorVendorId || '';
-    const name = String(f.auditor || '').trim();
-    const match = agencies.find((v) => v.name.toLowerCase() === name.toLowerCase());
-    if (match) vendorId = match.id;
-    else if (name) {
-      let created = null;
-      try { created = await saveVendor({ name, category: AGENCY, contractType: 'Local / no contract', service: String(f.area).trim() }); } catch { created = null; }
-      vendorId = created?.id || '';
-    } else vendorId = '';
-    let metas = files;
-    if (pending.length) { const added = await persistPending(pending, { ownerType: 'audit', ownerId: id }); if (!added) { setBusy(false); return; } metas = [...files, ...added]; }
-    const rec = await save({ ...(record || {}), ...f, auditor: name, auditorVendorId: vendorId, id, area: String(f.area).trim(), score: f.score === '' ? '' : Number(f.score), frequencyMonths: Number(f.frequencyMonths) || 0, nextDue, parameters: ps.filter((x) => String(x.name).trim()), report: metas });
-    setBusy(false);
-    if (rec) onSaved(rec);
+    try {
+      // the auditor is a vendor record (category "Audit / inspection agency"); a new name creates one so it can be linked next time
+      let vendorId = f.auditorVendorId || '';
+      const name = String(f.auditor || '').trim();
+      const match = agencies.find((v) => v.name.toLowerCase() === name.toLowerCase());
+      if (match) vendorId = match.id;
+      else if (name) {
+        let created = null;
+        try { created = await saveVendor({ name, category: AGENCY, contractType: 'Local / no contract', service: String(f.area).trim() }); } catch { created = null; }
+        vendorId = created?.id || '';
+      } else vendorId = '';
+      let metas = files;
+      if (pending.length) { const added = await persistPending(pending, { ownerType: 'audit', ownerId: id }); if (!added) { setBusy(false); return; } metas = [...files, ...added]; }
+      const rec = await save({ ...(record || {}), ...f, auditor: name, auditorVendorId: vendorId, id, area: String(f.area).trim(), score: f.score === '' ? '' : Number(f.score), frequencyMonths: Number(f.frequencyMonths) || 0, nextDue, parameters: ps.filter((x) => String(x.name).trim()), report: metas });
+      setBusy(false);
+      if (rec) onSaved(rec);
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
   }
   return (
     <Modal title={record ? 'Edit audit' : 'Record an audit'} subtitle="Every audit is kept, so results can be compared over time." onClose={onClose} wide>

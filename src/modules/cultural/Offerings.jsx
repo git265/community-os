@@ -96,7 +96,7 @@ export default function Offerings({ ev, offerings, manager, canPledge, onEdit, o
         <div className="muted" data-testid="offerings-intro">{ev.offeringsIntro || 'Choose an offering or contribute to the community pool. Your details come from your profile — review, confirm and pay by UPI.'}</div>
       </div>
       <div className="grid metrics" style={{ marginBottom: 12 }}>
-        <div className="card metric"><div className="label">Total pledged</div><div className="value" data-testid="o-pledged">{inr((ev.collected || 0) + (ev.pledged || 0))}</div></div>
+        <div className="card metric"><div className="label">Total pledged</div><div className="value" data-testid="o-pledged">{inr((Number(ev.collected) || 0) + (Number(ev.pledged) || 0))}</div></div>
         <div className="card metric"><div className="label">Devotee families</div><div className="value" data-testid="o-families">{ev.families || 0} {ev.families === 1 ? 'pledge' : 'pledges'}</div></div>
         <div className="card metric"><div className="label">Open slots</div><div className="value" data-testid="o-open">{available.length}{pools.length ? ` + ${pools.length} pool${pools.length > 1 ? 's' : ''}` : ''}</div></div>
       </div>

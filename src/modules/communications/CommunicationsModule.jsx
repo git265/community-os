@@ -1,4 +1,5 @@
 import AdminDelete from '../../components/AdminDelete.jsx';
+import { getCommunity } from '../../lib/community.js';
 import { notify, notifyMany } from '../../lib/notify.js';
 import React, { useState } from 'react';
 import { takeHint } from '../../lib/openHint.js';
@@ -108,6 +109,7 @@ export default function CommunicationsModule() {
     if (!t) return;
     const initial = {};
     for (const f of mergeFields) initial[f.token] = f.defaultValue || '';
+    if (getCommunity()?.name) initial['{{SOCIETY_NAME}}'] = getCommunity().name;   // the community's own name
     setFieldValues(initial);
     setDraft((d) => ({ ...d, subject: t.headerText || d.subject }));
   }
@@ -130,7 +132,7 @@ export default function CommunicationsModule() {
     if (Object.keys(er).length) return;
     const recipients = reach ?? 0;
     const ok = await saveBroadcast({
-      type: draft.type, audience: draft.audience, audienceUnits: unitsFor(draft.audience, draft.audienceUnits, draft.audienceBlocks, properties) || [], audienceBlocks: draft.audience === 'Selected blocks' ? draft.audienceBlocks : [], subject: draft.subject.trim(),
+      type: draft.type, audience: draft.audience, audienceUnits: unitsFor(draft.audience, draft.audienceUnits, draft.audienceBlocks, properties) || [], audienceBlocks: draft.audience === 'Selected blocks' ? draft.audienceBlocks : [], subject: template ? renderTemplate(draft.subject.trim(), fieldValues) : draft.subject.trim(),
       requiresSignature: draft.requiresSignature, reminderFrequency: draft.reminderFrequency,
       message: isPoll && isEmptyHtml(previewBody) ? '<p>Please vote.</p>' : previewBody,
       ...(isMaint ? { eventDate: draft.eventDate, startTime: draft.startTime, endTime: draft.endTime, affects: draft.affects.trim() } : {}),
@@ -259,7 +261,7 @@ export default function CommunicationsModule() {
                 {template ? (
                   <>
                     <div className="form-grid" style={{ marginTop: 13 }}>
-                      {mergeFields.map((f) => (
+                      {mergeFields.filter((f) => `${template.headerText || ''} ${template.body || ''}`.includes(f.token)).map((f) => (   // only the blanks this template has
                         <div className="field" key={f.token}>
                           <label>{f.label}</label>
                           <input value={fieldValues[f.token] ?? ''} onChange={(e) => setFieldValues((v) => ({ ...v, [f.token]: e.target.value }))} />

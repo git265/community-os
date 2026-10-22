@@ -54,6 +54,16 @@ public final class FileKinds {
         files.register(new OwnerKind("vendor.vendor", (c, id) -> com.communityos.api.vendor.application.VendorPolicy.reader(c) && exists.test(id),
             (c, id) -> com.communityos.api.vendor.application.VendorPolicy.manager(c) && exists.test(id)));
     }
+    /** meter photos  read: whoever reads the readings, and the unit's people once the reading is billed · attach: the meter readers */
+    public static void registerUtilities(FileService files, org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate jdbc) {
+        java.util.function.Function<java.util.UUID, java.util.Optional<java.util.Map<String, Object>>> row = (id) -> jdbc.query(
+            "SELECT unit_id, status FROM billing.meter_reading WHERE id = CAST(:id AS uuid)", java.util.Map.of("id", id.toString()),
+            (rs, i) -> java.util.Map.<String, Object>of("unit", rs.getObject("unit_id", java.util.UUID.class), "status", rs.getString("status"))).stream().findFirst();
+        files.register(new OwnerKind("billing.reading",
+            (c, id) -> row.apply(id).filter((r) -> com.communityos.api.billing.UtilityResources.readers(c)
+                || ("Published".equals(r.get("status")) && c.units() != null && c.units().stream().anyMatch((u) -> u.value().equals(r.get("unit"))))).isPresent(),
+            (c, id) -> com.communityos.api.billing.UtilityResources.writers(c) && row.apply(id).filter((r) -> !"Published".equals(r.get("status"))).isPresent()));
+    }
     /** equipment, stock, DG and electricity bills, custom log entries  read: the asset readers (not residents) · attach: the asset writers
      *  audit reports  read: as the audit (residents a published one) · attach: the coordinators */
     public static void registerAssets(FileService files, org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate jdbc) {

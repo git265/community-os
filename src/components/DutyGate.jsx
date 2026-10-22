@@ -52,9 +52,10 @@ export function OnDutyBar({ duty }) {
   const cls = state.key === 'over' ? 'over' : state.key === 'due' ? 'due' : '';
   async function out() {
     setBusy(true); setMsg('');
-    const res = await clockOut(open);
-    if (res.blocked) setMsg(res.blocked);
-    setBusy(false);
+    try {
+      const res = await clockOut(open);
+      if (res.blocked) setMsg(res.blocked);
+    } catch (e) { setMsg(e.message); } finally { setBusy(false); }
   }
   return (
     <div className={`duty-bar ${cls}`} data-testid="duty-bar" data-state={state.key}>

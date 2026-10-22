@@ -2,6 +2,7 @@
 // EVERY module reads/writes through this (via useCollection), never through
 // the raw adapter. It plays the role of the Spring Boot controller/service
 // layer: authenticate -> authorize -> stamp -> persist -> audit.
+import { track } from '../net/activity.js';
 import { storage, isApiMode } from './index.js';
 import { remoteSecure } from './remoteSecure.js';
 import { serverDecides } from '../auth/session.js';
@@ -476,4 +477,9 @@ export async function amenityInUse(a) {
 
 // In the browser demo the rules run here. When the back end enforces sign-in, the same calls go to the server, which runs the same rules.
 const METHODS = ['list', 'query', 'get', 'put', 'importMany', 'createMany', 'updateMany', 'remove'];
-export const secureStorage = Object.fromEntries(METHODS.map((m) => [m, (...a) => (isApiMode() && serverDecides() ? remoteSecure[m](...a) : localSecure[m](...a))]));
+// Writes are followed for the person (lib/net/activity.js): the button that started one is busy until it settles. Reads are not.
+const WRITES = new Set(['put', 'importMany', 'createMany', 'updateMany', 'remove']);
+export const secureStorage = Object.fromEntries(METHODS.map((m) => [m, (...a) => {
+  const run = () => (isApiMode() && serverDecides() ? remoteSecure[m](...a) : localSecure[m](...a));
+  return WRITES.has(m) ? track(run(), { write: true }) : run();
+}]));

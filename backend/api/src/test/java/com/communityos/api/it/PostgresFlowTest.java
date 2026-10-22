@@ -1184,7 +1184,7 @@ class PostgresFlowTest {
             assertEquals(List.of(), demo.problems(), "every sample record the v2 server keeps is loaded");
             Map<String, Object> demoBooks = owner.sql("SELECT sum(debit)::text AS d, sum(credit)::text AS c FROM finance.account_balance WHERE community_id = '" + demoC + "'").get(0);
             assertEquals(demoBooks.get("d"), demoBooks.get("c"), "the demo's books balance");
-            for (String t : List.of("identity.membership:21", "property.unit:214", "billing.due:13", "maintenance.ticket:8", "maintenance.quotation:7", "amenity.booking:8", "gate.pass:4",
+            for (String t : List.of("identity.membership:21", "property.unit:216", "billing.due:13", "maintenance.ticket:8", "maintenance.quotation:7", "amenity.booking:8", "gate.pass:4",
                     "comms.broadcast:1", "comms.forum_topic:3", "docs.document:4", "cultural.donation:10", "cultural.expense:5", "finance.bank_txn:3835", "governance.meeting:2",
                     "vendor.service_contact:4", "vendor.contact_review:4", "assets.equipment:97", "assets.inventory_item:59", "assets.plant_log:60", "workforce.attendance_session:20",
                     "reports.schedule:4", "cultural.event:27")) {
@@ -1235,7 +1235,7 @@ class PostgresFlowTest {
             }
             var dash = as(demoAdmin, () -> summaries.dashboard(demoAdmin));
             assertEquals(8, dash.tickets().total(), "the demo's tickets"); assertNotNull(dash.dues()); assertNotNull(dash.staff());
-            assertEquals(214, dash.homes().total(), "the demo's units");
+            assertEquals(216, dash.homes().total(), "the demo's units");
             assertEquals(owner.sql("SELECT count(*)::text AS n FROM gate.visit WHERE community_id = '" + demoC + "' AND state = 'Inside' AND kind = 'Crew'").get(0).get("n"), String.valueOf(dash.gate().insideCrew()));
             assertNull(as(ownerC, () -> summaries.staff(ownerC)), "a resident does not see who is on duty");
 

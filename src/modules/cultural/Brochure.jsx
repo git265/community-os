@@ -155,11 +155,12 @@ function PageEditor({ page, ev, all, onSave, onDelete, onClose }) {
   }
   async function dropPic() {
     setBusy(true);
-    const old = p;
-    const next = await onSave({ ...p, fileId: '', objectKey: '', thumb: '', imageName: '' });
-    await dropImage(old, all.filter((r) => r.id !== p.id));
-    setP(next || { ...p, fileId: '', objectKey: '', thumb: '', imageName: '' });
-    setBusy(false);
+    try {
+      const old = p;
+      const next = await onSave({ ...p, fileId: '', objectKey: '', thumb: '', imageName: '' });
+      await dropImage(old, all.filter((r) => r.id !== p.id));
+      setP(next || { ...p, fileId: '', objectKey: '', thumb: '', imageName: '' });
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
   }
   async function done() { setBusy(true); const ok = await onSave(p); setBusy(false); if (ok) onClose(); }
   return (

@@ -4,8 +4,10 @@
 //   timeouts   reads 15 s, writes 30 s, file bytes 120 s  (a request that does not answer is abandoned, never left spinning)
 //   retries    GET only, twice, when the network drops or the server says 502/503/504 (a read is safe to repeat; a write never is)
 //   sign-in    a 401 renews the access token once and repeats the request; if that fails the person is signed out with a message
+//   activity   every call is followed (lib/net/activity.js): the clicked button is busy until it settles, writes show the activity bar
 //   errors     403 -> AuthzError (message from the server), 409 -> ConflictError (carries the stored record), others -> Error
 import { getDataSource } from '../storage/dataSource.js';
+import { track } from './activity.js';
 import { getAccessToken, refreshSession, clearSession, serverEnforces, serverDecides } from '../auth/session.js';
 
 export class NetworkError extends Error { constructor(msg) { super(msg); this.name = 'NetworkError'; } }
@@ -31,7 +33,12 @@ async function once(url, init, timeout) {
  * fetch() with the community header, the access token, a timeout, safe retries for reads and one token renewal.
  * @param {{ base?: string, slug?: string, bytes?: boolean, retries?: number, timeout?: number, auth?: boolean }} opts
  */
-export async function apiFetch(path, init = {}, opts = {}) {
+export function apiFetch(path, init = {}, opts = {}) {
+  const method = (init.method || 'GET').toUpperCase();
+  // the button that started it shows it is working, and a write shows the activity bar (lib/net/activity.js); a stream only until it opens
+  return track(send(path, init, opts), { write: method !== 'GET' && method !== 'HEAD' && !opts.quiet });
+}
+async function send(path, init, opts) {
   const { baseUrl, token: devKey } = getDataSource();
   const method = (init.method || 'GET').toUpperCase();
   const isRead = method === 'GET' || method === 'HEAD';

@@ -298,7 +298,7 @@ export default function CulturalModule() {
   const tabs = [['overview', 'Overview'], ...(vis('showOfferings') ? [['offerings', ev?.offeringsTitle || 'Offerings']] : []), ...(vis('showProgramme') ? [['programme', 'Programme']] : []), ...((manager || (shown(ev, 'showBrochure') && ev?.brochureStatus === 'Published')) ? [['brochure', 'Brochure']] : []), ...(vis('showVolunteers') ? [['seva', 'Volunteer seva']] : []), ...(vis('showDonations') ? [['donations', resident ? 'My contributions' : 'Donations']] : []), ...(vis('showPhotos') ? [['photos', 'Photos']] : []), ...(finance ? [['expenses', 'Expenses']] : []), ...(!resident ? [['work', 'Work']] : [])].filter(([k]) => tabAllowed(`cultural.${k}`));
   const expectedFor = (p) => Number(p.peoplePerUnit) || Number(ev?.defaultPeople) || 0; // people per villa expected at this item (item overrides the event default; 0 = just count sign-ups)
   const payDonation = payFor?.id ? donations.find((d) => d.id === payFor.id) : null;
-  const balance = (ev?.collected || 0) - (ev?.spent || 0);
+  const balance = (Number(ev?.collected) || 0) - (Number(ev?.spent) || 0);
   const shownDon = evDon.filter((d) => (!st || d.status === st) && (!q || `${d.donor} ${d.unit} ${d.receiptNo} ${d.towards}`.toLowerCase().includes(q.toLowerCase())));
 
   return (

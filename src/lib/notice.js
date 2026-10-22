@@ -1,8 +1,10 @@
+import { getCommunity } from './community.js';
 // Fills {{TOKEN}} placeholders of a Notice Template. Values passed in win; otherwise the
 // Merge Field Library default is used; unknown tokens are left visible so mistakes are obvious.
 export function renderNotice(body, values = {}, mergeFields = []) {
   return String(body || '').replace(/\{\{\s*([A-Z0-9_]+)\s*\}\}/g, (m, key) => {
     if (values[key] !== undefined && values[key] !== '') return String(values[key]);
+    if (key === 'SOCIETY_NAME' && getCommunity()?.name) return getCommunity().name;   // the community's own name, not a sample default
     const def = mergeFields.find((f) => f.token === `{{${key}}}`)?.defaultValue;
     return def ? def : m;
   });

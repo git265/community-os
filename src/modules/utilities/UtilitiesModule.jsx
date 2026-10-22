@@ -31,7 +31,7 @@ export const PHOTO_REQUIRED = ['Water', 'DG'];
 const calcAmount = (units, tpl) => Math.round((Number(units) || 0) * (Number(tpl?.ratePerUnit) || 0) + (Number(tpl?.fixedCharge) || 0) + (Number(tpl?.tax) || 0));
 
 /* ------------------------------------------------------------ reading form -- */
-function ReadingForm({ utility, month, reading, units, prevInfo, saved, onClose, onSaved, onPublish, canWrite, existing }) {
+function ReadingForm({ utility, month, reading, units, prevInfo, saved, onClose, onSaved, onPublish, canWrite, existing, saveLabel = '' }) {
   const isNew = !reading?.id;
   const locked = reading?.status === 'Published' || !canWrite;
   const [unit, setUnit] = useState(reading?.unit || '');
@@ -143,7 +143,7 @@ function ReadingForm({ utility, month, reading, units, prevInfo, saved, onClose,
       </div>
       <CustomFields sectionId={COLLECTIONS.READINGS} value={cv} onChange={locked ? undefined : (k, v) => setCv((c) => ({ ...c, [k]: v }))} />
       <div className="form-actions">
-        {!locked && <button className="btn" disabled={busy} onClick={() => save(false)}>{busy ? 'Saving…' : 'Save draft'}</button>}
+        {!locked && <button className="btn" disabled={busy} onClick={() => save(false)}>{busy ? 'Saving…' : saveLabel || 'Save draft'}</button>}
         {!locked && <button className="btn secondary" disabled={busy} onClick={() => save(true)}>Save &amp; publish to owner…</button>}
         <button className="btn secondary" onClick={onClose}>{locked ? 'Close' : 'Cancel'}</button>
       </div>
@@ -183,6 +183,7 @@ function PublishForm({ utility, month, list, template, noticeTemplates, mergeFie
       // one batch for the whole run: all bills, all reading updates and all notices are written in single operations
       const created = await secureStorage.createMany(COLLECTIONS.DUES, ready.map((r) => ({
         unit: r.unit, category: utility, amount: calcAmount(r.unitsConsumed, template), billedMonth: monthLabel(month), dueDate, status: 'Unpaid', paymentMode: '',
+        description: `${labelOf(utility)} ${monthLabel(month)}: meter ${r.previousReading} → ${r.currentReading} = ${r.unitsConsumed} ${typeList.find((t) => t.name === utility)?.unitName || 'units'}`,   // the bill's line (the notice is the letter)
         readingId: r.id, previousReading: r.previousReading, currentReading: r.currentReading, unitsConsumed: r.unitsConsumed,
         ratePerUnit: Number(template.ratePerUnit) || 0, fixedCharge: Number(template.fixedCharge) || 0, tax: Number(template.tax) || 0,
         notice: noticeFor(r), photos: r.photos || [],
@@ -277,6 +278,9 @@ export default function UtilitiesModule({ onNavigate, hideAssoc = false }) {
   const [view, setView] = useState(null); // { mode:'edit', reading?, unit? } | { mode:'publish', list }
   const [q, setQ] = useState('');
   const [statusF, setStatusF] = useState('');
+  const [blockF, setBlockF] = useState('');
+  const [page, setPage] = useState(0);
+  const PAGE = 50;   // a page of units at a time: a 1,000-unit community is entered block by block, not by scrolling
 
   const canWrite = canWriteCollection(COLLECTIONS.READINGS, getPrincipal());
   const months = useMemo(() => recentMonths(12), []);
@@ -288,11 +292,19 @@ export default function UtilitiesModule({ onNavigate, hideAssoc = false }) {
     const units = [...new Set([...properties.map((p) => p.unit), ...forMonth.map((r) => r.unit)])].sort(byUnit);
     return units.map((u) => {
       const r = forMonth.find((x) => x.unit === u);
-      return { unit: u, owner: properties.find((p) => p.unit === u)?.owner || '', reading: r, status: r ? r.status : 'Not recorded' };
+      const prop = properties.find((p) => p.unit === u);
+      return { unit: u, owner: prop?.owner || '', block: prop?.zone || '', reading: r, status: r ? r.status : 'Not recorded' };
     });
   }, [properties, forMonth]);
 
-  const filtered = rows.filter((r) => (!statusF || r.status === statusF) && (!q || `${r.unit} ${r.owner}`.toLowerCase().includes(q.toLowerCase())));
+  const blocks = useMemo(() => [...new Set(rows.map((r) => r.block).filter(Boolean))].sort(), [rows]);
+  const filtered = rows.filter((r) => (!statusF || r.status === statusF) && (!blockF || r.block === blockF) && (!q || `${r.unit} ${r.owner}`.toLowerCase().includes(q.toLowerCase())));
+  const pages = Math.max(1, Math.ceil(filtered.length / PAGE));
+  const at = Math.min(page, pages - 1);
+  const shown = filtered.slice(at * PAGE, at * PAGE + PAGE);
+  React.useEffect(() => { setPage(0); }, [utility, month, q, statusF, blockF]);
+  // the next unit still to be read (in the filter), so a meter reader can go from one to the next without hunting in a long list
+  const nextToRead = filtered.find((r) => r.status === 'Not recorded');
   const drafts = forMonth.filter((r) => r.status === 'Draft');
   const published = forMonth.filter((r) => r.status === 'Published').length;
 
@@ -334,10 +346,17 @@ export default function UtilitiesModule({ onNavigate, hideAssoc = false }) {
             {months.map((m) => <option key={m} value={m}>{monthLabel(m)}</option>)}
           </select>
           <input aria-label="Search villa" placeholder="Search villa or owner…" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 'auto', minWidth: 180 }} />
+          {blocks.length > 0 && (
+            <select aria-label="Block" data-testid="reading-block" value={blockF} onChange={(e) => setBlockF(e.target.value)} style={{ width: 'auto' }}>
+              <option value="">All blocks</option>
+              {blocks.map((b) => <option key={b}>{b}</option>)}
+            </select>
+          )}
           <select aria-label="Status" value={statusF} onChange={(e) => setStatusF(e.target.value)} style={{ width: 'auto' }}>
             <option value="">All status</option>
             <option>Not recorded</option><option>Draft</option><option>Published</option>
           </select>
+          {canWrite && nextToRead && <button type="button" className="btn secondary" data-testid="next-to-read" onClick={() => setView({ mode: 'edit', reading: null, unit: nextToRead.unit, next: true })}>Next to read: {nextToRead.unit}</button>}
         </div>
       </div>
 
@@ -353,7 +372,7 @@ export default function UtilitiesModule({ onNavigate, hideAssoc = false }) {
           <table className="resp-table">
             <thead><tr><th>Villa / unit</th><th>Owner</th><th>Previous</th><th>Current</th><th>Units</th><th>Photos</th><th>Status</th><th /></tr></thead>
             <tbody>
-              {filtered.map((r) => {
+              {shown.map((r) => {
                 const x = r.reading;
                 return (
                   <tr key={r.unit} className="clickable" onClick={() => setView({ mode: 'edit', reading: x, unit: r.unit })}>
@@ -372,6 +391,13 @@ export default function UtilitiesModule({ onNavigate, hideAssoc = false }) {
           </table>
         </div>
         {filtered.length === 0 && <div className="empty">No villas match.</div>}
+        {filtered.length > PAGE && (
+          <div className="pager" data-testid="reading-pager">
+            <button type="button" className="btn secondary sm" disabled={at === 0} onClick={() => setPage(at - 1)}>‹ Previous</button>
+            <span className="muted">{at * PAGE + 1}–{Math.min(filtered.length, at * PAGE + PAGE)} of {filtered.length}</span>
+            <button type="button" className="btn secondary sm" disabled={at >= pages - 1} onClick={() => setPage(at + 1)}>Next ›</button>
+          </div>
+        )}
       </div>
 
       </>)}
@@ -381,7 +407,13 @@ export default function UtilitiesModule({ onNavigate, hideAssoc = false }) {
           key={view.reading?.id || view.unit || 'new'}
           utility={utility} month={month} reading={view.reading || (view.unit ? { unit: view.unit, previousReading: prevInfo(view.unit)?.value ?? '' } : null)}
           units={unitOptions} prevInfo={prevInfo} saved={saveReading} existing={forMonth} canWrite={canWrite}
-          onClose={() => setView(null)} onSaved={() => setView(null)} onPublish={(list) => setView({ mode: 'publish', list })}
+          onClose={() => setView(null)} onPublish={(list) => setView({ mode: 'publish', list })}
+          onSaved={() => {
+            if (!view.next) return setView(null);
+            const after = filtered.find((x) => x.status === 'Not recorded' && x.unit !== view.unit);
+            setView(after ? { mode: 'edit', reading: null, unit: after.unit, next: true } : null);
+          }}
+          saveLabel={view.next ? 'Save & next' : ''}
         />
       )}
       {view?.mode === 'publish' && (

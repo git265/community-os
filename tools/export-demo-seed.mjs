@@ -46,7 +46,7 @@ const REFS = {
   eventWork: { eventId: 'culturalEvents' }, culturalPrograms: { eventId: 'culturalEvents' }, culturalSevas: { eventId: 'culturalEvents' },
   culturalDonations: { eventId: 'culturalEvents', offeringId: 'culturalOfferings' }, culturalOfferings: { eventId: 'culturalEvents', donationId: 'culturalDonations' },
   culturalExpenses: { eventId: 'culturalEvents' }, contactReviews: { contactId: 'serviceContacts' }, audits: { auditorVendorId: 'vendors' },
-  dues: { readingId: 'readings' }, gateLinks: { personId: 'gatePeople' },
+  readings: { dueId: 'dues' }, gateLinks: { personId: 'gatePeople' },
   gateVisits: { personId: 'gatePeople', passId: 'gatePasses', workOrderId: 'gateWorkOrders', approvalId: 'gateApprovals' }, gateApprovals: { visitId: 'gateVisits' },
   gateFlags: { visitId: 'gateVisits', personId: 'gatePeople' }, gateWorkOrders: { rosterIds: 'gatePeople' }, gateRounds: { checkpointIds: 'gateCheckpoints' },
   shifts: { staffId: 'handymen' }, equipment: { planId: 'infraPlans' },

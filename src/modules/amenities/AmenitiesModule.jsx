@@ -157,21 +157,23 @@ export default function AmenitiesModule() {
     if (ex.error) return setError(ex.error);
     if (itemsOnly && !ex.lines.length) return setError(`Choose how many of each item you need from ${amenity.name}`);
     setBusy(true);
-    let gwRef = ''; let gwMode = paymentMode;
-    const ownBooking = !isStaff || (!!myUnit && bookUnit === myUnit);   // an owner (a committee member too) booking for their own unit pays online
-    if (payNow && ownBooking && toPay > 0 && !waivedNow) { // the owner pays through the payment gateway first; the booking is saved with its payment id
-      setPayAttempt(null);
-      const res = await gw.start({ purpose: 'booking', refs: [], amount: toPay, unit: bookUnit, payer: currentUser?.name || '', description: `${selected} · ${pickedDate}` });
-      if (res.status !== 'Paid') { setBusy(false); setPayAttempt(res); return; }
-      gwRef = res.utr ? `UTR ${res.utr}${res.payerVpa ? ` · ${res.payerVpa}` : ''}` : res.paymentId;   // UPI: the bank's UTR (browser demo); the back end keeps its own payment id
-      gwMode = res.order?.method || paymentMode;
-    }
-    const saved = await saveBooking({ ...custom, ...(ex.lines.length ? { extras: JSON.stringify(Object.fromEntries(ex.lines.map((l) => [l.itemId, l.qty]))) } : {}), amenity: selected, unit: bookUnit, date: pickedDate, slot: dayBased ? 'Full day' : slot, paymentMode: gwMode, ...(gwRef ? { paymentRef: gwRef } : {}), useCredit: creditCover > 0 && !waivedNow, ...(isAssoc ? { bookedFor: 'Association', association: assoc.trim() } : {}), ...(waivedNow ? { freeOfCharge: true, waiveReason: freeWhy.trim() } : {}) });
-    setBusy(false);
-    if (!saved) return; // a rule said no: the toast shows why
-    setReceipt(saved);
-    try { window.scrollTo({ top: 0, behavior: 'smooth' }); document.querySelector('.content')?.scrollIntoView({ block: 'start' }); document.querySelector('.main')?.scrollTo?.({ top: 0 }); } catch { /* ignore */ }
-    setPickedDate(null); setSlot(''); setUnit(currentUser?.unit || ''); setAssoc(''); setFree(false); setFreeWhy(''); setForWho('Unit'); setAcknowledged(false); setError(''); setFe({}); setUseCredit(false); setCustom({}); setPicks({});
+    try {
+      let gwRef = ''; let gwMode = paymentMode;
+      const ownBooking = !isStaff || (!!myUnit && bookUnit === myUnit);   // an owner (a committee member too) booking for their own unit pays online
+      if (payNow && ownBooking && toPay > 0 && !waivedNow) { // the owner pays through the payment gateway first; the booking is saved with its payment id
+        setPayAttempt(null);
+        const res = await gw.start({ purpose: 'booking', refs: [], amount: toPay, unit: bookUnit, payer: currentUser?.name || '', description: `${selected} · ${pickedDate}` });
+        if (res.status !== 'Paid') { setBusy(false); setPayAttempt(res); return; }
+        gwRef = res.utr ? `UTR ${res.utr}${res.payerVpa ? ` · ${res.payerVpa}` : ''}` : res.paymentId;   // UPI: the bank's UTR (browser demo); the back end keeps its own payment id
+        gwMode = res.order?.method || paymentMode;
+      }
+      const saved = await saveBooking({ ...custom, ...(ex.lines.length ? { extras: JSON.stringify(Object.fromEntries(ex.lines.map((l) => [l.itemId, l.qty]))) } : {}), amenity: selected, unit: bookUnit, date: pickedDate, slot: dayBased ? 'Full day' : slot, paymentMode: gwMode, ...(gwRef ? { paymentRef: gwRef } : {}), useCredit: creditCover > 0 && !waivedNow, ...(isAssoc ? { bookedFor: 'Association', association: assoc.trim() } : {}), ...(waivedNow ? { freeOfCharge: true, waiveReason: freeWhy.trim() } : {}) });
+      setBusy(false);
+      if (!saved) return; // a rule said no: the toast shows why
+      setReceipt(saved);
+      try { window.scrollTo({ top: 0, behavior: 'smooth' }); document.querySelector('.content')?.scrollIntoView({ block: 'start' }); document.querySelector('.main')?.scrollTo?.({ top: 0 }); } catch { /* ignore */ }
+      setPickedDate(null); setSlot(''); setUnit(currentUser?.unit || ''); setAssoc(''); setFree(false); setFreeWhy(''); setForWho('Unit'); setAcknowledged(false); setError(''); setFe({}); setUseCredit(false); setCustom({}); setPicks({});
+    } catch (e) { setError(e.message); } finally { setBusy(false); }
   }
 
   async function onAction(record) {

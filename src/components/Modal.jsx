@@ -13,9 +13,20 @@ export default function Modal({ title, subtitle, onClose, children, wide = false
     document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = prev; };
   }, []);
+  // Escape closes the dialog on top (a dialog opened from inside another closes first)
+  const ref = React.useRef(null);
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return;
+      const all = document.querySelectorAll('.modal-overlay');
+      if (all[all.length - 1] === ref.current) onClose?.();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   return (
-    <div className="modal-overlay" onClick={() => { if (!isMobile()) onClose(); }}>
+    <div className="modal-overlay" ref={ref} onClick={() => { if (!isMobile()) onClose(); }}>
       <div className={`modal-card${wide ? ' wide' : ''}`} onClick={(e) => e.stopPropagation()} role="dialog" aria-label={title}>
         <div className="modal-handle" />
         <div className="modal-header">

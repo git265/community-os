@@ -57,28 +57,30 @@ export default function AssetTaskDialog({ asset, source = '', onClose, onDone, i
     if (needsPick && !assignedTo) { setErr('Pick who it is assigned to'); return; }
     if (!sla || sla < todayIso()) { setErr('SLA due must be today or a future date'); return; }
     setBusy(true);
-    let status = 'Open'; let who = '';
-    if (needsPick) { status = 'Assigned'; who = assignedTo; }
-    else { const a = pickAssignee(handymen, tickets, category); if (a) { status = 'Assigned'; who = a.name; } }
-    const id = uuid();
-    const metas = pending.length ? await persistPending(pending, { ownerType: 'ticket', ownerId: id }) : [];
-    if (!metas) { setBusy(false); return; }
-    const where0 = [asset.area, asset.location].filter(Boolean).join(' / ');
-    const geoLL = mapPoint?.geo ? mapPoint.geo.toLL(mapPoint.x, mapPoint.y) : null;
-    const spot = mapPoint ? `Site map position ${mapPoint.x}, ${mapPoint.y}${geoLL ? ` (${geoLL[0].toFixed(5)}, ${geoLL[1].toFixed(5)})` : ''}${mapPoint.away && asset.id ? `, ${mapPoint.away} from ${asset.name}` : ''}` : '';
-    const where = [where0, spot].filter(Boolean).join(' / ');
-    const affected = impact?.units || [];
-    const intro = [spot && `<p><b>Reported from the site map:</b> ${spot}.</p>`, impact?.valve && `<p><b>Close first:</b> ${impact.valve.name}.</p>`, affected.length && `<p><b>Affected (${affected.length}):</b> ${affected.slice(0, 40).join(', ')}${affected.length > 40 ? '…' : ''}</p>`].filter(Boolean).join('');
-    const saved = await saveTicket({
-      id, taskType: typeSel, title: `${asset.name}: ${title.trim()}`, description: (isEmptyHtml(description) ? '' : description) + intro,
-      unit: 'Common area', category, subCategory: '', priority, status, assignedTo: who, slaDueAt: sla, scope: 'Community', location: where || asset.name, affectedUnits: affected,
-      attachments: metas, hasPhotos: metas.some((m) => /^image\//.test(m.type || m.mimeType || '')), awaitingParts: false, materialsCost: 0, paymentStatus: 'Not Paid', residentRating: 0,
-      createdBy: me, createdByRole: roleId, createdAt: label(), ...(asset.id ? { assetId: asset.id, assetName: asset.name, assetRef: asset.shortId || '' } : {}), source,
-    });
-    if (!saved) { setBusy(false); setErr('The task could not be saved. You may not be allowed to raise tasks.'); return; }
-    if (asset.id) await saveLog({ assetId: asset.id, assetName: asset.name, date: todayIso(), condition: 'Under repair', source: 'Task opened', note: `${asset.name}: ${title.trim()}`, by: me, ticketId: saved.id });
-    setBusy(false);
-    onDone?.(saved);
+    try {
+      let status = 'Open'; let who = '';
+      if (needsPick) { status = 'Assigned'; who = assignedTo; }
+      else { const a = pickAssignee(handymen, tickets, category); if (a) { status = 'Assigned'; who = a.name; } }
+      const id = uuid();
+      const metas = pending.length ? await persistPending(pending, { ownerType: 'ticket', ownerId: id }) : [];
+      if (!metas) { setBusy(false); return; }
+      const where0 = [asset.area, asset.location].filter(Boolean).join(' / ');
+      const geoLL = mapPoint?.geo ? mapPoint.geo.toLL(mapPoint.x, mapPoint.y) : null;
+      const spot = mapPoint ? `Site map position ${mapPoint.x}, ${mapPoint.y}${geoLL ? ` (${geoLL[0].toFixed(5)}, ${geoLL[1].toFixed(5)})` : ''}${mapPoint.away && asset.id ? `, ${mapPoint.away} from ${asset.name}` : ''}` : '';
+      const where = [where0, spot].filter(Boolean).join(' / ');
+      const affected = impact?.units || [];
+      const intro = [spot && `<p><b>Reported from the site map:</b> ${spot}.</p>`, impact?.valve && `<p><b>Close first:</b> ${impact.valve.name}.</p>`, affected.length && `<p><b>Affected (${affected.length}):</b> ${affected.slice(0, 40).join(', ')}${affected.length > 40 ? '…' : ''}</p>`].filter(Boolean).join('');
+      const saved = await saveTicket({
+        id, taskType: typeSel, title: `${asset.name}: ${title.trim()}`, description: (isEmptyHtml(description) ? '' : description) + intro,
+        unit: 'Common area', category, subCategory: '', priority, status, assignedTo: who, slaDueAt: sla, scope: 'Community', location: where || asset.name, affectedUnits: affected,
+        attachments: metas, hasPhotos: metas.some((m) => /^image\//.test(m.type || m.mimeType || '')), awaitingParts: false, materialsCost: 0, paymentStatus: 'Not Paid', residentRating: 0,
+        createdBy: me, createdByRole: roleId, createdAt: label(), ...(asset.id ? { assetId: asset.id, assetName: asset.name, assetRef: asset.shortId || '' } : {}), source,
+      });
+      if (!saved) { setBusy(false); setErr('The task could not be saved. You may not be allowed to raise tasks.'); return; }
+      if (asset.id) await saveLog({ assetId: asset.id, assetName: asset.name, date: todayIso(), condition: 'Under repair', source: 'Task opened', note: `${asset.name}: ${title.trim()}`, by: me, ticketId: saved.id });
+      setBusy(false);
+      onDone?.(saved);
+    } catch (e) { setErr(e?.message || String(e)); } finally { setBusy(false); }
   }
 
   return (

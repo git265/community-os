@@ -6,6 +6,7 @@ import { canView } from '../lib/access/permissions.js';
 import { DEFAULT_PAGE_SIZE } from '../lib/storage/queryEngine.js';
 import { htmlToText } from '../lib/richtext/sanitize.js';
 import { ExportIcon } from './ExportIcon.jsx';
+import { tell } from '../lib/net/activity.js';
 
 /**
  * THE generic list/table used across the portal.
@@ -33,7 +34,7 @@ import { ExportIcon } from './ExportIcon.jsx';
 export default function ServerTable({
   collection, schema, columns, filters = [], dateFields = [], baseFilters, baseSort = null,
   search = true, searchKeys, showId = false, onRowClick, transformRows, rowClassName,
-  pageSizeDefault = DEFAULT_PAGE_SIZE, emptyText = 'No records found.', toolbarExtra, consumeNavSearch = false, compact = false, resetToken = 0, externalDateRange = null, periodFilter = null, cardRender: cardRenderProp = null, cardSorts = null, autoCards = true, cardsAlways = false,
+  pageSizeDefault = DEFAULT_PAGE_SIZE, emptyText = 'No records found.', toolbarExtra, consumeNavSearch = false, compact = false, resetToken = 0, externalDateRange = null, periodFilter = null, defaultRange = '', cardRender: cardRenderProp = null, cardSorts = null, autoCards = true, cardsAlways = false,
 }) {
   // on a phone a list of CARDS reads better than a wide table (cardRender(row) draws one card)
   const [narrow, setNarrow] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 900px)').matches);
@@ -68,15 +69,17 @@ export default function ServerTable({
   const [q, setQ] = useState(navSearch.current);
   const [showFilters, setShowFilters] = useState(false);
   const [dateKey, setDateKey] = useState(dateFields[0]?.key ?? '');
-  const [pYear, setPYear] = useState('');
+  // defaultRange 'last12': the list opens on the last 12 months (a year of history), not on every record ever kept
+  const last12 = () => { const d = new Date(); const to = d.toISOString().slice(0, 10); d.setFullYear(d.getFullYear() - 1); d.setDate(d.getDate() + 1); return { from: d.toISOString().slice(0, 10), to }; };
+  const [pYear, setPYear] = useState(defaultRange === 'last12' ? 'last12' : '');
   const [pMonth, setPMonth] = useState('');
   const [years, setYears] = useState([]);
   // Date range: when the data spans several years the range is picked from Year / Month dropdowns (custom dates stay available)
-  const [dY, setDY] = useState('');
+  const [dY, setDY] = useState(defaultRange === 'last12' && dateFields.length ? 'last12' : '');
   const [dM, setDM] = useState('');
   const [dateYears, setDateYears] = useState([]);
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
+  const [from, setFrom] = useState(() => (defaultRange === 'last12' && dateFields.length ? last12().from : ''));
+  const [to, setTo] = useState(() => (defaultRange === 'last12' && dateFields.length ? last12().to : ''));
   const [result, setResult] = useState({ rows: [], total: 0, approx: false });
   const [loading, setLoading] = useState(true);
   const reqId = useRef(0);
@@ -99,7 +102,8 @@ export default function ServerTable({
     Object.entries(fvals).forEach(([k, v]) => { if (v) merged[k] = v; });
     return {
       sort: sort ?? undefined, filters: merged, search: q, searchKeys,
-      period: periodFilter && (pYear || pMonth) ? { key: periodFilter.key, year: pYear, month: pMonth } : undefined,
+      period: periodFilter && pYear === 'last12' ? { key: periodFilter.key, from: last12().from.slice(0, 7), to: last12().to.slice(0, 7) }
+        : periodFilter && (pYear || pMonth) ? { key: periodFilter.key, year: pYear, month: pMonth } : undefined,
       dateRange: dateKey && (from || to) ? { key: dateKey, from, to } : (externalDateRange && (externalDateRange.from || externalDateRange.to) ? externalDateRange : undefined),
     };
   };
@@ -110,10 +114,15 @@ export default function ServerTable({
     const params = buildParams();
     lastParams.current = params;
     if (!keep) pageRef.current = 1;
-    const res = await secureStorage.query(collection, { ...params, page: 1, pageSize: pageSize * pageRef.current });
-    if (id !== reqId.current) return; // stale response
-    setResult({ rows: res.rows, total: res.total, approx: !!res.approx });
-    setLoading(false);
+    try {
+      const res = await secureStorage.query(collection, { ...params, page: 1, pageSize: pageSize * pageRef.current });
+      if (id !== reqId.current) return; // stale response
+      setResult({ rows: res.rows, total: res.total, approx: !!res.approx });
+    } catch (e) {
+      if (id === reqId.current) tell(e?.message || String(e), e?.name === 'NetworkError' || e?.name === 'TimeoutError' ? 'network' : 'error');
+    } finally {
+      if (id === reqId.current) setLoading(false); // a newer request resets it itself
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [collection, pageSize, sort, fvals, q, dateKey, from, to, pYear, pMonth, baseKey, externalDateRange?.from, externalDateRange?.to, roleId, currentUser?.unit]);
 
@@ -123,8 +132,15 @@ export default function ServerTable({
     const id = reqId.current;
     setLoadingMore(true);
     const next = pageRef.current + 1;
-    const res = await secureStorage.query(collection, { ...(lastParams.current || buildParams()), page: next, pageSize });
-    setLoadingMore(false);
+    let res;
+    try {
+      res = await secureStorage.query(collection, { ...(lastParams.current || buildParams()), page: next, pageSize });
+    } catch (e) {
+      if (id === reqId.current) tell(e?.message || String(e), e?.name === 'NetworkError' || e?.name === 'TimeoutError' ? 'network' : 'error');
+      return;
+    } finally {
+      setLoadingMore(false);
+    }
     if (id !== reqId.current) return;
     pageRef.current = next;
     setResult((r) => ({ rows: [...r.rows, ...res.rows.filter((x) => !r.rows.some((y) => y.id === x.id))], total: res.total, approx: !!res.approx }));
@@ -165,6 +181,7 @@ export default function ServerTable({
   function applyDp(y, m) {
     setDY(y); setDM(m);
     if (y === 'custom') return;
+    if (y === 'last12') { const l = last12(); setFrom(l.from); setTo(l.to); return; }
     if (!y) { setFrom(''); setTo(''); return; }
     if (!m) { setFrom(`${y}-01-01`); setTo(`${y}-12-31`); return; }
     const last = new Date(Number(y), Number(m), 0).getDate();
@@ -253,14 +270,15 @@ setSort((s) => (s?.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } 
           })}
           {periodFilter && (
             <>
-              <select className="filter" aria-label={`${periodFilter.label || 'Bill'} year`} value={pYear} onChange={(e) => { setPYear(e.target.value); }}>
+              <select className="filter" aria-label={`${periodFilter.label || 'Bill'} year`} value={pYear} onChange={(e) => { setPYear(e.target.value); if (e.target.value === 'last12') setPMonth(''); }}>
                 <option value="">All years</option>
+                <option value="last12">Last 12 months</option>
                 {years.map((y) => <option key={y} value={y}>{y}</option>)}
               </select>
-              <select className="filter" aria-label={`${periodFilter.label || 'Bill'} month`} value={pMonth} onChange={(e) => { setPMonth(e.target.value); }}>
+              {pYear !== 'last12' && <select className="filter" aria-label={`${periodFilter.label || 'Bill'} month`} value={pMonth} onChange={(e) => { setPMonth(e.target.value); }}>
                 <option value="">All months</option>
                 {['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].map((m, i) => <option key={m} value={String(i + 1).padStart(2, '0')}>{m}</option>)}
-              </select>
+              </select>}
             </>
           )}
           {dateFields.length > 0 && (
@@ -275,10 +293,11 @@ setSort((s) => (s?.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } 
                 <>
                   <select className="filter" aria-label="Year" data-testid="date-year" value={dY} onChange={(e) => applyDp(e.target.value, '')}>
                     <option value="">All years</option>
+                    <option value="last12">Last 12 months</option>
                     {dateYears.map((y) => <option key={y} value={y}>{y}</option>)}
                     <option value="custom">Custom dates…</option>
                   </select>
-                  {((dY && dY !== 'custom') || (!dY && dateYears.length === 1)) && (
+                  {((dY && dY !== 'custom' && dY !== 'last12') || (!dY && dateYears.length === 1)) && (
                     <select className="filter" aria-label="Month" data-testid="date-month" value={dM} onChange={(e) => applyDp(dY || dateYears[0], e.target.value)}>
                       <option value="">All months</option>
                       {['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].map((m, i) => <option key={m} value={String(i + 1).padStart(2, '0')}>{m}</option>)}

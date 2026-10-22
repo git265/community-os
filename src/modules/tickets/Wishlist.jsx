@@ -7,6 +7,7 @@ import RichTextEditor from '../../components/RichTextEditor.jsx';
 import { Chips, Segmented } from '../../components/ui.jsx';
 import { AttachmentList, AttachmentPicker } from '../../components/Attachments.jsx';
 import { persistPending } from '../../lib/files/attachments.js';
+import { tell } from '../../lib/net/activity.js';
 import { isEmptyHtml } from '../../lib/richtext/sanitize.js';
 import { TICKET_CATEGORIES } from '../../lib/schema/registry.js';
 import { uuid } from '../../lib/uuid.js';
@@ -72,7 +73,8 @@ export default function Wishlist() {
     if (Object.keys(errs).length) return;
     setBusy(true);
     const id = uuid();
-    const metas = pending.length ? await persistPending(pending, { ownerType: 'wish', ownerId: id }) : [];
+    let metas;
+    try { metas = pending.length ? await persistPending(pending, { ownerType: 'wish', ownerId: id }) : []; } catch (e) { setBusy(false); tell(e?.message || String(e), e?.name === 'NetworkError' || e?.name === 'TimeoutError' ? 'network' : 'error'); return; }
     if (!metas) { setBusy(false); return; }
     const saved = await saveWish({
       id, title: form.title.trim(), description: isEmptyHtml(form.description) ? '' : form.description, category: form.category, location: form.location.trim(),

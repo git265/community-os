@@ -287,9 +287,11 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
 
     setSubmitting(true);
     const id = uuid(); // primary key; files are attached to it before the ticket exists
+    let saved = null;
+    try {   // the Submit button always comes back, whatever fails
     const metas = raisePending.length ? await persistPending(raisePending, { ownerType: 'ticket', ownerId: id }) : [];
-    if (!metas) { setSubmitting(false); return; }
-    const saved = await saveTicket({
+    if (!metas) return;
+    saved = await saveTicket({
       id,
       taskType: typeName,
       title: !ownerForm && raiseForm.assetId ? `${raiseForm.assetName}: ${raiseForm.title.trim()}` : raiseForm.title.trim(),
@@ -318,7 +320,7 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
       createdByRole: roleId,
       createdAt: todayLabel(),
     });
-    setSubmitting(false);
+    } catch (err) { setRaiseErrors((x) => ({ ...x, form: `Could not submit: ${err?.message || 'storage error'}` })); } finally { setSubmitting(false); }
     if (!saved) return;
     setRaiseForm(blankRaiseForm());
     setRaisePending([]);
@@ -471,20 +473,23 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
     if (selectedInternal && !draft.assignedTo) { setFormError('Assigned to is required.'); return; }
     if (isEC && open && !draft.slaDueAt) { setFormError('SLA due is required.'); return; }
     setSavingTicket(true);
-    const patch = {};
-    changedKeys.forEach((k) => { patch[k] = draft[k]; });
-    if (patch.assignedTo && selected.status === 'Open' && !patch.status) patch.status = 'Assigned';
-    if (pendingFiles.length) {
-      const metas = await persistPending(pendingFiles, { ownerType: 'ticket', ownerId: selected.id });
-      if (!metas) { setSavingTicket(false); return; }
-      patch.attachments = [...draft.attachments, ...metas];
-    }
-    if (patch.attachments) patch.hasPhotos = patch.attachments.some(isImageMeta) || (selected.photos || []).length > 0;
-    // files taken off the list are removed on the back end (named, so a photo someone else added meanwhile stays)
-    const removed = (baseline.attachments || []).map((m) => m.fileId).filter((id) => id && !(patch.attachments || draft.attachments).some((m) => m.fileId === id));
-    if (removed.length && getDataSource().mode === 'v2') patch._detach = removed;
-    let out = null;
-    try { out = await saveTicket({ ...selected, ...patch }); } catch (err) { window.dispatchEvent(new CustomEvent('communityos:denied', { detail: { message: `Could not save: ${err?.message || 'storage error'}` } })); } finally { setSavingTicket(false); }
+    let out = null; const patch = {};
+    try {   // whatever happens (an upload refused, a timeout, no network), the button comes back: "Saving…" never stays
+      changedKeys.forEach((k) => { patch[k] = draft[k]; });
+      if (patch.assignedTo && selected.status === 'Open' && !patch.status) patch.status = 'Assigned';
+      if (pendingFiles.length) {
+        const metas = await persistPending(pendingFiles, { ownerType: 'ticket', ownerId: selected.id });
+        if (!metas) return;   // the reason is already shown; the chosen files stay, ready for another try
+        patch.attachments = [...draft.attachments, ...metas];
+      }
+      if (patch.attachments) patch.hasPhotos = patch.attachments.some(isImageMeta) || (selected.photos || []).length > 0;
+      // files taken off the list are removed on the back end (named, so a photo someone else added meanwhile stays)
+      const removed = (baseline.attachments || []).map((m) => m.fileId).filter((id) => id && !(patch.attachments || draft.attachments).some((m) => m.fileId === id));
+      if (removed.length && getDataSource().mode === 'v2') patch._detach = removed;
+      out = await saveTicket({ ...selected, ...patch });
+    } catch (err) {
+      setFormError(`Could not save: ${err?.message || 'storage error'}`);
+    } finally { setSavingTicket(false); }
     if (out) { setPendingFiles([]); setDraft(pickDraft({ ...selected, ...patch, ...out }, customKeys)); }   // the form is what was saved
     if (out && ['Completed', 'Closed'].includes(patch.status) && selected.assetId) setAssetAsk({ ...selected, ...patch });
     // non-financial work finished: remind the person who raised the ticket to confirm and close it
@@ -999,6 +1004,7 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
               <AttachmentPicker compact pending={raisePending} onChange={setRaisePending} />
             </div>
             <div style={{ gridColumn: '1 / -1' }}><CustomFields sectionId={COLLECTIONS.TICKETS} value={raiseForm} onChange={(k, v) => setRaiseForm((f) => ({ ...f, [k]: v }))} /></div>
+            {raiseErrors.form && <div className="field-error" role="alert" style={{ gridColumn: '1 / -1' }}>{raiseErrors.form}</div>}
             <div className="form-actions">
               <button type="button" className="btn secondary" onClick={() => setRaising(null)}>Cancel</button>
               <button type="submit" className="btn" disabled={submitting}>{submitting ? 'Submitting…' : 'Submit'}</button>
@@ -1033,7 +1039,7 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
           { key: 'history', label: 'History', hidden: !tabAllowed('tickets.d.history') },
         ];
         return (
-        <Modal title={selected.title} onClose={closeDetail}>
+        <Modal title={selected.title} onClose={closeDetail} wide>
           {photoView && <FilePreview meta={photoView} onClose={() => setPhotoView(null)} />}
           {ticketHero(selected)}
           <TaskDelete ticket={selected} onDone={closeDetail} />
