@@ -32,6 +32,7 @@ public final class ResourceService {
     public <F extends Record> Item<F> create(Caller c, Resource<F> r, ResourceRepository<F> repo, F incoming) {
         if (!r.rules().mayWrite(c)) throw new AccessDenied("You cannot change " + human(r));
         F f = r.rules().validate(c, incoming, null);
+        FieldLimits.check(f);
         return tx.inTx(() -> {
             r.rules().verify(c, f, null, repo::exists);
             UUID id = repo.insert(f);
@@ -48,6 +49,7 @@ public final class ResourceService {
             if (!r.rules().mayChange(c, before)) throw new AccessDenied("You cannot change this " + human(r).replaceAll("s$", ""));
             if (before.version() != version) throw new DomainException.Conflict(r.rules().label(before.data()).isBlank() ? "This record" : r.rules().label(before.data()));
             F f = r.rules().validate(c, incoming, before.data());
+            FieldLimits.check(f);
             r.rules().verify(c, f, before.data(), repo::exists);
             if (repo.update(id, version, f) < 0) throw new DomainException.Conflict("This record");
             Item<F> out = repo.get(id, r.rules().readScope(c)).orElseThrow();

@@ -15,6 +15,9 @@ Git tag `baseline-r76`. This is the reference version: later changes are compare
 - Money checks (reconciliation) on the back end: receipts, bills, online payments, refunds, the books and unit credit compared every few
   minutes; disagreements listed on Billing → Payments → Reconciliation for the treasurer to resolve with a note. Meter bills and late fees are
   priced by the server; every POST is idempotent and money POSTs need a key. Request ids, body limits, guarded metrics, strict profiles.
+- Uploads are scanned by ClamAV (in docker-compose); an unscanned file opens only for its uploader. Bank payout lines are matched to the
+  provider payments they settle (Billing → Payments → bank line → Payout…). Unit credit pays new bills on the server. Every field has a size
+  limit (FieldLimits, DTO @Size, form maxLength) and the rules the forms check are also checked by the server.
 - Attendance report shows the gate beside the clock: each session's badge-in / badge-out (staff badge at the gate), days seen only at the gate, and
   flags (no gate entry, clocked in before the gate, left before clocking out, inside after clocking out). Built by the server on the back end.
 - Site map is map first: one toolbar row (plan, search, Filters, ⋯ Tools), the map fills the screen, the side panel can be hidden;

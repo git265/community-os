@@ -5,7 +5,7 @@ import { useApp, useCollection } from '../../context/AppContext.jsx';
 import { COLLECTIONS as C } from '../../lib/storage/index.js';
 import { getPrincipal } from '../../lib/security/principal.js';
 import { currencySymbol } from '../../lib/locale.js';
-import { BASES, LATE_KINDS, LATE_CATEGORIES, previewLevy, raiseLevy, lateFeeSettings, planLateFees, applyLateFees, issueCreditNotes, receiveAdvance, applyCredits, creditBalances, splitDue, inr, dmy, todayIso, addMonthsIso } from '../../lib/finance/rules.js';
+import { BASES, LATE_KINDS, LATE_CATEGORIES, previewLevy, raiseLevy, lateFeeSettings, planLateFees, applyLateFees, issueCreditNotes, receiveAdvance, applyCredits, creditBalances, splitDue, inr, dmy, todayIso, addMonthsIso, addDaysIso } from '../../lib/finance/rules.js';
 import { MODES } from '../../lib/paymentEngine.js';
 
 const actor = () => getPrincipal().name;
@@ -212,7 +212,10 @@ export function RulesDialog({ onClose }) {
   const [msg, setMsg] = useState('');
   useEffect(() => { if (row) setF((x) => ({ ...x, ...Object.fromEntries(Object.keys(x).filter((k) => row[k] !== undefined && row[k] !== null).map((k) => [k, row[k]])) })); }, [row?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const set = (k, v) => setF((x) => ({ ...x, [k]: v }));
+  const lockMax = addDaysIso(todayIso(), -1);
   async function go() {
+    if (f.lockedUntil && f.lockedUntil > lockMax) { setMsg('The books can be closed up to yesterday at most.'); return; }
+    if (row?.lockedUntil && (!f.lockedUntil || f.lockedUntil < row.lockedUntil) && roleId !== 'super_admin') { setMsg('Only the Super Admin can reopen closed books.'); return; }
     const saved = await save({ ...(row || {}), blockDefaulters: !!f.blockDefaulters, blockOverdueDays: Number(f.blockOverdueDays) || 0, blockOverdueAmount: Number(f.blockOverdueAmount) || 0, lockedUntil: f.lockedUntil || '', approvalLimit: Number(f.approvalLimit) || 0 });
     setMsg(saved ? 'Rules saved.' : 'Not saved.');
   }
@@ -227,7 +230,7 @@ export function RulesDialog({ onClose }) {
         </div>
         <h4 style={{ margin: '12px 0 4px' }}>Close the books</h4>
         <div className="field"><label>No payment dated on or before this day can be added, changed or removed</label>
-          <input type="date" data-testid="rules-lock" value={f.lockedUntil || ''} disabled={!closer} onChange={(e) => set('lockedUntil', e.target.value)} />
+          <input type="date" data-testid="rules-lock" value={f.lockedUntil || ''} max={lockMax} disabled={!closer} onChange={(e) => set('lockedUntil', e.target.value)} />
           {!closer && <small className="muted">Only the Treasurer, President or Super Admin can change this.</small>}</div>
         <h4 style={{ margin: '12px 0 4px' }}>Payment approval</h4>
         <div className="field"><label>Payments above this amount (₹) need a second person to approve (0 = off)</label><input type="number" min="0" data-testid="rules-limit" value={f.approvalLimit} onChange={(e) => set('approvalLimit', e.target.value)} /></div>

@@ -97,6 +97,8 @@ public final class JdbcQuotationRepository implements QuotationRepository, TaskM
         s.version = v.get(0);
         return true;
     }
+    static final String FILES = "SELECT count(*) AS n FROM docs.file_object f WHERE f.owner_type = 'maintenance.quotation' AND f.owner_id = CAST(:id AS uuid) AND f.scan_status <> 'Infected'";
+    @Override public int files(UUID id) { return jdbc.query(FILES, java.util.Map.of("id", id.toString()), (rs, i) -> rs.getInt("n")).get(0); }
     @Override public boolean delete(UUID id, long version) { return jdbc.update(DELETE, Map.of("id", id.toString(), "version", version)) == 1; }
     @Override public void saveTicketApproval(UUID ticketId, Ticket.Approval a) {
         Map<String, Object> p = new HashMap<>();

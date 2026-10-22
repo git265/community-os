@@ -42,6 +42,9 @@ public final class CounterSettlement extends Settlement<CounterSettlement.Reques
         Instant at = on.equals(today) ? clock.instant() : on.atStartOfDay(clock.getZone()).toInstant();
         String ref = r.reference() == null || r.reference().isBlank() ? null : r.reference().strip();
         if (ref != null && ref.length() > 100) throw new DomainException.RuleViolated("too-long", "The reference is too long");
+        // money that is not cash is matched to the bank statement by its reference
+        if (ref == null && !List.of("Cash", "Unit credit").contains(r.method()))
+            throw new DomainException.RuleViolated("reference-required", "Enter the " + ("Cheque".equals(r.method()) ? "cheque number" : "transaction reference (UTR)"));
         List<DueId> ids = r.dueIds() == null ? List.of() : List.copyOf(r.dueIds());
         if (ids.size() > 50) throw new DomainException.RuleViolated("too-many", "At most 50 bills per receipt");
         return new Verified(r.unitId(), null, r.amount(), r.method(), null, null, at, ids, ref);

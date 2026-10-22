@@ -45,7 +45,7 @@ public final class BillingDtos {
         }
     }
     public record ConfirmRequest(@NotBlank @Size(max = 60) String providerPaymentRef, @NotBlank @Size(max = 200) String signature) {}
-    public record CounterReceiptRequest(@NotNull UUID unitId, @NotNull Money amount, @NotBlank String method, LocalDate receivedOn, @Size(max = 50) List<@NotNull UUID> dueIds,
+    public record CounterReceiptRequest(@NotNull UUID unitId, @NotNull Money amount, @NotBlank @Size(max = 30) String method, LocalDate receivedOn, @Size(max = 50) List<@NotNull UUID> dueIds,
                                         @Size(max = 100) String reference) {}
     public record ReceiptResponse(UUID paymentId, String receiptNo, UUID unitId, UUID orderId, Money amount, String method, String provider, Instant receivedAt,
                                   List<Allocation> allocations, Money keptAsCredit) {

@@ -254,6 +254,7 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
     const typeName = ownerForm ? residentTypeName : raiseForm.taskType;
     const errs = {};
     if (!raiseForm.title.trim()) errs.title = 'Issue title is required';
+    else if (raiseForm.title.trim().length < 3) errs.title = 'Give a short title (at least 3 characters)';
     if (ownerForm) { const v = outageVerdict(svcNotices, { text: `${raiseForm.title} ${String(raiseForm.description || '').replace(/<[^>]+>/g, ' ')}`, block: myBlock, confirmed: raiseForm.outageOk }); if (!v.ok) errs.outage = v.error; }
     if (!raiseForm.category) errs.category = 'Category is required';
     if (!ownerForm && raiseForm.category && raiseSubs.length && !raiseForm.subCategory) errs.subCategory = 'Sub-category is required';

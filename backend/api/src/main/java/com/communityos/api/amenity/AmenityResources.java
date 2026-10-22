@@ -94,8 +94,15 @@ public final class AmenityResources {
         new ResourceRules<>() {
             @Override public boolean mayWrite(Caller c) { return any(c, Permission.MANAGE_AMENITIES, Permission.MANAGE_AMENITY_RATES); }
             @Override public ItemFields validate(Caller c, ItemFields f, ItemFields old) {
-                Checks.nonNegative(f.stock(), "Stock"); Checks.nonNegative(f.price(), "Price"); Checks.nonNegative(f.maxPerBooking(), "Most per booking");
+                Checks.positive(f.stock(), "Stock"); Checks.nonNegative(f.price(), "Price"); Checks.nonNegative(f.maxPerBooking(), "Most per booking");
                 return new ItemFields(Checks.required(f.name(), "Name"), f.amenityTypeId(), f.stock(), f.price(), Checks.text(f.perLabel(), "Per", 40), f.maxPerBooking(), f.active());
+            }
+            /** One item of a name per amenity (whatever its case). */
+            @Override public void verify(Caller c, ItemFields f, ItemFields old, Facts db) {
+                if (old != null && old.name().equalsIgnoreCase(f.name())) return;
+                if (db.exists("SELECT 1 FROM amenity.item i WHERE lower(i.name) = lower(:n) AND i.amenity_type_id IS NOT DISTINCT FROM CAST(NULLIF(:t, '') AS uuid)",
+                        java.util.Map.of("n", f.name().strip(), "t", f.amenityTypeId() == null ? "" : f.amenityTypeId().toString())))
+                    throw new com.communityos.api.shared.domain.DomainException.RuleViolated("duplicate-item", "This amenity already has an item called " + f.name().strip());
             }
             @Override public String label(ItemFields f) { return f.name(); }
         });

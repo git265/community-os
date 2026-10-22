@@ -15,6 +15,8 @@ public interface QuotationRepository {
     void insert(Quotation q);
     boolean save(Quotation q);
     boolean delete(UUID id, long version);
+    /** Files attached to the quotation or invoice (its document). */
+    int files(UUID id);
     /** Write the money summary on the task (bumps its version). */
     void saveTicketApproval(UUID ticketId, Ticket.Approval a);
 }

@@ -37,6 +37,9 @@ public final class CashBookService {
     public Books.Entry record(Caller c, Books.Entry e) {
         requireWriter(c);
         e.check();
+        // typed in by a person: money that moved through a bank carries its reference (how the statement line is found); cash, card and auto-debit need none
+        if (e.mode != null && List.of("Bank transfer", "UPI", "Cheque", "Net banking").contains(e.mode) && (e.ref == null || e.ref.isBlank()))
+            throw new DomainException.RuleViolated("reference-required", "Enter the " + ("Cheque".equals(e.mode) ? "cheque number" : "UTR / reference") + " - it is how the bank statement line is matched");
         var s = store.settings();
         if (e.debit() && s.approvalLimit() != null && s.approvalLimit().signum() > 0 && e.amount.compareTo(s.approvalLimit()) > 0)
             throw new DomainException.RuleViolated("needs-second-approver", "Payments above " + s.approvalLimit().toPlainString() + " need a second approver - send it as a pay request");

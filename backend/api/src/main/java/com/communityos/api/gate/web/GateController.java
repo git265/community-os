@@ -52,7 +52,7 @@ public class GateController {
     public record ExitGoodsRequest(@NotNull @Min(0) @Max(200) Integer people, Boolean itemsChecked) {}
     public record PersonAtGateRequest(@Size(max = 40) String gate, @Size(max = 30) String method, UUID unitId) {}
     public record AnswerRequest(@NotNull @Pattern(regexp = "Approved|Denied") String decision, Boolean always) {}
-    public record ResolveRequest(@NotBlank String resolution, @Size(max = 500) String note) {}
+    public record ResolveRequest(@NotBlank @Size(max = 60) String resolution, @Size(max = 500) String note) {}
     public record ScanRequest(@NotBlank @Size(max = 200) String text, @Size(max = 300) String note) {}
 
     private final GateService gate;

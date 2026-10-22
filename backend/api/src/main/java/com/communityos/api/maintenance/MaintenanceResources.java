@@ -60,6 +60,8 @@ public final class MaintenanceResources {
         new ResourceRules<>() {
             @Override public boolean mayWrite(Caller c) { return manageTypes(c); }
             @Override public CategoryFields validate(Caller c, CategoryFields f, CategoryFields old) {
+                Checks.rule(old == null || c.isSuperAdmin() || Checks.list(f.subCategories()).equals(Checks.list(old.subCategories())), "sub-categories",
+                    "Only the Super Admin changes a category's sub-categories (tasks and reports use them)");
                 return new CategoryFields(Checks.required(f.category(), "Category"), Checks.list(f.subCategories()), Checks.text(f.vendor(), "Vendor", 200),
                     Checks.text(f.assetLink(), "Asset", 200), Checks.list(f.coordinator()), Checks.text(f.notes(), "Notes", 2000));
             }

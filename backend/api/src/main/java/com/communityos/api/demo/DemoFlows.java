@@ -186,7 +186,7 @@ final class DemoFlows {
                 try {
                     t = d.at(when, x, () -> d.s.tickets().raise(x, new TicketService.RaiseTicket(taskType, r.path("title").asText(), text(r, "description"),
                         community ? null : new UnitId(unit), community ? "Community" : "Unit", community ? (text(r, "location") == null ? (unitNo.isBlank() ? "Common area" : unitNo) : text(r, "location")) : null,
-                        r.path("category").asText(), null, r.path("priority").asText(), text(r, "preferredTime"), null)));
+                        r.path("category").asText(), null, r.path("priority").asText(), text(r, "preferredTime"), sla(r, x, when))));
                     raiser = x; break;
                 } catch (com.communityos.api.shared.security.AccessDenied e) { refused = e; }
             }
@@ -253,6 +253,12 @@ final class DemoFlows {
         });
     }
     private final Map<UUID, UUID> selected = new LinkedHashMap<>();
+    /** Staff set the SLA when they raise a task: the sample's date when it is still ahead, else a week out. */
+    private LocalDate sla(JsonNode r, Caller by, Instant when) {
+        if (by.category() != Caller.Category.Staff) return null;
+        LocalDate day = LocalDate.ofInstant(when, d.s.zone()), given = date(r, "slaDueAt");
+        return given != null && !given.isBefore(day) ? given : day.plusDays(7);
+    }
     private void quotation(JsonNode r) {
         d.attempt("quotations", r, () -> {
             UUID ticket = d.ref(r, "ticketId");
@@ -262,8 +268,13 @@ final class DemoFlows {
             BigDecimal amount = dec(r, "amount");
             Quotation q = d.at(d.on(on, 12), fm, () -> d.s.quotations().add(fm, ticket, new QuotationService.AddDocument(r.path("kind").asText("Quotation"), r.path("vendor").asText(), amount,
                 text(r, "gstMode") == null ? "Included" : text(r, "gstMode"), dec(r, "gstRate"), on, text(r, "note"))));
-            // an invoice is decided on its own: the committee, then the treasurer
-            if ("Invoice".equals(r.path("kind").asText())) q = decisions(q, r, on, "ecApproval", "finalApproval");
+            // an invoice is decided on its own, against its document: a copy of it is filed, then the committee, then the treasurer
+            if ("Invoice".equals(r.path("kind").asText())) {
+                Quotation added = q;
+                var f = d.as(fm, () -> d.s.files().upload(fm, new FileService.Upload("invoice-" + r.path("id").asText() + ".pdf", pdf("Invoice " + r.path("vendor").asText()), null)));
+                d.as(fm, () -> d.s.files().attach(fm, f.id(), "maintenance.quotation", added.id()));
+                q = decisions(q, r, on, "ecApproval", "finalApproval");
+            }
             return q.id();
         });
         for (JsonNode t : d.collections.path("tickets")) {
@@ -517,6 +528,7 @@ final class DemoFlows {
             Books.Entry e = new Books.Entry();
             e.date = date(r, "date"); e.type = r.path("type").asText(); e.account = r.path("account").asText();
             e.category = text(r, "category"); e.vendor = text(r, "vendor"); e.invoiceNo = text(r, "invoiceNo"); e.mode = text(r, "mode") == null ? "Bank transfer" : text(r, "mode"); e.fund = text(r, "fund");
+            e.ref = text(r, "ref") != null ? text(r, "ref") : "Cash".equals(e.mode) ? null : "DEMO-" + r.path("id").asText();   // the sample keeps no bank references
             e.description = text(r, "description") != null ? text(r, "description") : "Credit".equals(e.type) ? "Maintenance collections" : (e.category == null ? "Payment" : e.category) + (e.vendor == null ? "" : " - " + e.vendor);
             String acct = e.account == null ? "" : e.account;
             e.module = text(r, "module") != null ? text(r, "module") : "Amenity".equals(e.category) ? "Amenities" : acct.contains("Electricity") ? "Utilities" : "Sinking".equals(acct) ? "Capex / projects"

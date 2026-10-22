@@ -146,7 +146,8 @@ public final class FinanceResources {
     public static final Resource<DepositFields> DEPOSITS = new Resource<>(new ResourceTable<>("deposits", "finance/deposits", "finance.deposit", DepositFields.class, "r.maturity_date NULLS LAST"), books((c, f) -> {
         Checks.oneOf(f.status(), "Status", List.of("Active", "Matured", "Closed"));
         Checks.oneOf(f.interestPayout(), "Interest payout", List.of("At maturity (cumulative)", "Monthly", "Quarterly", "Half-yearly", "Yearly"));
-        Checks.nonNegative(f.amount(), "Amount"); Checks.nonNegative(f.interestEarned(), "Interest"); Checks.nonNegative(f.taxDeducted(), "Tax deducted");
+        Checks.present(f.type(), "Deposit type"); Checks.positive(f.amount(), "Amount"); Checks.nonNegative(f.interestEarned(), "Interest"); Checks.nonNegative(f.taxDeducted(), "Tax deducted");
+        Checks.nonNegative(f.sweepLimit(), "Sweep limit");
         Checks.rule(f.rate() == null || (f.rate().signum() >= 0 && f.rate().compareTo(BigDecimal.valueOf(30)) <= 0), "bad-rate", "An interest rate from 0 to 30%");
         Checks.rule(f.maturityDate() == null || f.startDate() == null || !f.maturityDate().isBefore(f.startDate()), "bad-dates", "It matures after it starts");
         return new DepositFields(Checks.required(f.account(), "Held with"), f.type(), f.amount(), f.rate(), f.startDate(), f.maturityDate(), f.status() == null ? "Active" : f.status(), f.reference(),
@@ -164,7 +165,7 @@ public final class FinanceResources {
                                       String partyCol, String remarksCol, String dateMode, boolean skipSweep) {}
     public static final Resource<ImportProfileFields> IMPORT_PROFILES = new Resource<>(new ResourceTable<>("importProfiles", "finance/import-profiles", "finance.import_profile", ImportProfileFields.class, "r.name"), books((c, f) -> {
         Checks.oneOf(f.dateMode(), "Dates", List.of("As in the file", "Day and month swapped by Excel", "Month first in text (MM/DD/YYYY)"));
-        return new ImportProfileFields(Checks.required(f.name(), "Name"), f.account(), f.sheet(), f.headerRow(), Checks.required(f.dateCol(), "Date column"), f.narrationCol(), f.debitCol(), f.creditCol(),
+        return new ImportProfileFields(Checks.required(f.name(), "Name"), f.account(), f.sheet(), f.headerRow(), Checks.required(f.dateCol(), "Date column"), Checks.required(f.narrationCol(), "Narration column"), f.debitCol(), f.creditCol(),
             f.balanceCol(), f.partyCol(), f.remarksCol(), f.dateMode(), f.skipSweep());
     }));
     public record LedgerSkipFields(java.util.UUID sourceId, String taskRef, String label, String reason) {}
@@ -177,7 +178,9 @@ public final class FinanceResources {
             @Override public Spec<AssocBillFields> readScope(Caller c) { return ResourceRules.only(FinanceResources::reads, c); }
             @Override public boolean mayWrite(Caller c) { return finance(c) || c.hasAny(Permission.MANAGE_UTILITY_BILLING) || c.roleCodes().contains("facility_manager"); }
             @Override public AssocBillFields validate(Caller c, AssocBillFields f, AssocBillFields old) {
-                Checks.nonNegative(f.amount(), "Amount"); Checks.nonNegative(f.quantity(), "Quantity");
+                Checks.positive(f.amount(), "Amount"); Checks.nonNegative(f.quantity(), "Quantity");
+                Checks.present(f.location(), "Location"); Checks.present(f.provider(), "Provider"); Checks.present(f.period(), "Period"); Checks.present(f.dueDate(), "Due date");
+                Checks.rule(f.billDate() == null || !f.dueDate().isBefore(f.billDate()), "bad-dates", "The bill is due on or after its date");
                 return new AssocBillFields(Checks.required(f.utility(), "Utility"), f.location(), f.provider(), f.accountNo(), f.period(), f.billDate(), f.dueDate(), f.quantity(), f.amount(), f.paidOn(),
                     f.billFile(), Checks.text(f.notes(), "Notes", 2000));
             }

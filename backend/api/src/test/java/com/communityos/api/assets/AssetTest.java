@@ -37,7 +37,7 @@ class AssetTest {
         assertEquals(new BigDecimal("42.5"), plant.bhKl(), "the difference, not what was typed");
         assertEquals("meter-backwards", assertThrows(DomainException.RuleViolated.class, () -> AssetResources.PLANT_LOGS.rules().validate(fm, new AssetResources.PlantLogFields(TODAY,
             new BigDecimal("100"), new BigDecimal("90"), null, null, null, null, null, null, null, null, null, null, null, null), null)).code());
-        var dg = AssetResources.DG_FUEL.rules().validate(fm, new AssetResources.DgFuelFields(TODAY, "DG 1", null, null, new BigDecimal("120"), new BigDecimal("94.5"), new BigDecimal("1"), null, null, null, null, null), null);
+        var dg = AssetResources.DG_FUEL.rules().validate(fm, new AssetResources.DgFuelFields(TODAY, "DG 1", new BigDecimal("1520"), null, new BigDecimal("120"), new BigDecimal("94.5"), new BigDecimal("1"), null, null, null, null, null), null);
         assertEquals(new BigDecimal("11340.00"), dg.amount());
         var bill = AssetResources.ELECTRICITY_BILLS.rules().validate(fm, new AssetResources.ElectricityBillFields("Clubhouse", "C-1", "2026-09", TODAY.minusDays(5), TODAY.plusDays(10),
             new BigDecimal("1200"), null, null, null, null, null, null, null, null, new BigDecimal("10000"), "Unpaid", TODAY, "HDFC", "x", null, null), null);

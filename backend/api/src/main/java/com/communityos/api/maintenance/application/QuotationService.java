@@ -72,6 +72,8 @@ public final class QuotationService {
         if (cmd.note() != null && cmd.note().length() > 4000) throw new DomainException.RuleViolated("bad-note", "The note is too long");
         Quotation.Amounts a = Quotation.Amounts.of(cmd.amount(), cmd.gstMode(), cmd.gstRate());
         if (a.total().amount().signum() == 0) throw new DomainException.RuleViolated("bad-amount", "Enter the amount on the document");
+        if (blank(cmd.vendor()) == null) throw new DomainException.RuleViolated("vendor-required", "Who is the quotation or invoice from?");
+        if (cmd.vendor().strip().length() > 200) throw new DomainException.RuleViolated("too-long", "The vendor name is too long");
         return tx.inTx(() -> {
             Ticket t = ticket(c, ticketId);
             if (t.status().finished()) throw new DomainException.RuleViolated("ticket-finished", "This task is " + t.status().label().toLowerCase() + " - reopen it first");
@@ -147,6 +149,8 @@ public final class QuotationService {
                     String why = st.approvers().whyNot(plan, c, q.state().createdBy == null ? null : q.state().createdBy.toString());
                     if (why != null) throw new AccessDenied(why);
                     if ("Rejected".equals(value) && (comment == null || comment.isBlank())) throw new DomainException.RuleViolated("reason-required", "Say why it is rejected");
+                    // money is approved against the document itself: an invoice with no PDF or photo of it attached is not approved
+                    if ("Approved".equals(value) && q.invoice() && docs.files(q.id()) == 0) throw new DomainException.RuleViolated("document-required", "Attach the invoice (PDF or photo) before it is approved");
                     next = plan.decide(c.membership().toString(), c.displayName(), clock.instant(), value, comment, finish);
                 } else throw new DomainException.RuleViolated("bad-decision", "Approved, Rejected or Pending (undo)");
             } catch (IllegalStateException e) { throw new DomainException.RuleViolated("not-waiting", e.getMessage()); }

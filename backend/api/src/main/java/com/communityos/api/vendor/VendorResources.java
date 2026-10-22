@@ -37,7 +37,7 @@ public final class VendorResources {
                 String email = com.communityos.api.shared.domain.Names.email(f.contactEmail());   // stored in lower case
                 Checks.rule(email == null || email.matches("[^@\\s]+@[^@\\s]+\\.[^@\\s]+"), "bad-email", "That e-mail address does not look right");
                 return new VendorFields(Checks.text(Checks.required(f.name(), "Name"), "Name", 200), Checks.oneOf(f.category(), "Category", CATEGORIES), gstin,
-                    Checks.oneOf(f.contractType(), "Contract", CONTRACTS), Checks.text(f.service(), "Service", 200), Checks.text(f.contactPhone(), "Phone", 30), email,
+                    Checks.requiredOneOf(f.contractType(), "Engagement type", CONTRACTS), Checks.text(f.service(), "Service", 200), Checks.phone(f.contactPhone(), "Phone", false), email,
                     Checks.text(f.address(), "Address", 1000), f.contractEnds(), Checks.text(f.description(), "Description", 20_000));
             }
             @Override public String label(VendorFields f) { return f.name(); }
@@ -53,7 +53,7 @@ public final class VendorResources {
             @Override public boolean mayWrite(Caller c) { return VendorPolicy.manager(c); }
             @Override public ServiceLineFields validate(Caller c, ServiceLineFields f, ServiceLineFields old) {
                 Checks.rule(f.vendorId() != null, "vendor-required", "Which vendor?");
-                return new ServiceLineFields(f.vendorId(), Checks.requiredOneOf(f.service(), "Service", SERVICES), Checks.nonNegative(f.signedWorkers(), "Employees"),
+                return new ServiceLineFields(f.vendorId(), Checks.requiredOneOf(f.service(), "Service", SERVICES), Checks.present(Checks.nonNegative(f.signedWorkers(), "Employees"), "Employees"),
                     Checks.text(f.shift(), "Shift", 80), Checks.text(f.note(), "Note", 500), Checks.nonNegative(f.contractors(), "Contractors"));
             }
             @Override public String label(ServiceLineFields f) { return f.service(); }

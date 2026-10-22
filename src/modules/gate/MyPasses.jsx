@@ -64,6 +64,8 @@ export default function MyPasses({ unit, name }) {
     if (!f.visitorName.trim()) { setErr(goods ? 'Driver or company name is required' : 'Guest name is required'); return; }
     if (String(f.phone || '').trim()) { const v = validatePhone(f.phone); if (!v.ok) { setErr(`${goods ? 'Driver' : 'Guest'} mobile: ${v.error}`); return; } }
     if (f.validTo < f.validFrom) { setErr('Valid until cannot be before valid from'); return; }
+    if ((new Date(f.validTo) - new Date(f.validFrom)) / 864e5 > 366) { setErr('A pass lasts a year at most'); return; }
+    if (f.type === 'Event' && !(Number(f.guestCap) >= 1 && Number(f.guestCap) <= 2000)) { setErr('Guests allowed is between 1 and 2000'); return; }
     if (goods && !f.vehicle.trim()) { setErr('The vehicle number is required for a goods pass'); return; }
     if (goods && !(Number(f.peopleCount) >= 1)) { setErr('Say how many people will be in the vehicle'); return; }
     if (goods && f.carryingOut && !f.outItems.trim()) { setErr('List the items leaving so the guard can check them'); return; }
@@ -92,7 +94,7 @@ export default function MyPasses({ unit, name }) {
           <div className="field"><label>Time from</label><input type="time" value={f.fromTime} onChange={(e) => set('fromTime', e.target.value)} /></div>
           <div className="field"><label>Time to</label><input type="time" value={f.toTime} onChange={(e) => set('toTime', e.target.value)} /></div>
           {f.type === 'Recurring' && <div className="field" style={{ gridColumn: '1 / -1' }}><label>Days</label><Chips multi options={DAYS} value={f.days} onChange={(v) => set('days', v)} label="Days" /></div>}
-          {f.type === 'Event' && <div className="field"><label>Guests allowed</label><input type="number" min="1" value={f.guestCap} onChange={(e) => set('guestCap', Number(e.target.value))} /></div>}
+          {f.type === 'Event' && <div className="field"><label>Guests allowed</label><input type="number" min="1" max="2000" value={f.guestCap} onChange={(e) => set('guestCap', Number(e.target.value))} /></div>}
           <div className="field"><label>Vehicle number{goods ? ' *' : ''}</label><input data-testid="pass-vehicle" value={f.vehicle} onChange={(e) => set('vehicle', e.target.value)} /></div>
           {goods && (
             <>

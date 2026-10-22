@@ -74,7 +74,7 @@ public final class CommsResources {
                 Checks.rule(f.logo() == null || f.logo().length() <= 400_000, "logo-too-big", "The logo is too large");
                 return new NoticeTemplateFields(Checks.required(f.name(), "Name"),
                     Checks.oneOf(f.appliesTo(), "Applies to", List.of("Any", "DG bill", "Water bill", "Maintenance fee", "Payment reminder", "Announcement")),
-                    f.logo(), Checks.text(f.headerText(), "Header", 500), Checks.text(f.body(), "Body", 20_000));
+                    f.logo(), Checks.text(f.headerText(), "Header", 500), Checks.text(Checks.required(f.body(), "Body"), "Body", 20_000));
             }
             @Override public String label(NoticeTemplateFields f) { return f.name(); }
         });

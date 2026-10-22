@@ -340,6 +340,10 @@ class PostgresFlowTest {
             assertEquals("Approved", pumpNow.approval().quotationStatus()); assertEquals(0, Money.of("11800").compareTo(pumpNow.approval().approvedAmount()));
             var inv = as(admin, () -> docsSvc.add(admin, pump.id(), new com.communityos.api.maintenance.application.QuotationService.AddDocument("Invoice", "Aqua Pumps", new java.math.BigDecimal("11000"), "Extra", new java.math.BigDecimal("18"), today, null)));
             assertTrue(inv.state().overBudget, "12980 is above 11800 + 5%"); assertEquals("pending-ec", inv.approvalKey());
+            assertEquals("document-required", assertThrows(DomainException.RuleViolated.class, () -> as(treasurer, () -> docsSvc.decide(treasurer, inv.id(), inv.version(), "Approved", null, false))).code(),
+                "an invoice is approved against its document");
+            owner.sql("INSERT INTO docs.file_object (community_id, owner_type, owner_id, file_name, mime_type, size_bytes, sha256, storage_key, scan_status) VALUES ('" + cid + "', 'maintenance.quotation', '"
+                + inv.id() + "', 'invoice.pdf', 'application/pdf', 10, decode(repeat('cd', 32), 'hex'), 'it/inv-" + tag + "', 'Clean') RETURNING 1");
             var inv1 = as(treasurer, () -> docsSvc.decide(treasurer, inv.id(), inv.version(), "Approved", null, false));
             var inv2 = as(admin, () -> docsSvc.decide(admin, inv.id(), inv1.version(), "Approved", null, false));
             assertTrue(inv2.approved());
@@ -545,25 +549,25 @@ class PostgresFlowTest {
             // household staff from the vetted registry
             var people = new com.communityos.api.shared.resource.JdbcResourceRepository<>(com.communityos.api.gate.GateResources.PEOPLE.table(), app, json);
             assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> kit.create(admin, com.communityos.api.gate.GateResources.PEOPLE, people, new com.communityos.api.gate.GateResources.PersonFields(
-                "Lakshmi", "Maid / cook", null, null, "Active", null, null, "Aadhaar", "1234", true, null, null, null, false, false, false, null, false, false, null, null, null, null))), "cleared without the ID check");
+                "Lakshmi", "Maid / cook", "+919845010001", null, "Active", null, null, "Aadhaar", "1234", true, null, null, null, false, false, false, null, false, false, null, null, null, null))), "cleared without the ID check");
             var maid = as(admin, () -> kit.create(admin, com.communityos.api.gate.GateResources.PEOPLE, people, new com.communityos.api.gate.GateResources.PersonFields(
-                "Lakshmi", "Maid / cook", null, null, "Active", null, null, "Aadhaar", "1234", true, null, null, null, true, true, true, null, true, true, null, null, null, null)));
+                "Lakshmi", "Maid / cook", "+919845010002", null, "Active", null, null, "Aadhaar", "1234", true, null, null, null, true, true, true, null, true, true, null, null, null, null)));
             assertThrows(DomainException.RuleViolated.class, () -> as(ownerC, () -> kit.create(ownerC, com.communityos.api.gate.GateResources.PEOPLE, people, new com.communityos.api.gate.GateResources.PersonFields(
-                "Raju", "Driver", null, null, "Active", null, null, null, null, true, null, null, null, true, false, false, null, false, false, null, null, null, null))), "a resident cannot clear anyone");
+                "Raju", "Driver", "+919845010003", null, "Active", null, null, null, null, true, null, null, null, true, false, false, null, false, false, null, null, null, null))), "a resident cannot clear anyone");
             var invited = as(ownerC, () -> kit.create(ownerC, com.communityos.api.gate.GateResources.PEOPLE, people, new com.communityos.api.gate.GateResources.PersonFields(
-                "Raju", "Driver", null, null, null, null, null, null, null, true, null, null, null, false, false, false, null, false, false, null, null, null, null)));
+                "Raju", "Driver", "+919845010004", null, null, null, null, null, null, true, null, null, null, false, false, false, null, false, false, null, null, null, null)));
             assertEquals("Invited", invited.data().status(), "a resident only invites"); assertFalse(invited.data().idChecked()); assertEquals(unitA, invited.data().invitedByUnitId());
             var links = new com.communityos.api.shared.resource.JdbcResourceRepository<>(com.communityos.api.gate.GateResources.LINKS.table(), app, json);
             as(ownerC, () -> kit.create(ownerC, com.communityos.api.gate.GateResources.LINKS, links, new com.communityos.api.gate.GateResources.LinkFields(maid.id(), "Lakshmi", unitA, List.of(), null, null, null)));
             var unvetted = as(admin, () -> kit.create(admin, com.communityos.api.gate.GateResources.PEOPLE, people, new com.communityos.api.gate.GateResources.PersonFields(
-                "Unvetted", "Maid / cook", null, null, null, null, null, null, null, true, null, null, null, false, false, false, null, false, false, null, null, null, null)));
+                "Unvetted", "Maid / cook", "+919845010005", null, null, null, null, null, null, true, null, null, null, false, false, false, null, false, false, null, null, null, null)));
             assertThrows(AccessDenied.class, () -> as(ownerC, () -> kit.create(ownerC, com.communityos.api.gate.GateResources.LINKS, links, new com.communityos.api.gate.GateResources.LinkFields(unvetted.id(), "Unvetted", unitA, List.of(), null, null, null))),
                 "a unit cannot link someone nobody cleared and it did not invite");
             var maidIn = as(admin, () -> gateSvc.admitPerson(admin, maid.id(), "Main gate", "Face", null));
             assertTrue(maidIn.ok(), maidIn.reason()); assertEquals(new UnitId(unitA), maidIn.visit().unit);
             assertEquals("already-inside", as(admin, () -> gateSvc.admitPerson(admin, maid.id(), "Main gate", "Face", null)).outcome());
             var blockedP = as(admin, () -> kit.create(admin, com.communityos.api.gate.GateResources.PEOPLE, people, new com.communityos.api.gate.GateResources.PersonFields(
-                "Thief", "Other", null, null, "Blocked", null, null, null, null, false, null, null, null, false, false, false, null, false, false, null, "Theft in 2025", null, null)));
+                "Thief", "Other", "+919845010006", null, "Blocked", null, null, null, null, false, null, null, null, false, false, false, null, false, false, null, "Theft in 2025", null, null)));
             assertEquals("blocked", as(admin, () -> gateSvc.admitPerson(admin, blockedP.id(), "Main gate", "Face", null)).outcome());
             // a goods vehicle: one more person than the pass allows is held, then let in with a reason (flagged); one less out is flagged
             var goods = as(ownerC, () -> gateSvc.createPass(ownerC, new com.communityos.api.gate.application.GateService.NewPass("Packers", null, null, "Goods", null, null, null, null, List.of(), "KA05MN1111",
@@ -931,7 +935,7 @@ class PostgresFlowTest {
             java.util.function.Supplier<com.communityos.api.finance.domain.Books.Entry> plumbing = () -> {
                 var e = new com.communityos.api.finance.domain.Books.Entry();
                 e.date = today; e.type = "Debit"; e.description = "Pipe repairs"; e.vendor = "Aqua Pumps"; e.baseAmount = new java.math.BigDecimal("10000"); e.gstRate = new java.math.BigDecimal("18");
-                e.tdsRate = new java.math.BigDecimal("2"); e.tdsSection = "194C"; e.mode = "Bank transfer"; e.module = "Maintenance";
+                e.tdsRate = new java.math.BigDecimal("2"); e.tdsSection = "194C"; e.mode = "Bank transfer"; e.ref = "UTR4411"; e.module = "Maintenance";
                 return e;
             };
             assertThrows(AccessDenied.class, () -> as(ownerC, () -> cashSvc.record(ownerC, plumbing.get())));

@@ -7,6 +7,7 @@ import { AttachmentList } from './Attachments.jsx';
 import { useApp, useCollection } from '../context/AppContext.jsx';
 import { COLLECTIONS } from '../lib/storage/index.js';
 import { todayIso } from '../lib/notice.js';
+import { addDaysIso } from '../lib/finance/rules.js';
 import { getPrincipal } from '../lib/security/principal.js';
 import { PlanDialog } from '../modules/billing/FinanceTools.jsx';
 import BillTerms from './BillTerms.jsx';
@@ -100,6 +101,7 @@ export function PayDueModal({ due, onClose }) {
     if (!resident && mode !== 'Cash' && !reference) er.ref = `Enter the ${mode === 'Cheque' ? 'cheque number' : 'transaction reference'}`;
     if (!resident && !paidOn) er.paidOn = 'Received-on date is required';
     else if (!resident && paidOn > todayIso()) er.paidOn = 'The payment date cannot be in the future';
+    else if (!resident && paidOn < addDaysIso(todayIso(), -90)) er.paidOn = 'A payment is recorded within 90 days of receiving it';
     setFe(er);
     if (Object.keys(er).length) return;
     setBusy(true);
@@ -168,7 +170,7 @@ export function PayDueModal({ due, onClose }) {
               <input value={ref} onChange={(e) => setRef(e.target.value)} placeholder={mode === 'Cash' ? 'Optional' : ''} />
               {fe.ref && <div className="field-error">{fe.ref}</div>}
             </div>
-            <div className={`field${fe.paidOn ? ' invalid' : ''}`}><label>Received on *</label><input type="date" value={paidOn} max={todayIso()} onChange={(e) => setPaidOn(e.target.value)} />{fe.paidOn && <div className="field-error">{fe.paidOn}</div>}</div>
+            <div className={`field${fe.paidOn ? ' invalid' : ''}`}><label>Received on *</label><input type="date" value={paidOn} min={addDaysIso(todayIso(), -90)} max={todayIso()} onChange={(e) => setPaidOn(e.target.value)} />{fe.paidOn && <div className="field-error">{fe.paidOn}</div>}</div>
           </>
         )}
       </div>

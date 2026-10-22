@@ -104,8 +104,10 @@ public final class GateService {
         for (String d : n.days() == null ? List.<String>of() : n.days()) if (!Gate.DAYS.contains(d)) throw new DomainException.RuleViolated("bad-day", "Days are Mon to Sun");
         if ("Event".equals(type) && (n.guestCap() == null || n.guestCap() < 1 || n.guestCap() > 2000)) throw new DomainException.RuleViolated("cap-required", "How many guests may come with an event pass (1 to 2000)?");
         if ("Goods".equals(type) && (n.peopleCount() == null || n.peopleCount() < 1)) throw new DomainException.RuleViolated("people-required", "How many people come with the goods vehicle?");
+        if ("Goods".equals(type) && blank(n.vehicle()) == null) throw new DomainException.RuleViolated("vehicle-required", "Which vehicle brings the goods (its number)?");
+        if (n.carryingOut() && blank(n.outItems()) == null) throw new DomainException.RuleViolated("items-required", "List what is being taken out - the guard checks it at the gate");
         Gate.Pass p = new Gate.Pass();
-        p.id = UUID.randomUUID(); p.visitorName = name; p.phone = blank(n.phone()); p.unit = unit; p.type = type; p.validFrom = from; p.validTo = to; p.fromTime = n.fromTime(); p.toTime = n.toTime();
+        p.id = UUID.randomUUID(); p.visitorName = name; p.phone = com.communityos.api.shared.resource.Checks.phone(n.phone(), "Phone", false); p.unit = unit; p.type = type; p.validFrom = from; p.validTo = to; p.fromTime = n.fromTime(); p.toTime = n.toTime();
         p.days = n.days() == null ? List.of() : List.copyOf(n.days()); p.vehicle = blank(n.vehicle()); p.guestCap = n.guestCap(); p.goodsKind = blank(n.goodsKind()); p.peopleCount = n.peopleCount();
         p.material = blank(n.material()); p.carryingOut = n.carryingOut(); p.outItems = blank(n.outItems()); p.photo = blank(n.photo()); p.hostName = c.displayName();
         p.createdBy = c.membership().value();

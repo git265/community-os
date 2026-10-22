@@ -35,11 +35,11 @@ class VendorTest {
         var rules = VendorResources.VENDORS.rules();
         var ok = rules.validate(mgr, new VendorResources.VendorFields(" Aqua Pumps ", "Maintenance", "29abcde1234f1zw", "AMC", null, null, " ops@aqua.in ", null, null, null), null);
         assertEquals("Aqua Pumps", ok.name()); assertEquals("29ABCDE1234F1ZW", ok.gstin()); assertEquals("ops@aqua.in", ok.contactEmail());
-        assertEquals("bad-gstin", assertThrows(DomainException.RuleViolated.class, () -> rules.validate(mgr, new VendorResources.VendorFields("X", null, "1234", null, null, null, null, null, null, null), null)).code());
-        var typo = assertThrows(DomainException.RuleViolated.class, () -> rules.validate(mgr, new VendorResources.VendorFields("X", null, "29AAACI1681G1ZY", null, null, null, null, null, null, null), null));
+        assertEquals("bad-gstin", assertThrows(DomainException.RuleViolated.class, () -> rules.validate(mgr, new VendorResources.VendorFields("X", null, "1234", "AMC", null, null, null, null, null, null), null)).code());
+        var typo = assertThrows(DomainException.RuleViolated.class, () -> rules.validate(mgr, new VendorResources.VendorFields("X", null, "29AAACI1681G1ZY", "AMC", null, null, null, null, null, null), null));
         assertEquals("bad-gstin", typo.code()); assertTrue(typo.getMessage().contains("would be L"), typo.getMessage());
-        assertNull(rules.validate(mgr, new VendorResources.VendorFields("Local Carpenter", null, " ", null, null, null, null, null, null, null), null).gstin(), "no GSTIN: an unregistered vendor");
-        assertEquals("bad-category", assertThrows(DomainException.RuleViolated.class, () -> rules.validate(mgr, new VendorResources.VendorFields("X", "Cooks", null, null, null, null, null, null, null, null), null)).code());
+        assertNull(rules.validate(mgr, new VendorResources.VendorFields("Local Carpenter", null, " ", "AMC", null, null, null, null, null, null), null).gstin(), "no GSTIN: an unregistered vendor");
+        assertEquals("bad-category", assertThrows(DomainException.RuleViolated.class, () -> rules.validate(mgr, new VendorResources.VendorFields("X", "Cooks", null, "AMC", null, null, null, null, null, null), null)).code());
         assertTrue(rules.mayWrite(mgr)); assertFalse(rules.mayWrite(Fixtures.helpdesk()));
         assertEquals("FALSE", rules.readScope(Fixtures.owner(Fixtures.UNIT_A)).sql(), "residents do not see the vendor register");
         assertTrue(VendorPolicy.discusses(Fixtures.caller(Caller.Category.Staff, Set.of("facility_manager"), Set.of(), Set.of())));

@@ -65,7 +65,7 @@ const RAW_SCHEMAS = [
     fields: [
       { key: 'ticketNumber', label: 'Ticket #', type: 'text', viewableBy: ALL, editableBy: NONE, showInTable: true },
       { key: 'taskType', label: 'Task type', type: 'text', viewableBy: ALL, editableBy: NONE, showInTable: true },
-      { key: 'title', label: 'Issue', type: 'text', required: true, viewableBy: ALL, editableBy: ALL, showInTable: true },
+      { key: 'title', label: 'Issue', type: 'text', required: true, minLength: 3, viewableBy: ALL, editableBy: ALL, showInTable: true },
       { key: 'description', label: 'Description', type: 'richtext', viewableBy: ALL, editableBy: ALL },
       { key: 'unit', label: 'Location', type: 'text', required: true, viewableBy: ALL, editableBy: ALL, showInTable: true }, // a villa, or "Common area" for community requests
       { key: 'category', label: 'Category / Assigned role', type: 'select', options: TICKET_CATEGORIES, viewableBy: ALL, editableBy: ALL, showInTable: true },
@@ -345,7 +345,7 @@ const RAW_SCHEMAS = [
       { key: 'account', label: 'Held with account', type: 'lookup', lookup: { source: COLLECTIONS.BANK_ACCOUNTS, valueKey: 'name', labelKeys: ['name'], allowCustom: false }, required: true, viewableBy: STAFF, editableBy: FIN, showInTable: true },
       { key: 'type', label: 'Type', type: 'select', options: DEPOSIT_TYPES, required: true, viewableBy: STAFF, editableBy: FIN, showInTable: true },
       { key: 'amount', label: 'Amount', type: 'number', required: true, viewableBy: STAFF, editableBy: FIN, showInTable: true },
-      { key: 'rate', label: 'Interest rate (% a year)', type: 'number', viewableBy: STAFF, editableBy: FIN, showInTable: true },
+      { key: 'rate', label: 'Interest rate (% a year)', type: 'number', min: 0, max: 30, viewableBy: STAFF, editableBy: FIN, showInTable: true },
       { key: 'startDate', label: 'Started on', type: 'date', allowPast: true, viewableBy: STAFF, editableBy: FIN, showInTable: true },
       { key: 'maturityDate', label: 'Matures on', type: 'date', allowPast: true, viewableBy: STAFF, editableBy: FIN, showInTable: true },
       { key: 'status', label: 'Status', type: 'select', options: ['Active', 'Matured', 'Closed'], viewableBy: STAFF, editableBy: FIN, showInTable: true },
@@ -1678,7 +1678,7 @@ const RAW_SCHEMAS = [
       { key: 'contractType', label: 'Engagement', type: 'select', options: ['Contract', 'AMC', 'Local / no contract'], required: true, viewableBy: COORD.concat('vendor'), editableBy: STAFF, showInTable: true },
       { key: 'service', label: 'Service', type: 'text', viewableBy: COORD.concat('vendor'), editableBy: STAFF, showInTable: true },
       { key: 'contactPhone', label: 'Contact phone', type: 'text', viewableBy: COORD.concat('vendor'), editableBy: STAFF, showInTable: true },
-      { key: 'contactEmail', label: 'Contact email', type: 'text', viewableBy: COORD.concat('vendor'), editableBy: STAFF },
+      { key: 'contactEmail', label: 'Contact email', type: 'text', format: 'email', viewableBy: COORD.concat('vendor'), editableBy: STAFF },
       { key: 'address', label: 'Address (optional)', type: 'textarea', viewableBy: COORD.concat('vendor'), editableBy: STAFF },
       { key: 'contractEnds', label: 'Contract / AMC ends (optional)', type: 'date', viewableBy: COORD.concat('vendor'), editableBy: STAFF, showInTable: true },
       { key: 'description', label: 'Description', type: 'richtext', placeholder: 'Scope of work, rates, terms, who to call…', viewableBy: COORD.concat('vendor'), editableBy: STAFF },

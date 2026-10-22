@@ -78,6 +78,8 @@ public final class TicketService {
             if (cmd.slaDueAt() != null) throw new AccessDenied("The SLA is set by the committee");
         } else if (cmd.slaDueAt() != null && cmd.slaDueAt().isBefore(LocalDate.now(clock))) {
             throw new DomainException.RuleViolated("bad-sla", "SLA due must be today or a future date");
+        } else if (cmd.slaDueAt() == null && c.category() == Caller.Category.Staff) {
+            throw new DomainException.RuleViolated("sla-required", "When must it be done by (SLA due date)?");   // staff set the SLA; the committee decides it for residents' requests
         }
         if (unit != null) {
             MaintenanceDirectory.UnitRef u = directory.unit(unit).orElseThrow(AccessDenied.NotVisible::new);

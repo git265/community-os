@@ -42,6 +42,15 @@ public final class Checks {
             throw new DomainException.RuleViolated("out-of-range", label + " is from " + min + " to " + max);
         return v;
     }
+    /** A value that must be given (a date, an amount, a choice). */
+    public static <T> T present(T v, String label) { if (v == null || (v instanceof String s && s.isBlank())) throw new DomainException.RuleViolated("required", label + " is required"); return v; }
+    /** An amount that must be given and above zero. */
+    public static BigDecimal positive(BigDecimal v, String label) { if (v == null || v.signum() <= 0) throw new DomainException.RuleViolated("required", label + " must be more than zero"); return v; }
+    /** A phone number as the app checks it (E.164, real digits, no placeholder), normalised; empty allowed unless required. */
+    public static String phone(String raw, String label, boolean required) {
+        if (raw == null || raw.isBlank()) { if (required) throw new DomainException.RuleViolated("required", label + " is required"); return null; }
+        return com.communityos.api.identity.domain.Phone.parse(raw, "+91").e164();
+    }
     public static <T> List<T> list(List<T> v) { return v == null ? List.of() : v; }
     public static void rule(boolean ok, String code, String message) { if (!ok) throw new DomainException.RuleViolated(code, message); }
 }

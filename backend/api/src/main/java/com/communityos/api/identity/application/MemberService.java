@@ -58,6 +58,8 @@ public final class MemberService {
         String name = clean(cmd.fullName(), "Full name", 120);
         RoleRef role = rolesOf(List.of(cmd.roleCode())).get(cmd.roleCode());
         mayGrant(c, List.of(role));
+        if (role.category() == Caller.Category.Resident && cmd.unitId() == null)
+            throw new DomainException.RuleViolated("unit-required", "Which unit does the " + role.name().toLowerCase() + " belong to?");   // a resident with no unit can do nothing
         if (cmd.unitId() != null && !List.of("Owner", "Co-owner", "Tenant", "Family", "Caretaker").contains(cmd.relation()))
             throw new DomainException.RuleViolated("bad-relation", "Relation must be Owner, Co-owner, Tenant, Family or Caretaker");
         PersonId person = people.findOrCreate(phone, name);                       // global row (platform connection); harmless if the rest fails

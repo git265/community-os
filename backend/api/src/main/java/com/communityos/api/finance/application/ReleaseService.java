@@ -51,6 +51,7 @@ public final class ReleaseService {
         if (!FinancePolicy.raisesRelease(c, cultural)) throw new AccessDenied("Only the EC, the coordinators, the cultural committee or the accounts raise releases");
         if ((n.ticketId() == null) == (n.expenseId() == null)) throw new DomainException.RuleViolated("release-for", "A release is on a task or on an event expense");
         if (n.amount() == null || n.amount().signum() <= 0) throw new DomainException.RuleViolated("amount-required", "Enter the amount to release");
+        if (blank(n.vendor()) == null) throw new DomainException.RuleViolated("payee-required", "Who is the money released to?");
         return tx.inTx(() -> {
             Books.Release r = new Books.Release();
             r.ticketId = n.ticketId(); r.expenseId = n.expenseId(); r.kind = n.kind() == null ? "Release" : n.kind(); r.amount = Books.r2(n.amount()); r.vendor = blank(n.vendor()); r.note = blank(n.note());

@@ -67,6 +67,7 @@ public final class WorkforceResources {
                 String workers = Checks.oneOf(f.workers(), "Workers", List.of("Not allowed", "Allowed as usual", "Limited hours"));
                 String from = time(f.workersFrom(), "From"), to = time(f.workersTo(), "To");
                 Checks.rule(!"Limited hours".equals(workers) || (from != null && to != null), "hours-required", "Limited to which hours?");
+                Checks.rule(!"Limited hours".equals(workers) || from.compareTo(to) < 0, "bad-hours", "The hours end after they start");
                 return new HolidayFields(f.date(), Checks.required(f.name(), "Holiday"), trash, "Rescheduled".equals(trash) ? f.trashNewDate() : null, workers,
                     "Limited hours".equals(workers) ? from : null, "Limited hours".equals(workers) ? to : null, Checks.text(f.note(), "Note", 500), f.effects());
             }
@@ -95,6 +96,9 @@ public final class WorkforceResources {
                 Checks.rule(!"One date".equals(repeat) || f.date() != null, "date-required", "Which date?");
                 Checks.rule(!"Date range".equals(repeat) || (f.date() != null && f.endDate() != null), "dates-required", "From and to which dates?");
                 Checks.rule(f.endDate() == null || f.date() == null || !f.endDate().isBefore(f.date()), "bad-dates", "The range ends before it starts");
+                Checks.rule(!"Weekly".equals(repeat) || (f.weekdays() != null && !f.weekdays().isEmpty()), "weekday-required", "On which weekdays?");
+                String st = time(f.startTime(), "Start"), en = time(f.endTime(), "End");
+                Checks.rule(st == null || en == null || st.compareTo(en) < 0, "bad-times", "It ends after it starts");
                 return new CalendarFields(f.kind(), Checks.required(f.title(), "Title"), repeat, weekdays(f.weekdays()), f.date(), f.endDate(), time(f.startTime(), "Start"), time(f.endTime(), "End"),
                     Checks.oneOf(f.allowed(), "Allowed", List.of("Allowed", "Not allowed")), f.area(), Checks.text(f.notes(), "Notes", 500));
             }

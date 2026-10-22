@@ -71,7 +71,7 @@ public final class GateResources {
                     String status = f.status() == null ? "Invited" : Checks.oneOf(f.status(), "Status", Gate.PERSON_STATUS);
                     Checks.rule(!"Blocked".equals(status) && !"Suspended".equals(status) || (f.statusReason() != null && !f.statusReason().isBlank()), "reason-required", "Say why the person is blocked or suspended");
                     Checks.rule(!"Active".equals(status) || f.idChecked(), "not-vetted", "Tick the ID check before clearing a person for entry");
-                    return new PersonFields(name, f.personClass(), f.phone(), f.photo(), status, f.vendor(), f.deliveryCompany(), f.idType(), up(f.idLast4()), f.idFormatOk(), f.licenceNo(),
+                    return new PersonFields(name, f.personClass(), Checks.phone(f.phone(), "Phone", true), f.photo(), status, f.vendor(), f.deliveryCompany(), f.idType(), up(f.idLast4()), f.idFormatOk(), f.licenceNo(),
                         f.licenceExpiry(), f.vehicleNo(), f.idChecked(), f.addressChecked(), f.policeVerified(), f.policeExpiry(), f.referenceChecked(), f.faceEnrolled(), f.reviewNote(),
                         f.statusReason(), f.invitedByUnitId(), Checks.text(f.vendorService(), "Vendor category", 80));
                 }
@@ -81,7 +81,7 @@ public final class GateResources {
                 Checks.rule(f.status() == null || List.of("Invited", "Documents pending").contains(f.status()), "vetting", "Only the security team can vet or change the status");
                 Checks.rule(!f.idChecked() && !f.addressChecked() && !f.policeVerified() && !f.referenceChecked() && !f.faceEnrolled() && f.reviewNote() == null && f.statusReason() == null,
                     "vetting", "Vetting checks are ticked by the security team");
-                return new PersonFields(name, f.personClass(), f.phone(), f.photo(), f.status() == null ? "Invited" : f.status(), f.vendor(), f.deliveryCompany(), f.idType(), up(f.idLast4()),
+                return new PersonFields(name, f.personClass(), Checks.phone(f.phone(), "Phone", true), f.photo(), f.status() == null ? "Invited" : f.status(), f.vendor(), f.deliveryCompany(), f.idType(), up(f.idLast4()),
                     false, f.licenceNo(), f.licenceExpiry(), f.vehicleNo(), false, false, false, null, false, false, null, null, unit, null);
             }
             @Override public boolean deletable(PersonFields f) { return !Gate.VETTED.contains(f.status()); }   // vetted people are blocked or suspended, not deleted

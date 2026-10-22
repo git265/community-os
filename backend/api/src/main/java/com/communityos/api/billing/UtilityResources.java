@@ -87,6 +87,15 @@ public final class UtilityResources {
                     f.currentReading().subtract(f.previousReading()), Checks.text(f.notes(), "Notes", 500), f.extras(),
                     old == null ? "Draft" : old.status(), old == null ? null : old.publishedAt(), old == null ? null : old.dueId());
             }
+            /** The utility's extra inputs marked required (tank level, hours run ...) come with the reading. */
+            @Override public void verify(Caller c, ReadingFields f, ReadingFields old, Facts db) {
+                if (db.exists("""
+                        SELECT 1 FROM billing.utility_type t, jsonb_array_elements(coalesce(t.extra_inputs, '[]'::jsonb)) x
+                        WHERE lower(t.name) = lower(:utility) AND coalesce(x->>'required', 'false') = 'true'
+                          AND coalesce(btrim(CAST(:extras AS jsonb) ->> (x->>'key')), '') = ''""",
+                        Map.of("utility", f.utility(), "extras", json(f.extras()))))
+                    throw new com.communityos.api.shared.domain.DomainException.RuleViolated("required", "Fill in the " + f.utility() + " reading's required values");
+            }
             @Override public boolean deletable(ReadingFields f) { return !"Published".equals(f.status()); }
             @Override public String label(ReadingFields f) { return f.utility() + " " + f.month(); }
         });
@@ -96,6 +105,9 @@ public final class UtilityResources {
         Checks.rule(list.size() <= 12, "too-many-inputs", "A utility has at most 12 extra inputs");
         for (Map<String, Object> m : list) Checks.rule(m != null && m.get("key") instanceof String k && !k.isBlank() && m.get("label") instanceof String l && !l.isBlank(), "bad-input", "Each extra input has a key and a label");
         return list;
+    }
+    static String json(Map<String, Object> m) {
+        try { return new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(m == null ? Map.of() : m); } catch (com.fasterxml.jackson.core.JsonProcessingException e) { return "{}"; }
     }
     public static List<Resource<?>> all() { return List.of(TYPES, RATE_CARDS, READINGS); }
 }

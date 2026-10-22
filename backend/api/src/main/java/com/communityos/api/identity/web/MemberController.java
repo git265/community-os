@@ -35,7 +35,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class MemberController {
     public record AddMemberRequest(@NotBlank @Size(max = 20) String phone, @NotBlank @Size(max = 120) String fullName, @Size(max = 120) String displayName,
                                    @NotBlank @Size(max = 64) String roleCode, UUID unitId, @Size(max = 20) String relation) {}
-    public record ChangeRolesRequest(@NotEmpty @Size(max = 5) List<@NotBlank String> roleCodes, String primaryRoleCode) {}
+    public record ChangeRolesRequest(@NotEmpty @Size(max = 5) List<@NotBlank @Size(max = 64) String> roleCodes, @Size(max = 64) String primaryRoleCode) {}
     public record MemberResponse(UUID id, String displayName, String phone, String status, List<MemberView.Role> roles, List<UUID> units, Instant createdAt, Instant updatedAt, long version) {
         static MemberResponse of(MemberView m) {
             return new MemberResponse(m.id().value(), m.displayName(), m.phone(), m.status(), m.roles(), m.units().stream().map((u) -> u.value()).sorted().toList(),

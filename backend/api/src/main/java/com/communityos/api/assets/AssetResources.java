@@ -51,6 +51,7 @@ public final class AssetResources {
                 Integer qty = Checks.nonNegative(f.quantity(), "Quantity"), faulty = Checks.nonNegative(f.faulty(), "Faulty");
                 Checks.rule(faulty == null || qty == null || faulty <= qty, "too-many-faulty", "More faulty than there are");
                 Checks.rule(f.nextService() == null || f.lastService() == null || !f.nextService().isBefore(f.lastService()), "bad-dates", "The next service is before the last one");
+                Checks.present(f.area(), "Area"); Checks.present(f.type(), "Type");
                 return new EquipmentFields(name, f.area(), f.type(), f.repairCategory(), Checks.list(f.alsoCategories()), Checks.text(f.location(), "Location", 200), qty, f.specs(),
                     nn(f.backupHours(), "Backup hours"), f.batteryChanged(), f.make(), f.model(), f.serialNo(), f.rating(), f.installDate(), f.warrantyUntil(), f.warrantyProvider(),
                     Checks.text(f.warrantyTerms(), "Warranty terms", 4000), f.amcVendor(), f.lastService(), f.nextService(), f.status() == null ? "Working" : Checks.oneOf(f.status(), "Condition", CONDITIONS),
@@ -114,6 +115,7 @@ public final class AssetResources {
             @Override public DgFuelFields validate(Caller c, DgFuelFields f, DgFuelFields old) {
                 Checks.rule(f.date() != null, "date-required", "Which day?");
                 Checks.rule(f.litres() != null && f.litres().signum() > 0, "litres-required", "How many litres?");
+                Checks.positive(f.rate(), "Rate per litre"); Checks.present(f.generator(), "Generator"); Checks.present(f.hoursReading(), "Hours reading");   // the amount is worked out from the rate
                 BigDecimal amount = f.rate() == null ? nn(f.amount(), "Amount") : nn(f.rate(), "Rate").multiply(f.litres()).setScale(2, RoundingMode.HALF_UP);
                 return new DgFuelFields(f.date(), Checks.text(f.generator(), "Generator", 80), nn(f.hoursReading(), "Hours"), nn(f.kwhReading(), "kWh"), f.litres(), f.rate(), amount,
                     Boolean.TRUE.equals(f.partial()), f.supplier(), Checks.text(f.billNo(), "Bill no.", 60), f.taskRef(), Checks.text(f.notes(), "Notes", 4000));
@@ -130,6 +132,8 @@ public final class AssetResources {
             @Override public ElectricityBillFields validate(Caller c, ElectricityBillFields f, ElectricityBillFields old) {
                 String status = f.status() == null ? "Unpaid" : Checks.oneOf(f.status(), "Status", List.of("Unpaid", "Paid"));
                 Checks.rule(!"Paid".equals(status) || f.paidOn() != null, "paid-on-required", "When was it paid?");
+                Checks.present(f.serviceNo(), "Service no."); Checks.present(f.period(), "Period"); Checks.present(f.billDate(), "Bill date"); Checks.present(f.dueDate(), "Due date");
+                Checks.present(f.units(), "Units"); Checks.positive(f.amount(), "Amount");
                 Checks.rule(f.dueDate() == null || f.billDate() == null || !f.dueDate().isBefore(f.billDate()), "bad-dates", "The due date is before the bill date");
                 for (BigDecimal b : new BigDecimal[] {f.units(), f.exportUnits(), f.creditUnits(), f.creditAmount(), f.amount(), f.fixedCharges(), f.energyCharges(), f.otherCharges()}) nn(b, "Amounts and units");
                 BigDecimal cpu = f.amount() != null && f.units() != null && f.units().signum() > 0 ? f.amount().divide(f.units(), 2, RoundingMode.HALF_UP) : null;
@@ -176,6 +180,7 @@ public final class AssetResources {
             @Override public boolean mayWrite(Caller c) { return AssetPolicy.coordinator(c); }
             @Override public AuditFields validate(Caller c, AuditFields f, AuditFields old) {
                 BigDecimal score = f.score();
+                Checks.present(f.auditDate(), "Audit date");   // the next audit is worked out from it
                 Checks.rule(score == null || (score.signum() >= 0 && score.compareTo(BigDecimal.valueOf(100)) <= 0), "bad-score", "A score is from 0 to 100");
                 BigDecimal freq = f.frequencyMonths();
                 Checks.rule(freq == null || (freq.signum() >= 0 && freq.compareTo(BigDecimal.valueOf(120)) <= 0), "bad-frequency", "Every 0 to 120 months");
@@ -210,6 +215,15 @@ public final class AssetResources {
             @Override public LogEntryFields validate(Caller c, LogEntryFields f, LogEntryFields old) {
                 Checks.rule(f.logId() != null, "log-required", "Which log?"); Checks.rule(f.date() != null, "date-required", "Which day?");
                 return new LogEntryFields(f.logId(), f.date(), Checks.text(f.values(), "Values", 20_000), Checks.text(f.note(), "Note", 4000));
+            }
+            /** The log's fields marked required are filled in (the log type keeps its fields as JSON: [{key, label, required}]). */
+            @Override public void verify(Caller c, LogEntryFields f, LogEntryFields old, Facts db) {
+                if (db.exists("""
+                        SELECT 1 FROM assets.log_type t, jsonb_array_elements(CASE WHEN t.fields ~ '^\\s*\\[' THEN CAST(t.fields AS jsonb) ELSE '[]'::jsonb END) x
+                        WHERE t.id = CAST(:log AS uuid) AND coalesce(x->>'required', 'false') = 'true'
+                          AND coalesce(btrim((CASE WHEN CAST(:vals AS text) ~ '^\\s*\\{' THEN CAST(:vals AS jsonb) ELSE '{}'::jsonb END) ->> (x->>'key')), '') = ''""",
+                        java.util.Map.of("log", f.logId().toString(), "vals", f.values() == null ? "{}" : f.values())))
+                    throw new com.communityos.api.shared.domain.DomainException.RuleViolated("required", "Fill in every field the log marks as required");
             }
         });
 

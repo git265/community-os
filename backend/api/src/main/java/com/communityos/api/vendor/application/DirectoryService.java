@@ -46,6 +46,7 @@ public final class DirectoryService {
         x.check();
         x.addedById = me(c); x.addedByUnitId = unitOf(c);
         return tx.inTx(() -> {
+            onceOnly(x, c);
             store.insert(x);
             audit.write(c, AuditWriter.Action.Create, "vendor.service_contact", x.id, x.shortId, x.addedByUnitId, "Added " + x.name + " to the directory", List.of());
             return store.contact(x.id, me(c), false).orElseThrow();
@@ -67,6 +68,7 @@ public final class DirectoryService {
                 throw new DomainException.RuleViolated("reason-required", "Say why the contact is hidden");
             x.check();
             x.hiddenById = x.hidden() ? (was.equals("Hidden") ? x.hiddenById : me(c)) : null;
+            onceOnly(x, c);
             if (!store.update(x)) throw new DomainException.Conflict("The contact");
             audit.write(c, AuditWriter.Action.Update, "vendor.service_contact", x.id, x.shortId, x.addedByUnitId,
                 was.equals(x.status) ? "Changed " + x.name : (x.hidden() ? "Hid " + x.name + ": " + x.hiddenReason : "Restored " + x.name), List.of());
@@ -118,9 +120,14 @@ public final class DirectoryService {
         });
     }
 
+    /** A number is listed once (its contact can be reviewed instead of added again). */
+    private void onceOnly(Directory.Contact x, Caller c) {
+        if (store.contacts(true, me(c)).stream().anyMatch((o) -> !o.id.equals(x.id) && x.phone.equals(o.phone)))
+            throw new DomainException.RuleViolated("already-listed", "This number is already in the directory - leave a review on it instead");
+    }
     static boolean mine(Caller c, Directory.Contact x) { return x.addedById != null && x.addedById.equals(me(c)); }
     static void copy(ContactFields f, Directory.Contact x) {
-        x.name = f.name(); x.category = f.category(); x.phone = f.phone(); x.area = f.area(); x.rate = f.rate(); x.notes = f.notes(); x.registryId = f.registryId();
+        x.name = f.name(); x.category = f.category(); x.phone = f.phone() == null && x.phone != null ? x.phone : com.communityos.api.shared.resource.Checks.phone(f.phone(), "Phone", true);   // a change may leave the number out x.area = f.area(); x.rate = f.rate(); x.notes = f.notes(); x.registryId = f.registryId();
         if (f.status() != null) x.status = f.status();
         x.hiddenReason = f.hiddenReason() != null ? f.hiddenReason() : x.hiddenReason;
     }

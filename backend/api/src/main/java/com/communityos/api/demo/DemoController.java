@@ -38,7 +38,7 @@ public class DemoController {
     public record UnitOwner(String unit, String owner) {}
     public record Person(UUID id, String name, String roleId, List<String> extraRoleIds, List<String> units, String unit, String status) {}
     public record Roster(List<Role> roles, List<UnitOwner> units, List<Person> people) {}
-    public record SignInRequest(@NotNull UUID communityId, UUID membershipId, @Size(max = 60) String roleCode, @Size(max = 40) String unit, String client) {}
+    public record SignInRequest(@NotNull UUID communityId, UUID membershipId, @Size(max = 60) String roleCode, @Size(max = 40) String unit, @Size(max = 300) String client) {}
 
     static final String COMMUNITY = "SELECT id FROM platform.community WHERE slug = :slug";
     static final String SUPER_ADMIN = """

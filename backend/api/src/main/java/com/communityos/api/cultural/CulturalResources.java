@@ -48,6 +48,7 @@ public final class CulturalResources {
             @Override public boolean mayWrite(Caller c) { return manager(c); }
             @Override public EventFields validate(Caller c, EventFields f, EventFields old) {
                 String name = Checks.required(f.name(), "Name");
+                Checks.present(f.type(), "Type"); Checks.present(f.startDate(), "Start date");
                 Checks.oneOf(f.type(), "Type", List.of("Festival", "Cultural programme", "Sports / games", "Celebration", "Other"));
                 Checks.oneOf(f.repeat(), "Repeat", List.of("Does not repeat", "Weekly", "Every 2 weeks", "Monthly (same date)"));
                 String status = f.status() == null ? "Planning" : Checks.oneOf(f.status(), "Status", List.of("Planning", "Open", "Completed", "Cancelled"));
@@ -75,7 +76,7 @@ public final class CulturalResources {
             @Override public Spec<ProgramFields> readScope(Caller c) { return CulturalPolicy.ofEvents(c, "r.event_id"); }
             @Override public boolean mayWrite(Caller c) { return manager(c); }
             @Override public ProgramFields validate(Caller c, ProgramFields f, ProgramFields old) {
-                times(f.startTime(), f.endTime());
+                Checks.present(f.date(), "Date"); times(f.startTime(), f.endTime());
                 return new ProgramFields(event(f.eventId()), Checks.required(f.title(), "Title"), f.date(), f.startTime(), f.endTime(), f.lead(), f.venue(), Checks.nonNegative(f.capacity(), "Capacity"),
                     Checks.nonNegative(f.peoplePerUnit(), "People per unit"), Checks.text(f.notes(), "Notes", 4000));
             }
@@ -88,7 +89,7 @@ public final class CulturalResources {
             @Override public Spec<SevaFields> readScope(Caller c) { return CulturalPolicy.ofEvents(c, "r.event_id"); }
             @Override public boolean mayWrite(Caller c) { return manager(c); }
             @Override public SevaFields validate(Caller c, SevaFields f, SevaFields old) {
-                times(f.startTime(), f.endTime());
+                Checks.present(f.date(), "Date"); Checks.rule(f.needed() != null && f.needed() > 0, "required", "How many volunteers are needed?"); times(f.startTime(), f.endTime());
                 return new SevaFields(event(f.eventId()), Checks.required(f.title(), "Title"), f.date(), f.startTime(), f.endTime(), Checks.nonNegative(f.needed(), "Volunteers needed"),
                     Checks.text(f.description(), "Description", 4000));
             }

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { maxLengthFor } from '../lib/fieldLimits.js';
 import { canEdit, canView } from '../lib/access/permissions.js';
 import RecordMeta from './RecordMeta.jsx';
 import SpecsField from './SpecsField.jsx';
@@ -59,7 +60,7 @@ export function TagsInput({ list, onChange, label, placeholder = 'Type a value a
         {!list.length && <small className="muted">None yet</small>}
       </div>
       <div style={{ display: 'flex', gap: 8 }}>
-        <input type="text" aria-label={`Add to ${label}`} value={text} placeholder={placeholder} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }} />
+        <input type="text" aria-label={`Add to ${label}`} value={text} maxLength={2000} placeholder={placeholder} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }} />
         <button type="button" className="btn secondary" onClick={add}>Add</button>
       </div>
     </div>
@@ -211,6 +212,8 @@ export default function DynamicForm({ schema, roleId, record, onSave, onCancel, 
         return (
           <input
             type="number"
+            min={field.min}
+            max={field.max}
             value={value}
             onChange={(e) => setValue(field.key, e.target.value === '' ? '' : Number(e.target.value))}
           />
@@ -221,11 +224,11 @@ export default function DynamicForm({ schema, roleId, record, onSave, onCancel, 
       case 'time':
         return <input type="time" value={value} onChange={(e) => setValue(field.key, e.target.value)} />;
       case 'textarea':
-        return <textarea value={value} onChange={(e) => setValue(field.key, e.target.value)} rows={3} />;
+        return <textarea value={value} maxLength={maxLengthFor(field)} onChange={(e) => setValue(field.key, e.target.value)} rows={3} />;
       default:
         return (
           <>
-            <input type="text" value={value} onChange={(e) => setValue(field.key, e.target.value)} />
+            <input type="text" value={value} maxLength={maxLengthFor(field)} onChange={(e) => setValue(field.key, e.target.value)} />
             {field.suggestSimilar && <SimilarNotice text={value} rows={existing} fieldKey={field.key} exclude={draft.id} noun={schema.label} />}
             {field.suggestSimilar && existingErr && <div className="notice error" data-testid="similar-check-error" style={{ marginTop: 6 }}>Could not check for an existing {schema.label.toLowerCase()} with this name ({existingErr}). Look in the list before adding it.</div>}
           </>
@@ -249,6 +252,10 @@ export default function DynamicForm({ schema, roleId, record, onSave, onCancel, 
         for (const f of fields) {
           if (!canEdit(f, roleId) || missing[f.key]) continue;
           if (f.type === 'phone' && String(draft[f.key] ?? '').trim()) { const v = validatePhone(draft[f.key]); if (!v.ok) missing[f.key] = v.error; }
+          const val = draft[f.key];
+          if (f.type === 'number' && val !== '' && val != null && ((f.min != null && Number(val) < f.min) || (f.max != null && Number(val) > f.max))) missing[f.key] = `${f.label} is ${f.min ?? '…'} to ${f.max ?? '…'}`;
+          if (f.minLength && String(val ?? '').trim() && String(val).trim().length < f.minLength) missing[f.key] = `${f.label} needs at least ${f.minLength} characters`;
+          if (f.format === 'email' && String(val ?? '').trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(val).trim())) missing[f.key] = `${f.label} is not an e-mail address`;
           if (f.type === 'people') { const pe = peopleErrors(Array.isArray(draft[f.key]) ? draft[f.key] : []); if (Object.keys(pe).length) missing[f.key] = pe; }
         }
         const imp = impact ? impact(draft) : null;
