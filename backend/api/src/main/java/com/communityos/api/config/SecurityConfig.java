@@ -28,6 +28,13 @@ public class SecurityConfig {
     @Bean JwtDecoder jwtDecoder(JwtCodec codec) { return new CallerJwtDecoder(codec); }
     @Bean CallerJwtConverter callerJwtConverter(CallerLoader loader) { return new CallerJwtConverter(loader); }
 
+    /** Request id, body limits and the metrics guard: before everything else, sign-in included. */
+    @Bean org.springframework.boot.web.servlet.FilterRegistrationBean<com.communityos.api.shared.web.RequestGuardFilter> requestGuardFilter(CosProperties p) {
+        var r = new org.springframework.boot.web.servlet.FilterRegistrationBean<>(new com.communityos.api.shared.web.RequestGuardFilter(p.web().metricsToken()));
+        r.setName("requestGuard"); r.addUrlPatterns("/*"); r.setOrder(-1000);       // Spring Security's chain is at -100
+        return r;
+    }
+
     @Bean SecurityFilterChain api(HttpSecurity http, JwtDecoder decoder, CallerJwtConverter converter, CosProperties p) throws Exception {
         http.csrf((c) -> c.disable())
             .cors((c) -> c.configurationSource(cors(p.web().allowedOrigins())))
@@ -39,7 +46,8 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.POST, "/api/v1/webhooks/*").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/v1/public/**").permitAll()
                 .requestMatchers("/api/v1/demo/**").permitAll()   // the demo controller exists only with cos.demo.enabled (never in prod): otherwise 404
-                .requestMatchers("/actuator/health", "/actuator/health/**", "/v3/api-docs/**", "/swagger-ui/**").permitAll()
+                // health for the load balancer; the rest of /actuator is guarded by the metrics secret (RequestGuardFilter), not a user's sign-in
+                .requestMatchers("/actuator/**", "/v3/api-docs/**", "/swagger-ui/**").permitAll()
                 .anyRequest().authenticated())
             .oauth2ResourceServer((o) -> o.jwt((j) -> j.decoder(decoder).jwtAuthenticationConverter(converter)))
             .headers((h) -> h

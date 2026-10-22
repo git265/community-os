@@ -13,10 +13,18 @@ spring:
 
 server:
   port: ${PORT:8080}
-  forward-headers-strategy: framework         # the real client address behind the load balancer (rate limits, audit)
+  # the real client address behind the load balancer (rate limits, audit): Tomcat takes it from X-Forwarded-For only when the request came
+  # from a trusted proxy (Tomcat's default: private networks and localhost; set SERVER_TOMCAT_REMOTEIP_INTERNAL_PROXIES, a regex, for others),
+  # so a client cannot name its own address
+  forward-headers-strategy: native
   compression: { enabled: true, mime-types: application/json, min-response-size: 2048 }
   http2.enabled: true
-  tomcat: { max-swallow-size: 1MB, max-http-form-post-size: 1MB }
+  tomcat:
+    max-swallow-size: 1MB
+    max-http-form-post-size: 1MB
+    remoteip:
+      remote-ip-header: x-forwarded-for
+      protocol-header: x-forwarded-proto
   error.include-stacktrace: never
 
 cos:
@@ -49,11 +57,19 @@ cos:
   web:
     allowed-origins: ${COS_ALLOWED_ORIGINS:https://app.communityos.app}
     time-zone: Asia/Kolkata
+    metrics-token: ${COS_METRICS_TOKEN:}        # the scraper's basic-auth password (user "metrics"); empty = no /actuator/prometheus
 
 management:
-  endpoints.web.exposure.include: health,info,prometheus
+  endpoints.web.exposure.include: health,prometheus
+  endpoint.health.show-details: never
   endpoint.health.probes.enabled: true
   metrics.distribution.percentiles-histogram.http.server.requests: true
 
-springdoc:
-  api-docs.path: /v3/api-docs
+springdoc:                                   # the API description is published only where COS_API_DOCS=true (on in development)
+  api-docs: { path: /v3/api-docs, enabled: "${COS_API_DOCS:false}" }
+  swagger-ui.enabled: "${COS_API_DOCS:false}"
+
+logging:                                     # one JSON object a line (ECS) with the request id; plain text in development
+  structured.format.console: ${COS_LOG_FORMAT:ecs}
+  level:
+    org.springframework.security: WARN

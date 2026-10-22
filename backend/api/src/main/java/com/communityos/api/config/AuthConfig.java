@@ -40,7 +40,7 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 @Configuration
 public class AuthConfig {
     @Bean JwtCodec jwtCodec(CosProperties p, Environment env, Clock clock) {
-        return new JwtCodec(SigningKeys.load(p.auth(), env.matchesProfiles("prod")), p.auth().issuer(), p.auth().audience(), clock);
+        return new JwtCodec(SigningKeys.load(p.auth(), Deployment.strict(env)), p.auth().issuer(), p.auth().audience(), clock);
     }
     @Bean JwtTokenIssuer tokenIssuer(JwtCodec codec, CosProperties p, Clock clock) { return new JwtTokenIssuer(codec, p.auth().accessTtl(), clock); }
 
@@ -57,7 +57,7 @@ public class AuthConfig {
             Resilient r = new Resilient(Duration.ofSeconds(3), new CircuitBreaker("sms", 5, Duration.ofSeconds(30), clock), RetryPolicy.transientFailures(2));
             return new HttpSmsOtpSender(http, r, new HttpSmsOtpSender.Settings(URI.create(s.endpoint()), s.apiKey(), s.templateId(), s.senderId()), json);
         }
-        if (env.matchesProfiles("prod")) throw new IllegalStateException("cos.auth.otp-sender=log is not allowed in prod");
+        if (Deployment.strict(env)) throw new IllegalStateException("cos.auth.otp-sender=log is not allowed in prod");
         return new LogOtpSender();
     }
 

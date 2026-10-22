@@ -59,6 +59,8 @@ async function call(path, init = {}) {
 }
 const json = (method, body, headers = {}) => ({ method, body: JSON.stringify(body), headers });
 const ifMatch = (v) => ({ 'If-Match': `"${v}"` });
+/** The version the screen loaded (so a change made by someone else meanwhile is refused as a conflict), else the one just read. */
+const seen = (rec, before) => rec?.version ?? before.version;
 
 /** Every page of a list (the server caps a page at 200). */
 async function all(path) {
@@ -474,7 +476,7 @@ async function removeResource(c, id) {
 async function putPass(rec) {
   const before = isUuid(rec.id) ? await readers.gatePasses.get(rec.id) : null;
   if (!before) { const { idByNo } = await unitIndex(); return gatePassOf(await call('/gate/passes', json('POST', passBody(rec, idByNo)))); }
-  if (rec.status === 'Cancelled' && before.status !== 'Cancelled') return gatePassOf(await call(`/gate/passes/${rec.id}/cancel`, json('POST', {}, ifMatch(before.version))));
+  if (rec.status === 'Cancelled' && before.status !== 'Cancelled') return gatePassOf(await call(`/gate/passes/${rec.id}/cancel`, json('POST', {}, ifMatch(seen(rec, before)))));
   return before;   // a pass is used at the gate and cancelled by its unit; it is not edited
 }
 async function putApproval(rec) {
@@ -490,7 +492,7 @@ async function putFlag(rec) {
   if (!before) throw new Error('Flags are raised by the gate itself.');
   if (rec.state === 'Closed' && before.state !== 'Closed') {
     const { noById } = await unitIndex();
-    return gateFlagOf(await call(`/gate/flags/${rec.id}/resolve`, json('POST', { resolution: rec.resolution, note: rec.resolutionNote || null }, ifMatch(before.version))), noById);
+    return gateFlagOf(await call(`/gate/flags/${rec.id}/resolve`, json('POST', { resolution: rec.resolution, note: rec.resolutionNote || null }, ifMatch(seen(rec, before)))), noById);
   }
   return before;
 }
@@ -534,7 +536,7 @@ async function putTopic(rec) {
   }
   const change = {};
   for (const k of ['title', 'category', 'pinned', 'status']) if (rec[k] !== undefined && rec[k] !== before[k]) change[k] = rec[k];
-  if (Object.keys(change).length) await call(`/comms/forum/topics/${rec.id}`, json('PATCH', change, ifMatch(before.version)));
+  if (Object.keys(change).length) await call(`/comms/forum/topics/${rec.id}`, json('PATCH', change, ifMatch(seen(rec, before))));
   return readers.forum.get(rec.id);   // the reply count is the server's
 }
 async function putPost(rec) {
@@ -562,7 +564,7 @@ async function putDocument(rec) {
     if (!isUuid(rec.fileId)) throw new Error('Upload the document\'s file first.');
     return documentOf(await call('/documents', json('POST', { fileId: rec.fileId, ...body })));
   }
-  return documentOf(await call(`/documents/${rec.id}`, json('PUT', body, ifMatch(before.rowVersion))));
+  return documentOf(await call(`/documents/${rec.id}`, json('PUT', body, ifMatch(rec.rowVersion ?? before.rowVersion))));
 }
 /** After a record is written: attach the files it lists that are not attached yet (they were uploaded first, unattached). */
 /**
@@ -582,7 +584,7 @@ const attaching = (put, ownerType, field) => async (rec) => {
 async function putContact(rec) {
   const before = isUuid(rec.id) ? await readers.serviceContacts.get(rec.id) : null;
   const body = contactBody({ ...(before || {}), ...rec });
-  return contactOf(before ? await call(`/vendors/directory/${rec.id}`, json('PUT', body, ifMatch(before.version))) : await call('/vendors/directory', json('POST', body)));
+  return contactOf(before ? await call(`/vendors/directory/${rec.id}`, json('PUT', body, ifMatch(seen(rec, before)))) : await call('/vendors/directory', json('POST', body)));
 }
 /** A review is mine: the server keeps one per household and rewrites it when I review again. */
 async function putReview(rec) {
@@ -623,23 +625,25 @@ async function putAttendance(rec) {
     return attendanceOf(await call('/workforce/attendance/clock-out', json('POST', { ...pos('out'), note: rec.note && rec.note !== before.note ? rec.note : null })));
   }
   if (rec.clockIn === before.clockIn && (rec.clockOut || '') === (before.clockOut || '')) return before;
-  return attendanceOf(await call(`/workforce/attendance/${rec.id}`, json('PUT', { clockIn: rec.clockIn, clockOut: rec.clockOut || null, reason: rec.correctionNote || rec.note || '' }, ifMatch(before.version))));
+  return attendanceOf(await call(`/workforce/attendance/${rec.id}`, json('PUT', { clockIn: rec.clockIn, clockOut: rec.clockOut || null, reason: rec.correctionNote || rec.note || '' }, ifMatch(seen(rec, before)))));
 }
 async function putMeeting(rec) {
   const before = isUuid(rec.id) ? await readers.meetings.get(rec.id) : null;
   const body = meetingBody({ ...(before || {}), ...rec });
-  return meetingOf(before ? await call(`/governance/meetings/${rec.id}`, json('PUT', body, ifMatch(before.version))) : await call('/governance/meetings', json('POST', body)));
+  return meetingOf(before ? await call(`/governance/meetings/${rec.id}`, json('PUT', body, ifMatch(seen(rec, before)))) : await call('/governance/meetings', json('POST', body)));
 }
 const BALLOT_FIELDS = ['title', 'description', 'kind', 'options', 'opensOn', 'closesOn', 'quorumPct', 'passPct', 'meetingId'];
 async function putBallot(rec) {
   let before = isUuid(rec.id) ? await readers.ballots.get(rec.id) : null;
   const edited = !before || BALLOT_FIELDS.some((k) => JSON.stringify(ballotBody({ ...before, ...rec })[k]) !== JSON.stringify(ballotBody(before)[k]));
   if (before && before.status !== 'Draft' && edited) throw new Error(before.status === 'Open' ? 'An open ballot cannot be edited' : 'A closed ballot can never be changed');
-  if (!before) before = ballotOf(await call('/governance/ballots', json('POST', ballotBody(rec))));
-  else if (edited) before = ballotOf(await call(`/governance/ballots/${rec.id}`, json('PUT', ballotBody({ ...before, ...rec }), ifMatch(before.version))), before.roll);
+  let ver;   // the version the next command sends: the screen's for its own change, then the server's after each write here
+  if (!before) { before = ballotOf(await call('/governance/ballots', json('POST', ballotBody(rec)))); ver = before.version; }
+  else if (edited) { before = ballotOf(await call(`/governance/ballots/${rec.id}`, json('PUT', ballotBody({ ...before, ...rec }), ifMatch(seen(rec, before)))), before.roll); ver = before.version; }
+  else ver = seen(rec, before);
   // opening freezes the roll on the server (the roll and fingerprint the screen built are not used); closing checks the box there
-  if (rec.status === 'Open' && before.status === 'Draft') return readers.ballots.get((await call(`/governance/ballots/${before.id}/open`, json('POST', {}, ifMatch(before.version)))).id);
-  if (rec.status === 'Closed' && before.status === 'Open') return readers.ballots.get((await call(`/governance/ballots/${before.id}/close`, json('POST', {}, ifMatch(before.version)))).id);
+  if (rec.status === 'Open' && before.status === 'Draft') return readers.ballots.get((await call(`/governance/ballots/${before.id}/open`, json('POST', {}, ifMatch(ver)))).id);
+  if (rec.status === 'Closed' && before.status === 'Open') return readers.ballots.get((await call(`/governance/ballots/${before.id}/close`, json('POST', {}, ifMatch(ver)))).id);
   if (rec.status && rec.status !== before.status && rec.status !== 'Draft') throw new Error(rec.status === 'Closed' ? 'A ballot must be opened before it is closed' : 'An open ballot can only be closed');
   return before;
 }
@@ -718,7 +722,7 @@ async function putEvent(rec) {
   if (!before) return putResource('culturalEvents', rec);
   let out = before;
   if (Number(rec.creditedAmount || 0) !== Number(before.creditedAmount || 0)) {
-    await call(`/cultural/events/${rec.id}/credit`, json('POST', { amount: Number(rec.creditedAmount), note: rec.creditNote || null }, ifMatch(before.version)));
+    await call(`/cultural/events/${rec.id}/credit`, json('POST', { amount: Number(rec.creditedAmount), note: rec.creditNote || null }, ifMatch(seen(rec, before))));
     out = await readers.culturalEvents.get(rec.id);
   }
   if (changedBut(before, rec, [...TOTAL_KEYS, ...CREDIT_KEYS]).length) out = await putResource('culturalEvents', { ...rec, version: out.version });
@@ -781,7 +785,7 @@ async function putPayRequest(rec) {
     return payRequestOf(await call('/finance/pay-requests', json('POST', ledgerBody({ type: 'Debit', date: new Date().toISOString().slice(0, 10), ...p, description: p.description || rec.description, amount: p.amount ?? rec.amount, vendor: p.vendor || rec.vendor }, idByNo))));
   }
   if (rec.status !== before.status && ['Approved', 'Rejected'].includes(rec.status)) {
-    return payRequestOf(await call(`/finance/pay-requests/${rec.id}/decision`, json('POST', { approve: rec.status === 'Approved', note: rec.decisionNote || rec.note || null }, ifMatch(before.version))));
+    return payRequestOf(await call(`/finance/pay-requests/${rec.id}/decision`, json('POST', { approve: rec.status === 'Approved', note: rec.decisionNote || rec.note || null }, ifMatch(seen(rec, before)))));
   }
   return before;
 }
@@ -806,7 +810,7 @@ async function putBooking(rec) {
     if (rec.status && rec.status !== before.status) throw new Error('Use the booking actions (cancel, receive payment, refund, deposit) - a booking is not edited directly.');
     return before;
   }
-  return bookingOf(await call(`/amenities/bookings/${encodeURIComponent(rec.id)}/${cmd.path}`, json('POST', cmd.body, ifMatch(before.version))));
+  return bookingOf(await call(`/amenities/bookings/${encodeURIComponent(rec.id)}/${cmd.path}`, json('POST', cmd.body, ifMatch(seen(rec, before)))));
 }
 
 const WRITERS = { reportSchedules: putReportSchedule, attendance: putAttendance, workforce: async () => { throw new Error('Teams are worked out from field staff.'); }, inventory: putInventory, infraLog: putConditionLog, serviceContacts: putContact, contactReviews: putReview, meetings: putMeeting, ballots: putBallot, voteRoll: putVoteMark, ballotBox: putBoxRow, ledger: putLedger, releases: putRelease, payRequests: putPayRequest, bankTxns: putBankTxn, culturalDonations: putDonation, culturalExpenses: putExpense, culturalOfferings: putOffering, culturalEvents: putEvent, culturalPhotos: putPhoto, culturalSevas: signing('culturalSevas', 'seva', 'volunteers'), culturalPrograms: signing('culturalPrograms', 'programme', 'participants'), files: putFile, documents: putDocument, notificationOutbox: async (r) => r /* the server queues channel messages itself, from the event */, notifications: putNotification, blocks: putBlock, broadcasts: putBroadcast, pollVotes: putPollVote, forum: putTopic, forumPosts: putPost, gatePasses: putPass, gateApprovals: putApproval, gateFlags: putFlag, gateVisits: deskOnly, gateScans: deskOnly, gatePulse: async (r) => r, amenities: putBooking, properties: putProperty, users: putUser, dues: putDue, tickets: putTicket, ticketComments: putComment, handymen: putFieldStaff, quotations: putQuotation };

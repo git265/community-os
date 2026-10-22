@@ -1003,6 +1003,8 @@ test('attendance: a new row is a clock-in, a clock-out is the server\'s; other t
   await assert.rejects(storage.put('attendance', { ...out, clockIn: '2026-10-20T03:20:00Z' }), /Say why/);
   const fixed = await storage.put('attendance', { ...out, clockIn: '2026-10-20T03:20:00Z', correctionNote: 'Gate tablet down' });
   assert.equal(fixed.source, 'Supervisor'); assert.equal(last('PUT', /\/workforce\/attendance\//).headers['If-Match'], `"${out.version}"`);
+  await storage.put('attendance', { ...out, version: 1, clockIn: '2026-10-20T03:25:00Z', correctionNote: 'stale screen' }).catch(() => {});
+  assert.equal(last('PUT', /\/workforce\/attendance\//).headers['If-Match'], '"1"', 'the version the screen loaded, not the one just read: someone else\'s change is not overwritten');
   assert.deepEqual(await storage.list('workforce'), [{ id: 'Plumbing', team: 'Plumbing', onDuty: 1, total: 2 }]);
   await storage.remove('attendance', fixed.id);
   assert.equal((await storage.list('attendance')).length, 0);

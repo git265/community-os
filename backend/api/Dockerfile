@@ -11,7 +11,7 @@ WORKDIR /app
 RUN useradd --system --uid 10001 app && mkdir -p /data/files && chown app /data/files   # the files volume is owned by the app user
 COPY --from=build /build/target/communityos-api-*.jar app.jar
 USER app
-ENV JAVA_OPTS="-XX:MaxRAMPercentage=75"
+ENV JAVA_OPTS="-XX:MaxRAMPercentage=75" SPRING_PROFILES_ACTIVE=prod
 EXPOSE 8080
 HEALTHCHECK --interval=10s --timeout=3s --start-period=60s --retries=12 \
   CMD bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080 && printf "GET /api/v1/public/health HTTP/1.0\r\n\r\n" >&3 && grep -q UP <&3'

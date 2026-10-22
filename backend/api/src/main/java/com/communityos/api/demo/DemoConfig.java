@@ -47,7 +47,7 @@ public class DemoConfig {
                             QuotationService quotations, ResourceService kit, ResourceRegistry registry, BookingService bookings, GateService gate, BroadcastService notices,
                             ForumService forum, FileService files, DocumentService documents, DonationService donations, ExpenseService expenses, CashBookService cash, BankService bank,
                             MeetingService meetings, BallotService ballots, DirectoryService directory, AssetService assets, AttendanceService attendance, Clock clock) {
-        if (env.matchesProfiles("prod")) throw new IllegalStateException("cos.demo.enabled is not allowed in prod: it signs people in without a code");
+        if (com.communityos.api.config.Deployment.strict(env)) throw new IllegalStateException("cos.demo.enabled is not allowed outside a dev or test profile: it signs people in without a code");
         return new DemoData(new DemoData.Services(jdbc, json, callers, members, staff, units, dues, counter, payments, gateway, tickets, quotations, kit, registry, bookings, gate, notices,
             forum, files, documents, donations, expenses, cash, bank, meetings, ballots, directory, assets, attendance, clock, ZoneId.of(p.web().timeZone())));
     }

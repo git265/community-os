@@ -82,7 +82,9 @@ public class ResourceController {
     private <F extends Record> F read(ResourceRegistry.Entry<F> e, JsonNode body) {
         try { return json.treeToValue(body, e.resource().table().type()); }
         catch (com.fasterxml.jackson.core.JsonProcessingException | IllegalArgumentException x) {
-            throw new DomainException.RuleViolated("bad-request", "The record is not valid: " + x.getMessage());
+            // the field at fault, never the parser's own text (class names, positions)
+            String field = x instanceof com.fasterxml.jackson.databind.JsonMappingException m && !m.getPath().isEmpty() ? m.getPath().get(m.getPath().size() - 1).getFieldName() : null;
+            throw new DomainException.RuleViolated("bad-request", field == null ? "The record is not valid" : "The record is not valid: check \"" + field + "\"");
         }
     }
     /** {id, shortId, version, createdAt, updatedAt, ...fields} */

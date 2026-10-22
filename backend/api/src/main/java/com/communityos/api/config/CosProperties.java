@@ -38,7 +38,8 @@ public record CosProperties(Db db, Auth auth, Payments payments, Web web, @Defau
                             @DefaultValue("false") boolean refundsFail) {}
     public record Razorpay(@DefaultValue("false") boolean enabled, @DefaultValue("https://api.razorpay.com") String baseUrl, String keyId, String keySecret, String webhookSecret) {}
 
-    public record Web(List<String> allowedOrigins, @DefaultValue("Asia/Kolkata") String timeZone) {}
+    /** metricsToken: the basic-auth password (user "metrics") a metrics scraper sends for /actuator/prometheus; none = no metrics endpoint. */
+    public record Web(List<String> allowedOrigins, @DefaultValue("Asia/Kolkata") String timeZone, String metricsToken) {}
     /** Where uploaded files' bytes are kept (a folder on this server; an object store adapter replaces it in production), and the virus scanner:
      *  none (files stay "Pending", not scanned) or simulated (development only: finds the EICAR test file, calls the rest clean). */
     public record Files(@DefaultValue("./var/files") String dir, @DefaultValue("none") String scanner) {}

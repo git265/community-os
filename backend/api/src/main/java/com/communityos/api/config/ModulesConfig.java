@@ -109,7 +109,7 @@ public class ModulesConfig {
     @Bean Docs docs(NamedParameterJdbcTemplate jdbc, AuditWriter audit, Tx tx, Clock clock, CosProperties p, Environment env, TicketService tickets, QuotationService quotations,
                     com.communityos.api.amenity.application.BookingService bookings, com.communityos.api.cultural.adapter.JdbcCulturalStore cultural,
                     com.communityos.api.governance.application.MeetingService meetings) {
-        if ("simulated".equals(p.files().scanner()) && env.matchesProfiles("prod")) throw new IllegalStateException("the simulated virus scanner cannot be used in prod");
+        if ("simulated".equals(p.files().scanner()) && Deployment.strict(env)) throw new IllegalStateException("the simulated virus scanner cannot be used in prod");
         var repo = new com.communityos.api.docs.adapter.JdbcFileRepository(jdbc);
         var files = new com.communityos.api.docs.application.FileService(repo, new com.communityos.api.docs.adapter.LocalDiskStorage(java.nio.file.Path.of(p.files().dir())),
             "simulated".equals(p.files().scanner()) ? new com.communityos.api.docs.adapter.SimulatedVirusScanner() : com.communityos.api.docs.application.port.VirusScanner.NONE,
@@ -237,7 +237,7 @@ public class ModulesConfig {
             case "webpush" -> {
                 com.communityos.api.shared.push.WebPush.Vapid v;
                 if (push.vapidPublicKey() == null || push.vapidPublicKey().isBlank() || push.vapidPrivateKey() == null || push.vapidPrivateKey().isBlank()) {
-                    if (env.matchesProfiles("prod")) throw new IllegalStateException("cos.push.vapid-public-key and vapid-private-key are required for Web Push in prod");
+                    if (Deployment.strict(env)) throw new IllegalStateException("cos.push.vapid-public-key and vapid-private-key are required for Web Push in prod");
                     v = com.communityos.api.shared.push.WebPush.generate();   // development: a key pair for this run (browsers subscribe again after a restart)
                     org.slf4j.LoggerFactory.getLogger(ModulesConfig.class).warn("Web Push: no VAPID keys configured - made a pair for this run. To keep subscriptions across restarts set "
                         + "COS_PUSH_VAPID_PUBLIC_KEY={} and COS_PUSH_VAPID_PRIVATE_KEY={}", v.publicKeyB64(), v.privateKeyB64());
@@ -245,7 +245,7 @@ public class ModulesConfig {
                 return Optional.of(new com.communityos.api.comms.adapter.WebPushSender(http, v, push.subject(), json, clock));
             }
             case "log" -> {
-                if (env.matchesProfiles("prod")) throw new IllegalStateException("cos.push.provider=log cannot be used in prod");
+                if (Deployment.strict(env)) throw new IllegalStateException("cos.push.provider=log cannot be used in prod");
                 return Optional.of(new com.communityos.api.comms.adapter.LogPushSender());
             }
             default -> { return Optional.empty(); }
@@ -262,14 +262,14 @@ public class ModulesConfig {
     /** The WhatsApp / SMS / e-mail copies of notifications: delivered by the configured provider (cos.channels.provider), or not at all. */
     @Bean @ConditionalOnProperty(name = "cos.channels.provider", havingValue = "simulated")
     com.communityos.api.comms.adapter.ChannelDelivery channelDelivery(@org.springframework.beans.factory.annotation.Qualifier("platform") NamedParameterJdbcTemplate platformJdbc, Environment env) {
-        if (env.matchesProfiles("prod")) throw new IllegalStateException("the simulated message provider cannot be used in prod");
+        if (Deployment.strict(env)) throw new IllegalStateException("the simulated message provider cannot be used in prod");
         return new com.communityos.api.comms.adapter.ChannelDelivery(platformJdbc, new com.communityos.api.comms.adapter.SimulatedChannelSender());
     }
 
     /** Development provider; only exists when cos.payments.simulated.enabled=true, and never in prod. */
     @Bean @ConditionalOnProperty(name = "cos.payments.simulated.enabled", havingValue = "true")
     SimulatedGateway simulatedGateway(CosProperties p, Environment env, Clock clock) {
-        if (env.matchesProfiles("prod")) throw new IllegalStateException("the simulated payment provider cannot be enabled in prod");
+        if (Deployment.strict(env)) throw new IllegalStateException("the simulated payment provider cannot be enabled in prod");
         CosProperties.Simulated sim = p.payments().simulated();
         String secret = sim == null ? null : sim.secret();
         var d = sim == null ? SimulatedGateway.Delays.DEFAULT : new SimulatedGateway.Delays(sim.pendingDelay(), sim.lostDelay(), sim.refundDelay(), sim.slowLatency());
@@ -285,6 +285,8 @@ public class ModulesConfig {
         simulated.ifPresent(gateways::add);
         CosProperties.Razorpay rz = p.payments().razorpay();
         if (rz != null && rz.enabled()) {
+            if (blank(rz.keyId()) || blank(rz.keySecret()) || blank(rz.webhookSecret()) || rz.webhookSecret().length() < 16)
+                throw new IllegalStateException("Razorpay is enabled: cos.payments.razorpay.key-id, key-secret and webhook-secret (16+ characters) are required");
             Resilient r = new Resilient(Duration.ofSeconds(8), new CircuitBreaker("razorpay", 5, Duration.ofSeconds(30), clock), RetryPolicy.transientFailures(3));
             gateways.add(new RazorpayGateway(http, r, new RazorpayGateway.Settings(URI.create(rz.baseUrl()), rz.keyId(), rz.keySecret(), rz.webhookSecret()), json));
         }
@@ -316,4 +318,5 @@ public class ModulesConfig {
         bookings.refunds(refunds);
         return refunds;
     }
+    private static boolean blank(String s) { return s == null || s.isBlank(); }
 }
