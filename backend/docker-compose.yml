@@ -55,7 +55,7 @@ services:
       COS_DB_PLATFORM_USERNAME: cos_platform
       COS_DB_PLATFORM_PASSWORD: ${COS_DB_PLATFORM_PASSWORD:-cos_platform_dev}
       COS_AUTH_ISSUER: http://localhost:8081
-      COS_WEB_ALLOWED_ORIGINS: http://localhost:8081,http://localhost:5173
+      COS_ALLOWED_ORIGINS: ${COS_ALLOWED_ORIGINS:-http://localhost:8081,http://localhost:5173,http://127.0.0.1:8081,http://127.0.0.1:5173}
       # production secrets (leave empty in dev: the dev profile uses a throw-away signing key and a dev pepper)
       COS_JWT_SIGNING_KEY: ${COS_JWT_SIGNING_KEY:-}
       COS_RAZORPAY_ENABLED: ${COS_RAZORPAY_ENABLED:-false}

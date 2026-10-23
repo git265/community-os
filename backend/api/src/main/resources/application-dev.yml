@@ -22,7 +22,7 @@ cos:
       timeout: 8s                # how long the server waits for each call (3 tries, then "not answering, nothing was charged")
       refunds-fail: false        # true: the bank refuses every refund (the booking's refund is due again)
   web:
-    allowed-origins: http://localhost:5173
+    allowed-origins: ${COS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:8081,http://127.0.0.1:5173,http://127.0.0.1:8081}   # the app on another origin than the API (the docker stack and Vite pass one origin through)
     metrics-token: dev-metrics   # curl -u metrics:dev-metrics localhost:8080/actuator/prometheus
   files:
     scanner: simulated     # finds the EICAR test file, calls the rest clean (no ClamAV in development)
