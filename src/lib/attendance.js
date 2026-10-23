@@ -27,7 +27,7 @@ export function getPosition(timeout = 12000) {
     if (typeof navigator === 'undefined' || !navigator.geolocation) { resolve({ error: 'This device or browser cannot share its location' }); return; }
     navigator.geolocation.getCurrentPosition(
       (pos) => resolve({ lat: +pos.coords.latitude.toFixed(6), lng: +pos.coords.longitude.toFixed(6), acc: Math.round(pos.coords.accuracy || 0) }),
-      (err) => resolve({ error: err.code === 1 ? 'Location permission was denied' : err.code === 3 ? 'Location request timed out' : 'Location is unavailable' }),
+      (err) => resolve({ error: err.code === 1 ? 'Location permission was denied' : err.code === 3 ? 'Location request timed out' : 'Location is unavailable', code: err.code === 1 ? 'denied' : err.code === 3 ? 'timeout' : 'unavailable' }),
       { enableHighAccuracy: true, timeout, maximumAge: 0 },
     );
   });

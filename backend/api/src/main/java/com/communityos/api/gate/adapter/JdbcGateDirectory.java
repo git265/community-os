@@ -45,7 +45,7 @@ public final class JdbcGateDirectory implements GateDirectory {
         FROM gate.household_link l JOIN property.unit u ON u.community_id = l.community_id AND u.id = l.unit_id WHERE l.person_id = CAST(:person AS uuid)""";
     static final String WORK_ORDERS = "SELECT w.id, w.title, w.vendor, w.days, w.from_time::text AS from_time, w.to_time::text AS to_time, w.roster_ids, w.status FROM gate.work_order w WHERE w.status = 'Active'";
     static final String UNIT = "SELECT u.id, u.unit_no, u.block_id FROM property.unit u WHERE u.id = CAST(:id AS uuid)";
-    static final String CHECKPOINT = "SELECT c.id, c.name, c.code, c.active FROM gate.checkpoint c WHERE c.id = CAST(:id AS uuid)";
+    static final String CHECKPOINT = "SELECT c.id, c.name, c.code, c.active, c.lat, c.lng, c.radius_m FROM gate.checkpoint c WHERE c.id = CAST(:id AS uuid)";
     static final String ROUNDS = "SELECT r.id, r.name, r.time::text AS time, r.window_min, r.checkpoint_ids, r.days, r.active FROM gate.round r";
     static final String BEAT = """
         INSERT INTO gate.console_pulse (community_id, guard_id, last_at, kind) VALUES (platform.current_community(), CAST(:guard AS uuid), now(), :kind)
@@ -110,7 +110,8 @@ public final class JdbcGateDirectory implements GateDirectory {
         return jdbc.query(UNIT, Map.of("id", unit.toString()), (rs, i) -> { UUID b = Rows.uuid(rs, "block_id"); return new UnitRef(unit, rs.getString("unit_no"), b == null ? null : new BlockId(b)); }).stream().findFirst();
     }
     @Override public Optional<Checkpoint> checkpoint(UUID id) {
-        return jdbc.query(CHECKPOINT, Map.of("id", id.toString()), (rs, i) -> new Checkpoint(Rows.uuid(rs, "id"), rs.getString("name"), rs.getString("code"), rs.getBoolean("active"))).stream().findFirst();
+        return jdbc.query(CHECKPOINT, Map.of("id", id.toString()), (rs, i) -> new Checkpoint(Rows.uuid(rs, "id"), rs.getString("name"), rs.getString("code"), rs.getBoolean("active"),
+            d(rs, "lat"), d(rs, "lng"), rs.getBigDecimal("radius_m") == null ? null : rs.getBigDecimal("radius_m").intValue())).stream().findFirst();
     }
     @Override public List<Round> rounds() {
         return jdbc.query(ROUNDS, Map.of(), (rs, i) -> new Round(Rows.uuid(rs, "id"), rs.getString("name"), t(rs, "time"), n(rs, "window_min", 60),
@@ -130,6 +131,7 @@ public final class JdbcGateDirectory implements GateDirectory {
     }
 
     static int n(ResultSet rs, String c, int d) throws SQLException { BigDecimal b = rs.getBigDecimal(c); return b == null ? d : b.intValue(); }
+    static Double d(ResultSet rs, String c) throws SQLException { BigDecimal b = rs.getBigDecimal(c); return b == null ? null : b.doubleValue(); }
     static LocalTime t(ResultSet rs, String c) throws SQLException { String s = rs.getString(c); return s == null ? null : LocalTime.parse(s); }
     static String or(String s, String d) { return s == null || s.isBlank() ? d : s; }
 }

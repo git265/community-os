@@ -30,6 +30,15 @@ public final class Gate {
     public static final List<String> GATES = List.of("Main gate", "Service gate", "Gate 3");
 
     public static String dayOf(LocalDate d) { return DAYS.get(d.getDayOfWeek().getValue() - 1); }
+    /** Metres between two points (haversine). */
+    public static int metres(double lat1, double lng1, double lat2, double lng2) {
+        double r = 6371000, p1 = Math.toRadians(lat1), p2 = Math.toRadians(lat2), dp = Math.toRadians(lat2 - lat1), dl = Math.toRadians(lng2 - lng1);
+        double a = Math.sin(dp / 2) * Math.sin(dp / 2) + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) * Math.sin(dl / 2);
+        return (int) Math.round(2 * r * Math.asin(Math.sqrt(a)));
+    }
+    /** Where a patrol scan was taken, from the phone's GPS. */
+    public static final List<String> SCAN_PLACES = List.of("At the post", "Away from the post", "Weak signal", "No location", "Location off", "Post not mapped");
+    public static final String PATROL_LOCATION = "Patrol location";
     /** Days empty = every day; no times = any time; slack widens the window by minutes on each side. */
     public static boolean windowOpen(List<String> days, LocalTime from, LocalTime to, ZonedDateTime now, int slackMin) {
         if (days != null && !days.isEmpty() && !days.contains(dayOf(now.toLocalDate()))) return false;

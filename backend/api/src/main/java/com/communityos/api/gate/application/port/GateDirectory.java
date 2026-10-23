@@ -12,7 +12,7 @@ import java.util.UUID;
 /** Port: what the gate rules read from the registers (settings, villa rules, the vetted registry, household links, crews, checkpoints). */
 public interface GateDirectory {
     record UnitRef(UnitId id, String unitNo, BlockId block) {}
-    record Checkpoint(UUID id, String name, String code, boolean active) {}
+    record Checkpoint(UUID id, String name, String code, boolean active, Double lat, Double lng, Integer radiusM) {}
     record Round(UUID id, String name, LocalTime time, int windowMin, List<UUID> checkpointIds, List<String> days, boolean active) {}
     /** A guard clocked in now, and when their console was last used (null: not since they clocked in). */
     record OnDuty(UUID memberId, String name, Instant clockIn, Instant lastBeat) {}

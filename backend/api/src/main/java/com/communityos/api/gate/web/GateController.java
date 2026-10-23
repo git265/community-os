@@ -53,7 +53,8 @@ public class GateController {
     public record PersonAtGateRequest(@Size(max = 40) String gate, @Size(max = 30) String method, UUID unitId) {}
     public record AnswerRequest(@NotNull @Pattern(regexp = "Approved|Denied") String decision, Boolean always) {}
     public record ResolveRequest(@NotBlank @Size(max = 60) String resolution, @Size(max = 500) String note) {}
-    public record ScanRequest(@NotBlank @Size(max = 200) String text, @Size(max = 300) String note) {}
+    public record ScanRequest(@NotBlank @Size(max = 200) String text, @Size(max = 300) String note, Double lat, Double lng, @Min(0) @Max(100000) Integer accuracy,
+                              @Pattern(regexp = "denied|unavailable|timeout") String geo) {}
     public record VehicleAtGateRequest(@NotBlank @Size(max = 20) String plate, @Size(max = 40) String gate, @NotNull @Pattern(regexp = "In|Out") String direction) {}
     public record ReportRequest(UUID unitId, @NotBlank @Size(max = 60) String reason, @Size(max = 500) String note, Boolean stopEntry) {}
 
@@ -162,7 +163,9 @@ public class GateController {
     @GetMapping("/api/v1/gate/scans")
     public List<GateStore.Scan> scans(@RequestParam(required = false) LocalDate since) { return gate.scans(CallerHolder.require(), since); }
     @PostMapping("/api/v1/gate/scans")
-    public GateService.ScanResult scan(@Valid @RequestBody ScanRequest b) { return gate.scan(CallerHolder.require(), b.text(), b.note()); }
+    public GateService.ScanResult scan(@Valid @RequestBody ScanRequest b) {
+        return gate.scan(CallerHolder.require(), b.text(), b.note(), new GateService.Position(b.lat(), b.lng(), b.accuracy(), b.geo()));
+    }
     @PostMapping("/api/v1/gate/beat")
     public ResponseEntity<Void> beat() { gate.beat(CallerHolder.require()); return ResponseEntity.noContent().build(); }
 }

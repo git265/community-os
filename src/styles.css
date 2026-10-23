@@ -2882,3 +2882,6 @@ html, body, .main, .content { background: #f3f5f9 !important; }
 .home-main .needs-you { background: #fff; }
 .home-main .needs-you .nu-row { border-color: transparent !important; background: #f7f9fc !important; }
 .home-main .needs-you .nu-row:hover { background: #eef2f8 !important; }
+
+/* gate warning tags (coral): the later generic .tag rule was winning over .gg-tag-coral */
+.tag.gg-tag-coral { background: #ffe9ea; color: #c7364a; }

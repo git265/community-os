@@ -1603,6 +1603,9 @@ const RAW_SCHEMAS = [
       { key: 'order', label: 'Order on the round', type: 'number', viewableBy: OPS, editableBy: STAFF, showInTable: true },
       { key: 'active', label: 'In use', type: 'boolean', viewableBy: OPS, editableBy: STAFF, showInTable: true },
       { key: 'code', label: 'QR secret', type: 'text', hidden: true, viewableBy: OPS, editableBy: STAFF },
+      { key: 'lat', label: 'Latitude', type: 'number', hidden: true, viewableBy: OPS, editableBy: STAFF },
+      { key: 'lng', label: 'Longitude', type: 'number', hidden: true, viewableBy: OPS, editableBy: STAFF },
+      { key: 'radiusM', label: 'Counts as at the post within (m)', type: 'number', hidden: true, viewableBy: OPS, editableBy: STAFF },
     ],
   },
   {
@@ -1629,6 +1632,11 @@ const RAW_SCHEMAS = [
       { key: 'roundName', label: 'Round', type: 'text', viewableBy: OPS, editableBy: FIELD_STAFF },
       { key: 'day', label: 'Day', type: 'text', hidden: true, viewableBy: OPS, editableBy: FIELD_STAFF },
       { key: 'note', label: 'Note', type: 'text', viewableBy: OPS, editableBy: FIELD_STAFF },
+      { key: 'lat', label: 'Latitude', type: 'number', hidden: true, viewableBy: OPS, editableBy: FIELD_STAFF },
+      { key: 'lng', label: 'Longitude', type: 'number', hidden: true, viewableBy: OPS, editableBy: FIELD_STAFF },
+      { key: 'accM', label: 'GPS accuracy (m)', type: 'number', hidden: true, viewableBy: OPS, editableBy: FIELD_STAFF },
+      { key: 'distM', label: 'From the post (m)', type: 'number', viewableBy: OPS, editableBy: FIELD_STAFF },
+      { key: 'place', label: 'Where', type: 'text', viewableBy: OPS, editableBy: FIELD_STAFF, showInTable: true },
     ],
   },
   {

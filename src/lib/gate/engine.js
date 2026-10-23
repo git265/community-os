@@ -8,7 +8,8 @@ import { pushNotifications } from '../notifications.js';
 import { alsoRolesOf, queueExtraChannels } from '../notify.js';
 import { uuid } from '../uuid.js';
 import { avatar } from './photo.js';
-import { DAYS, DEFAULT_SETTINGS, GATE_EVENTS, VILLA_CLASSES, CREW_CLASSES, REPORT_REASONS } from './constants.js';
+import { DAYS, DEFAULT_SETTINGS, GATE_EVENTS, VILLA_CLASSES, CREW_CLASSES, REPORT_REASONS, PATROL_GPS } from './constants.js';
+import { distanceM } from '../attendance.js';
 import { announceChange } from '../storage/changes.js';
 import * as v2 from './v2gate.js';   // on the v2 back end the server's gate desk decides: these functions hand over to it
 
@@ -676,7 +677,22 @@ export async function scanCheckpoint(...args) {
   if (v2.onV2()) return v2.scanCheckpoint(...args);
   return scanCheckpointLocal(...args);
 }
-async function scanCheckpointLocal(text, { note = '' } = {}) {
+/**
+ * Where the phone was at a scan, against the post's pinned place: further than its radius (plus the GPS's own error, up to 50 m) is "Away
+ * from the post"; a weak signal or a post not pinned yet is only noted. `position` is { lat, lng, acc } or { code: 'denied' | ... }.
+ */
+export function scanPlace(cp, position) {
+  const known = position && position.lat != null && position.lng != null;
+  const acc = known && position.acc != null ? Math.max(0, Math.round(position.acc)) : null;
+  const dist = known && cp.lat != null && cp.lat !== '' && cp.lng != null && cp.lng !== '' ? distanceM(Number(position.lat), Number(position.lng), Number(cp.lat), Number(cp.lng)) : null;
+  let place;
+  if (!known) place = position?.code === 'denied' ? 'Location off' : 'No location';
+  else if (acc != null && acc > PATROL_GPS.weakM) place = 'Weak signal';
+  else if (dist == null) place = 'Post not mapped';
+  else place = dist <= (Number(cp.radiusM) || PATROL_GPS.radiusM) + Math.min(acc ?? 0, 50) ? 'At the post' : 'Away from the post';
+  return { known, acc, dist, place };
+}
+async function scanCheckpointLocal(text, { note = '', position = null } = {}) {
   const m = /^GGCP\|([^|]+)\|(.+)$/.exec(String(text || '').trim());
   if (!m) return { ok: false, reason: 'This is not a checkpoint code' };
   const [cps, scans, rounds, s] = await Promise.all([list(C.GATE_CHECKPOINTS), list(C.GATE_SCANS), list(C.GATE_ROUNDS), getSettings()]);
@@ -688,11 +704,21 @@ async function scanCheckpointLocal(text, { note = '' } = {}) {
   const gap = Number(s.patrolMinSeconds ?? 20);
   if (mine && gap > 0 && (now - new Date(mine.at)) / 1000 < gap) return { ok: false, reason: `Too soon after the last scan (${mine.checkpointName}). Walk to the next post first.` };
   const live = roundsFor(rounds, now).find((r) => now >= r.start && now <= r.end && (r.checkpointIds || []).includes(cp.id));
-  const row = await put(C.GATE_SCANS, { checkpointId: cp.id, checkpointName: cp.name, guard, at: iso(now), roundId: live?.id || '', roundName: live?.name || '', day: todayStr(now), note });
+  const w = scanPlace(cp, position);
+  const row = await put(C.GATE_SCANS, { checkpointId: cp.id, checkpointName: cp.name, guard, at: iso(now), roundId: live?.id || '', roundName: live?.name || '', day: todayStr(now), note,
+    lat: w.known ? position.lat : null, lng: w.known ? position.lng : null, accM: w.acc, distM: w.dist, place: w.place });
   guardBeat('patrol', true);
+  // the place checks: away from the post, location turned off (once per spell), two posts scanned from the same spot
+  const when = hm(now); const flag = (detail) => raiseFlag({ type: 'Patrol location', gate: '', personName: guard, roundId: live?.id || '', day: todayStr(now), detail });
+  if (w.place === 'Away from the post') await flag(`${cp.name} was scanned ${w.dist} m from the post (GPS within ${w.acc} m) at ${when}.`);
+  else if (w.place === 'Location off' && !(mine && mine.place === 'Location off' && now - new Date(mine.at) < 3600000)) await flag(`${cp.name} was scanned at ${when} with the phone's location turned off.`);
+  else if (w.known && w.acc != null && w.acc <= 30 && mine && mine.lat != null && mine.lat !== '' && mine.checkpointId !== cp.id && (mine.accM == null || mine.accM <= 30) && now - new Date(mine.at) < 1800000) {
+    const apart = distanceM(Number(position.lat), Number(position.lng), Number(mine.lat), Number(mine.lng));
+    if (apart <= PATROL_GPS.sameSpotM) await flag(`${mine.checkpointName} and ${cp.name} were scanned from the same spot (${apart} m apart) at ${when}.`);
+  }
   let progress = null;
   if (live) progress = roundProgress(live, [...scans, row]);
-  return { ok: true, checkpoint: cp, round: live || null, progress };
+  return { ok: true, checkpoint: cp, round: live || null, progress, place: w.place, distM: w.dist };
 }
 /** A round whose window is over without every checkpoint scanned, while a guard was clocked in, becomes a flag (once). */
 async function sweepPatrols(now) {

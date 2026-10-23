@@ -12,7 +12,7 @@ async function call(path, body, headers = {}) {
   if (!res.ok) { const e = new Error(out?.detail || `Gate: ${res.status}`); e.status = res.status; e.code = out?.code; throw e; }
   if (body !== undefined) {   // a desk command can change the people and vehicle lists, and the visits, passes, approvals and flags on screen
     const { forgetKept, COLLECTIONS: C } = await import('../storage/index.js'); forgetKept();
-    (await import('../storage/changes.js')).announceChange(C.GATE_VISITS, C.GATE_PASSES, C.GATE_APPROVALS, C.GATE_FLAGS, C.GATE_PEOPLE, C.GATE_VEHICLES, C.GATE_WORKORDERS, C.GATE_LINKS);
+    (await import('../storage/changes.js')).announceChange(C.GATE_VISITS, C.GATE_PASSES, C.GATE_APPROVALS, C.GATE_FLAGS, C.GATE_PEOPLE, C.GATE_VEHICLES, C.GATE_WORKORDERS, C.GATE_LINKS, C.GATE_SCANS);
   }
   return out;
 }
@@ -54,9 +54,10 @@ export async function reportPerson(person, { unit = '', reason, note = '', stopE
   } catch (e) { if ([403, 404, 422].includes(e.status)) return { ok: false, reason: e.message }; throw e; }
 }
 export async function resolveFlag(flag, resolution, note = '') { return gateFlagOf(await call(`/gate/flags/${flag.id}/resolve`, { resolution, note: note || null }, ifMatch(flag.version))); }
-export const scanCheckpoint = (text, { note = '' } = {}) => soft(async () => {
-  const r = await call('/gate/scans', { text, note: note || null });
-  return { ok: true, checkpoint: { name: r.checkpoint }, round: r.round ? { name: r.round } : null, progress: r.round ? { done: Array(r.done).fill(0), total: r.total, complete: r.complete } : null };
+export const scanCheckpoint = (text, { note = '', position = null } = {}) => soft(async () => {
+  const at = position && position.lat != null ? { lat: position.lat, lng: position.lng, accuracy: position.acc ?? null } : { geo: position?.code || null };
+  const r = await call('/gate/scans', { text, note: note || null, ...at });
+  return { ok: true, checkpoint: { name: r.checkpoint }, round: r.round ? { name: r.round } : null, progress: r.round ? { done: Array(r.done).fill(0), total: r.total, complete: r.complete } : null, place: r.place, distM: r.distM };
 });
 // staff badges: signed by the server with the community's key; the code is fetched once per 30-second window
 let badgeCache = { window: -1, text: '' };

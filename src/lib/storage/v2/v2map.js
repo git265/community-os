@@ -467,7 +467,8 @@ export function gateFlagOf(f, unitNoById = {}) {
     resolutionNote: f.resolutionNote || '', resolvedBy: f.resolvedByName || '', resolvedAt: isoOr(f.resolvedAt), roundId: f.roundId || '', day: f.day || '', version: f.version,
   };
 }
-export const gateScanOf = (s, i) => ({ id: `scan-${s.at}-${i}`, checkpointId: s.checkpointId, checkpointName: s.checkpointName, guard: s.guard, at: s.at, roundId: s.roundId || '', roundName: s.roundName || '', day: s.day, note: s.note || '' });
+export const gateScanOf = (s, i) => ({ id: `scan-${s.at}-${i}`, checkpointId: s.checkpointId, checkpointName: s.checkpointName, guard: s.guard, at: s.at, roundId: s.roundId || '', roundName: s.roundName || '', day: s.day, note: s.note || '',
+  lat: s.lat ?? null, lng: s.lng ?? null, accM: s.accM ?? null, distM: s.distM ?? null, place: s.place || '' });
 /** A new pass from the app's record: what the pass is; the code, status and use count are the server's. */
 export function passBody(rec, unitIdByNo) {
   const unitId = rec.unitId || (rec.unit ? unitIdByNo[rec.unit] : null) || null;

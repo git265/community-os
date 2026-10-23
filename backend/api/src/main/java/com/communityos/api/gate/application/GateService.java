@@ -562,9 +562,19 @@ public final class GateService {
             return f;
         });
     }
-    public record ScanResult(String checkpoint, String round, int done, int total, boolean complete) {}
-    /** A guard scans a checkpoint QR ("GGCP|id|code"): the right code, not too soon after the last scan, counted to the round that is open now. */
-    public ScanResult scan(Caller c, String text, String note) {
+    public record ScanResult(String checkpoint, String round, int done, int total, boolean complete, String place, Integer distM) {}
+    /** The phone's GPS at a scan: a position and its accuracy in metres, or why there is none ("denied", "unavailable", "timeout"). */
+    public record Position(Double lat, Double lng, Integer accuracy, String error) {
+        public boolean known() { return lat != null && lng != null && Math.abs(lat) <= 90 && Math.abs(lng) <= 180; }
+    }
+    static final int WEAK_GPS_M = 100, SAME_SPOT_M = 10, DEFAULT_RADIUS_M = 40;
+    /**
+     * A guard scans a checkpoint QR ("GGCP|id|code"): the right code, not too soon after the last scan, counted to the round that is open now.
+     * The phone's GPS is kept with the scan and checked against the post's pinned place: further than its radius (plus the GPS's own error, up
+     * to 50 m) is "Away from the post" and a flag; location turned off is a flag (once per spell of it); two different posts scanned from the same
+     * spot with a good signal is a flag. A weak signal or a post not pinned yet is noted, not flagged. The scan itself always counts.
+     */
+    public ScanResult scan(Caller c, String text, String note, Position at) {
         desk(c);
         if (c.membership() == null) throw new AccessDenied("Sign in as a guard");
         java.util.regex.Matcher m = java.util.regex.Pattern.compile("^GGCP\\|([0-9a-fA-F-]{36})\\|(.+)$").matcher(text == null ? "" : text.strip());
@@ -584,13 +594,34 @@ public final class GateService {
                 ZonedDateTime start = now.toLocalDate().atTime(r.time()).atZone(clock.getZone()), end = start.plusMinutes(r.windowMin() <= 0 ? 60 : r.windowMin());
                 if (!now.isBefore(start) && !now.isAfter(end)) { live = r; break; }
             }
-            store.insert(new GateStore.Scan(cp.id(), cp.name(), guard, c.displayName(), now.toInstant(), live == null ? null : live.id(), live == null ? null : live.name(), now.toLocalDate(), blank(note)));
+            // where the phone was
+            boolean known = at != null && at.known();
+            Integer acc = known && at.accuracy() != null ? Math.max(0, at.accuracy()) : null, dist = null;
+            String place;
+            if (known && cp.lat() != null) dist = Gate.metres(at.lat(), at.lng(), cp.lat(), cp.lng());
+            if (!known) place = at != null && "denied".equals(at.error()) ? "Location off" : "No location";
+            else if (acc != null && acc > WEAK_GPS_M) place = "Weak signal";
+            else if (dist == null) place = "Post not mapped";
+            else place = dist <= (cp.radiusM() == null ? DEFAULT_RADIUS_M : cp.radiusM()) + Math.min(acc == null ? 0 : acc, 50) ? "At the post" : "Away from the post";
+            store.insert(new GateStore.Scan(cp.id(), cp.name(), guard, c.displayName(), now.toInstant(), live == null ? null : live.id(), live == null ? null : live.name(), now.toLocalDate(), blank(note),
+                known ? at.lat() : null, known ? at.lng() : null, acc, dist, place));
             dir.beat(guard, "patrol");
-            if (live == null) return new ScanResult(cp.name(), null, 0, 0, false);
+            UUID roundId = live == null ? null : live.id();
+            String who = c.displayName(), when = now.toLocalTime().withSecond(0).withNano(0).toString();
+            if ("Away from the post".equals(place))
+                raise(c, Gate.PATROL_LOCATION, who, roundId, cp.name() + " was scanned " + dist + " m from the post (GPS within " + acc + " m) at " + when + ".", now.toLocalDate());
+            else if ("Location off".equals(place) && !(last.isPresent() && "Location off".equals(last.get().place()) && Duration.between(last.get().at(), now.toInstant()).toMinutes() < 60))   // once per spell
+                raise(c, Gate.PATROL_LOCATION, who, roundId, cp.name() + " was scanned at " + when + " with the phone's location turned off.", now.toLocalDate());
+            else if (known && acc != null && acc <= 30 && last.isPresent() && last.get().lat() != null && !cp.id().equals(last.get().checkpointId())
+                && (last.get().accM() == null || last.get().accM() <= 30) && Duration.between(last.get().at(), now.toInstant()).toMinutes() < 30) {
+                int apart = Gate.metres(at.lat(), at.lng(), last.get().lat(), last.get().lng());
+                if (apart <= SAME_SPOT_M) raise(c, Gate.PATROL_LOCATION, who, roundId, last.get().checkpointName() + " and " + cp.name() + " were scanned from the same spot (" + apart + " m apart) at " + when + ".", now.toLocalDate());
+            }
+            if (live == null) return new ScanResult(cp.name(), null, 0, 0, false, place, dist);
             java.util.Set<UUID> done = new java.util.HashSet<>();
             for (GateStore.Scan x : store.scans(live.id(), now.toLocalDate())) done.add(x.checkpointId());
             done.retainAll(live.checkpointIds());
-            return new ScanResult(cp.name(), live.name(), done.size(), live.checkpointIds().size(), done.size() >= live.checkpointIds().size());
+            return new ScanResult(cp.name(), live.name(), done.size(), live.checkpointIds().size(), done.size() >= live.checkpointIds().size(), place, dist);
         });
     }
     /** The guard console is alive (any tap, or "I'm here"). */

@@ -21,6 +21,10 @@ public final class GatePolicy {
     public static boolean gateStaff(Caller c) { return c.isSuperAdmin() || c.has(Permission.MANAGE_SECURITY) || c.roleCodes().stream().anyMatch(SECURITY_ROLES::contains); }
     public static boolean fm(Caller c) { return c.roleCodes().contains("facility_manager"); }
     public static boolean gateOrFm(Caller c) { return gateStaff(c) || fm(c); }
+    /** A guard on the gate staff (not also the committee, the FM or the Super Admin): walks patrols but does not set them up. */
+    public static boolean guardOnly(Caller c) { return c.roleCodes().contains("handyman_security") && !c.isSuperAdmin() && !c.isCommittee() && !fm(c); }
+    /** Who sets up patrol posts and rounds: the security team, the committee, the FM - never the guards who walk them. */
+    public static boolean setsPatrols(Caller c) { return (gateStaff(c) || fm(c) || c.isCommittee()) && !guardOnly(c); }
     public static boolean oversees(Caller c) { return gateOrFm(c) || c.isCommittee() || c.category() == Caller.Category.System; }
 
     /** Rows with a unit: residents see their own units', the gate team and the committee all, others none. column = e.g. "p.unit_id". */

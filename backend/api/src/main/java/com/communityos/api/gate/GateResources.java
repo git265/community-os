@@ -183,16 +183,21 @@ public final class GateResources {
             @Override public boolean deletable(WorkOrderFields f) { return false; }
             @Override public String label(WorkOrderFields f) { return f.title(); }
         });
-    public record CheckpointFields(String name, String area, Integer order, boolean active, String code) {}
+    /** lat/lng: where the post is (pinned once by standing at it); radiusM: how far from it a scan still counts as at the post (default 40 m). */
+    public record CheckpointFields(String name, String area, Integer order, boolean active, String code, BigDecimal lat, BigDecimal lng, Integer radiusM) {}
     public static final Resource<CheckpointFields> CHECKPOINTS = new Resource<>(
         new ResourceTable<>("gateCheckpoints", "gate/checkpoints", "gate.checkpoint", CheckpointFields.class, "r.order_value NULLS LAST, r.name", Map.of("order", "order_value")),
         new ResourceRules<>() {
             @Override public Spec<CheckpointFields> readScope(Caller c) { return ResourceRules.only(GatePolicy::oversees, c); }
-            @Override public boolean mayWrite(Caller c) { return GatePolicy.gateStaff(c); }
+            @Override public boolean mayWrite(Caller c) { return GatePolicy.setsPatrols(c); }
             @Override public CheckpointFields validate(Caller c, CheckpointFields f, CheckpointFields old) {
                 String code = f.code() == null || f.code().isBlank() ? (old != null && old.code() != null ? old.code() : newCode()) : f.code();
                 Checks.rule(code.matches("[A-Za-z0-9]{6,40}"), "bad-code", "A checkpoint code has 6 to 40 letters and digits");
-                return new CheckpointFields(Checks.required(f.name(), "Name"), f.area(), f.order(), f.active(), code);
+                Checks.rule((f.lat() == null) == (f.lng() == null), "bad-place", "A post's place needs both latitude and longitude");
+                Checks.rule(f.lat() == null || (f.lat().abs().compareTo(BigDecimal.valueOf(90)) <= 0 && f.lng().abs().compareTo(BigDecimal.valueOf(180)) <= 0), "bad-place", "That is not a place on Earth");
+                Checks.rule(f.radiusM() == null || (f.radiusM() >= 10 && f.radiusM() <= 500), "bad-radius", "A post's radius is 10 to 500 metres");
+                java.util.function.Function<BigDecimal, BigDecimal> six = (x) -> x == null ? null : x.setScale(6, java.math.RoundingMode.HALF_UP);
+                return new CheckpointFields(Checks.required(f.name(), "Name"), f.area(), f.order(), f.active(), code, six.apply(f.lat()), six.apply(f.lng()), f.radiusM());
             }
             @Override public String label(CheckpointFields f) { return f.name(); }
         });
@@ -202,7 +207,7 @@ public final class GateResources {
         new ResourceTable<>("gateRounds", "gate/rounds", "gate.round", RoundFields.class, "r.time NULLS LAST"),
         new ResourceRules<>() {
             @Override public Spec<RoundFields> readScope(Caller c) { return ResourceRules.only(GatePolicy::oversees, c); }
-            @Override public boolean mayWrite(Caller c) { return GatePolicy.gateStaff(c); }
+            @Override public boolean mayWrite(Caller c) { return GatePolicy.setsPatrols(c); }
             @Override public RoundFields validate(Caller c, RoundFields f, RoundFields old) {
                 days(f.days());
                 Checks.rule(f.time() != null, "time-required", "When does the round start?");
