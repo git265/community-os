@@ -2384,3 +2384,20 @@ tr.prio-High td:first-child, tr.prio-Critical td:first-child { box-shadow: inset
   /* ticket card: no dashed rule above the status / due / assignee row */
   .tk-foot { border-top: 0 !important; padding-top: 2px; }
 }
+
+/* ===== Round 51: three font weights, bold kept for what matters =====
+   600  the page title, section headings, a record's title, the big numbers
+   500  buttons, the open tab / page, chips, column headings, form labels, <b> inside text
+   400  everything else */
+b, strong { font-weight: 500 !important; }
+.crumb, .content h1, .content h2, .content h3, .modal h1, .modal h2, .modal h3, .tk-title, .brand, .brand .mark,
+.value, .sc-value, .viz-tile-value, .stat-tile b, .money-tile b, .gg-kpi b, .ud-card b, .doc-title, .nums-title b, .gg-main > b:first-child,
+.content h2 b, .content h3 b, .tk-title b { font-weight: 600 !important; }
+.btn, .btn *, .link-btn, .link-btn b, .avatar, .tag, .tag *, .seg-badge, th, th *, .sort-th, label, .field > label,
+.nav button.active, .nav button.active *, .tabs button.active, .tabs button.on, .seg-tabs button.on, .tabs-more button, .chip.on, .chips button.on { font-weight: 500 !important; }
+.nav-label, .nav button, .nav button .ico, .tabs button:not(.active):not(.on), .seg-tabs button:not(.on), .chip, .chips button:not(.on),
+.sc-label, .viz-hvalue, .ud-name, .up-sec b, .infra-legend-row em, small.muted, .muted b, .search-label, .record-meta-toggle *, .tk-prio, .tk-sla,
+.tk-card-top .mono, .auto-kv dt, label input, label select, label span:not(.tag) { font-weight: 400 !important; }
+.nav-label { color: var(--muted); }
+.gg-modes button, .segmented button:not(.on), .nums-sec > summary { font-weight: 400 !important; }
+.segmented button.on, .gg-modes button.on, .gg-modes button[aria-pressed=true] { font-weight: 500 !important; }
