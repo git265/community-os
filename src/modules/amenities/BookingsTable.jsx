@@ -64,7 +64,7 @@ export default function BookingsTable({ bookings, isResident, onOpen, title }) {
             <tr key={b.id} className="clickable" data-testid="booking-row" onClick={() => onOpen(b.id)}>
               <td data-label="Booking" className="mono">{b.shortId}</td><td data-label="Amenity"><b>{b.amenity}</b></td><td data-label="Date">{b.date}</td><td data-label="Slot">{b.slot}</td>
               {!isResident && <td data-label="Villa">{b.unit}</td>}
-              <td data-label="Status"><span className={`tag ${b.status === 'Cancelled' ? 'red' : b.status === 'Confirmed' || b.status === 'Completed' ? 'green' : 'orange'}`}>{b.status}</span></td>
+              <td data-label="Status"><span className={`tag ${b.status === 'Cancelled' ? '' : b.status === 'Confirmed' || b.status === 'Completed' ? 'green' : 'orange'}`}>{b.status}</span></td>
               {kind !== 'free' && <td data-label="Amount">{Number(b.totalPayable) > 0 ? inr(b.totalPayable) : '—'}</td>}
               {kind !== 'free' && <td data-label="Payment">{b.paymentStatus && b.paymentStatus !== 'Not required' ? <span className={`tag ${TONE[b.paymentStatus] || ''}`}>{b.paymentStatus}</span> : '—'}</td>}
             </tr>))}</tbody>

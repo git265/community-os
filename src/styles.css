@@ -2230,3 +2230,49 @@ dl.kv dd { margin: 0; }
   /* a task's details: the help under each field and the file rules are for the computer; the fields and buttons stay */
   .tk-pane .field > small.muted, .tk-pane .file-help, .modal-body .file-help { display: none; }
 }
+
+/* ===== Round 48: white and calm - one colour for actions, five tones for every status ==========================================
+   neutral  grey   not started / informational (Open, Draft, Cancelled, categories, places)
+   info     blue   moving (Assigned, In progress, Refunded, Under repair)
+   ok       green  done (Completed, Closed, Paid, Approved, Working)
+   warn     amber  waiting on someone (On hold, Pending, Reopened, Needs attention, due today)
+   bad      red    a problem (Overdue, Rejected, Failed, Out of service, High / Critical priority)
+   Buttons: the main action light blue; every other button plain white; a destructive one red. */
+:root {
+  --bg: #ffffff; --line: #e5e7eb; --ink: #111827; --muted: #6b7280;
+  --t-neutral-bg: #f3f4f6; --t-neutral: #374151; --t-info-bg: #eff6ff; --t-info: #1d4ed8; --t-ok-bg: #f0fdf4; --t-ok: #15803d;
+  --t-warn-bg: #fffbeb; --t-warn: #b45309; --t-bad-bg: #fef2f2; --t-bad: #b91c1c;
+}
+html, body, .main, .content { background: #fff; }
+.top { background: #fff; border-bottom: 1px solid var(--line); }
+.card, .stat-card, .stat-tile, .ud-card { background: #fff; border-color: var(--line); box-shadow: none; }
+
+.tag { background: var(--t-neutral-bg); color: var(--t-neutral); }
+.tag.blue, .tag.teal { background: var(--t-info-bg); color: var(--t-info); }
+.tag.green { background: var(--t-ok-bg); color: var(--t-ok); }
+.tag.orange, .tag.amber { background: var(--t-warn-bg); color: var(--t-warn); }
+.tag.red { background: var(--t-bad-bg); color: var(--t-bad); }
+.tag.purple { background: var(--t-neutral-bg); color: var(--t-neutral); }
+
+.tk-prio, .tk-prio.Medium, .tk-prio.Low { color: var(--muted); }
+.tk-prio::before, .tk-prio.Medium::before, .tk-prio.Low::before { background: #9ca3af; }
+.tk-prio.High, .tk-prio.Critical { color: var(--t-bad); }
+.tk-prio.High::before, .tk-prio.Critical::before { background: #dc2626; }
+.tk-card.prio-Medium, .tk-card.prio-Low { border-left-color: var(--line); }
+.tk-card.prio-High, .tk-card.prio-Critical { border-left-color: #dc2626; }
+tr.prio-High td:first-child, tr.prio-Critical td:first-child { box-shadow: inset 3px 0 #dc2626; }
+
+.btn.secondary, .btn.secondary.sm { background: #fff; color: var(--ink); border: 1px solid #d1d5db; }
+.btn.secondary:hover:not(:disabled) { background: #f3f4f6; border-color: #9ca3af; color: var(--ink); }
+.btn.good { background: #dbeafe; color: #1e3a8a; border-color: #93c5fd; }
+.btn.danger, .btn.danger.secondary { background: #fff; color: var(--t-bad); border: 1px solid #fca5a5; }
+.btn.danger:hover:not(:disabled) { background: var(--t-bad-bg); color: var(--t-bad); border-color: #f87171; }
+.icon-btn.export-btn { background: #fff; border-color: #d1d5db; color: var(--ink); }
+.icon-btn.export-btn:hover { background: #f3f4f6; }
+.stat-tile.on, .ud-card.on { background: var(--t-info-bg); border-color: #93c5fd; box-shadow: none; }
+.stat-tile.warn b { color: var(--ink); }   /* a count is a number, not a warning */
+.stat-card.amber .sc-value { color: var(--t-warn); }
+.stat-card.red .sc-value { color: var(--t-bad); } .stat-card.green .sc-value { color: var(--t-ok); }
+.stat-card.red, .stat-card.amber, .stat-card.green { background: #fff; border-color: var(--line); }
+.approval-banner { background: var(--t-warn-bg); border-color: #fde68a; color: var(--t-warn); }
+.approval-banner.confirm { background: var(--t-ok-bg); border-color: #bbf7d0; color: var(--t-ok); }

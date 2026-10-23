@@ -38,7 +38,7 @@ const shown = (ev, k) => ev?.[k] !== 'No'; // section toggles default to visible
 const inr = (n) => money(n, { round: false });
 const dshort = (s) => fmtDate(s);
 const when = (r) => `${dshort(r.date)}${r.startTime ? ` · ${r.startTime}${r.endTime ? `–${r.endTime}` : ''}` : ''}`;
-const TAGS = { Rejected: 'red', Planning: 'orange', Open: 'green', Completed: 'blue', Cancelled: 'red', Pledged: 'orange', Received: 'green', 'Pending approval': 'orange', Approved: 'blue', Paid: 'green' };
+const TAGS = { Rejected: 'red', Planning: 'orange', Open: 'blue', Completed: 'green', Cancelled: '', Pledged: 'orange', Received: 'green', 'Pending approval': 'orange', Approved: 'blue', Paid: 'green' };
 const Tag = ({ v }) => <span className={`tag ${TAGS[v] || ''}`}>{v}</span>;
 
 function csv(name, rows) {

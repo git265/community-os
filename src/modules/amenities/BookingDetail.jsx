@@ -120,7 +120,7 @@ export default function BookingDetail({ booking: b, amenity, settings, isStaff, 
     <Modal title={`${b.amenity} · ${b.date}`} subtitle="" onClose={onClose}>
       <div className="bk-head">
         <span className="mono">{b.shortId}</span>
-        <span className={`tag ${b.status === 'Cancelled' ? 'red' : b.status === 'Confirmed' || b.status === 'Completed' ? 'green' : 'orange'}`}>{b.status}</span>
+        <span className={`tag ${b.status === 'Cancelled' ? '' : b.status === 'Confirmed' || b.status === 'Completed' ? 'green' : 'orange'}`}>{b.status}</span>
         <span className={`tag ${TONE[b.paymentStatus] || ''}`}>{b.paymentStatus}</span>
       </div>
       <div className="form-grid" style={{ marginTop: 10 }}>

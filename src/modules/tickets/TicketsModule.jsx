@@ -90,7 +90,8 @@ function useTicketSummary() {
   }, [on]);
   return sum;
 }
-const TAG_CLASS = { Open: 'red', Assigned: 'blue', 'In Progress': 'teal', 'On Hold': 'orange', Completed: 'green', Closed: 'green', Cancelled: 'red', Reopened: 'blue' };
+// the five tones (styles.css, Round 48): not started grey, moving blue, waiting amber, done green; red is kept for real problems
+const TAG_CLASS = { Open: '', Assigned: 'blue', 'In Progress': 'blue', 'On Hold': 'orange', Completed: 'green', Closed: 'green', Cancelled: '', Reopened: 'orange' };
 const RESET_APPROVALS = { plan: '', finalRequired: null, ecApproval: 'Pending', ecApprovedBy: '', ecApprovedAt: '', treasurerApproval: 'Pending', treasurerApprovedBy: '', treasurerApprovedAt: '' };
 
 /** Residents don't pick an SLA; one is set from the priority so it is never empty (an EC member can change it). */
@@ -765,7 +766,7 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
     { key: 'title', label: 'Issue', render: (t) => <span style={{ display: 'inline-block', minWidth: 140 }}>{t.financial ? '💰 ' : ''}{(t.hasPhotos || t.attachments?.length) ? '📎 ' : ''}{t.title}{!isResident && t.taskType && t.taskType !== 'Resident Maintenance' && <><br /><small className="tag purple">{t.taskType}</small></>}</span> },
     { key: 'category', label: 'Category', render: (t) => `${EMOJI[t.category] || ''} ${t.category}${t.subCategory ? ` › ${t.subCategory}` : ''}` },
     { key: 'unit', label: 'Location', render: (t) => (t.scope === 'Community' ? <span className="tag purple">🏘 {t.location || 'Community'}</span> : (t.unit || 'Common area')) },
-    { key: 'priority', label: 'Priority', render: (t) => <span className={`tag ${t.priority === 'Critical' || t.priority === 'High' ? 'red' : t.priority === 'Medium' ? 'orange' : ''}`}>{t.priority}</span> },
+    { key: 'priority', label: 'Priority', render: (t) => <span className={`tag ${t.priority === 'Critical' || t.priority === 'High' ? 'red' : ''}`}>{t.priority}</span> },
     { key: 'status', label: 'Status', render: (t) => <span className={`tag ${TAG_CLASS[t.status] || ''}`}>{t.status}</span> },
     ...(canSeeFinance ? [{ key: 'approval', label: 'Approval', sortable: false, render: (t) => { const a = approvalState(t, taskTypeOf(t)); return a.label ? <span className={`tag ${a.tone}`}>{a.label}</span> : <span className="muted">—</span>; } }] : []),
     { key: 'slaDueAt', label: 'SLA due', render: (t) => { const late = t.slaDueAt && t.slaDueAt < todayIso() && !['Closed', 'Cancelled', 'Completed'].includes(t.status); return <span className={late ? 'tag red' : ''} style={{ whiteSpace: 'nowrap' }}>{/^\d{4}-\d{2}-\d{2}$/.test(t.slaDueAt || '') ? new Date(`${t.slaDueAt}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', ...(t.slaDueAt.slice(0, 4) === String(new Date().getFullYear()) ? {} : { year: 'numeric' }) }) : slaLabel(t.slaDueAt)}</span>; } },
