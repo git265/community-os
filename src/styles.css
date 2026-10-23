@@ -2333,3 +2333,12 @@ tr.prio-High td:first-child, tr.prio-Critical td:first-child { box-shadow: inset
 .content table:not(.changes) th { background: #f9fafb !important; border-bottom: 1px solid var(--edge) !important; }
 .content table:not(.changes) td { border-bottom: 1px solid var(--row-line) !important; }
 .content table:not(.changes) tbody tr:last-child td { border-bottom: 0 !important; }
+/* Ticket card footer: status + due date on one row, the assignee after them (shortened with … when the row is tight) */
+.tk-foot { flex-wrap: nowrap; }
+.tk-foot .tk-state { display: flex; align-items: center; gap: 6px; flex: none; }
+.tk-foot .tk-state .tag { margin-left: 0 !important; }
+.tk-foot .tk-who { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; justify-content: flex-end; text-align: right; }
+.tk-foot:has(.tk-needs), .tk-foot:has(> .tag) { flex-wrap: wrap; }
+.tk-foot .tk-who { overflow: visible; }
+.tk-foot .tk-who-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-foot .tk-state .tag, .tk-foot .tk-sla { font-size: 12px; line-height: 18px; padding: 2px 8px; white-space: nowrap; }

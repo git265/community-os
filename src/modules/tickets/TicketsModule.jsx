@@ -671,7 +671,6 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
         <div className="tk-card-top">
           <span className="mono">{t.ticketNumber}</span>
           <span className={`tk-prio ${t.priority}`}>{t.priority}</span>
-          <span className={`tag ${TAG_CLASS[t.status] || ''}`}>{t.status}</span>
           {ageD != null && <small className="muted tk-age">{ageD === 0 ? 'today' : `${ageD}d`}</small>}
         </div>
         <h3 className="tk-title">{t.financial ? '💰 ' : ''}{t.title}</h3>
@@ -684,8 +683,11 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
           </div>
         )}
         <div className="tk-foot">
-          <span className={`tk-sla ${sla.tone}`}>⏱ {sla.text}</span>
-          <span className="tk-who"><i>{initialsOf(t.assignedTo)}</i>{t.assignedTo || 'Unassigned'}</span>
+          <div className="tk-state">   {/* the ticket's state on one row: status and due date together, then who has it */}
+            <span className={`tag ${TAG_CLASS[t.status] || ''}`}>{t.status}</span>
+            <span className={`tk-sla ${sla.tone}`}>⏱ {sla.text}</span>
+          </div>
+          <span className="tk-who"><i>{initialsOf(t.assignedTo)}</i><span className="tk-who-name">{t.assignedTo || 'Unassigned'}</span></span>
           {needsMe && <span className="tag orange tk-needs">✋ Needs your approval</span>}
           {!needsMe && !(quoted > 0 || invoiced > 0) && chip && <span className={`tag ${chip.tone}`}>{chip.text}</span>}
         </div>
@@ -719,7 +721,10 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
         <div className="tk-strip">
           <span>{EMOJI[t.category] || ''} {t.category}{t.subCategory ? ` › ${t.subCategory}` : ''}</span>
           <span className="tk-loc" data-testid="tk-location"><small>Location</small> {t.scope === 'Community' ? `🏘 ${t.location || 'Community area'}` : (t.unit || 'Common area')}</span>
-          <span className={`tk-sla ${sla.tone}`}>⏱ {sla.text}</span>
+          <div className="tk-state">   {/* the ticket's state on one row: status and due date together, then who has it */}
+            <span className={`tag ${TAG_CLASS[t.status] || ''}`}>{t.status}</span>
+            <span className={`tk-sla ${sla.tone}`}>⏱ {sla.text}</span>
+          </div>
           <span className="tk-who"><i>{initialsOf(t.assignedTo)}</i>{t.assignedTo || 'Unassigned'}{t.assignedTo && phone ? <a className="call-btn" href={`tel:${phone}`} title="Call" aria-label="Call" onClick={(e) => e.stopPropagation()}>📞</a> : null}</span>
         </div>
         {t.assetId && !isResident && (
