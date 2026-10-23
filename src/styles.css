@@ -2401,3 +2401,8 @@ b, strong { font-weight: 500 !important; }
 .nav-label { color: var(--muted); }
 .gg-modes button, .segmented button:not(.on), .nums-sec > summary { font-weight: 400 !important; }
 .segmented button.on, .gg-modes button.on, .gg-modes button[aria-pressed=true] { font-weight: 500 !important; }
+/* labels and summary lines in cards: medium (500), not bold, so they read as labels without shouting */
+.label, .viz-tile-label, .sc-label, .stat-tile span:not(.tag), .money-tile small, .auto-kv dt, .ud-name, .metric > div:first-child,
+.resp-table td::before, .kv dt, .kv-grid dt, dl dt, .content summary, .content summary *, .record-meta-toggle b { font-weight: 500 !important; }
+/* the summary line in a card (under a number, or under a record's title) */
+.viz-tile small, .card.metric .muted, .money-tile > small ~ *, .sc-sub, .stat-card .muted, .tk-meta, .card .value + .muted, .card .value ~ small { font-weight: 500 !important; }
