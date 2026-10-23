@@ -5,6 +5,9 @@ import './styles.css';
 import DataSourceChip from './components/DataSourcePanel.jsx';
 import { hydrateSpill } from './lib/storage/SessionStorageAdapter.js';
 import PublicPass from './modules/gate/PublicPass.jsx';
+import { getLayout, applyLayout } from './lib/layoutPref.js';
+
+applyLayout(getLayout());   // before the first paint: the phone layout this browser last used
 
 // big collections the browser store could not hold come back from this tab's IndexedDB before anything reads data
 // a guest's pass link (#/pass?...) opens only the pass: no sign-in, no app, no data

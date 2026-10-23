@@ -26,6 +26,7 @@ import { useDuty, ClockGate, OnDutyBar } from './components/DutyGate.jsx';
 import { storageOverflowed } from './lib/storage/SessionStorageAdapter.js';
 import { show as dataSourceShown } from './components/DataSourcePanel.jsx';
 import { getDataSource } from './lib/storage/dataSource.js';
+import { getLayout, setLayout, applyLayout } from './lib/layoutPref.js';
 import { utilitiesVisible, plantVisible } from './lib/access/visibility.js';
 import { validatePhone } from './lib/phone.js';
 
@@ -197,6 +198,11 @@ function Shell() {
   const [navFind, setNavFind] = useState('');
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState(false);
+  // phone layout chosen by this person: Compact (rows, the default) or Comfortable (cards)
+  const who = currentUser?.id || currentUser?.phone || currentUser?.name || '';
+  const [layout, setLayoutState] = useState(() => getLayout(who));
+  useEffect(() => { const v = getLayout(who); setLayoutState(v); applyLayout(v); }, [who]);
+  const pickLayout = (v) => { setLayout(v, who); setLayoutState(v); };
   // the profile menu closes when you click or tap anywhere else, or press Esc
   useEffect(() => {
     if (!profileMenuOpen) return undefined;
@@ -414,6 +420,10 @@ function Shell() {
       {profileMenuOpen && (
         <div className="profile-menu">
           <button onClick={() => { setEditingProfile(true); setProfileMenuOpen(false); }}>My profile</button>
+          <div className="menu-seg mobile-only" role="group" aria-label="Layout on this phone">
+            <span>Layout</span>
+            {[['compact', 'Compact'], ['comfortable', 'Comfortable']].map(([v, l]) => <button key={v} type="button" aria-pressed={layout === v} data-testid={`layout-${v}`} onClick={() => pickLayout(v)}>{l}</button>)}
+          </div>
           {dataSourceShown() && <button className="mobile-only" data-testid="menu-data-source" onClick={() => { window.dispatchEvent(new CustomEvent('communityos:data-source')); setProfileMenuOpen(false); }}>Data source · {getDataSource().mode === 'session' ? 'Browser demo' : 'Back end'}</button>}
           <button onClick={() => { if (duty.open && !window.confirm('You are still clocked in. Switch account without clocking out?')) return; logout(); setProfileMenuOpen(false); }}>Switch account</button>
           {otherCommunities.map(({ community: c, user: u }) => (

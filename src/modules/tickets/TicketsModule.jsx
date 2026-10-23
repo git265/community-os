@@ -685,7 +685,7 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
         <div className="tk-foot">
           <div className="tk-state">   {/* the ticket's state on one row: status and due date together, then who has it */}
             <span className={`tag ${TAG_CLASS[t.status] || ''}`}>{t.status}</span>
-            <span className={`tk-sla ${sla.tone}`}>⏱ {sla.text}</span>
+            <span className={`tk-sla ${sla.tone}`}><span className="sla-i">⏱ </span>{(() => { const [d, r] = String(sla.text).split(' · '); return r ? <><span className="sla-d">{d}</span><span className="sla-sep"> · </span><span className="sla-r">{r}</span></> : d; })()}</span>
           </div>
           <span className="tk-who"><i>{initialsOf(t.assignedTo)}</i><span className="tk-who-name">{t.assignedTo || 'Unassigned'}</span></span>
           {needsMe && <span className="tag orange tk-needs">✋ Needs your approval</span>}
@@ -999,9 +999,10 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
               </>
             ) : (
               <>
-                <div className={`field${raiseErrors.unit ? ' invalid' : ''}`}><label>Location (a villa / unit, a place such as "Pump room", or blank for the common area)</label>
-                  {raiseErrors.unit && <div className="field-error" data-testid="task-unit-error">{raiseErrors.unit}</div>}
+                <div className={`field${raiseErrors.unit ? ' invalid' : ''}`}><label>Location</label>
                   <input value={raiseForm.unit} onChange={(e) => setRaiseForm((f) => ({ ...f, unit: e.target.value }))} placeholder="Blank for common area" />
+                  <small className="muted">A villa / unit, or a place such as "Pump room"; blank means the common area.</small>
+                  {raiseErrors.unit && <div className="field-error" data-testid="task-unit-error">{raiseErrors.unit}</div>}
                 </div>
                 {raiseType?.assignmentMode === 'Direct assign' || raiseInternal ? (
                   <div className={`field${raiseErrors.assignedTo ? ' invalid' : ''}`} style={{ gridColumn: '1 / -1' }}><label>Assign to *{raiseForm.category && <CoverageHint row={raiseInfo.row} fallback={raiseInfo.fallback} roles={roles} extra={raiseInternal ? 'Internal tasks go to the people who coordinate this category (or an EC member) — never to vendors, owners or residents. Vendors are added on the quotation or invoice.' : null} />}</label>

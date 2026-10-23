@@ -5,6 +5,33 @@ import NeedsAttention from './NeedsAttention.jsx';
 import ImportantNumbers from './ImportantNumbers.jsx';
 import DataHealthChip from './DataHealthChip.jsx';
 import NoticeList from '../../components/NoticeList.jsx';
+import { useApprovals } from '../approvals/ApprovalsPanel.jsx';
+import { money } from '../../lib/locale.js';
+
+/** Phone home: the few things waiting for THIS person, one tap each (approvals, tickets nobody has, unpaid bills). Hidden when nothing waits. */
+function NeedsYou({ unassigned, unpaidTotal, unpaidUnits, goTickets, go }) {
+  const items = useApprovals().filter((i) => i.mine);
+  const owed = items.reduce((n, i) => n + (Number(i.amount) || 0), 0);
+  const openLink = (link) => window.dispatchEvent(new CustomEvent('communityos:openlink', { detail: { link } }));
+  const rows = [
+    items.length > 0 && { k: 'approve', tone: 'warn', t: `${items.length} waiting for your approval`, s: owed ? `${money(owed)} · ${[...new Set(items.map((i) => i.kind))].slice(0, 2).join(', ').toLowerCase()}` : items[0].title, on: () => (items.length === 1 ? openLink(items[0].link) : goTickets('live')) },
+    unassigned > 0 && { k: 'assign', tone: 'info', t: `${unassigned} ticket${unassigned === 1 ? '' : 's'} not yet assigned`, s: 'Open them in Maintenance', on: () => goTickets('open') },
+    unpaidUnits > 0 && { k: 'unpaid', tone: 'bad', t: `${money(unpaidTotal)} unpaid dues`, s: 'Open Billing to collect or remind', on: () => go('billing') },
+  ].filter(Boolean);
+  if (!rows.length) return null;
+  return (
+    <section className="needs-you mobile-only" data-testid="needs-you" aria-label="Needs you">
+      <h2>Needs you <span className="nu-count">{rows.length}</span></h2>
+      {rows.map((r) => (
+        <button key={r.k} type="button" className="nu-row" data-testid={`nu-${r.k}`} onClick={r.on}>
+          <span className={`nu-dot ${r.tone}`} aria-hidden="true" />
+          <span className="nu-text"><b>{r.t}</b><small>{r.s}</small></span>
+          <span className="nu-go" aria-hidden="true">›</span>
+        </button>
+      ))}
+    </section>
+  );
+}
 
 const FUND_COLORS = ['#14b8a6', '#f6b94c', '#377dff', '#ef5350', '#18a66a'];
 
@@ -87,27 +114,28 @@ export default function DashboardModule({ onNavigate }) {
 
       <div className="grid metrics">
         <button type="button" className="card metric clickable" disabled={!onNavigate} onClick={() => go('properties')}>
-          <div className="label">Homes occupied</div>
+          <div className="label">Homes occupied</div><div className="label-short">Homes</div>
           <div className="value">{occupied} <small className="muted">/ {homes}</small></div>
           <div className="muted">View properties ›</div>
         </button>
         <button type="button" className="card metric clickable" disabled={!onNavigate} onClick={() => goTickets('live')}>
-          <div className="label">Open maintenance tickets</div>
+          <div className="label">Open maintenance tickets</div><div className="label-short">Open tickets</div>
           <div className="value">{openTickets}</div>
           <div className="muted">{slaTickets > 0 ? `${slaTickets} not yet assigned · ` : ''}View ›</div>
         </button>
         <button type="button" className="card metric clickable" disabled={!onNavigate} onClick={() => go('billing')}>
-          <div className="label">Unpaid dues</div>
+          <div className="label">Unpaid dues</div><div className="label-short">Unpaid</div>
           <div className="value">₹{unpaidTotal.toLocaleString('en-IN')}</div>
           <div className="muted">{unpaidUnits} unit{unpaidUnits === 1 ? '' : 's'} · View ›</div>
         </button>
         <button type="button" className="card metric clickable" disabled={!onNavigate} onClick={() => go('security')}>
-          <div className="label">Visitors on premises</div>
+          <div className="label">Visitors on premises</div><div className="label-short">Visitors in</div>
           <div className="value">{inside}</div>
           <div className="muted">{insideVendors} crew · {inside - insideVendors} others</div>
         </button>
       </div>
 
+      {role?.category !== 'Resident' && <NeedsYou unassigned={slaTickets} unpaidTotal={unpaidTotal} unpaidUnits={unpaidUnits} goTickets={goTickets} go={go} />}
       <DataHealthChip onNavigate={onNavigate} />
       <ImportantNumbers />
 
