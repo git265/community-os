@@ -2314,3 +2314,22 @@ tr.prio-High td:first-child, tr.prio-Critical td:first-child { box-shadow: inset
   .up-sec b { font-size: 13px; white-space: nowrap; }
   .up-sec small { display: none !important; }
 }
+
+/* ===== Round 49: one visible border on every card and table (white page, so the edges carry the layout) ===== */
+:root { --edge: #d1d5db; --row-line: #e5e7eb; }
+.content .card, .modal .card, .stat-card, .stat-tile, .metric, .unit-card, .ud-card:not(.on), .gg-card, .tpl-card, .poll-card,
+.pl-card, .tip-card, .wish-card, .viz-card, .pick-tile, .qi-tile, .photo-tile, .up-sec:not(.on), .tk-card, .auto-card {
+  border-color: var(--edge) !important;
+}
+.tk-card { box-shadow: none; }
+/* High / Critical tickets keep their red left edge */
+.tk-card:not(.prio-High):not(.prio-Critical) { border-left-width: 1px !important; }
+.tk-card.prio-High, .tk-card.prio-Critical { border-left-color: #dc2626 !important; }
+/* tables: an outer border with rounded corners, a light grey header, thin row lines */
+.table-wrap, .content table:not(.changes):not(.cal-grid) { border: 1px solid var(--edge); border-radius: 8px; }
+.table-wrap > table, .table-wrap table { border: 0 !important; border-radius: 0; }
+.content table:not(.changes) { border-collapse: separate; border-spacing: 0; overflow: hidden; }
+.table-wrap { overflow: auto; background: #fff; }
+.content table:not(.changes) th { background: #f9fafb !important; border-bottom: 1px solid var(--edge) !important; }
+.content table:not(.changes) td { border-bottom: 1px solid var(--row-line) !important; }
+.content table:not(.changes) tbody tr:last-child td { border-bottom: 0 !important; }
