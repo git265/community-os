@@ -12,6 +12,7 @@ import { getPrincipal } from '../../lib/security/principal.js';
 import { uuid } from '../../lib/uuid.js';
 import { REPORTS, reportOf, defOf, PERIODS, FORMATS, CHANNEL_CHOICES, columnsOf, CUSTOM_SOURCES, FILTER_OPS } from '../../lib/reports/catalog.js';
 import { FREQUENCIES, WEEKDAYS, AUDIENCES, audienceText, runSchedule, previewSchedule } from '../../lib/reports/run.js';
+import PageActions from '../../components/PageActions.jsx';
 
 const when = (s) => (s.frequency === 'Weekly' ? `Every ${s.weekday || 'Monday'}` : s.frequency === 'Monthly' ? `Monthly on day ${s.monthDay || 1}` : 'Every day') + ` at ${s.time || '08:00'}`;
 const stamp = (iso) => (iso ? new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '');
@@ -190,13 +191,13 @@ export default function ReportsModule() {
                 <b>{s.name}</b><span className={`tag ${s.active ? 'green' : ''}`}>{s.active ? 'On' : 'Off'}</span><span className="tag">{s.format}</span>
               </div>
               <small className="muted" style={{ display: 'block', margin: '4px 0' }}>{s.reportType === 'custom' ? 'Custom report' : reportOf(s.reportType)?.label} · {when(s)} · {(s.channels || []).join(', ')} · to {s.audience === 'Roles' ? `${(s.roleIds || []).length} roles` : audienceText(s)}{s.lastRunKey ? ` · last ${s.lastRunKey}` : ''}</small>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              <PageActions keep={1} inline>
                 <button className="btn secondary sm" onClick={() => preview(s)}>Preview</button>
                 {canWrite && <><button className="btn secondary sm" data-testid="run-now" disabled={busy === s.id} onClick={() => runNow(s)}>{busy === s.id ? 'Sending…' : 'Send now'}</button>
                   <button className="btn secondary sm" onClick={() => save({ ...s, active: !s.active })}>{s.active ? 'Switch off' : 'Switch on'}</button>
                   <button className="btn secondary sm" onClick={() => setEdit({ record: s })}>Edit</button>
                   <button className="btn secondary sm" onClick={() => { if (window.confirm(`Delete "${s.name}"?`)) remove(s.id); }}>Delete</button></>}
-              </div>
+              </PageActions>
             </li>
           ))}
         </ul>

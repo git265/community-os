@@ -46,5 +46,6 @@ export default function AdminDelete({ collection, id, label = 'record', onDone, 
       window.dispatchEvent(new CustomEvent('communityos:denied', { detail: { message } }));
     } finally { setBusy(false); }
   }
-  return <button type="button" data-testid="admin-delete" className={`btn danger${small ? ' sm' : ''}`} disabled={busy} onClick={go}>{children || `🗑 Delete ${label}`}</button>;
+  // a rare, Super-Admin-only action: a quiet red link, not a big red button on every record
+  return <button type="button" data-testid="admin-delete" className={`link-btn danger-link${small ? ' sm' : ''}`} disabled={busy} onClick={go}>{children || `Delete ${label}`}</button>;
 }

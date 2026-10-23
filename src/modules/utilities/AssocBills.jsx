@@ -7,6 +7,7 @@ import { getPrincipal } from '../../lib/security/principal.js';
 import { StatusTag } from '../../components/StatusTag.jsx';
 import RecordModal from '../billing/RecordModal.jsx';
 import { useAssocBills, inr, dmy, UTIL_ICON as ICON } from '../billing/useAssocBills.js';
+import PageActions from '../../components/PageActions.jsx';
 
 /**
  * Utilities → Association bills: every bill the association pays itself (electricity for the common area / STP / WTP / clubhouse,
@@ -37,10 +38,10 @@ export default function AssocBills({ onNavigate }) {
       <div className="page-head">
         <div><h2 style={{ margin: 0 }}>Association utility bills</h2>
           <p>Electricity for the common area, STP, WTP and clubhouse, water, diesel, gas, internet… the bills the association pays. They are paid in Payments → Utilities (Association).</p></div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <PageActions>
           {canAddElec && <button type="button" className="btn" data-testid="assoc-add-elec" onClick={() => setAddingElec({})}>⚡ Add electricity bill</button>}
           {canAdd && <button type="button" className="btn" data-testid="assoc-add" onClick={() => setAdding({})}>+ Add other bill</button>}
-        </div>
+        </PageActions>
       </div>
       <div className="exp-tools" data-testid="assoc-filters">
         <input type="search" aria-label="Search bills" data-testid="assoc-q" placeholder="Search bill, supplier, bill no…" value={f.q} onChange={(e) => set('q', e.target.value)} />

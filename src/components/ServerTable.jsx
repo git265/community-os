@@ -228,12 +228,14 @@ setSort((s) => (s?.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } 
     const idCol = cols.length > 2 ? cols.find(isId) : null;
     const [first, ...rest] = idCol ? cols.filter((c) => c !== idCol) : cols;
     const show = (c) => (c.render ? c.render(r) : statusify(cellText(r, c.key)));
+    // a phone card says the essentials: the title (its number beside it, small), then the first four fields that have a value
+    const blank = (c) => !c.render && ['', '—', '-', 'null', 'undefined'].includes(String(cellText(r, c.key) ?? '').trim());
+    const fields = rest.filter((c) => !blank(c)).slice(0, 4);
     return (
       <article className="tk-card auto-card">
-        {idCol && <div className="tk-card-top"><span className="mono">{show(idCol)}</span></div>}
-        <h3 className="tk-title">{first ? show(first) : ''}</h3>
+        <div className="auto-head"><h3 className="tk-title">{first ? show(first) : ''}</h3>{idCol && <span className="mono auto-id">{show(idCol)}</span>}</div>
         <dl className="auto-kv">
-          {rest.slice(0, 6).map((c) => <div key={c.key}><dt>{c.label}</dt><dd>{show(c)}</dd></div>)}
+          {fields.map((c) => <div key={c.key}><dt>{String(c.label || "").replace(/\s*\(.*\)\s*$/, "")}</dt><dd>{show(c)}</dd></div>)}
         </dl>
       </article>
     );

@@ -1,4 +1,5 @@
 import React from 'react';
+import Tabs from './Tabs.jsx';
 
 /**
  * Small shared building blocks so every screen uses the same compact, thumb-friendly patterns:
@@ -11,7 +12,7 @@ import React from 'react';
 
 export function SegTabs({ tabs, value, onChange, label = 'Sections', variant }) {
   return (
-    <div className={`seg-tabs${variant === 'pill' ? ' pill' : ''}`} role="tablist" aria-label={label}>
+    <Tabs base="seg-tabs" className={variant === 'pill' ? 'pill' : ''} role="tablist" aria-label={label}>
       {tabs.filter((t) => t && !t.hidden).map((t) => (
         <button key={t.key} type="button" role="tab" aria-selected={value === t.key} data-testid={`tab-${t.key}`}
           className={value === t.key ? 'on' : ''} onClick={() => onChange(t.key)}>
@@ -20,7 +21,7 @@ export function SegTabs({ tabs, value, onChange, label = 'Sections', variant }) 
           {t.dot && <span className="seg-dot" aria-label="needs attention" />}
         </button>
       ))}
-    </div>
+    </Tabs>
   );
 }
 

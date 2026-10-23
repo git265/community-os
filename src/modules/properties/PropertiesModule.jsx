@@ -460,8 +460,8 @@ export default function PropertiesModule({ onNavigate }) {
 
       {selected && (
         <Modal title={selected.unit} subtitle="Owner, occupancy and unit details." onClose={() => setSelectedId(null)}>
-          <div style={{ textAlign: 'right' }}><AdminDelete collection={COLLECTIONS.PROPERTIES} id={selected.id} label="property" onDone={() => setSelectedId(null)} /></div>
           <UnitDetail unit={selected} canSeePrivate canEdit={canCreate} onEdit={(u) => { setSelectedId(null); openEditor(u); }} />
+          <div style={{ textAlign: 'right', marginTop: 12 }}><AdminDelete collection={COLLECTIONS.PROPERTIES} id={selected.id} label="property" onDone={() => setSelectedId(null)} /></div>
         </Modal>
       )}
 

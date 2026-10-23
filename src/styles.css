@@ -2276,3 +2276,41 @@ tr.prio-High td:first-child, tr.prio-Critical td:first-child { box-shadow: inset
 .stat-card.red, .stat-card.amber, .stat-card.green { background: #fff; border-color: var(--line); }
 .approval-banner { background: var(--t-warn-bg); border-color: #fde68a; color: var(--t-warn); }
 .approval-banner.confirm { background: var(--t-ok-bg); border-color: #bbf7d0; color: var(--t-ok); }
+.seg-tabs { position: relative; }
+@media (max-width: 900px) {
+  .seg-tabs.tabs-fit { flex-wrap: nowrap !important; overflow: visible !important; }
+  .seg-tabs.tabs-fit > button { flex: 0 1 auto !important; white-space: nowrap !important; }
+  .seg-tabs .tabs-menu > button { border-radius: 8px; }
+}
+/* phone list cards: title and its number on one line, then four short fields */
+.auto-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.auto-head .tk-title { margin: 0 !important; min-width: 0; }
+.auto-id { font-size: 11.5px; color: var(--muted); white-space: nowrap; flex: none; }
+.auto-kv dt { text-transform: none !important; letter-spacing: 0 !important; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.auto-card { padding: 10px 12px !important; }
+/* phone "More": a finder, the recent pages, then every page as a two-column grid */
+.more-sheet-inner .sheet-find { width: 100%; margin: 4px 0 6px; }
+.sheet-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.more-sheet-inner .sheet-grid > button { display: flex; align-items: center; gap: 8px; text-align: left; padding: 10px; border-radius: 10px; background: #f6f7f9; border: 1px solid var(--line); color: var(--ink); min-height: 44px; font-size: 13.5px; line-height: 1.2; width: auto; }
+.more-sheet-inner .sheet-grid > button.active { background: var(--t-info-bg); border-color: #93c5fd; color: var(--t-info); }
+.danger-link { color: var(--t-bad) !important; font-size: 13px; background: none; border: 0; padding: 4px 0; min-height: 0 !important; }
+.danger-link:hover { text-decoration: underline; }
+.page-actions.inline, .page-actions.phone.inline { width: auto; }
+.page-actions.phone.inline > .btn { flex: none; }
+.page-actions.inline .pa-more-btn { width: 36px; min-height: 32px; font-size: 18px; }
+@media (max-width: 700px) {
+  /* Unit Directory: the blocks as one row to swipe, not a block of cards */
+  .ud-cards { display: flex !important; flex-wrap: nowrap; overflow-x: auto; max-height: none !important; scrollbar-width: none; }
+  .ud-cards::-webkit-scrollbar { display: none; }
+  .ud-card { flex: 0 0 128px; min-height: 0; padding: 7px 10px; }
+  .ud-card b { font-size: 16px; }
+  .ud-legend { display: none; }
+}
+@media (max-width: 700px) {
+  /* Utilities: the four areas as one row of chips (no hint lines) */
+  .up-sections { display: flex !important; flex-wrap: nowrap !important; gap: 6px; overflow-x: auto; scrollbar-width: none; grid-template-columns: none !important; }
+  .up-sections::-webkit-scrollbar { display: none; }
+  .up-sec { flex: none !important; width: auto !important; min-height: 0 !important; padding: 6px 12px !important; border-radius: 999px !important; }
+  .up-sec b { font-size: 13px; white-space: nowrap; }
+  .up-sec small { display: none !important; }
+}

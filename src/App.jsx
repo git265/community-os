@@ -194,6 +194,7 @@ function Shell() {
   }, []);
   const goBack = () => { setTrail((t) => { const prev = t[t.length - 1]; if (prev) { activeRef.current = prev; setActiveRaw(prev); setNavKey((k) => k + 1); } return t.slice(0, -1); }); };
   const [moreOpen, setMoreOpen] = useState(null); // group key whose pages are shown in the phone sheet
+  const [navFind, setNavFind] = useState('');
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState(false);
   // the profile menu closes when you click or tap anywhere else, or press Esc
@@ -289,10 +290,20 @@ function Shell() {
   /** Phone bottom bar: Home + the three pages this person opens most (role defaults until they have a history), then More. Every frequent page is ONE tap. */
   const shownItems = visibleGroups.flatMap((g) => g.shown);
   const homeItem = shownItems.find((n) => n.id === 'dashboard') || shownItems.find((n) => n.id === 'tickets') || shownItems[0];
-  const DEFAULTS = role.category === 'Resident' ? ['tickets', 'amenities', 'calendar'] : role.category === 'EC' ? ['tickets', 'billing', 'cultural'] : ['tickets', 'shifts', 'amenities'];
+  // what each kind of person opens most, until their own use takes over
+  const DEFAULTS = role.category === 'Resident' ? ['tickets', 'mygate', 'amenities']
+    : role.id === 'super_admin' ? ['tickets', 'billing', 'properties']
+    : role.id === 'treasurer' ? ['billing', 'tickets', 'communications']
+    : role.category === 'EC' ? ['tickets', 'communications', 'billing']
+    : role.id === 'facility_manager' ? ['tickets', 'utilities', 'shifts']
+    : role.id === 'helpdesk' ? ['tickets', 'security', 'communications']
+    : /security|guard/.test(role.id) ? ['security', 'tickets', 'shifts']
+    : ['tickets', 'shifts', 'calendar'];
   const pool = shownItems.filter((n) => n.id !== homeItem?.id);
   const score = (n) => (navUse[n.id] || 0) * 10 + Math.max(0, 3 - (DEFAULTS.indexOf(n.id) < 0 ? 9 : DEFAULTS.indexOf(n.id)));
   const pinned = [homeItem, ...[...pool].sort((a, b) => score(b) - score(a)).slice(0, 3)].filter(Boolean);
+  // the More sheet: the pages used most after the bottom bar's, then every page by group (and a finder)
+  const recent = pool.filter((n) => !pinned.includes(n) && (navUse[n.id] || 0) > 0).sort((a, b) => (navUse[b.id] || 0) - (navUse[a.id] || 0)).slice(0, 4);
 
   function select(id) {
     setActive(id);
@@ -357,7 +368,7 @@ function Shell() {
         {pinned.map((n) => (
           <button key={n.id} data-testid={`bn-${n.id}`} className={n.id === activeId ? 'active' : ''} onClick={() => select(n.id)}>
             <span className="ico">{n.icon}</span>
-            <small>{n.id === homeItem?.id ? 'Home' : n.label.replace(' & Finance', '').replace('Security & Visitors', 'Security').replace('No-code ', '')}</small>
+            <small>{n.id === homeItem?.id ? 'Home' : shortLabel(n.label)}</small>
           </button>
         ))}
         <button data-testid="bn-more" className={sheetOpen || !pinned.some((n) => n.id === activeId) ? 'active' : ''} onClick={() => setMoreOpen((k) => (k === 'all' ? null : 'all'))}>
@@ -370,16 +381,32 @@ function Shell() {
       {sheetOpen && (
         <div className="more-sheet mobile-only" data-testid="nav-sheet" onClick={() => setMoreOpen(null)}>
           <div className="more-sheet-inner" onClick={(e) => e.stopPropagation()}>
-            {visibleGroups.map((g) => (
-              <div key={g.key}>
-                <div className="sheet-title">{g.label}</div>
-                {g.shown.map((n) => (
-                  <button key={n.id} data-testid={`sheet-${n.id}`} className={n.id === activeId ? 'active' : ''} onClick={() => select(n.id)}>
-                    <span className="ico">{n.icon}</span>{n.label}
-                  </button>
+            <input className="search sheet-find" data-testid="sheet-find" value={navFind} onChange={(e) => setNavFind(e.target.value)} placeholder="Find a page…" aria-label="Find a page" />
+            {navFind.trim() ? (
+              <div className="sheet-grid">
+                {shownItems.filter((n) => n.label.toLowerCase().includes(navFind.trim().toLowerCase())).map((n) => (
+                  <button key={n.id} data-testid={`sheet-${n.id}`} className={n.id === activeId ? 'active' : ''} onClick={() => { setNavFind(''); select(n.id); }}><span className="ico">{n.icon}</span>{n.label}</button>
                 ))}
               </div>
-            ))}
+            ) : (
+              <>
+                {recent.length > 0 && (<><div className="sheet-title">Recent</div><div className="sheet-grid">
+                  {recent.map((n) => <button key={n.id} className={n.id === activeId ? 'active' : ''} onClick={() => select(n.id)}><span className="ico">{n.icon}</span>{n.label}</button>)}
+                </div></>)}
+                {visibleGroups.map((g) => (
+                  <div key={g.key}>
+                    <div className="sheet-title">{g.label}</div>
+                    <div className="sheet-grid">
+                      {g.shown.map((n) => (
+                        <button key={n.id} data-testid={`sheet-${n.id}`} className={n.id === activeId ? 'active' : ''} onClick={() => select(n.id)}>
+                          <span className="ico">{n.icon}</span>{n.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </>
+            )}
           </div>
         </div>
       )}
@@ -406,6 +433,10 @@ function Shell() {
     </div>
   );
 }
+
+/** A page's name for the phone's bottom bar (five fit across). */
+const shortLabel = (l) => l.replace(' & Finance', '').replace('Security & Visitors', 'Security').replace('Utilities & Assets', 'Utilities').replace('Unit Directory', 'Homes')
+  .replace('Communications', 'Notices').replace('Service directory', 'Services').replace('No-code ', '').replace('Command Center', 'Home');
 
 function Notice({ title, text }) {
   return (

@@ -21,6 +21,7 @@ import { publishOnServer, publishReadings } from '../../lib/readingsPublish.js';
 import { DEFAULT_UTILITY_TYPES, addUtilityToSchemas } from '../../lib/utilityTypes.js';
 import { money } from '../../lib/locale.js';
 import Tabs from '../../components/Tabs.jsx';
+import PageActions from '../../components/PageActions.jsx';
 
 let typeList = DEFAULT_UTILITY_TYPES; // set by the screen each render (the types are data, not code)
 const icon = (u) => typeList.find((t) => t.name === u)?.icon || '📊';
@@ -336,11 +337,11 @@ export default function UtilitiesModule({ onNavigate, hideAssoc = false }) {
           <h1>Utilities — meter readings</h1>
           <p>Record each villa’s monthly meter readings with photos, then publish them as bills. Owners see the readings and photos in Billing &amp; Finance → Dues.</p>
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <PageActions>
           {canTypes && <button className="btn secondary" data-testid="manage-utilities" onClick={() => setManaging(true)}>⚙ Manage utilities</button>}
           {canWrite && <button className="btn secondary" onClick={() => setView({ mode: 'edit' })}>+ Add reading</button>}
           {canWrite && <button className="btn" disabled={drafts.length === 0} onClick={() => setView({ mode: 'publish', list: drafts })}>Publish all drafts{drafts.length ? ` (${drafts.length})` : ''}</button>}
-        </div>
+        </PageActions>
       </div>
 
       {(canTemplates || canBilling || canAssoc) && (showReadings ? 1 : 0) + (canBilling ? 1 : 0) + (canAssoc ? 1 : 0) + (canTemplates && tabAllowed('util.templates') ? 1 : 0) > 1 && <Tabs data-testid="util-tabs">{showReadings && <button type="button" data-testid="utab-readings" className={utab === 'readings' ? 'active' : ''} onClick={() => setUtab('readings')}>Meter readings</button>}{canBilling && <button type="button" data-testid="utab-billing" className={utab === 'billing' ? 'active' : ''} onClick={() => setUtab('billing')}>Utility billing</button>}{canAssoc && <button type="button" data-testid="utab-assoc" className={utab === 'assoc' ? 'active' : ''} onClick={() => setUtab('assoc')}>Association bills</button>}{canTemplates && tabAllowed('util.templates') && <button type="button" data-testid="utab-templates" className={utab === 'templates' ? 'active' : ''} onClick={() => setUtab('templates')}>Bill templates</button>}</Tabs>}

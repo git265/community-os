@@ -7,6 +7,7 @@ import Modal from '../../components/Modal.jsx';
 import { hhmm, mapLink, summarise, loadReport } from '../../lib/attendance.js';
 import { iso, addDays, weekStart, monthStart, monthEnd } from '../../lib/shifts.js';
 import { fmtDate } from '../../lib/locale.js';
+import PageActions from '../../components/PageActions.jsx';
 
 const dshort = (s) => fmtDate(s);
 function csv(name, rows) {
@@ -105,9 +106,11 @@ export default function AttendanceTab() {
           <input type="date" aria-label="To" value={to} onChange={(e) => { setPreset('custom'); setTo(e.target.value); }} style={{ width: 'auto' }} />
           {manager && <select aria-label="Person" value={who} onChange={(e) => setWho(e.target.value)} style={{ width: 'auto' }}><option value="">Everyone</option>{names.map((n) => <option key={n}>{n}</option>)}</select>}
           {manager && <select aria-label="Exceptions" value={flag} onChange={(e) => setFlag(e.target.value)} style={{ width: 'auto' }}><option value="">All punches</option><option value="late">Late arrivals</option><option value="outside">Outside the site</option><option value="nogps">No location</option><option value="open">Still clocked in</option><option value="gate">Gate and clock disagree</option><option value="gateonly">At the gate, not clocked in</option></select>}
+          <PageActions inline>
           <button type="button" className="btn secondary sm" data-testid="att-csv" disabled={!rows.length} onClick={() => csv(`attendance-${from}-to-${to}.csv`, sessionCsv())}>⬇ CSV</button>
           {manager && <button type="button" className="btn secondary sm" disabled={!totals.length} onClick={() => csv(`attendance-summary-${from}-to-${to}.csv`, totals.map((t) => ({ Staff: t.name, Role: t.role, 'Days present': t.days, Sessions: t.sessions, 'Total hours': t.hours, 'Late arrivals': t.late, 'Outside site': t.outside, 'No location': t.noGps, 'Gate checks': t.gate })))}>⬇ Summary CSV</button>}
           {canEdit && <button type="button" className="btn sm" data-testid="att-add" onClick={() => setModal({ date: today, source: 'Manager entry' })}>+ Manual entry</button>}
+          </PageActions>
         </div>
 
         {manager && totals.length > 0 && (

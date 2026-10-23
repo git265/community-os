@@ -9,14 +9,16 @@ export function usePhone() {
 }
 
 const isActive = (el) => /\b(active|on)\b/.test(String(el.props.className || '')) || el.props['aria-selected'] === true || el.props['aria-pressed'] === true;
-export const flat = (children) => React.Children.toArray(children).flatMap((c) => (isValidElement(c) && c.type === React.Fragment ? React.Children.toArray(c.props.children) : [c])).filter(isValidElement);
+export const flat = (children) => React.Children.toArray(children).flatMap((c) => (isValidElement(c) && c.type === React.Fragment
+  ? React.Children.toArray(c.props.children).filter(isValidElement).map((x) => cloneElement(x, { key: `${c.key}/${x.key}` }))   // keys stay unique across fragments
+  : [c])).filter(isValidElement);
 
 /**
  * A page's tab bar. On a computer: every tab in a row, as before. On a phone: the tabs that fit on ONE row, and the rest under "More ▾" -
  * the sections used most stay one tap away, the others are one tap more, and nothing wraps onto a second row or runs off the screen.
  * The open tab is always on the row. Children are the tab buttons, exactly as they were inside <div className="tabs">.
  */
-export default function Tabs({ className = '', children, ...rest }) {
+export default function Tabs({ base = 'tabs', className = '', children, ...rest }) {
   const phone = usePhone();
   const items = flat(children);
   const row = useRef(null); const meas = useRef(null); const more = useRef(null);
@@ -52,7 +54,7 @@ export default function Tabs({ className = '', children, ...rest }) {
 
   if (!phone || fit >= items.length) {
     return (
-      <div className={`tabs${className ? ` ${className}` : ''}${phone ? ' tabs-fit' : ''}`} ref={row} {...rest}>
+      <div className={`${base}${className ? ` ${className}` : ''}${phone ? ' tabs-fit' : ''}`} ref={row} {...rest}>
         {items}
         {phone && <div className="tabs-measure" aria-hidden="true" ref={meas}>{items.map((el) => cloneElement(el, { key: `m-${el.key}`, onClick: undefined, 'data-testid': undefined, tabIndex: -1, disabled: true }))}</div>}
       </div>
@@ -63,7 +65,7 @@ export default function Tabs({ className = '', children, ...rest }) {
   let hidden = items.slice(fit);
   if (active >= fit) { shown = [...items.slice(0, fit - 1), items[active]]; hidden = items.filter((_, i) => i >= fit - 1 && i !== active); }
   return (
-    <div className={`tabs tabs-fit${className ? ` ${className}` : ''}`} ref={row} {...rest}>
+    <div className={`${base} tabs-fit${className ? ` ${className}` : ''}`} ref={row} {...rest}>
       {shown}
       <div className="tabs-more" ref={more}>
         <button type="button" aria-haspopup="menu" aria-expanded={open} data-testid="tabs-more" onClick={() => setOpen((v) => !v)}>More ▾</button>

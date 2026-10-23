@@ -8,6 +8,7 @@ import { notify } from '../../lib/notify.js';
 import { servicesOrBuiltin, svcOf, effectOf, effectText, EFFECTS, SERVICE_MODES, collectionOn, accessOn, holidayOn, timeText, parseHolidays } from '../../lib/siteCalendar.js';
 import { iso, parse, addDays, WEEKDAYS } from '../../lib/shifts.js';
 import Tabs from '../../components/Tabs.jsx';
+import PageActions from '../../components/PageActions.jsx';
 
 const dlong = (s) => parse(s).toLocaleDateString('en-GB', { weekday: 'long', day: '2-digit', month: 'short', year: 'numeric' });
 const dshort = (s) => parse(s).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
@@ -270,11 +271,11 @@ export default function CalendarModule() {
   return (
     <div>
       <div className="page-head"><div><h1>Calendar</h1><p>Trash pickup, worker access and any other service the community runs — with the holidays that change them.</p></div>
-        {canEdit && <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><button className="btn secondary" data-testid="publish-calendar" onClick={() => setModal({ kind: 'publish' })}>📣 Publish…</button>{curTab === 'Holidays'
+        {canEdit && <PageActions><button className="btn secondary" data-testid="publish-calendar" onClick={() => setModal({ kind: 'publish' })}>📣 Publish…</button>{curTab === 'Holidays'
           ? <><button className="btn secondary" data-testid="import-holidays" onClick={() => setModal({ kind: 'import' })}>Add a list</button><button className="btn" data-testid="add-holiday" onClick={() => setModal({ kind: 'holiday', row: null })}>+ Add holiday</button></>
           : curTab === 'Services'
             ? <button className="btn" data-testid="add-service" onClick={() => setModal({ kind: 'service', svc: null })}>+ Add service</button>
-            : <button className="btn" data-testid="add-rule" onClick={() => setModal({ kind: 'rule', rule: null })}>+ Add {svc?.mode === 'Collection' ? (svc.name === 'Trash pickup' ? 'pickup' : 'schedule') : 'rule'}</button>}</div>}
+            : <button className="btn" data-testid="add-rule" onClick={() => setModal({ kind: 'rule', rule: null })}>+ Add {svc?.mode === 'Collection' ? (svc.name === 'Trash pickup' ? 'pickup' : 'schedule') : 'rule'}</button>}</PageActions>}
       </div>
 
       <div className="grid metrics" style={{ marginBottom: 12 }} data-testid="today-banner">
