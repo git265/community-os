@@ -2373,3 +2373,14 @@ tr.prio-High td:first-child, tr.prio-Critical td:first-child { box-shadow: inset
 }
 .auto-chips { align-items: center; }
 .auto-due { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+
+/* ===== Round 50: no lines inside a card - the card's own border is the only frame ===== */
+.card .table-wrap, .card table:not(.changes) { border: 0 !important; border-radius: 0; }
+@media (max-width: 900px) {
+  /* a table stacked as cards: no line under each field, no box around the list */
+  .table-wrap { border: 0 !important; }
+  .content table.resp-table tbody td, .content table.resp-table th { border: 0 !important; }
+  .resp-table tbody tr { border-color: var(--edge) !important; }
+  /* ticket card: no dashed rule above the status / due / assignee row */
+  .tk-foot { border-top: 0 !important; padding-top: 2px; }
+}
