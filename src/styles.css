@@ -2342,3 +2342,34 @@ tr.prio-High td:first-child, tr.prio-Critical td:first-child { box-shadow: inset
 .tk-foot .tk-who { overflow: visible; }
 .tk-foot .tk-who-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tk-foot .tk-state .tag, .tk-foot .tk-sla { font-size: 12px; line-height: 18px; padding: 2px 8px; white-space: nowrap; }
+/* phone cards: the status chips of a record together on one row, right under its title */
+.auto-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: -2px 0 8px; }
+.auto-chips .tag { margin: 0 !important; }
+@media (max-width: 900px) {
+  /* stacked tables: cells that are just a chip (Status, Payment...) move up under the title, side by side, without their label */
+  .resp-table tbody tr > td { order: 2; }
+  .resp-table tbody tr > td:first-child { order: 0; }
+  .resp-table tbody tr > td:has(> .tag:only-child) { order: 1; grid-column: auto / span 1; justify-self: start; }
+  .resp-table tbody tr > td:has(> .tag:only-child)::before { display: none; }
+  .resp-table tbody tr > td:has(> .tag:only-child) + td:has(> .tag:only-child) { justify-self: start; }
+}
+@media (max-width: 900px) {
+  .resp-table tbody tr > td:nth-child(1 of :not(:first-child):not(:has(> .tag:only-child))) { grid-column-start: 1; }
+}
+@media (max-width: 900px) {
+  /* a row with chips: flex instead of the two-column grid, so its chips sit next to each other (fields stay two to a row) */
+  .resp-table tbody tr:has(> td > .tag:only-child):not(.access-table tr) { display: flex; flex-wrap: wrap; gap: 2px 12px; }
+  .resp-table tbody tr:has(> td > .tag:only-child) > td { flex: 0 0 calc(50% - 6px); width: auto; }
+  .resp-table tbody tr:has(> td > .tag:only-child) > td:first-child,
+  .resp-table tbody tr:has(> td > .tag:only-child) > td.wide,
+  .resp-table tbody tr:has(> td > .tag:only-child) > td:has(> .btn),
+  .resp-table tbody tr:has(> td > .tag:only-child) > td:has(> button:only-child),
+  .resp-table tbody tr:has(> td > .tag:only-child) > td:last-child:has(button),
+  .resp-table tbody tr:has(> td > .tag:only-child) > td:has(input[type=text]),
+  .resp-table tbody tr:has(> td > .tag:only-child) > td:has(textarea) { flex-basis: 100%; }
+  .resp-table tbody tr:has(> td > .tag:only-child) > td:has(> .tag:only-child) { flex: 0 0 auto; margin: 2px 0 4px; }
+  /* the fields start on a new line after the chips (::after comes last among the chips, order 1) */
+  .resp-table tbody tr:has(> td > .tag:only-child)::after { content: ''; order: 1; flex: 0 0 100%; height: 0; }
+}
+.auto-chips { align-items: center; }
+.auto-due { font-size: 12.5px; color: var(--muted); white-space: nowrap; }

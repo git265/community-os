@@ -1,4 +1,4 @@
-import { statusify } from './StatusTag.jsx';
+import { statusify, StatusTag, CondTag } from './StatusTag.jsx';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../context/AppContext.jsx';
 import { secureStorage } from '../lib/storage/secureStorage.js';
@@ -230,10 +230,18 @@ setSort((s) => (s?.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } 
     const show = (c) => (c.render ? c.render(r) : statusify(cellText(r, c.key)));
     // a phone card says the essentials: the title (its number beside it, small), then the first four fields that have a value
     const blank = (c) => !c.render && ['', '—', '-', 'null', 'undefined'].includes(String(cellText(r, c.key) ?? '').trim());
-    const fields = rest.filter((c) => !blank(c)).slice(0, 4);
+    // status-like values (a coloured chip: Paid, Confirmed, Working...) sit together on one row under the title, not one per label
+    const isChip = (el) => React.isValidElement(el) && (el.type === StatusTag || el.type === CondTag || /\btag\b/.test(String(el.props?.className || '')));
+    const filled = rest.filter((c) => !blank(c)).map((c) => ({ c, v: show(c) }));
+    const chips = filled.filter((x) => isChip(x.v));
+    // a due / expiry date belongs with the status ("Unpaid · Payable by 20 Oct"), so it joins the chip row when there is one
+    const isDue = (c) => /\b(due|payable by|deadline|expires?|expiry|valid (till|until))\b/i.test(String(c.label || ''));
+    const due = chips.length ? filled.find((x) => !isChip(x.v) && isDue(x.c)) : null;
+    const fields = filled.filter((x) => !isChip(x.v) && x !== due).slice(0, 4).map((x) => x.c);
     return (
       <article className="tk-card auto-card">
         <div className="auto-head"><h3 className="tk-title">{first ? show(first) : ''}</h3>{idCol && <span className="mono auto-id">{show(idCol)}</span>}</div>
+        {chips.length > 0 && <div className="auto-chips">{chips.map(({ c, v }) => React.cloneElement(v, { key: c.key, title: String(c.label || '') }))}{due && <span className="auto-due">{String(due.c.label || '').replace(/\s*\(.*\)\s*$/, '')} {due.v}</span>}</div>}
         <dl className="auto-kv">
           {fields.map((c) => <div key={c.key}><dt>{String(c.label || "").replace(/\s*\(.*\)\s*$/, "")}</dt><dd>{show(c)}</dd></div>)}
         </dl>
