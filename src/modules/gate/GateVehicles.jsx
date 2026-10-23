@@ -3,6 +3,7 @@ import { useCollection } from '../../context/AppContext.jsx';
 import { COLLECTIONS } from '../../lib/storage/index.js';
 import RecordModal from '../billing/RecordModal.jsx';
 import { StateTag } from './gateUi.jsx';
+import { PhoneSearch, PhoneFilters } from '../../components/ToolIcons.jsx';
 
 /** The plate list: residents' and drivers' cars, blocked vehicles, and regular goods vehicles that open on a plate read. */
 export default function GateVehicles({ canEdit = false }) {
@@ -12,7 +13,7 @@ export default function GateVehicles({ canEdit = false }) {
   return (
     <div className="card" data-testid="gate-vehicles">
       <div className="toolbar" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
-        <input className="search" aria-label="Search vehicles" placeholder="Search plate, owner, villa" value={q} onChange={(e) => setQ(e.target.value)} style={{ flex: 1, minWidth: 160 }} />
+        <PhoneSearch className="search" ariaLabel="Search vehicles" placeholder="Search plate, owner, villa" value={q} onChange={(v) => setQ(v)} />
         {canEdit && <button type="button" className="btn" data-testid="veh-add" onClick={() => setEdit({ status: 'Active', vehicleClass: 'Resident' })}>+ Vehicle</button>}
       </div>
       {rows.length === 0 && <div className="empty">No vehicles.</div>}

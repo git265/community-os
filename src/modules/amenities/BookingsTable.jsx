@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { SegTabs } from '../../components/ui.jsx';
 import { usePhone } from '../../components/Tabs.jsx';
+import { FilterButton, PhoneSearch } from '../../components/ToolIcons.jsx';
 import { inr } from '../../lib/amenityEngine.js';
 import { BOOKING_PAY_TONE as TONE } from '../../components/StatusTag.jsx';
 
@@ -54,15 +55,16 @@ export default function BookingsTable({ bookings, isResident, onOpen, title }) {
       <h2 style={{ marginTop: 0 }}>{title}</h2>
       <SegTabs label="Booking type" value={kind} onChange={setKind} tabs={[{ key: 'financial', label: 'Financial', count: fin.length }, { key: 'free', label: 'Free', count: free.length }, { key: 'all', label: 'All', count: base.length }]} />
       <div className="exp-tools" style={{ marginTop: 10 }}>
-        <input type="search" aria-label="Search bookings" data-testid="bk-search" placeholder={phone ? 'Search bookings' : 'Search amenity, villa or booking no.'} value={q} onChange={(e) => setQ(e.target.value)} />
-        {phone && <button type="button" className="btn secondary bk-filter-btn" aria-expanded={showF} data-testid="bk-filters" onClick={() => setShowF((v) => !v)}>⚙ Filters{(month ? 1 : 0) + (amenity ? 1 : 0) + (year ? 1 : 0) ? ` (${(month ? 1 : 0) + (amenity ? 1 : 0) + (year ? 1 : 0)})` : ''}</button>}
+        {phone && <span className="stable-bar-count">{rows.length} booking{rows.length === 1 ? '' : 's'}</span>}
+        <PhoneSearch type="search" className="" ariaLabel="Search bookings" testid="bk-search" placeholder={phone ? 'Search bookings' : 'Search amenity, villa or booking no.'} value={q} onChange={setQ} />
+        {phone && <FilterButton className="bk-filter-btn" testid="bk-filters" open={showF} count={(month ? 1 : 0) + (amenity ? 1 : 0) + (year ? 1 : 0)} onClick={() => setShowF((v) => !v)} />}
         {(!phone || showF) && <>
         <select aria-label="Year" data-testid="bk-year" value={y} onChange={(e) => setYear(e.target.value)} style={{ width: 'auto' }}>{years.length ? years.map((v) => <option key={v}>{v}</option>) : <option>{nowY}</option>}</select>
         <select aria-label="Month" data-testid="bk-month" value={month} onChange={(e) => setMonth(e.target.value)} style={{ width: 'auto' }}><option value="">All months</option>{MON.map((m, i) => <option key={m} value={String(i + 1).padStart(2, '0')}>{m}</option>)}</select>
         <select aria-label="Amenity" data-testid="bk-amenity" value={amenity} onChange={(e) => setAmenity(e.target.value)} style={{ width: 'auto' }}><option value="">All amenities</option>{amenities.map((a) => <option key={a}>{a}</option>)}</select>
         </>}
       </div>
-      {kind !== 'free' && <div className="muted" style={{ fontSize: 13, margin: '0 0 8px' }}>{rows.length} booking{rows.length === 1 ? '' : 's'}{kind === 'financial' ? ` · ${inr(total)} payable (excluding cancelled)` : ''}</div>}
+      {kind !== 'free' && !phone && <div className="muted" style={{ fontSize: 13, margin: '0 0 8px' }}>{rows.length} booking{rows.length === 1 ? '' : 's'}{kind === 'financial' ? ` · ${inr(total)} payable (excluding cancelled)` : ''}</div>}
       {shown.length === 0 ? <div className="empty">No bookings match.</div> : phone ? (
         <div className="bk-cards" data-testid="bookings-table">
           {shown.map((b) => {

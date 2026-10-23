@@ -9,6 +9,7 @@ import { getPrincipal } from '../../lib/security/principal.js';
 import { canWriteCollection } from '../../lib/security/authz.js';
 import { defaultersOf, BUCKETS, NOTICE_STAGES, noticeText, sendNotices, waiveLateFees, inr, dmy } from '../../lib/finance/rules.js';
 import { downloadCsv } from '../../lib/finance/csv.js';
+import { PhoneSearch, PhoneFilters } from '../../components/ToolIcons.jsx';
 
 export default function Defaulters() {
   const { records: dues } = useCollection(C.DUES, 'Billing & Finance');
@@ -40,7 +41,7 @@ export default function Defaulters() {
         <Chips label="Age" value={bucket} onChange={setBucket} options={[{ value: 'All', label: `All (${all.length})` }, ...BUCKETS.map((b) => ({ value: b, label: `${b} (${all.filter((r) => r.bucket === b).length})` }))]} />
       </div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', margin: '8px 0' }}>
-        <input data-testid="def-search" placeholder="Search unit, owner, block" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 260 }} />
+        <PhoneSearch style={{ maxWidth: 260 }} testid="def-search" placeholder="Search unit, owner, block" value={q} onChange={(v) => setQ(v)} className="" />
         {canSend && <button className="btn" data-testid="def-notice" disabled={!chosen.length} onClick={() => setDlg(true)}>Send notice to {chosen.length || ''} selected…</button>}
         <button className="btn secondary sm" data-testid="def-all" onClick={() => setPick(new Set(rows.map((r) => r.unit)))}>Select all {rows.length}</button>
         <button className="btn secondary sm" onClick={() => setPick(new Set())}>Clear</button>

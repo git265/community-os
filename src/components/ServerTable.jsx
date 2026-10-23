@@ -6,6 +6,8 @@ import { canView } from '../lib/access/permissions.js';
 import { DEFAULT_PAGE_SIZE } from '../lib/storage/queryEngine.js';
 import { htmlToText } from '../lib/richtext/sanitize.js';
 import { ExportIcon } from './ExportIcon.jsx';
+import { FilterButton, PhoneSearch } from './ToolIcons.jsx';
+import { usePhone } from './Tabs.jsx';
 import { tell } from '../lib/net/activity.js';
 
 /**
@@ -68,6 +70,8 @@ export default function ServerTable({
   const [text, setText] = useState(navSearch.current);
   const [q, setQ] = useState(navSearch.current);
   const [showFilters, setShowFilters] = useState(false);
+  const phone = usePhone();
+  const [searching, setSearching] = useState(false);   // phone: the search box is open (the record count steps aside for it)
   const [dateKey, setDateKey] = useState(dateFields[0]?.key ?? '');
   // defaultRange 'last12': the list opens on the last 12 months (a year of history), not on every record ever kept
   const last12 = () => { const d = new Date(); const to = d.toISOString().slice(0, 10); d.setFullYear(d.getFullYear() - 1); d.setDate(d.getDate() + 1); return { from: d.toISOString().slice(0, 10), to }; };
@@ -255,7 +259,8 @@ setSort((s) => (s?.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } 
     <div className="stable">
       {(search || filters.length > 0 || periodFilter || dateFields.length > 0 || toolbarExtra) && (
         <div className={`stable-bar${showFilters ? ' filters-open' : ''}`}>
-          {search && <input className="search" placeholder="Search…" value={text} onChange={(e) => setText(e.target.value)} />}
+          {phone && !searching && <span className="stable-bar-count">{result.approx ? `${result.total.toLocaleString()}+ records` : `${result.total} record${result.total === 1 ? '' : 's'}`}</span>}
+          {search && <PhoneSearch value={text} onChange={setText} onOpenChange={setSearching} />}
           <span className="stable-tools"><ExportIcon getData={exportData} name={schema?.label || schemaFor?.(collection)?.label || collection} /></span>
           {asCards && sortOptions.length > 0 && (
             <select className="filter stable-sort" aria-label="Sort by" value={sort ? `${sort.key}:${sort.dir}` : ''} onChange={(e) => { const [key, dir] = e.target.value.split(':'); setSort({ key, dir }); }}>
@@ -265,9 +270,7 @@ setSort((s) => (s?.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } 
           )}
           {/* on a phone sort, export and the page's own tools wait behind this button with the filters (one row: search + ⚙) */}
           {(filters.length > 0 || periodFilter || dateFields.length > 0 || (asCards && sortOptions.length > 0) || toolbarExtra) && (
-            <button type="button" className="btn secondary stable-filter-toggle" aria-expanded={showFilters} aria-label="Sort, filter and export" onClick={() => setShowFilters((v) => !v)}>
-              ⚙ Filters{Object.values(fvals).filter(Boolean).length + (from || to ? 1 : 0) + (pYear ? 1 : 0) + (pMonth ? 1 : 0) > 0 ? ` (${Object.values(fvals).filter(Boolean).length + (from || to ? 1 : 0) + (pYear ? 1 : 0) + (pMonth ? 1 : 0)})` : ''}
-            </button>
+            <FilterButton className="stable-filter-toggle" open={showFilters} count={Object.values(fvals).filter(Boolean).length + (from || to ? 1 : 0) + (pYear ? 1 : 0) + (pMonth ? 1 : 0)} onClick={() => setShowFilters((v) => !v)} />
           )}
           <div className={`stable-filters${showFilters ? ' open' : ''}`}>
           {filters.map((f) => {
@@ -330,7 +333,7 @@ setSort((s) => (s?.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } 
           {toolbarExtra && <span className="stable-tools">{toolbarExtra}</span>}
         </div>
       )}
-      <div className="stable-count-line" data-testid="row-count">{result.approx ? `${result.total.toLocaleString()}+ records` : `${result.total} record${result.total === 1 ? '' : 's'}`}</div>
+      <div className={`stable-count-line${phone && (search || filters.length > 0 || periodFilter || dateFields.length > 0 || toolbarExtra) ? ' phone-hidden' : ''}`} data-testid="row-count">{result.approx ? `${result.total.toLocaleString()}+ records` : `${result.total} record${result.total === 1 ? '' : 's'}`}</div>
       {result.approx && <div className="muted" data-testid="row-count-approx" role="status" style={{ fontSize: 13, margin: '4px 0 8px' }}>
         More than {result.total.toLocaleString()} records match. Narrow the filters or the date range to see an exact count.
       </div>}

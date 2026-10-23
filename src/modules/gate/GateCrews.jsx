@@ -6,6 +6,7 @@ import RecordModal from '../billing/RecordModal.jsx';
 import { CREW_CLASSES, DAYS } from '../../lib/gate/constants.js';
 import { dayOf, answerApproval, windowOpen } from '../../lib/gate/engine.js';
 import { Photo, StateTag, clock, sameDay } from './gateUi.jsx';
+import { PhoneSearch, PhoneFilters } from '../../components/ToolIcons.jsx';
 
 function Roster({ order, onClose }) {
   const { records: people } = useCollection(COLLECTIONS.GATE_PEOPLE, 'Gate');
@@ -16,7 +17,7 @@ function Roster({ order, onClose }) {
   const toggle = (id) => setIds((a) => (a.includes(id) ? a.filter((x) => x !== id) : [...a, id]));
   return (
     <Modal title={`Roster · ${order.title}`} subtitle="Only vetted (Active) people can be put on a roster." onClose={onClose}>
-      <input className="search" aria-label="Search people" placeholder="Search by name or vendor" value={q} onChange={(e) => setQ(e.target.value)} />
+      <PhoneSearch className="search" ariaLabel="Search people" placeholder="Search by name or vendor" value={q} onChange={(v) => setQ(v)} />
       <div style={{ maxHeight: 340, overflow: 'auto', marginTop: 8 }}>{pool.map((p) => <label className="gg-check" key={p.id} data-testid="roster-pick"><input type="checkbox" checked={ids.includes(p.id)} onChange={() => toggle(p.id)} /><Photo src={p.photo} name={p.name} size={32} /><span style={{ flex: 1 }}><b>{p.name}</b> <small className="muted">{p.personClass} · {p.vendor || '—'}</small></span></label>)}</div>
       {blocked > 0 && <small className="muted">{blocked} more crew-type people are not Active yet and cannot be listed.</small>}
       <div className="form-actions" style={{ marginTop: 12 }}><button type="button" className="btn" data-testid="roster-save" onClick={async () => { await save({ ...order, rosterIds: ids, expectedHeadcount: Number(order.expectedHeadcount) || ids.length }); onClose(); }}>Save roster ({ids.length})</button><button type="button" className="btn secondary" onClick={onClose}>Cancel</button></div>

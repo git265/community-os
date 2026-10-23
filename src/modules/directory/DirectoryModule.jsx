@@ -7,6 +7,7 @@ import RichText from '../../components/RichText.jsx';
 import RichTextEditor from '../../components/RichTextEditor.jsx';
 import { isEmptyHtml } from '../../lib/richtext/sanitize.js';
 import { validatePhone } from '../../lib/phone.js';
+import { PhoneSearch, PhoneFilters } from '../../components/ToolIcons.jsx';
 
 const DEFAULT_CATS = ['Plumber', 'Electrician', 'Carpenter', 'AC technician', 'Painter', 'Driver', 'Cook', 'Maid / housekeeping', 'Pest control', 'Appliance repair', 'Gardener', 'Tutor', 'Other'];
 const dmy = (s) => (s ? new Date(s).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '');
@@ -151,8 +152,8 @@ export default function DirectoryModule() {
         <button className="btn" data-testid="add-contact" onClick={() => setForm({ record: null })}>+ Recommend someone</button></div>
       <div className="card" style={{ marginBottom: 10 }}>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <input className="search" aria-label="Search" placeholder="Search name, trade, area, about, reviews…" value={q} onChange={(e) => setQ(e.target.value)} style={{ flex: 1, minWidth: 160 }} />
-          <select aria-label="Sort" value={sort} onChange={(e) => setSort(e.target.value)} style={{ width: 'auto' }}><option value="rating">Top rated</option><option value="name">Name A-Z</option></select>
+          <PhoneSearch style={{ flex: 1, minWidth: 160 }} className="search" ariaLabel="Search" placeholder="Search name, trade, area, about, reviews…" value={q} onChange={(v) => setQ(v)} />
+          <PhoneFilters><select aria-label="Sort" value={sort} onChange={(e) => setSort(e.target.value)} style={{ width: 'auto' }}><option value="rating">Top rated</option><option value="name">Name A-Z</option></select></PhoneFilters>
         </div>
         <div className="chips" role="group" aria-label="Category" style={{ marginTop: 8 }}>
           <button type="button" className={`chip${!cat ? ' on' : ''}`} aria-pressed={!cat} onClick={() => setCat('')}>All</button>

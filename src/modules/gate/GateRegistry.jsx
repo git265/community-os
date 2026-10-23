@@ -7,6 +7,7 @@ import { CREW_CLASSES, DAYS, PERSON_CLASSES, PERSON_STATUS, VILLA_CLASSES } from
 import { notifyGate } from '../../lib/gate/engine.js';
 import { checkIdNumber, freshness, idHash } from '../../lib/gate/idcheck.js';
 import { Chips, Photo, PhotoCapture, StateTag } from './gateUi.jsx';
+import { PhoneSearch, PhoneFilters } from '../../components/ToolIcons.jsx';
 
 const ld = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const today = () => ld(new Date());
@@ -179,7 +180,7 @@ export default function GateRegistry({ canEdit = true }) {
         <div className="toolbar" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
           <div className="gg-chips"><button type="button" className={!status ? 'on' : ''} onClick={() => setStatus('')}>All ({people.length})</button>{PERSON_STATUS.map((s) => <button key={s} type="button" className={status === s ? 'on' : ''} data-testid={`reg-${s}`} onClick={() => setStatus(s)}>{s} ({count(s)})</button>)}</div>
           <select aria-label="Role" value={cls} onChange={(e) => setCls(e.target.value)} style={{ width: 'auto' }}><option value="">All roles</option>{PERSON_CLASSES.map((c) => <option key={c}>{c}</option>)}</select>
-          <input className="search" aria-label="Search the registry" placeholder="Search name, vendor, phone" value={q} onChange={(e) => setQ(e.target.value)} />
+          <PhoneSearch className="search" ariaLabel="Search the registry" placeholder="Search name, vendor, phone" value={q} onChange={(v) => setQ(v)} />
           {canEdit && <button type="button" className="btn" style={{ marginLeft: 'auto' }} data-testid="reg-add" onClick={() => setAdding(true)}>+ Add person</button>}
         </div>
         <div className="table-wrap hide-sm"><table><thead><tr><th></th><th>Name</th><th>Role</th><th>Status</th><th>Works for</th><th>Checks</th><th>Police cert. until</th></tr></thead><tbody>

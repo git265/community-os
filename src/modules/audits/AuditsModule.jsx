@@ -13,6 +13,7 @@ import { getPrincipal } from '../../lib/security/principal.js';
 import { uuid } from '../../lib/uuid.js';
 import AuditTimeline from './AuditTimeline.jsx';
 import { fmtDate } from '../../lib/locale.js';
+import { PhoneSearch, PhoneFilters } from '../../components/ToolIcons.jsx';
 
 const DEFAULT_AREAS = ['STP (sewage treatment)', 'WTP (water treatment)', 'Swimming pool water', 'Drinking water quality', 'Fire safety', 'Lifts', 'Electrical safety', 'DG set', 'Structural', 'Security / CCTV', 'Financial'];
 const RESULTS = ['Pass', 'Pass with observations', 'Fail', 'Pending'];
@@ -220,12 +221,14 @@ export default function AuditsModule() {
       <SegTabs label="Audit views" value={tab} onChange={setTab} tabs={ATABS} />
       {tab === 'overview' && (byArea.length === 0 ? <div className="empty">No audits recorded yet.</div> : (<>
         <div className="exp-tools" data-testid="area-filters" style={{ marginTop: 10 }}>
-          <input type="search" aria-label="Search areas" data-testid="area-q" placeholder="Search area…" value={aq} onChange={(e) => setAq(e.target.value)} />
+          <PhoneSearch type="search" ariaLabel="Search areas" testid="area-q" placeholder="Search area…" value={aq} onChange={(v) => setAq(v)} className="" />
+          <PhoneFilters testid="area-more" count={[aYear, aMonth, aResult, aDue].filter(Boolean).length}>
           <select aria-label="Year" data-testid="area-year" value={aYear} onChange={(e) => setAYear(e.target.value)}><option value="">All years</option>{auditYears.map((y) => <option key={y}>{y}</option>)}</select>
           <select aria-label="Month" data-testid="area-month" value={aMonth} onChange={(e) => setAMonth(e.target.value)}><option value="">All months</option>{['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'].map((m, i) => <option key={m} value={String(i + 1).padStart(2, '0')}>{m}</option>)}</select>
           <select aria-label="Result" data-testid="area-result" value={aResult} onChange={(e) => setAResult(e.target.value)}><option value="">Any result</option>{['Pass', 'Pass with observations', 'Fail', 'Pending'].map((r) => <option key={r}>{r}</option>)}</select>
           {!resident && <select aria-label="Due" data-testid="area-due" value={aDue} onChange={(e) => setADue(e.target.value)}><option value="">Any due state</option><option value="overdue">Overdue</option><option value="soon">Due in 30 days</option></select>}
           {(aq || aYear || aMonth || aResult || aDue) && <button type="button" className="btn secondary sm" data-testid="area-clear" onClick={() => { setAq(''); setAYear(''); setAMonth(''); setAResult(''); setADue(''); }}>Clear</button>}
+          </PhoneFilters>
           <span className="muted" style={{ fontSize: 12 }} data-testid="area-count">{byAreaShown.length} of {byArea.length} areas</span>
         </div>
         {byAreaShown.length === 0 && <div className="empty">No area matches these filters.</div>}

@@ -6,6 +6,7 @@ import { putRole, deleteRole, loadGroups, putGroup, deleteGroup } from '../../li
 import { SegTabs } from '../../components/ui.jsx';
 import { logChange } from '../../lib/audit/auditLog.js';
 import { storage, COLLECTIONS } from '../../lib/storage/index.js';
+import { PhoneSearch, PhoneFilters } from '../../components/ToolIcons.jsx';
 
 export default function RolesModule() {
   const { roles, refreshRoles, role: currentRole } = useApp();
@@ -195,7 +196,7 @@ export default function RolesModule() {
 
       {tab === 'roles' && (<>
       <div className="toolbar" style={{ marginBottom: 14 }}>
-        <input className="search" placeholder="Search roles" value={query} onChange={(e) => setQuery(e.target.value)} />
+        <PhoneSearch className="search" placeholder="Search roles" value={query} onChange={(v) => setQuery(v)} />
       </div>
 
       <div className="card table-wrap">

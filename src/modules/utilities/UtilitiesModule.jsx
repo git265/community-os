@@ -22,6 +22,7 @@ import { DEFAULT_UTILITY_TYPES, addUtilityToSchemas } from '../../lib/utilityTyp
 import { money } from '../../lib/locale.js';
 import Tabs from '../../components/Tabs.jsx';
 import PageActions from '../../components/PageActions.jsx';
+import { PhoneSearch, PhoneFilters } from '../../components/ToolIcons.jsx';
 
 let typeList = DEFAULT_UTILITY_TYPES; // set by the screen each render (the types are data, not code)
 const icon = (u) => typeList.find((t) => t.name === u)?.icon || '📊';
@@ -356,7 +357,8 @@ export default function UtilitiesModule({ onNavigate, hideAssoc = false }) {
           <select aria-label="Month" value={month} onChange={(e) => setMonth(e.target.value)} style={{ width: 'auto' }}>
             {months.map((m) => <option key={m} value={m}>{monthLabel(m)}</option>)}
           </select>
-          <input aria-label="Search villa" placeholder="Search villa or owner…" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 'auto', minWidth: 180 }} />
+          <PhoneSearch style={{ width: 'auto', minWidth: 180 }} ariaLabel="Search villa" placeholder="Search villa or owner…" value={q} onChange={(v) => setQ(v)} className="" />
+          <PhoneFilters count={[blockF, statusF].filter(Boolean).length}>
           {blocks.length > 0 && (
             <select aria-label="Block" data-testid="reading-block" value={blockF} onChange={(e) => setBlockF(e.target.value)} style={{ width: 'auto' }}>
               <option value="">All blocks</option>
@@ -367,6 +369,7 @@ export default function UtilitiesModule({ onNavigate, hideAssoc = false }) {
             <option value="">All status</option>
             <option>Not recorded</option><option>Draft</option><option>Published</option>
           </select>
+          </PhoneFilters>
           {canWrite && nextToRead && <button type="button" className="btn secondary" data-testid="next-to-read" onClick={() => setView({ mode: 'edit', reading: null, unit: nextToRead.unit, next: true })}>Next to read: {nextToRead.unit}</button>}
         </div>
       </div>

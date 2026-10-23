@@ -30,6 +30,7 @@ import { planState, decide as planDecide, stepWho } from '../../lib/approval/eng
 import { getPrincipal } from '../../lib/security/principal.js';
 import { fmtDate, money } from '../../lib/locale.js';
 import Tabs from '../../components/Tabs.jsx';
+import { PhoneSearch, PhoneFilters } from '../../components/ToolIcons.jsx';
 
 const addYear = (s) => (s ? `${Number(s.slice(0, 4)) + 1}${s.slice(4)}` : s); // same calendar date next year
 const weekday = (s) => (s ? new Date(`${s}T00:00:00`).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short' }) : '');
@@ -436,7 +437,7 @@ export default function CulturalModule() {
                 <div className="card" data-testid="cultural-donations">
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
                     <h3 style={{ margin: 0, flex: 1 }}>{resident ? 'Your contributions' : 'Donations & sponsorships'}</h3>
-                    {finance && <><input aria-label="Search donations" placeholder="Search donor, villa, receipt…" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 200 }} />
+                    {finance && <><PhoneSearch ariaLabel="Search donations" placeholder="Search donor, villa, receipt…" value={q} onChange={(v) => setQ(v)} className="" />
                       <select aria-label="Status filter" value={st} onChange={(e) => setSt(e.target.value)} style={{ width: 'auto' }}><option value="">All</option><option>Pledged</option><option>Received</option></select>
                       <button type="button" className="btn secondary sm" onClick={() => csv(`${ev.name}-donations.csv`, evDon.map((d) => ({ Receipt: d.receiptNo, Date: d.date, Donor: d.donor, Unit: d.unit, Type: d.kind, Towards: d.towards, Amount: d.amount, Mode: d.mode, Reference: d.reference, Status: d.status })))}>⬇ CSV</button></>}
                     {ev.status !== 'Completed' && ev.status !== 'Cancelled' && <button className="btn" data-testid="donate" onClick={() => setModal({ kind: 'donation', record: null })}>{finance ? '+ Record donation' : '❤ Donate / pledge'}</button>}
@@ -464,7 +465,7 @@ export default function CulturalModule() {
                     <button className="btn" data-testid="add-expense" onClick={() => setModal({ kind: 'expense', record: { eventId: ev.id, status: 'Pending approval', ecApproval: 'Pending', fund: ev.fund || 'Cultural', date: new Date().toISOString().slice(0, 10) } })}>+ Add expense</button></div>
                   {evExp.length > 0 && (
                     <div className="exp-tools" data-testid="expense-tools">
-                      <input type="search" aria-label="Search expenses" data-testid="expense-search" placeholder="Search item, category or paid to…" value={expQ} onChange={(e) => setExpQ(e.target.value)} />
+                      <PhoneSearch type="search" ariaLabel="Search expenses" testid="expense-search" placeholder="Search item, category or paid to…" value={expQ} onChange={(v) => setExpQ(v)} className="" />
                       <select aria-label="Sort expenses" data-testid="expense-sort" value={`${expSort.key}:${expSort.dir}`} onChange={(e) => { const [key, dir] = e.target.value.split(':'); setExpSort({ key, dir }); }}>
                         {[['date', 'Date'], ['item', 'Item'], ['category', 'Category'], ['vendor', 'Paid to'], ['amount', 'Amount'], ['status', 'Status']].flatMap(([k, l]) => [<option key={`${k}d`} value={`${k}:desc`}>{l} ↓</option>, <option key={`${k}a`} value={`${k}:asc`}>{l} ↑</option>])}
                       </select>

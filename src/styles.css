@@ -2438,3 +2438,50 @@ b, strong { font-weight: 500 !important; }
   .bk-card-foot .tag { margin: 0 !important; }
   .bk-card-id { margin-left: auto; font-size: 11.5px; }
 }
+
+/* ===== Round 53 (phones only): search behind 🔍, filters behind the sliders icon, smaller fields ===== */
+@media (max-width: 900px) {
+  .phone-hidden { display: none !important; }
+  /* the list bar: "13 records" on the left, the two icons on the right */
+  .stable-bar, .bookings-card .exp-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .stable-bar-count { flex: 1 1 auto; font-size: 13px; color: var(--muted); font-weight: 500; min-width: 0; }
+  .icon-tool { width: 36px; height: 36px; min-height: 36px !important; padding: 0 !important; display: inline-flex !important; align-items: center; justify-content: center; flex: none !important; position: relative; color: var(--ink); }
+  .icon-tool[aria-expanded=true] { background: #eff6ff !important; border-color: #bfdbfe !important; color: #1d4ed8; }
+  .icon-tool-badge { position: absolute; top: -5px; right: -5px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: #2563eb; color: #fff; font-size: 10px; line-height: 16px; font-weight: 600; }
+  .phone-search { flex: 1 1 0; min-width: 0; position: relative; display: flex; }
+  .phone-search input { flex: 1 1 auto; width: 100% !important; max-width: none !important; padding-right: 34px !important; }
+  .phone-search-x { position: absolute; right: 2px; top: 50%; transform: translateY(-50%); width: 32px; height: 32px; border: 0; background: transparent; color: var(--muted); font-size: 14px; }
+  .bookings-card .exp-tools > input[type=search] { flex: 1 1 0 !important; }
+
+  /* fields: 36px tall, white with a thin border; the text stays 16px so iPhones do not zoom in when you tap a field */
+  .content input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]):not([type=color]),
+  .content select, .modal input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]):not([type=color]), .modal select,
+  .stable-bar .search, .stable-bar .filter {
+    height: 36px !important; min-height: 36px !important; padding: 0 10px !important; font-size: 16px !important; line-height: 1.2;
+    background-color: #fff !important; border: 1px solid var(--edge) !important; border-radius: 8px !important; box-shadow: none !important;
+  }
+  .content select, .modal select { padding-right: 26px !important; }
+  .content textarea, .modal textarea { font-size: 16px !important; padding: 8px 10px !important; background: #fff !important; border: 1px solid var(--edge) !important; border-radius: 8px !important; min-height: 72px; }
+  .content input:focus, .content select:focus, .content textarea:focus, .modal input:focus, .modal select:focus, .modal textarea:focus { border-color: #93c5fd !important; outline: 2px solid #dbeafe; outline-offset: 0; }
+  .field > label, .field label { font-size: 12.5px; margin-bottom: 3px; }
+  .field { margin-bottom: 10px; }
+  /* buttons match the fields */
+  .content .btn:not(.sm):not(.icon-tool), .modal .btn:not(.sm) { min-height: 36px !important; padding-top: 6px !important; padding-bottom: 6px !important; }
+}
+@media (max-width: 900px) {
+  .icon-tool svg { flex: none; width: 18px !important; height: 18px !important; min-width: 18px; }
+  /* the message editor matches the other fields */
+  .content .rte, .modal .rte { background: #fff !important; border: 1px solid var(--edge) !important; border-radius: 8px !important; }
+  .content .rte .rte-body, .modal .rte .rte-body { background: #fff !important; padding: 8px 10px; }
+}
+@media (max-width: 900px) {
+  /* in any toolbar: the 🔍 and sliders buttons sit together at the right; an opened panel takes the full width below */
+  .icon-tool:not(.icon-tool ~ .icon-tool):not(.stable-bar *) { margin-left: auto; }
+  .phone-filters { flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: 6px; order: 9; }
+  .phone-filters > select, .phone-filters > .filter { flex: 1 1 45% !important; min-width: 0 !important; max-width: none !important; width: auto !important; }
+  .phone-search:not(.stable-bar *) { flex: 1 1 60%; }
+}
+@media (max-width: 900px) {
+  /* outside the shared list bar the two icons go to the end of their toolbar row */
+  :not(.stable-bar) > .icon-tool, :not(.stable-bar) > .phone-search { order: 8; }
+}

@@ -5,6 +5,7 @@ import { headOf } from '../../lib/utilityLedger.js';
 import AmenityLedgerPanel from './AmenityLedgerPanel.jsx';
 import { SegTabs } from '../../components/ui.jsx';
 import { fmtDate, money } from '../../lib/locale.js';
+import { PhoneSearch, PhoneFilters } from '../../components/ToolIcons.jsx';
 
 const inr = (n) => money(n);
 const dmy = (s) => fmtDate(s, { empty: '—' });
@@ -69,7 +70,7 @@ export default function Collections({ onNavigate }) {
       <h3 style={{ margin: '14px 0 6px' }}>Transactions</h3>
       <div className="exp-tools">
         <SegTabs label="Head" value={head} onChange={(k) => { setHead(k); setN(PAGE); }} tabs={[{ key: 'all', label: 'All', count: inPeriod.length }, ...HEADS.map(([h, l]) => ({ key: h, label: l.replace(/^\S+ /, ''), count: inPeriod.filter((x) => x.head === h).length }))]} />
-        <input type="search" aria-label="Search collections" data-testid="col-search" placeholder="Search villa, bill / booking no., item" value={q} onChange={(e) => { setQ(e.target.value); setN(PAGE); }} />
+        <PhoneSearch type="search" ariaLabel="Search collections" testid="col-search" placeholder="Search villa, bill / booking no., item" value={q} onChange={(v) => { setQ(v); setN(PAGE); }} className="" />
       </div>
       {list.length === 0 ? <div className="empty">No payments in this period.</div> : (
         <div className="table-wrap"><table className="resp-table" data-testid="col-table">

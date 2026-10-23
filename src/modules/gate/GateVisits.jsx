@@ -4,6 +4,7 @@ import { COLLECTIONS } from '../../lib/storage/index.js';
 import Modal from '../../components/Modal.jsx';
 import { VISIT_KINDS, VISIT_STATES } from '../../lib/gate/constants.js';
 import { Photo, StateTag, clock, sameDay, stamp } from './gateUi.jsx';
+import { PhoneSearch, PhoneFilters } from '../../components/ToolIcons.jsx';
 
 const mins = (a, b) => (a && b ? Math.max(0, Math.round((new Date(b) - new Date(a)) / 60000)) : null);
 export const dur = (m) => (m == null ? '' : m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`);
@@ -53,7 +54,7 @@ export default function GateVisits() {
         <select aria-label="Period" value={range} onChange={(e) => setRange(e.target.value)} style={{ width: 'auto' }}><option value="today">Today</option><option value="7">Last 7 days</option><option value="all">All</option></select>
         <select aria-label="Kind" value={kind} onChange={(e) => setKind(e.target.value)} style={{ width: 'auto' }}><option value="">All kinds</option>{VISIT_KINDS.map((k) => <option key={k}>{k}</option>)}</select>
         <select aria-label="State" value={state} onChange={(e) => setState(e.target.value)} style={{ width: 'auto' }}><option value="">All states</option>{VISIT_STATES.map((k) => <option key={k}>{k}</option>)}</select>
-        <input className="search" placeholder="Search name, villa, vehicle, id" aria-label="Search visits" value={q} onChange={(e) => setQ(e.target.value)} />
+        <PhoneSearch className="search" placeholder="Search name, villa, vehicle, id" ariaLabel="Search visits" value={q} onChange={(v) => setQ(v)} />
         <button type="button" className="btn secondary hide-sm" style={{ marginLeft: 'auto' }} onClick={csv}>Download CSV</button>
       </div>
       <div className="table-wrap hide-sm"><table><thead><tr><th></th><th>Who</th><th>Going to</th><th>Gate</th><th>In</th><th>Out</th><th>State</th></tr></thead><tbody>
