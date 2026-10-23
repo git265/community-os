@@ -2870,3 +2870,15 @@ html.comfortable .needs-you .nu-row { min-height: 58px; background: #fff; border
   .cc-home > .grid.metrics .card.metric .value small { font-size: 14px; }
   .cc-home > .grid.metrics .card.metric > .muted { font-size: 12.5px !important; margin: 0 !important; }
 }
+
+/* ===== Round 59: the Mist theme - a light grey-blue page; cards, tables, the header, the menu and pop-ups stay white so they stand out ===== */
+:root { --bg: #f3f5f9; }
+html, body, .main, .content { background: #f3f5f9 !important; }
+.top, .side, .bottom-nav, .modal-card, .modal-header, .profile-menu, .bell-panel { background: #fff !important; }
+.content .card, .table-wrap, .viz-card, .viz-tile, .stat-card, .needs-you, .tcards.tgrid > .tcard-wrap > *, .gg-card { background-color: #fff; }
+.content .card, .table-wrap, .viz-card, .viz-tile { border-color: #d5dbe5 !important; }
+.needs-you .nu-row { background: #fff !important; border: 1px solid #e3e8ef !important; }
+.needs-you .nu-row:hover { background: #f7f9fc !important; }
+.home-main .needs-you { background: #fff; }
+.home-main .needs-you .nu-row { border-color: transparent !important; background: #f7f9fc !important; }
+.home-main .needs-you .nu-row:hover { background: #eef2f8 !important; }
