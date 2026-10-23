@@ -3,6 +3,7 @@ import { usePrompt } from '../../components/PromptDialog.jsx';
 import { RecentNote, recentCutoff, inRecent } from '../../components/RecentWindow.jsx';
 import RecordDetail from './RecordDetail.jsx';
 import { useAssocBills, inr, dmy, UTIL_ICON as ICON } from './useAssocBills.js';
+import Tabs from '../../components/Tabs.jsx';
 
 /**
  * Payments → Utilities (Association): the pay queue for the bills the association itself pays, like Maintenance does for task invoices.
@@ -45,7 +46,7 @@ export default function UtilityPayments({ onPay, canPay, onNavigate }) {
     <div className="card" style={{ marginBottom: 16 }} data-testid="utility-payments">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <h2 style={{ margin: 0 }}>🏢 Utilities (Association)</h2>
-        <div className="tabs" style={{ margin: 0 }}>{TABS.map(([k, l, n]) => <button key={k} className={show === k ? 'active' : ''} data-testid={`up-${k}`} onClick={() => setShow(k)}>{l} ({n})</button>)}</div>
+        <Tabs style={{ margin: 0 }}>{TABS.map(([k, l, n]) => <button key={k} className={show === k ? 'active' : ''} data-testid={`up-${k}`} onClick={() => setShow(k)}>{l} ({n})</button>)}</Tabs>
       </div>
       <p className="muted" style={{ margin: '4px 0 8px' }}>Bills the association pays — electricity (common area, STP, WTP, clubhouse), water, diesel and more. Add and browse them in <b>Utilities → Association bills</b>; pay them here.</p>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '0 0 8px' }} data-testid="assoc-summary">

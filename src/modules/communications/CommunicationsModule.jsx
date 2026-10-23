@@ -18,6 +18,7 @@ import { TagsInput } from '../../components/DynamicForm.jsx';
 import { isEmptyHtml, htmlToText } from '../../lib/richtext/sanitize.js';
 import { isRead, markRead, markAllRead } from '../../lib/noticeReads.js';
 import { isApiMode } from '../../lib/storage/dataSource.js';
+import Tabs from '../../components/Tabs.jsx';
 
 const TYPES = ['Announcement', 'Emergency alert', 'Notice', 'Scheduled maintenance', 'Poll'];
 const timeLabel = (t) => { if (!t) return ''; const [h, m] = t.split(':').map(Number); return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`; };
@@ -186,9 +187,9 @@ export default function CommunicationsModule() {
           <p>Announcements, polls, owner e-voting, notice templates and the community forum.</p>
         </div>
       </div>
-      <div className="tabs" style={{ margin: '0 0 12px' }}>
+      <Tabs style={{ margin: '0 0 12px' }}>
         {tabs.map(([id, label]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}>{label}</button>)}
-      </div>
+      </Tabs>
 
       {tab === 'notices' && <NoticeList limit={10} title="Notices" />}
 

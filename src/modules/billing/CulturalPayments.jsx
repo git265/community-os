@@ -5,6 +5,7 @@ import { RecentNote, recentCutoff, inRecent } from '../../components/RecentWindo
 import { usePrompt } from '../../components/PromptDialog.jsx';
 import RecordDetail from './RecordDetail.jsx';
 import { fmtDate, money } from '../../lib/locale.js';
+import Tabs from '../../components/Tabs.jsx';
 
 const inr = (n) => money(n);
 const dmy = (s) => fmtDate(s, { empty: '—' });
@@ -66,9 +67,9 @@ export default function CulturalPayments({ onPay, canPay }) {
     <div className="card" style={{ marginBottom: 16 }} data-testid="cultural-payments">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <h2 style={{ margin: 0 }}>🎭 Cultural</h2>
-        <div className="tabs" style={{ margin: 0 }}>
+        <Tabs style={{ margin: 0 }}>
           {TABS.map(([k, l]) => <button key={k} className={show === k ? 'active' : ''} data-testid={`cp-${k}`} onClick={() => setShow(k)}>{l} ({by[k].length + (k === 'todo' ? by.relTodo.length : k === 'approval' ? by.relWait.length : k === 'paid' ? by.relPaid.length : 0)})</button>)}
-        </div>
+        </Tabs>
       </div>
       {rows.length === 0 && relRows.length === 0 ? <div className="empty">{show === 'todo' ? 'No approved cultural expense is waiting to be paid.' : show === 'approval' ? 'No cultural expense is waiting for approval.' : show === 'paid' ? 'Nothing paid yet.' : show === 'skipped' ? 'Nothing has been skipped.' : 'No unused budget has been credited back.'}</div> : (
         <ul className="list bk-list">

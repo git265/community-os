@@ -23,6 +23,7 @@ import DocumentPreview from '../../components/DocumentPreview.jsx';
 import { unitStatement } from '../../lib/documents/builders.js';
 import { fyStartMonth } from '../../lib/locale.js';
 import BlockNavigator, { NO_BLOCK, useBlockCounts } from './BlockNavigator.jsx';
+import Tabs from '../../components/Tabs.jsx';
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -136,9 +137,9 @@ function UnitDetail({ unit, onEdit, canEdit, canSeePrivate }) {
         {canEdit && <button className="btn secondary" onClick={() => onEdit(unit)}>Edit</button>}
       </div>
 
-      <div className="tabs">
+      <Tabs>
         {tabs.map((t) => <button key={t.id} className={t.id === tab ? 'active' : ''} onClick={() => setTab(t.id)}>{t.label}</button>)}
-      </div>
+      </Tabs>
 
       {tab === 'overview' && (
         <>
@@ -406,10 +407,10 @@ export default function PropertiesModule({ onNavigate }) {
 
       {!isResident && (
         <>
-          <div className="tabs" style={{ margin: '0 0 4px' }}>
+          <Tabs style={{ margin: '0 0 4px' }}>
             {tabAllowed('properties.units') && <button className={view === 'units' ? 'active' : ''} onClick={() => setView('units')}>Units</button>}
             {tabAllowed('properties.owners') && <button className={view === 'owners' ? 'active' : ''} onClick={() => setView('owners')}>Owners</button>}
-          </div>
+          </Tabs>
           <div className="card">
             <BlockNavigator counts={counts} value={block} onChange={pickBlock} />
             <div className="ud-bar-row">

@@ -5,6 +5,7 @@ import { canEdit } from '../../lib/access/permissions.js';
 import { runDueReminders } from '../../lib/dueReminders.js';
 import { getPrincipal } from '../../lib/security/principal.js';
 import { DEFAULT_UTILITY_TYPES } from '../../lib/utilityTypes.js';
+import Tabs from '../../components/Tabs.jsx';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 function currentMonthLabel() {
@@ -59,9 +60,9 @@ export default function UtilityBilling({ onNavigate }) {
 
       <div className="grid two">
         <div className="card">
-          <div className="tabs">
+          <Tabs>
             {utilTypes.map((u) => <button key={u.name} className={type === u.name ? 'active' : ''} onClick={() => setType(u.name)}>{u.icon} {u.name} rate card</button>)}
-          </div>
+          </Tabs>
           <h2>{type} rate card</h2>
           <p className="muted" style={{ marginTop: -6 }}>Bill = units consumed × rate + fixed charge + tax. Applied when a reading is published.</p>
           <div className="form-grid">

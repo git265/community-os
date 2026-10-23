@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import Tabs from '../../components/Tabs.jsx';
 
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const RANK = { Fail: 3, 'Pass with observations': 2, Pending: 1, Pass: 0 };
@@ -30,10 +31,10 @@ export default function AuditTimeline({ audits, onOpen }) {
   return (
     <div className="card" style={{ marginTop: 10 }} data-testid="audit-timeline">
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
-        <div className="tabs" style={{ margin: 0 }}>
+        <Tabs style={{ margin: 0 }}>
           <button className={mode === 'years' ? 'active' : ''} data-testid="tl-years" onClick={() => setMode('years')}>10 years</button>
           <button className={mode === 'months' ? 'active' : ''} data-testid="tl-months" onClick={() => setMode('months')}>Month by month</button>
-        </div>
+        </Tabs>
         {mode === 'months' && <select aria-label="Year" data-testid="tl-year" value={y} onChange={(e) => setYear(e.target.value)} style={{ width: 'auto' }}>{(years.length ? years : [y]).map((v) => <option key={v}>{v}</option>)}</select>}
         <span className="muted" style={{ fontSize: 12, marginLeft: 'auto' }}>
           {Object.keys(COLOR).map((k) => <span key={k} style={{ marginLeft: 8 }}><i style={{ display: 'inline-block', width: 10, height: 10, background: COLOR[k], borderRadius: 2, marginRight: 3 }} />{k === 'Pass with observations' ? 'Observations' : k}</span>)}

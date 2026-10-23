@@ -16,6 +16,7 @@ import { canEdit } from '../../lib/access/permissions.js';
 import { DueExtras } from '../../components/PayDue.jsx';
 import { monthLabel } from '../../lib/notice.js';
 import { money } from '../../lib/locale.js';
+import Tabs from '../../components/Tabs.jsx';
 
 const inr = (n) => money(n, { round: false });
 
@@ -65,9 +66,9 @@ export default function BillingModule({ onNavigate }) {
   return (
     <div>
       {taskRef && <TicketsModule embeddedRef={taskRef} onEmbeddedClose={() => setTaskRef(null)} />}
-      <div className="tabs" style={{ margin: '0 0 4px' }}>
+      <Tabs style={{ margin: '0 0 4px' }}>
         {tabs.map(([id, label]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}>{label}</button>)}
-      </div>
+      </Tabs>
 
       {isTreasury && tab === 'dashboard' && <TreasurerDashboard />}
 

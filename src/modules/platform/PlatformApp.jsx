@@ -7,6 +7,7 @@ import {
 } from '../../lib/platform/registry.js';
 import { DEFAULT_ROLES, CATEGORIES } from '../../lib/access/roles.js';
 import { storage, COLLECTIONS, isApiMode } from '../../lib/storage/index.js';
+import Tabs from '../../components/Tabs.jsx';
 
 const slugify = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30);
 const CAT_LABEL = { EC: 'Executive Committee', Staff: 'Facility staff', Resident: 'Owners & residents' };
@@ -183,7 +184,7 @@ export default function PlatformApp() {
           <button className="btn" onClick={() => setCreating(true)}>+ New community</button></div>
         {flash && <div className="notice success" style={{ marginBottom: 10 }}>{flash}</div>}
         {failure && <div className="notice error" style={{ marginBottom: 10 }}>{failure}</div>}
-        <div className="tabs"><button className={tab === 'communities' ? 'active' : ''} onClick={() => setTab('communities')}>Communities ({communities.length})</button>{!registryOnServer() && <button className={tab === 'people' ? 'active' : ''} onClick={() => setTab('people')}>People across communities</button>}</div>
+        <Tabs><button className={tab === 'communities' ? 'active' : ''} onClick={() => setTab('communities')}>Communities ({communities.length})</button>{!registryOnServer() && <button className={tab === 'people' ? 'active' : ''} onClick={() => setTab('people')}>People across communities</button>}</Tabs>
 
         {tab === 'communities' ? (
           <div className="card"><div className="table-wrap"><table className="resp-table">

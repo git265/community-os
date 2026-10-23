@@ -12,6 +12,7 @@ import { actualsByHead, sumHeads, balanceAsOf, fyOptions, fyRange, prevFy, curre
 import { MONTH_NAMES, compactMoney, money, fmtDate } from '../../lib/locale.js';
 import { DEPOSIT_TYPES } from '../../lib/lists/configLists.js';
 import { computeHeadroom, accountTotal, depositsOf, DEFAULT_SETTINGS } from '../../lib/bank/headroom.js';
+import Tabs from '../../components/Tabs.jsx';
 
 /** Amounts are stored in full; large ones are shown in the community's unit (lakh / crore, thousand / million, or full). */
 const amt = (n) => compactMoney(Number(n || 0));
@@ -49,11 +50,11 @@ export default function BankBudget() {
 
   return (
     <div>
-      <div className="tabs" style={{ margin: '0 0 12px' }}>
+      <Tabs style={{ margin: '0 0 12px' }}>
         {tabList.map(([k, label]) => (
           <button key={k} className={view === k ? 'active' : ''} onClick={() => setView(k)}>{label}</button>
         ))}
-      </div>
+      </Tabs>
       {view === 'summary' && <Summary accounts={accounts} txns={txns} deposits={deposits} />}
       {view === 'budget' && <Budget fy={fy} fySelect={FySelect} budget={budget} txns={txns} fixed={fixed} />}
       {view === 'fixed' && <Fixed fy={fy} fySelect={FySelect} fixed={fixed} txns={txns} accounts={accounts} settings={settings[0]} deposits={deposits} />}

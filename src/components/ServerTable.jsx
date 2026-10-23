@@ -244,17 +244,18 @@ setSort((s) => (s?.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } 
   return (
     <div className="stable">
       {(search || filters.length > 0 || periodFilter || dateFields.length > 0 || toolbarExtra) && (
-        <div className="stable-bar">
+        <div className={`stable-bar${showFilters ? ' filters-open' : ''}`}>
           {search && <input className="search" placeholder="Search…" value={text} onChange={(e) => setText(e.target.value)} />}
-          <ExportIcon getData={exportData} name={schema?.label || schemaFor?.(collection)?.label || collection} />
+          <span className="stable-tools"><ExportIcon getData={exportData} name={schema?.label || schemaFor?.(collection)?.label || collection} /></span>
           {asCards && sortOptions.length > 0 && (
             <select className="filter stable-sort" aria-label="Sort by" value={sort ? `${sort.key}:${sort.dir}` : ''} onChange={(e) => { const [key, dir] = e.target.value.split(':'); setSort({ key, dir }); }}>
               {!sort && <option value="">Sort…</option>}
               {sortOptions.map((o) => <option key={`${o.key}:${o.dir}`} value={`${o.key}:${o.dir}`}>{o.label}</option>)}
             </select>
           )}
-          {(filters.length > 0 || periodFilter || dateFields.length > 0) && (
-            <button type="button" className="btn secondary stable-filter-toggle" onClick={() => setShowFilters((v) => !v)}>
+          {/* on a phone sort, export and the page's own tools wait behind this button with the filters (one row: search + ⚙) */}
+          {(filters.length > 0 || periodFilter || dateFields.length > 0 || (asCards && sortOptions.length > 0) || toolbarExtra) && (
+            <button type="button" className="btn secondary stable-filter-toggle" aria-expanded={showFilters} aria-label="Sort, filter and export" onClick={() => setShowFilters((v) => !v)}>
               ⚙ Filters{Object.values(fvals).filter(Boolean).length + (from || to ? 1 : 0) + (pYear ? 1 : 0) + (pMonth ? 1 : 0) > 0 ? ` (${Object.values(fvals).filter(Boolean).length + (from || to ? 1 : 0) + (pYear ? 1 : 0) + (pMonth ? 1 : 0)})` : ''}
             </button>
           )}
@@ -316,7 +317,7 @@ setSort((s) => (s?.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } 
           )}
           {active && <button className="btn secondary" onClick={clearAll}>Clear</button>}
           </div>
-          {toolbarExtra}
+          {toolbarExtra && <span className="stable-tools">{toolbarExtra}</span>}
         </div>
       )}
       <div className="stable-count-line" data-testid="row-count">{result.approx ? `${result.total.toLocaleString()}+ records` : `${result.total} record${result.total === 1 ? '' : 's'}`}</div>

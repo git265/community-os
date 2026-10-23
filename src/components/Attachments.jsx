@@ -3,6 +3,7 @@ import { screenFiles, loadFileData, isImageMeta } from '../lib/files/attachments
 import FilePreview from './FilePreview.jsx';
 import { ATTACHMENT_ACCEPT, ATTACHMENT_HELP, MAX_BYTES } from '../lib/files/fileValidation.js';
 import { tell } from '../lib/net/activity.js';
+import { usePhone } from './Tabs.jsx';
 
 const kb = (n) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 const icon = (m) => (isImageMeta(m) ? '🖼' : /pdf/.test(m.mime || m.name) ? '📕' : /sheet|excel|xls|csv/.test(m.mime || m.name) ? '📊' : /word|doc/.test(m.mime || m.name) ? '📘' : '📄');
@@ -43,7 +44,8 @@ export function AttachmentList({ items = [], onRemove }) {
  * Multi-file picker. Files are screened immediately but only STORED when the parent form is saved:
  * `pending` / `onChange` is the parent's staged list.
  */
-export function AttachmentPicker({ pending, onChange, label = 'Add files', compact = false }) {
+export function AttachmentPicker({ pending, onChange, label = 'Add files', compact: compactProp = false }) {
+  const compact = usePhone() || compactProp;   // a phone always gets the photo / camera buttons, not the browser's file box
   const ref = useRef(null);
   const [busy, setBusy] = useState(false);
   const [rejected, setRejected] = useState([]);
@@ -81,7 +83,7 @@ export function AttachmentPicker({ pending, onChange, label = 'Add files', compa
           <button type="button" className="btn secondary" onClick={() => open(true)}>📷 Camera</button>
         </div>
       )}
-      <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>{compact ? `Photos, PDF or Word · max ${MAX_BYTES / 1024 / 1024} MB each · scanned before upload` : `${ATTACHMENT_HELP} · max ${MAX_BYTES / 1024 / 1024} MB each · checked for type, active content and viruses before upload`}</div>
+      <div className="muted file-help" style={{ fontSize: 12, marginTop: 4 }}>{compact ? `Photos, PDF or Word · max ${MAX_BYTES / 1024 / 1024} MB each · scanned before upload` : `${ATTACHMENT_HELP} · max ${MAX_BYTES / 1024 / 1024} MB each · checked for type, active content and viruses before upload`}</div>
       {busy && <div className="notice">🔍 Checking files…</div>}
       {rejected.map((r, i) => <div key={i} className="notice error">🚫 {r.name}: {r.reason}</div>)}
       {pending.length > 0 && (

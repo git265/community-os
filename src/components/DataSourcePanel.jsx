@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Modal from './Modal.jsx';
 import { getDataSource, setDataSource, pingBackend } from '../lib/storage/dataSource.js';
 import { getCommunity } from '../lib/community.js';
@@ -39,7 +39,7 @@ function SimulatedBank() {
   );
 }
 
-const show = () => import.meta.env.DEV || import.meta.env.VITE_SHOW_DATA_SOURCE === 'true' || getDataSource().mode !== 'session';
+export const show = () => import.meta.env.DEV || import.meta.env.VITE_SHOW_DATA_SOURCE === 'true' || getDataSource().mode !== 'session';
 
 /** Where the data lives: the browser demo store or the Spring Boot + PostgreSQL back end (backend/api). Flip and test. */
 export function DataSourcePanel({ onClose }) {
@@ -99,6 +99,8 @@ export function DataSourcePanel({ onClose }) {
 /** Small always-available chip (development, or whenever the back end is in use). */
 export default function DataSourceChip() {
   const [open, setOpen] = useState(false);
+  // on a phone the chip is hidden (it covered the lists): the profile menu opens the same panel
+  useEffect(() => { const h = () => setOpen(true); window.addEventListener('communityos:data-source', h); return () => window.removeEventListener('communityos:data-source', h); }, []);
   if (!show()) return null;
   const api = getDataSource().mode !== 'session';
   return (

@@ -7,6 +7,7 @@ import { getPrincipal } from '../../lib/security/principal.js';
 import { currencySymbol } from '../../lib/locale.js';
 import { BASES, LATE_KINDS, LATE_CATEGORIES, previewLevy, raiseLevy, lateFeeSettings, planLateFees, applyLateFees, issueCreditNotes, receiveAdvance, applyCredits, creditBalances, splitDue, inr, dmy, todayIso, addMonthsIso, addDaysIso } from '../../lib/finance/rules.js';
 import { MODES } from '../../lib/paymentEngine.js';
+import Tabs from '../../components/Tabs.jsx';
 
 const actor = () => getPrincipal().name;
 
@@ -163,10 +164,10 @@ export function CreditDialog({ onClose }) {
   return (
     <Modal title="Credits & advances" subtitle="Give different units different credits, or record money received before a bill exists. Credit is used on the unit's next bills automatically." onClose={onClose} wide>
       <div data-testid="credit-dialog">
-        <div className="tabs" style={{ margin: '0 0 8px' }}>
+        <Tabs style={{ margin: '0 0 8px' }}>
           <button className={mode === 'note' ? 'active' : ''} data-testid="cr-tab-note" onClick={() => { setMode('note'); setMsg(''); }}>Credit note</button>
           <button className={mode === 'advance' ? 'active' : ''} data-testid="cr-tab-adv" onClick={() => { setMode('advance'); setMsg(''); }}>Advance received</button>
-        </div>
+        </Tabs>
         {mode === 'note' ? (
           <>
             <div className="field"><label>Why is the credit given? *</label><input data-testid="cr-reason" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Billing error in September, lift outage, …" /></div>

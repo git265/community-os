@@ -8,6 +8,7 @@ import { releaseSummary } from '../../lib/approval/releases.js';
 import { liveDebits, grossOf, paymentBlock } from '../../lib/approval/moneyGuard.js';
 import { reversePayment } from '../../lib/paymentEngine.js';
 import { money } from '../../lib/locale.js';
+import Tabs from '../../components/Tabs.jsx';
 
 const inr = (n) => money(n, { round: false });
 const tone = (v) => (v === 'Approved' ? 'green' : v === 'Rejected' ? 'red' : 'orange');
@@ -102,9 +103,9 @@ export default function FinancialTasks({ onOpenTask, onPay }) {
     <div className="card" style={{ marginBottom: 16 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <h2 style={{ margin: 0 }}>🛠 Maintenance tasks &amp; invoices</h2>
-        <div className="tabs" style={{ margin: 0 }}>
+        <Tabs style={{ margin: 0 }}>
           {TABS.map(([k, l]) => <button key={k} className={show === k ? 'active' : ''} onClick={() => setShow(k)}>{l} ({count(k)})</button>)}
-        </div>
+        </Tabs>
       </div>
       {rows.length === 0 ? (
         <div className="empty">{show === 'todo' ? 'Nothing waiting to be paid.' : show === 'done' ? 'Nothing paid yet.' : show === 'skipped' ? 'Nothing has been skipped.' : 'No financial task is waiting for approval.'}</div>

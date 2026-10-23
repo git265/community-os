@@ -49,6 +49,8 @@ import ReleasesPanel from '../approval/ReleasesPanel.jsx';
 import { releaseSummary } from '../../lib/approval/releases.js';
 import { moneyPosition } from '../../lib/approval/position.js';
 import { money } from '../../lib/locale.js';
+import Tabs from '../../components/Tabs.jsx';
+import PageActions from '../../components/PageActions.jsx';
 
 const EMOJI = { Plumbing: '🔧', Electrical: '⚡', MEP: '🌀', Carpentry: '🪚', Housekeeping: '🧹', Gardening: '🌿', Landscape: '🌳', Security: '🛡', Amenities: '🎾', Cultural: '🎭', Helpdesk: '💬', General: '🧰', Other: '📋' };
 /** Super Admin only. Hidden (with the reason) while payments are recorded against the task. */
@@ -779,7 +781,7 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
           <h1>{isResident ? 'My Maintenance' : 'Maintenance operations'}</h1>
           <p>{isResident ? 'Raise a request and track it through to close-out.' : 'Role-queue assignment, financial workflow and staff workload.'}</p>
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <PageActions>
           {canRaiseRequest && (
             <button className={isResident ? 'btn' : 'btn secondary'} onClick={() => { setRaiseForm(blankRaiseForm()); setRaisePending([]); setRaiseErrors({}); setRaising('request'); }}>
               + <span className="m-hide">Raise </span>Maintenance Request{!isResident ? ` (${ownerUnit})` : ''}
@@ -791,17 +793,17 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
               + New task
             </button>
           )}
-        </div>
+        </PageActions>
       </div>
 
       {(showWishTab || showTabs) && (
-        <div className="tabs">
+        <Tabs>
           {(!showTabs || tabAllowed('tickets.tickets')) && <button className={tab === 'tickets' ? 'active' : ''} onClick={() => setTab('tickets')}>Tickets</button>}
           {showWishTab && (!showTabs || tabAllowed('tickets.wishlist')) && <button data-testid="tab-wishlist" className={tab === 'wishlist' ? 'active' : ''} onClick={() => setTab('wishlist')}>Wishlist</button>}
           {showTabs && tabAllowed('tickets.coverage') && <button className={tab === 'coverage' ? 'active' : ''} onClick={() => setTab('coverage')}>Category coverage</button>}
           {showTabs && canEditApprovers && tabAllowed('tickets.approvers') && <button className={tab === 'approvers' ? 'active' : ''} onClick={() => setTab('approvers')}>Final approvers</button>}
           {showTabs && canManageTypes && tabAllowed('tickets.types') && <button className={tab === 'types' ? 'active' : ''} onClick={() => setTab('types')}>Task Types</button>}
-        </div>
+        </Tabs>
       )}
 
       {tab === 'wishlist' && showWishTab ? (
@@ -1062,7 +1064,6 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
         <Modal title={selected.title} onClose={closeDetail} wide>
           {photoView && <FilePreview meta={photoView} onClose={() => setPhotoView(null)} />}
           {ticketHero(selected)}
-          <TaskDelete ticket={selected} onDone={closeDetail} />
           <SegTabs tabs={tabs} value={dtab} onChange={setDtab} label="Ticket sections" />
 
           <div hidden={dtab !== 'overview'} className="tk-pane">
@@ -1312,6 +1313,8 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
                 <li key={i} className={e.tone || ''}><i>{e.icon}</i><div><span>{e.text}</span>{e.when ? <small>{new Date(e.when).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', ...(String(e.when).length && new Date(e.when).getHours() + new Date(e.when).getMinutes() ? { hour: '2-digit', minute: '2-digit' } : {}) })}</small> : null}</div></li>
               ))}
             </ol>
+            {/* deleting a task is rare (Super Admin only): at the end of its history, not at the top of every task */}
+            <TaskDelete ticket={selected} onDone={closeDetail} />
           </div>
 
         </Modal>

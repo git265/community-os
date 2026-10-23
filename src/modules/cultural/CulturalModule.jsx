@@ -29,6 +29,7 @@ import ExpenseReleases from '../approval/ExpenseReleases.jsx';
 import { planState, decide as planDecide, stepWho } from '../../lib/approval/engine.js';
 import { getPrincipal } from '../../lib/security/principal.js';
 import { fmtDate, money } from '../../lib/locale.js';
+import Tabs from '../../components/Tabs.jsx';
 
 const addYear = (s) => (s ? `${Number(s.slice(0, 4)) + 1}${s.slice(4)}` : s); // same calendar date next year
 const weekday = (s) => (s ? new Date(`${s}T00:00:00`).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short' }) : '');
@@ -328,10 +329,10 @@ export default function CulturalModule() {
       </div>
 
       {finance && sorted.length > 0 && (
-        <div className="tabs" data-testid="cultural-view" style={{ margin: '0 0 8px' }}>
+        <Tabs data-testid="cultural-view" style={{ margin: '0 0 8px' }}>
           {tabAllowed('cultural.events') && <button type="button" className={view === 'events' ? 'active' : ''} data-testid="view-events" onClick={() => setView('events')}>Events</button>}
           {tabAllowed('cultural.budget') && <button type="button" className={view === 'budget' ? 'active' : ''} data-testid="view-budget" onClick={() => setView('budget')}>Budget vs actual</button>}
-        </div>
+        </Tabs>
       )}
       {finance && view === 'budget' && <BudgetDashboard events={sorted} canCredit={approver} onOpenEvent={(e) => { setEvId(e.id); setTab('overview'); setView('events'); }} />}
       {(view === 'budget' && finance) ? null : sorted.length === 0 ? <div className="card empty">No events yet.{manager ? ' Create the first one with “+ New event”.' : ' The cultural committee will publish events here.'}</div> : (
@@ -353,7 +354,7 @@ export default function CulturalModule() {
           </div>
           {ev && (
             <>
-              <div className="tabs sub">{tabs.map(([k, l]) => <button key={k} type="button" data-testid={`ctab-${k}`} className={tab === k ? 'active' : ''} onClick={() => setTab(k)}>{l}</button>)}</div>
+              <Tabs className="sub">{tabs.map(([k, l]) => <button key={k} type="button" data-testid={`ctab-${k}`} className={tab === k ? 'active' : ''} onClick={() => setTab(k)}>{l}</button>)}</Tabs>
 
               {tab === 'overview' && (
                 <div data-testid="cultural-overview">

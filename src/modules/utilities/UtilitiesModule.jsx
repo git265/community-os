@@ -20,6 +20,7 @@ import { uuid } from '../../lib/uuid.js';
 import { publishOnServer, publishReadings } from '../../lib/readingsPublish.js';
 import { DEFAULT_UTILITY_TYPES, addUtilityToSchemas } from '../../lib/utilityTypes.js';
 import { money } from '../../lib/locale.js';
+import Tabs from '../../components/Tabs.jsx';
 
 let typeList = DEFAULT_UTILITY_TYPES; // set by the screen each render (the types are data, not code)
 const icon = (u) => typeList.find((t) => t.name === u)?.icon || '📊';
@@ -342,15 +343,15 @@ export default function UtilitiesModule({ onNavigate, hideAssoc = false }) {
         </div>
       </div>
 
-      {(canTemplates || canBilling || canAssoc) && (showReadings ? 1 : 0) + (canBilling ? 1 : 0) + (canAssoc ? 1 : 0) + (canTemplates && tabAllowed('util.templates') ? 1 : 0) > 1 && <div className="tabs" data-testid="util-tabs">{showReadings && <button type="button" data-testid="utab-readings" className={utab === 'readings' ? 'active' : ''} onClick={() => setUtab('readings')}>Meter readings</button>}{canBilling && <button type="button" data-testid="utab-billing" className={utab === 'billing' ? 'active' : ''} onClick={() => setUtab('billing')}>Utility billing</button>}{canAssoc && <button type="button" data-testid="utab-assoc" className={utab === 'assoc' ? 'active' : ''} onClick={() => setUtab('assoc')}>Association bills</button>}{canTemplates && tabAllowed('util.templates') && <button type="button" data-testid="utab-templates" className={utab === 'templates' ? 'active' : ''} onClick={() => setUtab('templates')}>Bill templates</button>}</div>}
+      {(canTemplates || canBilling || canAssoc) && (showReadings ? 1 : 0) + (canBilling ? 1 : 0) + (canAssoc ? 1 : 0) + (canTemplates && tabAllowed('util.templates') ? 1 : 0) > 1 && <Tabs data-testid="util-tabs">{showReadings && <button type="button" data-testid="utab-readings" className={utab === 'readings' ? 'active' : ''} onClick={() => setUtab('readings')}>Meter readings</button>}{canBilling && <button type="button" data-testid="utab-billing" className={utab === 'billing' ? 'active' : ''} onClick={() => setUtab('billing')}>Utility billing</button>}{canAssoc && <button type="button" data-testid="utab-assoc" className={utab === 'assoc' ? 'active' : ''} onClick={() => setUtab('assoc')}>Association bills</button>}{canTemplates && tabAllowed('util.templates') && <button type="button" data-testid="utab-templates" className={utab === 'templates' ? 'active' : ''} onClick={() => setUtab('templates')}>Bill templates</button>}</Tabs>}
       {utab === 'assoc' && canAssoc ? <AssocBills onNavigate={onNavigate} /> : null}
       {utab === 'billing' && canBilling ? <UtilityBilling /> : null}
       {utab === 'assoc' && canAssoc ? null : utab === 'billing' && canBilling ? null : utab === 'templates' && canTemplates ? <NoticeTemplateDesigner scope="utility" /> : (<>
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="month-nav">
-          <div className="tabs" style={{ margin: 0 }}>
+          <Tabs style={{ margin: 0 }}>
             {UTILITIES.map((u) => <button key={u} className={utility === u ? 'active' : ''} onClick={() => setUtility(u)}>{icon(u)} {labelOf(u)}</button>)}
-          </div>
+          </Tabs>
           <select aria-label="Month" value={month} onChange={(e) => setMonth(e.target.value)} style={{ width: 'auto' }}>
             {months.map((m) => <option key={m} value={m}>{monthLabel(m)}</option>)}
           </select>

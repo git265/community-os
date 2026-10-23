@@ -2154,3 +2154,79 @@ dl.kv dd { margin: 0; }
 .ud-jump input { width: 220px; max-width: 60vw; }
 .ud-blocks-wait { padding: 8px 0; }
 @media (max-width: 640px) { .ud-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); max-height: 200px; } .ud-jump input { width: 100%; max-width: none; flex: 1; } .ud-jump { width: 100%; } }
+
+/* Round 47: phones show what is used most, the rest is one tap away (components/Tabs.jsx: the tabs that fit on one row + "More ▾") */
+.tabs { position: relative; }
+.tabs-measure { position: absolute; left: 0; top: 0; visibility: hidden; pointer-events: none; display: flex; gap: 4px; white-space: nowrap; height: 0; overflow: hidden; }
+.tabs-measure > button { flex: none !important; white-space: nowrap !important; padding: 8px 10px !important; }
+@media (max-width: 900px) {
+  .tabs.tabs-fit { flex-wrap: nowrap !important; overflow: visible !important; }
+  .tabs.tabs-fit > button { flex: 0 1 auto !important; white-space: nowrap !important; }
+  .tabs-more { position: relative; margin-left: auto; flex: none; }
+  .tabs-more > button { padding: 8px 10px; background: transparent; color: var(--muted); border-bottom: 2px solid transparent; white-space: nowrap; min-height: var(--ctl-h, 40px); }
+  .tabs-menu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 40; min-width: 190px; background: #fff; border: 1px solid var(--line); border-radius: 12px;
+    box-shadow: 0 10px 28px #0f172a26; padding: 6px; display: flex; flex-direction: column; }
+  .tabs-menu > button { text-align: left; padding: 10px 12px !important; border: 0 !important; border-radius: 8px; background: transparent; color: var(--ink); white-space: nowrap; }
+  .tabs-menu > button:hover, .tabs-menu > button.active { background: #eff5ff; color: var(--blue); }
+  /* the summary tiles: one row of counts (swipe for more) instead of a block of cards */
+  .stat-tiles { display: flex !important; flex-wrap: nowrap; overflow-x: auto; gap: 6px; margin: 6px 0; scrollbar-width: none; }
+  .stat-tiles::-webkit-scrollbar { display: none; }
+  .stat-tile { flex: none; flex-direction: row; gap: 6px; padding: 6px 12px; border-radius: 999px; min-height: 36px; }
+  .stat-tile b { font-size: 15px; }
+  .stat-tile span { font-size: 12.5px; color: inherit; }
+  /* page descriptions: the header already names the page */
+  .content .page-head > div > p { display: none !important; }
+  /* the data-source badge lives in the profile menu on a phone (it covered the lists) */
+  .ds-chip { display: none !important; }
+}
+.profile-menu .mobile-only { display: none; }
+@media (max-width: 900px) { .profile-menu .mobile-only { display: block; } }
+@media (max-width: 700px) {
+  /* lists: one row - search and ⚙; sort, export and the page's tools open with the filters */
+  .stable-bar { flex-wrap: wrap; }
+  .stable-bar > .search { flex: 1 1 0; min-width: 0; }
+  .stable-bar:not(.filters-open) > .stable-sort, .stable-bar:not(.filters-open) > .stable-tools { display: none !important; }
+  .stable-bar.filters-open > .stable-sort { order: 3; flex: 1 1 100%; }
+  .stable-bar.filters-open > .stable-tools { order: 4; }
+  .stable-bar > .stable-filters { order: 5; }
+  .stable-tools { display: inline-flex; gap: 6px; }
+  .stable-filter-toggle { flex: none; }
+}
+/* page buttons (components/PageActions.jsx): on a phone the main one + "⋯" */
+.page-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.page-actions.phone { flex-wrap: nowrap; width: 100%; }
+.page-actions.phone > .btn { flex: 1 1 auto; }
+.pa-more { position: relative; flex: none; }
+.pa-more-btn { width: 44px; padding: 0 !important; font-size: 20px; line-height: 1; }
+.pa-menu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 40; min-width: 230px; background: #fff; border: 1px solid var(--line); border-radius: 12px;
+  box-shadow: 0 10px 28px #0f172a26; padding: 6px; display: flex; flex-direction: column; gap: 2px; }
+.pa-menu > .btn, .pa-menu > button { width: 100% !important; justify-content: flex-start !important; text-align: left; background: transparent !important; border: 0 !important;
+  color: var(--ink) !important; box-shadow: none !important; min-height: 42px; padding: 8px 12px !important; border-radius: 8px; }
+.pa-menu > .btn:hover, .pa-menu > button:hover { background: #eff5ff !important; }
+.pa-menu .m-hide { display: inline !important; }
+@media (max-width: 700px) {
+  /* Maintenance: the lines above the list take one row each */
+  [data-testid=faulty-assets] { padding: 6px 10px !important; margin-bottom: 8px !important; }
+  [data-testid=faulty-assets] .record-meta-toggle > small { display: none; }
+  .approval-banner { padding: 6px 6px 6px 12px; font-size: 13.5px; gap: 8px; margin-bottom: 8px; }
+  .approval-banner .btn { min-height: 34px; padding: 4px 10px; font-size: 13px; flex: none; }
+  .tk-scope { gap: 8px; margin-bottom: 6px; }
+}
+@media (max-width: 700px) {
+  /* Home: the four numbers in two short rows; the maintenance counts as one row of chips */
+  .grid.metrics { gap: 8px; }
+  .card.metric { padding: 9px 11px; min-height: 0; }
+  .card.metric .value { font-size: 22px; margin: 2px 0; }
+  .card.metric .label, .card.metric .muted { font-size: 12.5px; }
+  [data-testid=maint-summary] > p { display: none; }
+  [data-testid=maint-summary] .stat-cards.six { display: flex !important; flex-wrap: nowrap; overflow-x: auto; gap: 6px; margin-top: 8px !important; scrollbar-width: none; }
+  [data-testid=maint-summary] .stat-cards.six::-webkit-scrollbar { display: none; }
+  [data-testid=maint-summary] .stat-card { display: flex !important; flex: none; flex-direction: row-reverse; align-items: center !important; justify-content: center; gap: 6px; padding: 6px 12px !important; border-radius: 999px; min-height: 36px !important; min-width: 0 !important; width: auto !important; }
+  [data-testid=maint-summary] .stat-card .sc-value { font-size: 15px; }
+  [data-testid=maint-summary] .stat-card .sc-label { font-size: 12.5px !important; white-space: nowrap !important; }
+  [data-testid=maint-summary] .stat-card > span { margin: 0 !important; line-height: 1.2 !important; min-height: 0 !important; height: auto !important; align-self: center !important; }
+}
+@media (max-width: 700px) {
+  /* a task's details: the help under each field and the file rules are for the computer; the fields and buttons stay */
+  .tk-pane .field > small.muted, .tk-pane .file-help, .modal-body .file-help { display: none; }
+}

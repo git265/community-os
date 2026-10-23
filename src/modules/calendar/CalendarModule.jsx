@@ -7,6 +7,7 @@ import Modal from '../../components/Modal.jsx';
 import { notify } from '../../lib/notify.js';
 import { servicesOrBuiltin, svcOf, effectOf, effectText, EFFECTS, SERVICE_MODES, collectionOn, accessOn, holidayOn, timeText, parseHolidays } from '../../lib/siteCalendar.js';
 import { iso, parse, addDays, WEEKDAYS } from '../../lib/shifts.js';
+import Tabs from '../../components/Tabs.jsx';
 
 const dlong = (s) => parse(s).toLocaleDateString('en-GB', { weekday: 'long', day: '2-digit', month: 'short', year: 'numeric' });
 const dshort = (s) => parse(s).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
@@ -289,7 +290,7 @@ export default function CalendarModule() {
         {hToday && <div className="card"><div className="label">🎉 Holiday today</div><div style={{ fontWeight: 700 }}>{hToday.name}</div></div>}
       </div>
 
-      <div className="tabs">{TABS.map((k) => { const s = services.find((x) => x.name === k); return <button key={k} type="button" data-testid={`cal-${k}`} className={curTab === k ? 'active' : ''} onClick={() => setTab(k)}>{s ? `${s.icon || '📌'} ` : k === 'Holidays' ? '🎉 ' : '⚙ '}{k}{k === 'Holidays' ? ` (${futureH.length})` : ''}</button>; })}</div>
+      <Tabs>{TABS.map((k) => { const s = services.find((x) => x.name === k); return <button key={k} type="button" data-testid={`cal-${k}`} className={curTab === k ? 'active' : ''} onClick={() => setTab(k)}>{s ? `${s.icon || '📌'} ` : k === 'Holidays' ? '🎉 ' : '⚙ '}{k}{k === 'Holidays' ? ` (${futureH.length})` : ''}</button>; })}</Tabs>
 
       {svc && (
         <>

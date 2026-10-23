@@ -4,6 +4,7 @@ import { getPrincipal } from '../../lib/security/principal.js';
 import ShiftsModule from '../shifts/ShiftsModule.jsx';
 import AttendanceTab from './AttendanceTab.jsx';
 import SiteRulesTab from './SiteRulesTab.jsx';
+import Tabs from '../../components/Tabs.jsx';
 
 /** Workforce & attendance: clock in/out, attendance reports, shift planning and the site / GPS rules. */
 export default function WorkforceModule() {
@@ -17,7 +18,7 @@ export default function WorkforceModule() {
   return (
     <div>
       <div className="page-head"><div><h1>Workforce</h1><p>Attendance reports (clock in/out is the button in the top bar), GPS records, shift planning and site rules for facility and field staff.</p></div></div>
-      <div className="tabs">{tabs.map(([k, l]) => <button key={k} type="button" data-testid={`wtab-${k}`} className={tab === k ? 'active' : ''} onClick={() => setTab(k)}>{l}</button>)}</div>
+      <Tabs>{tabs.map(([k, l]) => <button key={k} type="button" data-testid={`wtab-${k}`} className={tab === k ? 'active' : ''} onClick={() => setTab(k)}>{l}</button>)}</Tabs>
       {tab === 'attendance' && <AttendanceTab />}
       {tab === 'shifts' && <ShiftsModule embedded />}
       {tab === 'site' && sup && <SiteRulesTab />}

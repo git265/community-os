@@ -5,6 +5,7 @@ import { loadFileData, downloadAttachment } from '../lib/files/attachments.js';
 import { getDataSource } from '../lib/storage/dataSource.js';
 import { readWorkbook } from '../lib/files/xlsxRead.js';
 import { sanitizeHtml } from '../lib/richtext/sanitize.js';
+import Tabs from './Tabs.jsx';
 
 const extOf = (m) => String(m?.name || '').split('.').pop().toLowerCase();
 export function previewKind(m) {
@@ -68,7 +69,7 @@ export default function FilePreview({ meta, onClose }) {
         {state.kind === 'docx' && <div className="doc-preview" style={{ maxHeight: '70vh', overflow: 'auto' }} dangerouslySetInnerHTML={{ __html: state.html }} />}
         {state.kind === 'sheet' && (
           <div>
-            {state.sheets.length > 1 && <div className="tabs" style={{ margin: '0 0 8px' }}>{state.sheets.map((s, i) => <button key={s.name} className={i === state.sheet ? 'active' : ''} onClick={() => setState((x) => ({ ...x, sheet: i }))}>{s.name}</button>)}</div>}
+            {state.sheets.length > 1 && <Tabs style={{ margin: '0 0 8px' }}>{state.sheets.map((s, i) => <button key={s.name} className={i === state.sheet ? 'active' : ''} onClick={() => setState((x) => ({ ...x, sheet: i }))}>{s.name}</button>)}</Tabs>}
             <div className="sheet-preview" style={{ maxHeight: '70vh', overflow: 'auto' }} dangerouslySetInnerHTML={{ __html: state.sheets[state.sheet].html }} />
           </div>
         )}
