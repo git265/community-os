@@ -53,7 +53,8 @@ export function PayDueModal({ due, onClose }) {
   // paying as the owner (online through the provider): a resident always; an owner on the committee for their own unit, unless they
   // switch to recording a payment that arrived another way (finance roles only)
   const resident = isResident || (own && (asOwner || !finance));
-  const modes = resident ? ONLINE : ALL_MODES;
+  // on the back end online money is recorded by the provider itself; the office records cash, cheques and bank transfers
+  const modes = resident ? ONLINE : serverDecides() ? ALL_MODES.filter((m) => ['Cheque', 'Cash', 'Bank transfer'].includes(m)) : ALL_MODES;
   const [mode, setMode] = useState(modes[0]);
   const [ref, setRef] = useState('');
   const [paidOn, setPaidOn] = useState(todayIso());

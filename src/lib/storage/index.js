@@ -4,6 +4,7 @@ import { getDataSource } from './dataSource.js';
 import { getCommunity } from '../community.js';
 import { getAuthUser } from '../auth/session.js';
 import { COLLECTIONS } from './StorageAdapter.js';
+import { announceChange } from './changes.js';
 export { COLLECTIONS };
 export { getDataSource, setDataSource, isApiMode, pingBackend } from './dataSource.js';
 
@@ -19,6 +20,26 @@ const METHODS = ['list', 'query', 'get', 'put', 'putMany', 'remove', 'replaceAll
 // stale or to hold memory: the next read after that is a fresh request. A write drops the waiting reads of its collection so
 // nobody joins a read that started before the write.
 const READS = new Set(['list', 'get', 'query']);
+const WRITES = new Set(['put', 'putMany', 'remove', 'replaceAll']);
+// Every write, however it got here (the rule book, a bill run, a background job), tells the screens which collection changed, so the
+// lists behind a pop-up reload. Not for the audit trail (every save writes a line), file bytes or the guards' heartbeat.
+const QUIET = new Set([COLLECTIONS.AUDIT, COLLECTIONS.FILES, COLLECTIONS.GATE_PULSE]);
+const told = (c) => { if (typeof c === 'string' && c && !QUIET.has(c)) announceChange(c); };
+// On the back end one save can change other records too (the server books the payment of a paid bill, prices a booking's bill ...):
+// the lists of those reload as well. (In the browser store each of those writes passes through here and is announced by itself.)
+const ALSO = {
+  [COLLECTIONS.DUES]: [COLLECTIONS.LEDGER],
+  [COLLECTIONS.AMENITIES]: [COLLECTIONS.DUES, COLLECTIONS.LEDGER],
+  [COLLECTIONS.READINGS]: [COLLECTIONS.DUES],
+  [COLLECTIONS.QUOTATIONS]: [COLLECTIONS.TICKETS, COLLECTIONS.LEDGER],
+  [COLLECTIONS.RELEASES]: [COLLECTIONS.LEDGER, COLLECTIONS.QUOTATIONS],
+  [COLLECTIONS.CULTURAL_DONATIONS]: [COLLECTIONS.LEDGER],
+  [COLLECTIONS.CULTURAL_EXPENSES]: [COLLECTIONS.LEDGER],
+  [COLLECTIONS.ASSOC_BILLS]: [COLLECTIONS.LEDGER],
+  [COLLECTIONS.BANK_TXNS]: [COLLECTIONS.LEDGER],
+  [COLLECTIONS.LEDGER]: [COLLECTIONS.BANK_TXNS, COLLECTIONS.DUES],
+};
+const toldV2 = (c) => { told(c); for (const x of ALSO[c] || []) told(x); };
 const inflight = new Map(); // `${slug}|${collection}|${method}|${args}` -> Promise
 // Reference lists - units, members, roles, staff, task types, settings, catalogues - are read by many screens and change seldom: on the back end
 // (v2) an answer is kept for KEEP_MS, so moving between pages does not fetch them again. Kept answers are dropped by ANY write from this tab,
@@ -36,7 +57,10 @@ const whoNow = () => { const u = getAuthUser(); return u ? String(u.membershipId
 const dropReads = (slug, collection) => { const p = `${slug}|`; const c = `|${collection}|`; for (const k of inflight.keys()) if (k.startsWith(p) && k.includes(c)) inflight.delete(k); };
 export const storage = Object.fromEntries(METHODS.map((m) => [m, (...args) => {
   const a = activeAdapter();
-  if (a !== V2ApiAdapter) return a[m](...args);
+  if (a !== V2ApiAdapter) {
+    if (!WRITES.has(m)) return a[m](...args);
+    return Promise.resolve(a[m](...args)).then((v) => { told(args[0]); return v; });
+  }
   const slug = slugNow(); const collection = typeof args[0] === 'string' ? args[0] : '';
   if (READS.has(m)) {
     const key = `${slug}|${whoNow()}|${collection}|${m}|${JSON.stringify(args.slice(1))}`;
@@ -53,7 +77,7 @@ export const storage = Object.fromEntries(METHODS.map((m) => [m, (...args) => {
   }
   if (m === 'put' || m === 'putMany' || m === 'remove' || m === 'replaceAll') {
     dropReads(slug, collection); forgetKept();
-    return a[m](...args).finally(() => { dropReads(slug, collection); forgetKept(); });   // a write can change other lists too (a payment, a bill)
+    return a[m](...args).then((v) => { toldV2(collection); return v; }).finally(() => { dropReads(slug, collection); forgetKept(); });   // a write can change other lists too (a payment, a bill)
   }
   return a[m](...args);
 }]));

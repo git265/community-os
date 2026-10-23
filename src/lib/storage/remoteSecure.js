@@ -1,13 +1,14 @@
 // secureStorage when the BACK END (backend/api) is the authority: this browser only asks. Who may see which rows, which fields are hidden, what a
 // write is allowed to change, the stamps and the audit line are all decided and written by the server in one transaction.
 import { storage } from './index.js';
+import { announceChange } from './changes.js';
 import { uuid } from '../uuid.js';
 import { ConflictError } from '../security/errors.js';
 
 // After every write the screens are told, exactly as the browser rule book does (secureStorage.js notify): every list of that collection reloads and
 // holds the version the server just stamped. Without this a screen kept the version it had before the save, and the NEXT save of the same record was
 // refused as "changed by someone else".
-const changed = (c) => { if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('communityos:changed', { detail: { collection: c } })); };
+const changed = (c) => announceChange(c);
 const announce = (c) => (result) => { changed(c); return result; };
 
 // A safety net for screens that keep their own copy of a record and do not reload it after saving: the versions THIS tab wrote, per record.

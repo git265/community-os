@@ -12,6 +12,7 @@ async function call(path, init) {
 export const proposePayout = (lineId) => call(`${lineId}/payout`);
 export async function matchPayout(lineId, paymentIds) {
   const out = await call(`${lineId}/payout`, { method: 'POST', body: JSON.stringify({ paymentIds }) });
-  (await import('./storage/index.js')).forgetKept?.();
+  const { forgetKept, COLLECTIONS: C } = await import('./storage/index.js'); forgetKept?.();
+  (await import('./storage/changes.js')).announceChange(C.BANK_TXNS, C.LEDGER);   // the bank line is matched and the payout booked: those lists reload
   return out;
 }

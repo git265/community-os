@@ -502,7 +502,16 @@ async function putDue(rec) {
     const verb = to === 'Cancelled' ? 'cancel' : 'waive';
     return dueOf(await call(`/dues/${encodeURIComponent(rec.id)}/${verb}`, json('POST', { reason: rec.cancelReason || rec.reason || '' }, ifMatch(rec.version ?? before.version))));
   }
-  if (to === 'Paid' && before.serverStatus !== 'Paid') throw new Error('A bill is marked paid by recording the payment (Payments), not by editing the bill.');
+  if (to === 'Paid' && before.serverStatus !== 'Paid') {
+    // money received at the office (cash, cheque, bank transfer) for this bill: the server books the receipt and settles the bill in one step
+    const OFFICE = ['Cash', 'Cheque', 'Bank transfer'];
+    if (!OFFICE.includes(rec.paymentMode)) throw new Error('Online payments are recorded by the payment provider. At the office, record cash, a cheque or a bank transfer.');
+    const owed = before.outstanding > 0 ? before.outstanding : before.amount;
+    const r = await call('/payments', json('POST', { unitId: before.unitId, amount: Number(owed).toFixed(2), method: rec.paymentMode, receivedOn: rec.paidAt || null, dueIds: [rec.id],
+      reference: rec.paymentRef && rec.paymentRef !== '—' ? rec.paymentRef : null }));
+    const now = await readers.dues.get(rec.id);
+    return { ...(now || before), paymentMode: r?.method || rec.paymentMode, paymentRef: rec.paymentRef || '', receiptNo: r?.receiptNo || rec.receiptNo || '', paidBy: rec.paidBy || '' };
+  }
   return before;   // a bill's amounts are never edited: a correction is a new bill
 }
 

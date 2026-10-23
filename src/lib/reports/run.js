@@ -39,7 +39,7 @@ export async function previewSchedule(s, now = new Date()) {
 export async function runSchedule(s, { now = new Date(), by = 'System · scheduled reports', manual = false } = {}) {
   if (onServer()) {
     if (s.reportType === 'custom') throw new Error('On this back end a custom report is previewed on the screen; scheduled sending is for the built-in reports.');
-    const r = await runReportNow(s.id); changed(C.REPORT_RUNS);
+    const r = await runReportNow(s.id); changed(C.REPORT_RUNS); changed(C.REPORT_SCHEDULES);   // the server stamps the schedule's last run too
     return { rep: { title: s.name, lines: [] }, silent: !!r.silent, inApp: r.delivered || 0, queued: 0, skipped: 0, sentTo: r.sentTo };
   }
   const { def, data, rep } = await previewSchedule(s, now);

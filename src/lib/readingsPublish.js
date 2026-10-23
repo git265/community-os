@@ -8,6 +8,8 @@ export const publishOnServer = () => getDataSource().mode === 'v2';
 export async function publishReadings(readingIds, dueDate) {
   const res = await apiFetch('/v1/billing/readings/publish', { method: 'POST', body: JSON.stringify({ readingIds, dueDate }) });
   if (!res.ok) throw await failureOf(res, 'publishing');
-  const { forgetKept } = await import('./storage/index.js'); forgetKept?.();   // the bills and readings lists changed on the server
-  return res.json();
+  const { forgetKept, COLLECTIONS: C } = await import('./storage/index.js'); forgetKept?.();   // the bills and readings lists changed on the server
+  const out = await res.json();
+  (await import('./storage/changes.js')).announceChange(C.READINGS, C.DUES, C.LEDGER, 'notifications');   // ... so the readings table and the bills behind the dialog reload
+  return out;
 }

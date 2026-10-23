@@ -25,6 +25,7 @@ import { recordMapVersion } from '../infra/mapVersions.js';
 import { meetingPreWrite, meetingPostWrite } from '../meetingServer.js';
 import { moneyPreWrite } from '../approval/moneyGuard.js';
 import { propertyPreWrite, propertyPostWrite, pollPreWrite } from '../propertyServer.js';
+import { announceChange } from './changes.js';
 
 // Every record has TWO identifiers:
 //   id      - a UUID, the primary key. Used for storage/lookup/links. NEVER shown in the UI.
@@ -71,7 +72,7 @@ export async function nextShortId(collection) {
 // (conversation, not records) and raw file bytes (the owning record carries the audit).
 const NO_AUDIT = new Set([COLLECTIONS.FORUM, COLLECTIONS.FORUM_POSTS, COLLECTIONS.FILES, COLLECTIONS.VENDOR_COMMENTS, COLLECTIONS.BALLOT_BOX, COLLECTIONS.POLL_VOTES]);
 
-const notify = (collection) => window.dispatchEvent(new CustomEvent('communityos:changed', { detail: { collection } }));
+const notify = (collection) => announceChange(collection);
 const actorLabel = (p) => (p.name === p.role?.name ? p.name : `${p.name} (${p.role?.name ?? p.roleId})`);
 const unitOf = (r) => r?.unit || r?.hostUnit || '';
 

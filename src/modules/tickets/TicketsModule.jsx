@@ -1211,7 +1211,7 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
               )}
               <div className={`field${slaMissing ? ' invalid' : ''}`}><label>SLA due{isEC && open ? ' *' : ''}</label>
                 {isEC && open ? (
-                  <input type="date" min={todayIso()} value={/^\d{4}-\d{2}-\d{2}$/.test(draft.slaDueAt) ? draft.slaDueAt : ''} onChange={(e) => setD('slaDueAt', e.target.value)} />
+                  <input type="date" min={/^\d{4}-\d{2}-\d{2}$/.test(selected?.slaDueAt || '') && selected.slaDueAt < todayIso() ? selected.slaDueAt : todayIso()} value={/^\d{4}-\d{2}-\d{2}$/.test(draft.slaDueAt) ? draft.slaDueAt : ''} onChange={(e) => setD('slaDueAt', e.target.value)} />
                 ) : <div className="ro-value">{slaLabel(selected.slaDueAt)}</div>}
                 {slaMissing && <div className="field-error">SLA due is required</div>}
                 {canManageTickets && !isEC && open && <small className="muted">Only an EC member can change the SLA date.</small>}

@@ -222,7 +222,10 @@ export default function DynamicForm({ schema, roleId, record, onSave, onCancel, 
         );
       case 'date':
         // Dates can't be picked in the past (only search filters may look back) - except fields that record something that already happened.
-        return <input type="date" value={value} min={field.allowPast ? undefined : today()} onChange={(e) => setValue(field.key, e.target.value)} />;
+        // A saved record whose date has since passed (a contract that ended, a renewal now overdue) keeps it: the earliest choice is that date,
+        // so the browser never blocks "Save" on a field nobody touched.
+        { const was = String(record?.[field.key] || ''); const floor = /^\d{4}-\d{2}-\d{2}/.test(was) && was.slice(0, 10) < today() ? was.slice(0, 10) : today();
+          return <input type="date" value={value} min={field.allowPast ? undefined : floor} onChange={(e) => setValue(field.key, e.target.value)} />; }
       case 'time':
         return <input type="time" value={value} onChange={(e) => setValue(field.key, e.target.value)} />;
       case 'textarea':
