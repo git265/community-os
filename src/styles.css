@@ -136,7 +136,7 @@ tbody tr:hover { background: #f8fbff; }
 
 .form-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 13px; }
 .field label { display: block; font-size: 12px; font-weight: 650; color: var(--ink); margin-bottom: 5px; }
-.field input, .field select, .field textarea, .assign input, .assign select, .assign textarea, .rules-box textarea, .modal-body input:not([type=checkbox]), .modal-body select, .modal-body textarea { width: 100%; padding: 10px; border: 1.5px solid #b9c4d0; border-radius: 7px; background: #f7f9fc; color: var(--ink); }
+.field input, .field select, .field textarea, .assign input, .assign select, .assign textarea, .rules-box textarea, .modal-body input:not([type=checkbox]), .modal-body select, .modal-body textarea { width: 100%; padding: 10px; border: 1.5px solid #b9c4d0; border-radius: 7px; background: #f4f7fb; color: var(--ink); }
 .field input:focus, .field select:focus, .field textarea:focus, .modal-body input:focus, .modal-body select:focus, .modal-body textarea:focus { outline: none; border-color: var(--blue); background: #fff; box-shadow: 0 0 0 3px #377dff22; }
 .field.invalid input, .field.invalid select, .field.invalid textarea { border-color: var(--red); background: #fff7f7; }
 .field-error { color: #c7364a; font-size: 12px; margin-top: 4px; }
@@ -550,7 +550,7 @@ input[type=file]::file-selector-button{border:0;background:var(--blue);color:#ff
 
 .modal-sub { margin: 0; padding: 10px 20px 0; color: var(--muted); font-size: 13px; }
 @media (max-width: 900px) { .modal-sub { padding: 10px 16px 0; } }
-.ro-block { background: #f7f9fc; border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.ro-block { background: #f4f7fb; border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
 .ro-block h3 { margin: 0 0 8px; font-size: 14px; }
 .vs-lines { display: grid; gap: 8px; margin-top: 6px; }
 .vs-line { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; min-width: 0; }
@@ -1678,7 +1678,7 @@ textarea { font-size: var(--ctl-fs); padding: 8px 10px; border-radius: var(--ctl
 .infra-confirm { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; background: #fff8e6; border: 1px solid #f3dc9c; border-radius: 8px; padding: 8px; }
 .infra-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 13px; }
 .infra-legend { display: grid; gap: 4px; }
-.infra-legend-row { display: flex; align-items: flex-start; gap: 4px; width: 100%; padding: 7px 8px; background: #f7f9fc; border-radius: 8px; text-align: left; color: var(--ink); }
+.infra-legend-row { display: flex; align-items: flex-start; gap: 4px; width: 100%; padding: 7px 8px; background: #f4f7fb; border-radius: 8px; text-align: left; color: var(--ink); }
 .infra-legend-row.static { cursor: default; }
 .infra-legend-row small { display: block; color: var(--muted); font-size: 12px; font-weight: 400; }
 .infra-legend-row em { margin-left: auto; font-style: normal; font-weight: 700; }
@@ -1952,7 +1952,7 @@ dl.kv dd { margin: 0; }
 /* UPI in the (simulated) checkout: an app list on a phone, a QR code on a computer, then the payer's UPI app with their linked accounts */
 .upi-box { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin: 4px 0 10px; }
 .upi-tabs { display: flex; gap: 6px; }
-.upi-tabs button { flex: 1; padding: 8px; border-radius: 9px; border: 1px solid var(--line); background: #f7f9fc; font-weight: 600; }
+.upi-tabs button { flex: 1; padding: 8px; border-radius: 9px; border: 1px solid var(--line); background: #f4f7fb; font-weight: 600; }
 .upi-tabs button.on { background: #eaf2ff; border-color: #377dff; color: #1d3f7a; }
 .upi-apps { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
 .upi-app { padding: 12px 8px; border-radius: 10px; border: 1px solid var(--line); background: #fff; font-weight: 600; }
@@ -2491,26 +2491,26 @@ b, strong { font-weight: 500 !important; }
    selected     blue (tab underline, filter chip, page in the bar)
    statuses     grey = open or in work · amber = waiting / due today · red = overdue, High, Critical · green = done, paid */
 :root { --blue: #1d4ed8; --t-info-bg: #f3f4f6; --t-info: #374151; }
-.btn:not(.secondary):not(.danger):not(.icon-tool), .btn.good { background: #dbeafe !important; color: #1e3a8a !important; border: 1px solid #93c5fd !important; }
+.btn:not(.secondary):not(.danger):not(.icon-tool), .btn.good { background: #d3e4ff !important; color: #1d4ed8 !important; border: 1px solid #8db8fb !important; }
 .btn:not(.secondary):not(.danger):not(.icon-tool) * { color: inherit; }
-.btn:not(.secondary):not(.danger):not(.icon-tool):hover:not(:disabled) { background: #bfdbfe !important; border-color: #60a5fa !important; }
+.btn:not(.secondary):not(.danger):not(.icon-tool):hover:not(:disabled) { background: #bcd4ff !important; border-color: #60a5fa !important; }
 .btn:not(.secondary):not(.danger):not(.icon-tool):disabled { background: #eef4fc !important; color: #7a8cab !important; border-color: #cfe0f7 !important; }
 .btn:focus-visible, button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid #3b82f6; outline-offset: 2px; }
 input[type=checkbox], input[type=radio], input[type=range] { accent-color: #1d4ed8; }
 .tabs button.active, .tabs button.on, .seg-tabs button.on, .tabs button[aria-selected=true] { color: #1d4ed8 !important; border-color: #1d4ed8 !important; }
 .chip-btn.on, .chip.on, .chip-btn.active, .chip-row button.active, .chips .chip.on, .year-chips button.active, .pick-tile.on {
-  background: #dbeafe !important; color: #1e3a8a !important; border-color: #93c5fd !important;
+  background: #d3e4ff !important; color: #1d4ed8 !important; border-color: #8db8fb !important;
 }
-.chip-btn.on b, .chip.on b, .chip-btn.on small, .chip.on small, .year-chips button.active small { color: #1e3a8a !important; }
-.chip-row .chip-x, .chip-btn.on .chip-x { background: #fff !important; color: #1e3a8a !important; border: 1px solid #93c5fd !important; }
-.stat-tile.on, .ud-card.on, .up-sec.on { background: #eff6ff !important; border-color: #93c5fd !important; box-shadow: none !important; }
-.stat-tile.on *, .ud-card.on *, .up-sec.on b { color: #1e3a8a !important; }
+.chip-btn.on b, .chip.on b, .chip-btn.on small, .chip.on small, .year-chips button.active small { color: #1d4ed8 !important; }
+.chip-row .chip-x, .chip-btn.on .chip-x { background: #fff !important; color: #1d4ed8 !important; border: 1px solid #8db8fb !important; }
+.stat-tile.on, .ud-card.on, .up-sec.on { background: #eff6ff !important; border-color: #8db8fb !important; box-shadow: none !important; }
+.stat-tile.on *, .ud-card.on *, .up-sec.on b { color: #1d4ed8 !important; }
 .nav button.active, .nav button.active * { background: #eff6ff; color: #1d4ed8 !important; }
 .bottom-nav button.active { color: #1d4ed8 !important; background: #eff6ff !important; }
-.avatar { background: #dbeafe !important; color: #1e3a8a !important; }
+.avatar { background: #d3e4ff !important; color: #1d4ed8 !important; }
 .tk-who i { background: #f3f4f6; color: #374151; }
 .seg-badge { background: #f3f4f6; color: #374151; }
-.icon-tool[aria-expanded=true] { background: #eff6ff !important; border-color: #93c5fd !important; color: #1d4ed8 !important; }
+.icon-tool[aria-expanded=true] { background: #eff6ff !important; border-color: #8db8fb !important; color: #1d4ed8 !important; }
 .icon-tool-badge { background: #1d4ed8 !important; }
 
 /* ===== Round 55: the Compact phone layout (A) - chosen per person in the profile menu (html.compact); Comfortable keeps the cards ===== */
@@ -2518,7 +2518,7 @@ input[type=checkbox], input[type=radio], input[type=range] { accent-color: #1d4e
 .menu-seg { display: flex; align-items: center; gap: 4px; padding: 6px 10px; }
 .menu-seg > span { flex: 1; font-size: 13px; color: var(--muted); }
 .menu-seg > button { width: auto !important; display: inline-flex !important; padding: 6px 10px !important; border: 1px solid #d1d5db !important; border-radius: 8px !important; font-size: 13px; background: #fff; }
-.menu-seg > button[aria-pressed=true] { background: #dbeafe !important; color: #1e3a8a !important; border-color: #93c5fd !important; }
+.menu-seg > button[aria-pressed=true] { background: #d3e4ff !important; color: #1d4ed8 !important; border-color: #8db8fb !important; }
 /* "Needs you" on the phone home (both layouts) */
 .needs-you { display: flex; flex-direction: column; gap: 6px; margin: 14px 0 0; }
 .needs-you h2 { margin: 0; font-size: 15px; display: flex; align-items: center; gap: 8px; }
@@ -2638,8 +2638,8 @@ html.comfortable .needs-you .nu-row { min-height: 58px; background: #fff; border
 .profile-menu .menu-seg > button { flex: none; background: #fff; margin: 0 !important; }
 @media (max-width: 900px) { .profile-menu { min-width: 260px; } }
 /* the current workflow step and the selected map layer: the same soft blue as every other selection */
-.wf-step.now { background: #dbeafe !important; color: #1e3a8a !important; border-color: #93c5fd !important; }
-.infra-chip.on { background: #dbeafe !important; color: #1e3a8a !important; border-color: #93c5fd !important; }
+.wf-step.now { background: #d3e4ff !important; color: #1d4ed8 !important; border-color: #8db8fb !important; }
+.infra-chip.on { background: #d3e4ff !important; color: #1d4ed8 !important; border-color: #8db8fb !important; }
 .infra-chip.on small { color: #3b5ba8 !important; }
 
 /* ===== Round 56: desktop layout A (split view) - computers only (901px and up); phones keep their own layout =====
@@ -2651,7 +2651,7 @@ html.comfortable .needs-you .nu-row { min-height: 58px; background: #fff; border
   .app { grid-template-columns: 216px minmax(0, 1fr) !important; }
   .side { padding: 14px 10px 40px !important; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; scrollbar-width: thin; border-right: 1px solid #e5e7eb !important; }
   .side .brand { margin: 0 0 2px !important; padding: 2px 6px; gap: 10px !important; align-items: center; }
-  .side .brand .mark { width: 30px; height: 30px; flex: none; border-radius: 8px !important; background: #dbeafe !important; color: #1e3a8a !important; font-size: 12.5px; letter-spacing: 0; }
+  .side .brand .mark { width: 30px; height: 30px; flex: none; border-radius: 8px !important; background: #d3e4ff !important; color: #1d4ed8 !important; font-size: 12.5px; letter-spacing: 0; }
   .brand-txt { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
   .brand-txt b { font-size: 15px; font-weight: 600 !important; color: #111827; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .brand-txt small { display: block; font-size: 12px; color: #4b5563; font-weight: 400 !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -2713,12 +2713,11 @@ html.comfortable .needs-you .nu-row { min-height: 58px; background: #fff; border
   .modal-overlay.docked > .modal-card > .modal-body { padding: 16px 24px; }
   .top:has(.bell-panel, .push-banner, .modal-overlay) { z-index: 10 !important; }   /* the header's own pop-ups (notifications, search) open over a docked panel */
   .main:has(.modal-overlay.docked) > .content { margin-right: var(--dock-w) !important; max-width: none !important; padding-left: 20px !important; padding-right: 20px !important; }
-  .tk-docked .page-head .btn { white-space: nowrap; }
   /* the list beside it: two-line rows - title and due date, then priority · number · category · place, who and status */
-  .tk-docked .tcards.tgrid { display: flex !important; flex-direction: column; gap: 0 !important; }
-  .tk-docked .tcard-wrap { border-radius: 9px !important; cursor: pointer; }
-  .tk-docked .tcard-wrap:hover { background: #f9fafb; }
-  .tk-docked .tcard-wrap.row-sel { background: #eff6ff !important; }
+  .list-docked .tcards.tgrid { display: flex !important; flex-direction: column; gap: 0 !important; }
+  .list-docked .tcard-wrap { border-radius: 9px !important; cursor: pointer; }
+  .list-docked .tcard-wrap:hover { background: #f9fafb; }
+  .list-docked .tcard-wrap.row-sel, .list-docked .tcard-wrap.row-sel > * { background: #eff6ff !important; }
   .tk-docked .tk-card { border: 0 !important; border-bottom: 1px solid #f1f3f5 !important; border-radius: 0 !important; box-shadow: none !important; background: transparent !important; padding: 9px 10px !important;
     display: grid !important; grid-template-columns: auto auto minmax(0, 1fr) auto auto; column-gap: 8px; row-gap: 3px; align-items: center;
     grid-template-areas: "title title title title due" "prio id meta who status" "money money money money money" "extra extra extra extra extra"; }
@@ -2738,11 +2737,24 @@ html.comfortable .needs-you .nu-row { min-height: 58px; background: #fff; border
   .tk-docked .tk-card .tk-foot > .tag, .tk-docked .tk-card .tk-needs { grid-area: extra; justify-self: start; margin: 2px 0 0 !important; }
   .tk-docked .tk-card.needs-me { background: #fffbeb !important; }
   /* the list's filters wait behind its Filters button while a ticket is open */
-  .tk-docked .stable-filter-toggle { display: inline-flex !important; }
-  .tk-docked .stable-filters { display: none !important; }
-  .tk-docked .stable-filters.open { display: flex !important; flex-wrap: wrap; gap: 8px; width: 100%; }
-  .tk-docked .stable-sort { display: none; }
-  .tk-docked .stable-filters.open ~ .stable-sort, .tk-docked .filters-open .stable-sort { display: inline-block; }
+  .list-docked .stable-filter-toggle { display: inline-flex !important; }
+  .list-docked .stable-filters { display: none !important; }
+  .list-docked .stable-filters.open { display: flex !important; flex-wrap: wrap; gap: 8px; width: 100%; }
+  .list-docked .stable-sort { display: none; }
+  .list-docked .filters-open .stable-sort { display: inline-block; }
+  .list-docked .page-head .btn { white-space: nowrap; }
+  /* the rest of a page beside an open record: smaller number tiles, one column, the phone-style list where a page has one */
+  .list-docked .grid.metrics .card.metric { padding: 10px 12px !important; }
+  .list-docked .grid.metrics .card.metric .value { font-size: 20px !important; }
+  .list-docked .grid.metrics .card.metric > .muted { display: none; }
+  .list-docked .auto-card { padding: 10px 12px !important; }
+  .list-docked .doc-layout { grid-template-columns: minmax(0, 1fr) !important; }
+  .list-docked:is([data-testid=gate-visits], [data-testid=gate-registry]) .table-wrap.hide-sm { display: none !important; }
+  .list-docked:is([data-testid=gate-visits], [data-testid=gate-registry]) .show-sm { display: block !important; }
+  .list-docked .gg-mini { cursor: pointer; border-radius: 9px; }
+  .list-docked .gg-mini.row-sel { background: #eff6ff !important; }
+  .list-docked [data-testid=contact-table] :is(th, td):is(:nth-child(3), :nth-child(4), :nth-child(6)) { display: none; }
+  .list-docked tr.row-sel > td { background: #eff6ff !important; }
 }
 
 /* --- Home on a computer: the numbers, then what needs doing (left) beside notices and important numbers (right) --- */
@@ -2759,8 +2771,8 @@ html.comfortable .needs-you .nu-row { min-height: 58px; background: #fff; border
   .home-main .needs-you .nu-row { min-height: 0; padding: 8px 10px; gap: 12px; cursor: pointer; }
   .home-main .needs-you .nu-row:hover { background: #f3f4f6; }
   .home-main .needs-you .nu-go { display: none; }
-  .home-main .nu-btn { display: inline-flex; align-items: center; height: 32px; padding: 0 12px; border: 1px solid #93c5fd; border-radius: 8px; background: #dbeafe; color: #1e3a8a; font-size: 13.5px; font-weight: 500; flex: none; }
-  .home-main .nu-row:hover .nu-btn { background: #bfdbfe; border-color: #60a5fa; }
+  .home-main .nu-btn { display: inline-flex; align-items: center; height: 32px; padding: 0 12px; border: 1px solid #8db8fb; border-radius: 8px; background: #d3e4ff; color: #1d4ed8; font-size: 13.5px; font-weight: 500; flex: none; }
+  .home-main .nu-row:hover .nu-btn { background: #bcd4ff; border-color: #60a5fa; }
   /* the maintenance counts as a row of chips */
   .home-main [data-testid=maint-summary] > p.muted { display: none; }
   .home-main [data-testid=maint-summary] .stat-cards.six { display: flex !important; flex-wrap: wrap; gap: 8px !important; margin-top: 10px !important; }
@@ -2800,14 +2812,9 @@ html.comfortable .needs-you .nu-row { min-height: 58px; background: #fff; border
   .bill-row > span:first-child { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
   .bill-row b { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .bill-row small { font-size: 12.5px; color: #4b5563; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .bill-panel[data-testid=bill-banks] { gap: 2px; }
-  .bill-panel[data-testid=bill-banks] > .bill-panel-head { margin-bottom: 6px; }
-  .bill-kv { display: flex; justify-content: space-between; gap: 10px; font-size: 13.5px; padding: 4px 0; }
-  .bill-kv > span:last-child { font-weight: 500; }
-  .bill-kv.total { border-top: 1px solid #e5e7eb; padding-top: 8px; margin-top: 2px; }
-  .bill-kv.total > span { font-weight: 600; }
   .bill-charts-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin: 0 0 12px; }
   .bill-charts-head h2 { margin: 0; font-size: 16px !important; }
+  .bill-cols .viz-card { margin: 0 !important; }
 }
 
 /* --- fields on a computer: white with a grey border (phones keep the filled fields); html body :is() outranks the older filled-field rules --- */
@@ -2824,9 +2831,42 @@ html.comfortable .needs-you .nu-row { min-height: 58px; background: #fff; border
   html body :is(input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=range]):not([type=color]), select, .filter, .search):not(textarea) { padding-top: 0 !important; padding-bottom: 0 !important; }
   html body :is(input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=range]):not([type=color]), select, textarea, .rte):hover { background-color: #fff !important; border-color: #9ca3af !important; }
   html body :is(input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=range]):not([type=color]), select, textarea):focus, html body .rte:focus-within {
-    background-color: #fff !important; border-color: #1d4ed8 !important; outline: 2px solid #bfdbfe !important; outline-offset: 0 !important;
+    background-color: #fff !important; border-color: #1d4ed8 !important; outline: 2px solid #bcd4ff !important; outline-offset: 0 !important;
   }
   html body :is(input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=range]):not([type=color]), select, textarea):disabled { background-color: #f9fafb !important; border-color: #e5e7eb !important; }
   html body .field.invalid :is(input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=range]):not([type=color]), select, textarea) { background-color: #fef2f2 !important; border-color: #ef4444 !important; }
   html body .rte :is(.rte-body, [contenteditable]) { border: 0 !important; background: transparent !important; outline: 0 !important; }
+}
+
+/* ===== Round 57: rows that are easy to tell apart - a light stripe on every other row, a clearer line between rows, a hover / selected tint ===== */
+.content table:not(.changes) td { border-bottom-color: #e2e8f0 !important; }
+.content table:not(.changes):not(.cal-grid) tbody tr:nth-child(even) > td { background-color: #f4f7fb; }
+.content table:not(.changes):not(.cal-grid) tbody tr.clickable:hover > td, .content table:not(.changes):not(.cal-grid) tbody tr[style*="cursor: pointer"]:hover > td { background-color: #eef4ff; }
+.content table tbody tr.row-sel > td { background-color: #e3edff !important; }
+@media (max-width: 900px) {
+  /* compact phone lists: each record a striped row with a little side padding */
+  html.compact .tcards > .tcard-wrap > .tk-card, html.compact .bk-cards > .bk-card { padding-left: 10px !important; padding-right: 10px !important; border-bottom-color: #e2e8f0 !important; }
+  html.compact .tcards > .tcard-wrap:nth-child(even) > .tk-card, html.compact .bk-cards > .bk-card:nth-child(even) { background: #f4f7fb !important; }
+  html.compact .resp-table tbody tr { padding-left: 10px !important; padding-right: 10px !important; border-bottom-color: #e2e8f0 !important; }
+  html.compact .resp-table tbody tr:nth-child(even) { background: #f4f7fb !important; }
+  html.compact .resp-table tbody tr:nth-child(even) > td { background: transparent !important; }
+  /* comfortable: the cards keep their own border, with a clearer gap */
+  html.comfortable .tcards { gap: 10px !important; }
+  .gg-mini:nth-child(even) { background: #f4f7fb; }
+}
+/* a change went through */
+.toast.success { background: #166534; font-weight: 500; }
+
+/* ===== Round 58: a touch brighter - livelier blue on the main buttons and selections (Round 54 colours lifted), lighter grey fills ===== */
+.chip-btn:not(.on), .chip-row button:not(.active) { background: #eef2f7 !important; }
+.bottom-nav button:not(.active) { background: transparent !important; }
+.btn.secondary:hover:not(:disabled) { background: #f5f8ff !important; border-color: #9ca3af !important; }
+/* Command Center on a computer: smaller number cards at the top */
+@media (min-width: 901px) {
+  .cc-home > .grid.metrics { gap: 12px !important; }
+  .cc-home > .grid.metrics .card.metric { padding: 10px 14px !important; min-height: 0 !important; border-radius: 12px !important; gap: 0; }
+  .cc-home > .grid.metrics .card.metric .label { font-size: 12.5px !important; }
+  .cc-home > .grid.metrics .card.metric .value { font-size: 22px !important; line-height: 1.25; margin: 2px 0 !important; }
+  .cc-home > .grid.metrics .card.metric .value small { font-size: 14px; }
+  .cc-home > .grid.metrics .card.metric > .muted { font-size: 12.5px !important; margin: 0 !important; }
 }

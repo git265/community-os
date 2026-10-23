@@ -49,13 +49,15 @@ export function PayDueModal({ due, onClose }) {
   const { currentUser } = useApp();
   const { save } = useCollection(COLLECTIONS.DUES, 'Billing & Finance');
   const { resident: isResident, own, finance } = usePayRights(due);
-  const [asOwner, setAsOwner] = useState(true);
-  // paying as the owner (online through the provider): a resident always; an owner on the committee for their own unit, unless they
-  // switch to recording a payment that arrived another way (finance roles only)
-  const resident = isResident || (own && (asOwner || !finance));
+  // finance roles choose: take the payment online through the payment gateway (the simulator in this demo) or record money that
+  // arrived another way. Their own unit's bill starts online, another unit's starts as a payment received; a resident always pays online.
+  const [asOwner, setAsOwner] = useState(own);
+  const canChoose = !isResident && finance;
+  const resident = isResident || (own && !finance) || (canChoose && asOwner);
   // on the back end online money is recorded by the provider itself; the office records cash, cheques and bank transfers
   const modes = resident ? ONLINE : serverDecides() ? ALL_MODES.filter((m) => ['Cheque', 'Cash', 'Bank transfer'].includes(m)) : ALL_MODES;
   const [mode, setMode] = useState(modes[0]);
+  useEffect(() => { if (!modes.includes(mode)) setMode(modes[0]); }, [resident]);   // eslint-disable-line react-hooks/exhaustive-deps -- switching online / received keeps a mode of that kind
   const [ref, setRef] = useState('');
   const [paidOn, setPaidOn] = useState(todayIso());
   const [busy, setBusy] = useState(false);
@@ -155,9 +157,9 @@ export function PayDueModal({ due, onClose }) {
         </div>
       </div>
       <BillTerms compact due={due} amount={due.amount} flatTax={due.tax} dueDate={due.dueDate} status={due.status} />
-      {own && !isResident && finance && (
+      {canChoose && (
         <div className="chips" role="group" aria-label="How" style={{ margin: '8px 0' }} data-testid="pay-as">
-          <button type="button" className={`chip${asOwner ? ' on' : ''}`} aria-pressed={asOwner} onClick={() => setAsOwner(true)}>Pay online (my unit)</button>
+          <button type="button" className={`chip${asOwner ? ' on' : ''}`} aria-pressed={asOwner} data-testid="pay-online-choice" onClick={() => setAsOwner(true)}>{own ? 'Pay online (my unit)' : 'Pay online (payment gateway)'}</button>
           <button type="button" className={`chip${!asOwner ? ' on' : ''}`} aria-pressed={!asOwner} onClick={() => setAsOwner(false)}>Record a payment received</button>
         </div>
       )}

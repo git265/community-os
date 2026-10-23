@@ -12,6 +12,7 @@ import { settleDues } from '../finance/settle.js';
 import { notify } from '../notify.js';
 import { dmy } from '../finance/rules.js';
 import { COLLECTIONS } from '../storage/StorageAdapter.js';
+import { announceChange } from '../storage/changes.js';
 
 const gateways = {}; const settlers = {};
 export const registerGateway = (g) => { gateways[g.id] = g; return g; };
@@ -72,7 +73,7 @@ const CHANGES = { due: [COLLECTIONS.DUES, COLLECTIONS.LEDGER], booking: [COLLECT
 export async function pay(req, ui, stage = () => {}) {
   try {
     const r = await payOnce(req, ui, stage);
-    if (r.status === 'Paid' || r.status === 'Pending') announce(req.purpose);
+    if (r.status === 'Paid' || r.status === 'Pending') announce(req.purpose, r.status === 'Paid');
     return r;
   } finally { stage(null); }
 }
@@ -118,8 +119,9 @@ export const resultOf = (o) => (o.status === 'Paid' ? { status: 'Paid', order: o
 /** The server's price for bills (late fees included), for showing the payer the exact amount before they pay. null when the browser demo prices it itself. */
 export async function quoteBills(refs, extra = {}) { const g = activeGateway(); return serverDecides() && g.quote ? g.quote({ purpose: 'due', refs, ...extra }).catch(() => null) : null; }   // a back end that prices bills itself
 
+// paid: announced like any other change (lists reload and the payer is told it went through); still being confirmed: lists reload only
+const announce = (purpose, paid = true) => { const cs = CHANGES[purpose] || [COLLECTIONS.DUES, COLLECTIONS.LEDGER]; if (paid) { announceChange(...cs); return; } if (typeof window !== 'undefined') for (const c of cs) window.dispatchEvent(new CustomEvent('communityos:changed', { detail: { collection: c } })); };
 /** Re-reads an order (the "we are checking your payment" screen). */
-const announce = (purpose) => { if (typeof window !== 'undefined') for (const c of CHANGES[purpose] || [COLLECTIONS.DUES, COLLECTIONS.LEDGER]) window.dispatchEvent(new CustomEvent('communityos:changed', { detail: { collection: c } })); };
 export async function checkOrder(orderId) { const r = resultOf(await activeGateway().getOrder(orderId)); if (r.status === 'Paid') announce(r.order?.purpose); return r; }
 
 /** Simulator only: the bank finally confirms a pending payment. */

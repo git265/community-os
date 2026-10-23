@@ -75,6 +75,12 @@ async function all(path) {
 }
 /** The counts above a page (GET /summary/{kind}): worked out by the server from the rows this person may see. */
 export async function v2Summary(kind) { return call(`/summary/${kind}`); }
+/** The reader opened a notice: POST /comms/broadcasts/{id}/view stamps their receipt (viewedAt) and returns the notice as they now see it. */
+export async function viewBroadcast(id) {
+  if (!isUuid(id)) return null;
+  const [b, ix] = await Promise.all([call(`/comms/broadcasts/${id}/view`, json('POST', {})), placeIndex()]);
+  return b && broadcastOf(b, { ...ix, myName: myName() });
+}
 /**
  * The unit directory's blocks: each with its homes and how they are lived in ({ name, total, ownerOccupied, tenantOccupied, vacant }; name '' is
  * the units in no block). Staff get the counts of the units they may see; a resident, every block of the directory (totals only).

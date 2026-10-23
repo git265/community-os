@@ -23,7 +23,7 @@ import DocumentPreview from '../../components/DocumentPreview.jsx';
 import { unitStatement } from '../../lib/documents/builders.js';
 import { fyStartMonth } from '../../lib/locale.js';
 import BlockNavigator, { NO_BLOCK, useBlockCounts } from './BlockNavigator.jsx';
-import Tabs from '../../components/Tabs.jsx';
+import Tabs, { usePhone } from '../../components/Tabs.jsx';
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -338,6 +338,8 @@ export default function PropertiesModule({ onNavigate }) {
   const canCreate = canWriteCollection(COLLECTIONS.PROPERTIES, getPrincipal());
   const myProperty = isResident ? (homes.records.find((p) => p.unit === currentUser?.unit && !p.directoryOnly) ?? homes.records.find((p) => p.unit === currentUser?.unit) ?? null) : null;
   const selected = useUnit(isResident ? null : selectedId);
+  const phoneView = usePhone();
+  const docked = !!selected && !phoneView;   // a computer: the unit opens beside the list
   if (!schema) return null;
   const blockFilter = block ? { zone: block } : {};
   const blockName = block === NO_BLOCK ? 'Not in a block' : block;
@@ -360,7 +362,7 @@ export default function PropertiesModule({ onNavigate }) {
   }
 
   return (
-    <div>
+    <div className={docked ? 'list-docked' : undefined}>
       <div className="page-head">
         <div>
           <h1>{isResident ? 'My home & directory' : 'Properties & residents'}</h1>
@@ -432,6 +434,8 @@ export default function PropertiesModule({ onNavigate }) {
                 ]}
                 dateFields={[{ key: 'possessionDate', label: 'Possession date' }]}
                 onRowClick={(r) => setSelectedId(r.id)}
+                rowClassName={(r) => (r.id === selectedId ? 'row-sel' : '')}
+                cardsAlways={docked}
                 emptyText={block ? `No units in ${blockName} match.` : 'No units match.'}
               />
             ) : (
@@ -451,6 +455,8 @@ export default function PropertiesModule({ onNavigate }) {
                 searchKeys={['owner', 'tenant', 'unit', 'ownerPhone', 'tenantPhone']}
                 filters={[{ key: 'occupancy', label: 'All occupancy', options: ['Owner occupied', 'Tenant occupied', 'Vacant'] }]}
                 onRowClick={(r) => setSelectedId(r.id)}
+                rowClassName={(r) => (r.id === selectedId ? 'row-sel' : '')}
+                cardsAlways={docked}
                 emptyText={block ? `No owners in ${blockName} match.` : 'No owners match.'}
               />
             )}
@@ -459,7 +465,7 @@ export default function PropertiesModule({ onNavigate }) {
       )}
 
       {selected && (
-        <Modal title={selected.unit} subtitle="Owner, occupancy and unit details." onClose={() => setSelectedId(null)}>
+        <Modal dock title={selected.unit} subtitle="Owner, occupancy and unit details." onClose={() => setSelectedId(null)}>
           <UnitDetail unit={selected} canSeePrivate canEdit={canCreate} onEdit={(u) => { setSelectedId(null); openEditor(u); }} />
           <div style={{ textAlign: 'right', marginTop: 12 }}><AdminDelete collection={COLLECTIONS.PROPERTIES} id={selected.id} label="property" onDone={() => setSelectedId(null)} /></div>
         </Modal>

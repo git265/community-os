@@ -8,6 +8,7 @@ import RichTextEditor from '../../components/RichTextEditor.jsx';
 import { isEmptyHtml } from '../../lib/richtext/sanitize.js';
 import { validatePhone } from '../../lib/phone.js';
 import { PhoneSearch, PhoneFilters } from '../../components/ToolIcons.jsx';
+import { usePhone } from '../../components/Tabs.jsx';
 
 const DEFAULT_CATS = ['Plumber', 'Electrician', 'Carpenter', 'AC technician', 'Painter', 'Driver', 'Cook', 'Maid / housekeeping', 'Pest control', 'Appliance repair', 'Gardener', 'Tutor', 'Other'];
 const dmy = (s) => (s ? new Date(s).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '');
@@ -60,7 +61,7 @@ function ContactForm({ record, cats, onClose, onSaved, contacts }) {
   );
 }
 
-function ContactDetail({ contact, reviews, mod, mine, cats, contacts, onClose, onEdit, onChanged }) {
+function ContactDetail({ contact, reviews, mod, mine, cats, contacts, onClose, onEdit, onChanged, dock = false }) {
   const { currentUser } = useApp();
   const { save: saveReview, remove: removeReview } = useCollection(C.CONTACT_REVIEWS, 'Contact Reviews');
   const { save: saveContact, remove: removeContact } = useCollection(C.SERVICE_CONTACTS, 'Service Directory');
@@ -77,7 +78,7 @@ function ContactDetail({ contact, reviews, mod, mine, cats, contacts, onClose, o
   }
   const phone = digits(contact.phone);
   return (
-    <Modal title={contact.name} subtitle={`${contact.category}${contact.area ? ' · ' + contact.area : ''}`} onClose={onClose}>
+    <Modal dock={dock} title={contact.name} subtitle={`${contact.category}${contact.area ? ' · ' + contact.area : ''}`} onClose={onClose}>
       <div data-testid="contact-detail">
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <Stars value={avg} size={22} testid="detail-stars" /><b>{reviews.length ? avg.toFixed(1) : 'No ratings yet'}</b><small className="muted">{reviews.length} review{reviews.length === 1 ? '' : 's'}{reviews.length ? ` · ${Math.round((reviews.filter((r) => r.recommend !== 'No').length / reviews.length) * 100)}% would use again` : ''}</small>
@@ -146,8 +147,9 @@ export default function DirectoryModule() {
   const list = contacts.filter((c) => (mod || c.status !== 'Hidden') && (!cat || c.category === cat) && (!q || `${c.name} ${c.category} ${c.area} ${c.notes} ${reviewText.get(c.id) || ''}`.toLowerCase().includes(q.toLowerCase())))
     .map((c) => ({ c, s: stats.get(c.id) })).sort((a, b) => (sort === 'name' ? a.c.name.localeCompare(b.c.name) : ((b.s ? b.s.sum / b.s.n : 0) - (a.s ? a.s.sum / a.s.n : 0)) || ((b.s?.n || 0) - (a.s?.n || 0))));
   const openContact = open && contacts.find((c) => c.id === open);
+  const phoneView = usePhone(); const docked = !!openContact && !phoneView;   // a computer: the contact opens beside the list
   return (
-    <div data-testid="directory-page">
+    <div data-testid="directory-page" className={docked ? 'list-docked' : undefined}>
       <div className="page-head"><div><h1>Service directory</h1><p>Plumbers, electricians, drivers, cooks and other helpers recommended by neighbours - with ratings from the people who used them.</p></div>
         <button className="btn" data-testid="add-contact" onClick={() => setForm({ record: null })}>+ Recommend someone</button></div>
       <div className="card" style={{ marginBottom: 10 }}>
@@ -167,7 +169,7 @@ export default function DirectoryModule() {
             <thead><tr><th>Name</th><th>What they do</th><th>Works in</th><th>About</th><th>Rating</th><th>Charges</th><th></th></tr></thead>
             <tbody>
               {list.map(({ c, s }) => (
-                <tr key={c.id} style={{ cursor: 'pointer', opacity: c.status === 'Hidden' ? 0.6 : 1 }} data-testid="contact-card" onClick={() => setOpen(c.id)}>
+                <tr key={c.id} className={open === c.id ? 'row-sel' : undefined} style={{ cursor: 'pointer', opacity: c.status === 'Hidden' ? 0.6 : 1 }} data-testid="contact-card" onClick={() => setOpen(c.id)}>
                   <td data-label="Name"><b>{c.name}</b>{c.registryId && vetted.has(c.registryId) && <span className="tag green" style={{ marginLeft: 6 }} data-testid="vetted-tag" title="Police-verified and registered with the gate">✔ Vetted at gate</span>}{c.status === 'Hidden' && <span className="tag red" style={{ marginLeft: 6 }}>Hidden</span>}</td>
                   <td data-label="What they do"><span className="tag">{c.category}</span></td>
                   <td data-label="Works in">{c.area || <span className="muted">—</span>}</td>
@@ -181,7 +183,7 @@ export default function DirectoryModule() {
           </table>
         </div>
       )}
-      {openContact && <ContactDetail contact={openContact} reviews={reviews.filter((r) => r.contactId === openContact.id)} mod={mod} mine={openContact.addedBy === currentUser?.name} cats={cats} contacts={contacts} onClose={() => setOpen(null)} onEdit={() => { setForm({ record: openContact }); setOpen(null); }} onChanged={refresh} />}
+      {openContact && <ContactDetail dock contact={openContact} reviews={reviews.filter((r) => r.contactId === openContact.id)} mod={mod} mine={openContact.addedBy === currentUser?.name} cats={cats} contacts={contacts} onClose={() => setOpen(null)} onEdit={() => { setForm({ record: openContact }); setOpen(null); }} onChanged={refresh} />}
       {form && <ContactForm record={form.record} cats={cats} contacts={contacts} onClose={() => setForm(null)} onSaved={() => { setForm(null); refresh(); }} />}
     </div>
   );

@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { useCollection } from '../context/AppContext.jsx';
+import { useApp, useCollection } from '../context/AppContext.jsx';
+import { isRead, markRead } from '../lib/noticeReads.js';
 import { COLLECTIONS } from '../lib/storage/index.js';
 import { dmy } from '../lib/finance/rules.js';
 import RichText from './RichText.jsx';
@@ -15,6 +16,10 @@ export default function NoticeList({ limit = 10, title = 'Notices', onOpen }) {
   const [year, setYear] = useState('');
   const [month, setMonth] = useState('');
   const [open, setOpen] = useState(null);
+  const { currentUser, roleId } = useApp();
+  const me = currentUser?.name || roleId || '';
+  // reading a notice here counts as reading it (its "New" mark in Communications goes)
+  const read = (b) => { if ((b.sentBy || '') !== me && !isRead(b, me)) markRead(b, me).catch(() => {}); };
   const rows = sent.filter((b) => (!year || String(b.sentAt).slice(0, 4) === year) && (!month || String(b.sentAt).slice(5, 7) === month));
   const shown = rows.slice(0, limit);
   return (
@@ -36,7 +41,7 @@ export default function NoticeList({ limit = 10, title = 'Notices', onOpen }) {
       {shown.length === 0 ? <div className="empty">No notices for this period.</div> : (
         <ul className="list">
           {shown.map((b) => (
-            <li key={b.id} data-testid="notice-row" style={{ alignItems: 'flex-start', cursor: 'pointer' }} onClick={() => setOpen(open === b.id ? null : b.id)}>
+            <li key={b.id} data-testid="notice-row" style={{ alignItems: 'flex-start', cursor: 'pointer' }} onClick={() => { if (open !== b.id) read(b); setOpen(open === b.id ? null : b.id); }}>
               <span style={{ flex: 1, minWidth: 0 }}>
                 <b>{b.subject}</b><br />
                 <small className="muted">{b.type} · {dmy(String(b.sentAt).slice(0, 10))}</small>

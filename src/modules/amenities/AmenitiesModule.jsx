@@ -157,8 +157,9 @@ export default function AmenitiesModule() {
     if (itemsOnly && !ex.lines.length) return setError(`Choose how many of each item you need from ${amenity.name}`);
     setBusy(true);
     try {
-      const ownBooking = !isStaff || (!!myUnit && bookUnit === myUnit);   // an owner (a committee member too) booking for their own unit pays online
-      if (payNow && ownBooking && toPay > 0 && !waivedNow) { // the owner pays through the payment gateway first; the booking is saved with its payment id
+      // an online payment always goes through the payment gateway (the simulator in this demo) - an owner's own booking or the office
+      // taking a card / UPI payment for a villa - and the booking is saved with its payment id
+      if (payNow && toPay > 0 && !waivedNow) {
         setPayAttempt(null);
         const res = await gw.start({ purpose: 'booking', refs: [], amount: toPay, unit: bookUnit, payer: currentUser?.name || '', description: `${selected} · ${pickedDate}` });
         if (res.status !== 'Paid') { setBusy(false); setPayAttempt(res); return; }

@@ -138,7 +138,7 @@ export default function DashboardModule({ onNavigate }) {
   );
 
   return (
-    <div>
+    <div className="cc-home">
       <div className="page-head">
         <div>
           <h1>Community command center</h1>

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useApp, useCollection } from '../../context/AppContext.jsx';
 import ServerTable from '../../components/ServerTable.jsx';
+import { usePhone } from '../../components/Tabs.jsx';
 import Modal from '../../components/Modal.jsx';
 import DynamicForm from '../../components/DynamicForm.jsx';
 import FileUpload from '../../components/FileUpload.jsx';
@@ -88,6 +89,8 @@ export default function DocumentsModule() {
   const { save, save: saveDoc } = useCollection(COLLECTIONS.DOCUMENTS, 'Documents');
   const [uploading, setUploading] = useState(false);
   const [editing, setEditing] = useState(null);
+  const phone = usePhone();
+  const docked = !!editing?.id && !phone;   // a computer: the document opens beside the list
   const [viewing, setViewing] = useState(null);
   const { records: folders, save: saveFolder, remove: removeFolder } = useCollection(COLLECTIONS.DOC_FOLDERS, 'Document Folders');
   const { records: docs } = useCollection(COLLECTIONS.DOCUMENTS, 'Documents');
@@ -161,7 +164,7 @@ export default function DocumentsModule() {
   ];
 
   return (
-    <div>
+    <div className={docked ? 'list-docked' : undefined}>
       <div className="page-head">
         <div>
           <h1>Document repository</h1>
@@ -203,6 +206,7 @@ export default function DocumentsModule() {
           filters={[{ key: 'category', label: 'All categories' }, ...(canUpload ? [{ key: 'access', label: 'All groups', options: DOC_GROUPS }] : [])]}
           dateFields={[{ key: 'recordCreatedAt', label: 'Uploaded' }, { key: 'expiry', label: 'Expiry' }]}
           onRowClick={setEditing}
+          rowClassName={(d) => (d.id === editing?.id ? 'row-sel' : '')}
           cardRender={cardRender}
           cardsAlways
         />
@@ -227,7 +231,7 @@ export default function DocumentsModule() {
         </Modal>
       )}
       {editing && (
-        <Modal title={editing.title || 'Document'} subtitle={canUpload ? 'Document details, version and access.' : 'Document details. Only the people who manage documents change them.'} onClose={() => setEditing(null)}>
+        <Modal dock={!!editing.id} title={editing.title || 'Document'} subtitle={canUpload ? 'Document details, version and access.' : 'Document details. Only the people who manage documents change them.'} onClose={() => setEditing(null)}>
           {canUpload && <div className="field" style={{ marginBottom: 10 }}><label>Folder</label><select aria-label="Move to folder" data-testid="move-folder" value={editing.folderId || ''} onChange={async (e) => { const d = await saveDoc({ ...editing, folderId: e.target.value }); if (d) setEditing(d); }}><option value="">Not in a folder</option>{flatTree(folders).map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}</select></div>}
           {editing.fileId && <p><button className="btn secondary" onClick={() => setViewing({ fileId: editing.fileId, name: editing.fileName || editing.title, mime: editing.mime || '', size: (editing.fileSize || 0) * 1024 })}>👁 Preview {editing.fileName}</button></p>}
           <DynamicForm schema={schema} roleId={roleId} record={editing} readOnly={!canUpload} noDelete={!canUpload} onSave={async (d) => { const s = await save(d); if (s) setEditing(null); }} onCancel={() => setEditing(null)} />

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useApp, useCollection } from '../context/AppContext.jsx';
 import ServerTable from './ServerTable.jsx';
+import { usePhone } from './Tabs.jsx';
 import Modal from './Modal.jsx';
 import DynamicForm from './DynamicForm.jsx';
 import { canWriteCollection } from '../lib/security/authz.js';
@@ -41,6 +42,9 @@ export default function SectionPage({
   // the open record always shows its latest saved state (a payment recorded from inside it must flip its status at once)
   const live = editing?.id ? records.find((r) => r.id === editing.id) || editing : editing;
   const [error, setError] = useState('');
+  // on a computer an existing record opens beside the list (split view); a new one stays a pop-up
+  const phone = usePhone();
+  const docked = !!editing?.id && !phone;
 
   const schema = schemaFor(sectionId);
 
@@ -65,7 +69,7 @@ export default function SectionPage({
   }
 
   return (
-    <div>
+    <div className={docked ? 'list-docked' : undefined}>
       <div className="page-head">
         <div>
           <h1>{title}</h1>
@@ -102,12 +106,15 @@ export default function SectionPage({
           showId
           consumeNavSearch
           onRowClick={setEditing}
+          rowClassName={(r) => (r.id === editing?.id ? 'row-sel' : '')}
+          cardsAlways={docked}
         />
       </div>
 
       {editing && (() => null)()}
       {editing && (
         <Modal
+          dock={!!editing.id}
           title={editing.id ? (canCreate ? `Edit ${noun}` : `${Noun} details`) : `New ${noun}`}
           subtitle={!editing.id ? (formHelp || `Fill in the details below to add a ${noun.toLowerCase()}.`) : canCreate ? `Update this ${noun.toLowerCase()}. Changes are saved to the audit trail.` : `Read-only view of this ${noun.toLowerCase()}.`}
           onClose={() => { setEditing(null); setError(''); }}>

@@ -27,6 +27,7 @@ import { storageOverflowed } from './lib/storage/SessionStorageAdapter.js';
 import { show as dataSourceShown } from './components/DataSourcePanel.jsx';
 import { getDataSource } from './lib/storage/dataSource.js';
 import { getLayout, setLayout, applyLayout } from './lib/layoutPref.js';
+import { installSaveFeedback } from './lib/saveFeedback.js';
 import { utilitiesVisible, plantVisible } from './lib/access/visibility.js';
 import { validatePhone } from './lib/phone.js';
 
@@ -300,7 +301,8 @@ function Shell() {
   useEffect(() => {
     let t;
     installActivity();
-    const onDenied = (e) => { setToast({ text: e.detail?.message || 'Not permitted', kind: e.detail?.kind || 'denied' }); clearTimeout(t); t = setTimeout(() => setToast(''), e.detail?.kind && e.detail.kind !== 'denied' ? 7000 : 4500); };
+    installSaveFeedback();
+    const onDenied = (e) => { setToast({ text: e.detail?.message || 'Not permitted', kind: e.detail?.kind || 'denied' }); clearTimeout(t); t = setTimeout(() => setToast(''), e.detail?.kind === 'success' ? 3200 : e.detail?.kind && e.detail.kind !== 'denied' ? 7000 : 4500); };
     window.addEventListener('communityos:denied', onDenied);
     return () => { window.removeEventListener('communityos:denied', onDenied); clearTimeout(t); };
   }, []);
@@ -462,7 +464,7 @@ function Shell() {
         </div>
       )}
 
-      {toast && <div className={`toast ${toast.kind}`} role="alert" data-testid="toast">{toast.kind === 'network' ? '📡' : toast.kind === 'error' ? '⚠' : '🔒'} {toast.text}</div>}
+      {toast && <div className={`toast ${toast.kind}`} role="alert" data-testid="toast">{toast.kind === 'success' ? '✓' : toast.kind === 'network' ? '📡' : toast.kind === 'error' ? '⚠' : '🔒'} {toast.text}</div>}
       <ActivityBar />
       {spill && <div className="notice" role="status" data-testid="spill-banner" style={{ position: 'fixed', left: 8, right: 8, bottom: 64, zIndex: 50, margin: 0 }}>Large community: this browser demo ran out of its 5 MB store, so big lists are held in memory until you reload. The real database back end has no such limit. <button className="link-btn" onClick={() => setSpill(false)}>Dismiss</button></div>}
 

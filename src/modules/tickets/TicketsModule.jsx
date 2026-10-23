@@ -783,7 +783,7 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
 
 
   return (
-    <div className={docked ? 'tk-docked' : undefined}>
+    <div className={docked ? 'tk-docked list-docked' : undefined}>
       {!embeddedRef && (<>
       <div className="page-head">
         <div>

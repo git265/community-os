@@ -186,7 +186,7 @@ function fyMonths(fy, lastYm) {
  * Computer only (layout A): what to collect, approve and pay, beside the bank balances - above the charts.
  * `onTab(id)` gives the click that opens another Billing tab (null when this person cannot open it).
  */
-function MoneyDesk({ d, fy, overdue, toPay, approvals, onTab }) {
+function MoneyDesk({ d, fy, overdue, toPay, approvals, onTab, left = null, right = null }) {
   const openLink = (link) => window.dispatchEvent(new CustomEvent('communityos:openlink', { detail: { link } }));
   const reminders = onTab?.('defaulters'); const record = onTab?.('dues'); const pay = onTab?.('pay');
   const pct = (a, b) => (b > 0 ? Math.min(100, Math.round((a / b) * 100)) : 0);
@@ -224,6 +224,7 @@ function MoneyDesk({ d, fy, overdue, toPay, approvals, onTab }) {
             </div>
           ))}
         </section>
+        {left}
       </div>
       <div className="bill-side">
         {approvals.length > 0 && (
@@ -248,11 +249,7 @@ function MoneyDesk({ d, fy, overdue, toPay, approvals, onTab }) {
             ))}
           </section>
         )}
-        <section className="card bill-panel" data-testid="bill-banks">
-          <div className="bill-panel-head"><h2>Bank accounts &amp; deposits</h2><small className="muted">{d.asOf ? `as of ${d.asOf}` : ''}</small></div>
-          {d.bankRows.map((r) => <div key={r.label} className="bill-kv"><span>{r.label}</span><span>{inr(r.value)}</span></div>)}
-          <div className="bill-kv total"><span>Total</span><span>{inr(d.totalBalance)}</span></div>
-        </section>
+        {right}
       </div>
     </div>
   );
@@ -334,6 +331,33 @@ export default function TreasurerDashboard({ onTab = null }) {
   const tipDues = useTip();
   const isCurrent = fy === currentFy();
 
+  // on a computer these two sit beside the money to collect and pay (no gap between the columns); on a phone they stay with the charts
+  const cashCard = (
+    <ChartCard span={4} title="Cash flow by month" sub={`Income and expense from the bank statements, ${fy}`} legend={<Legend items={[SERIES.in, SERIES.out]} />}
+      table={{ head: ['Month', 'Income', 'Expense'], rows: labels.map((l, i) => [l, inrFull(d.credits[i]), inrFull(d.debits[i])]) }}>
+      <Columns labels={labels} series={[{ ...SERIES.in, values: d.credits.map((v) => Math.max(0, v)) }, { ...SERIES.out, values: d.debits.map((v) => Math.max(0, v)) }]} />
+    </ChartCard>
+  );
+  const duesCard = (
+    <ChartCard span={3} title="Dues collection" sub="All bills by status"
+      legend={<div className="viz-legend">{d.duesBy.map((x) => <span key={x.s}><i style={{ background: DUE_COLOR[x.s] }} />{DUE_ICON[x.s]} {x.s} · {x.n} · {inr(x.amt)}</span>)}</div>}
+      table={{ head: ['Status', 'Bills', 'Amount'], rows: d.duesBy.map((x) => [x.s, x.n, inrFull(x.amt)]) }}>
+      <div className="viz-stack" ref={tipDues.box} onPointerLeave={tipDues.hide}>
+        {d.duesBy.filter((x) => x.amt > 0).map((x) => (
+          <i key={x.s} tabIndex={0} style={{ width: `${(x.amt / duesTotal) * 100}%`, background: DUE_COLOR[x.s] }}
+            onPointerMove={(e) => tipDues.show(e, x.s, [{ name: `${x.n} bill${x.n === 1 ? '' : 's'}`, color: DUE_COLOR[x.s], value: inrFull(x.amt) }])} />
+        ))}
+        {tipDues.node}
+      </div>
+    </ChartCard>
+  );
+  const bankCard = (
+    <ChartCard span={2} title="Bank accounts & deposits" sub="Account balance plus deposits and investments"
+      table={{ head: ['Account', 'Balance + deposits'], rows: d.bankRows.map((r) => [r.label, inrFull(r.value)]) }}>
+      <HBars rows={d.bankRows} color="var(--viz-1)" />
+    </ChartCard>
+  );
+
   return (
     <div className="viz-root">
       <div className="viz-filters">
@@ -354,19 +378,13 @@ export default function TreasurerDashboard({ onTab = null }) {
         <Tile label="To approve" value={awaiting} sub={`${inr(d.pipe.ec.amt + d.pipe.fin.amt)} across invoices and quotations`} />
       </div>
 
-      {!phone && <MoneyDesk d={d} fy={fy} overdue={overdue} toPay={toPay} approvals={approvals} onTab={onTab} />}
+      {!phone && <MoneyDesk d={d} fy={fy} overdue={overdue} toPay={toPay} approvals={approvals} onTab={onTab} left={cashCard} right={<>{bankCard}{duesCard}</>} />}
       {!phone && <div className="bill-charts-head"><h2>Charts · {fy}</h2><small className="muted">Each chart can be shown as a table</small></div>}
 
       <div className="viz-grid2">
-        <ChartCard span={4} title="Cash flow by month" sub={`Income and expense from the bank statements, ${fy}`} legend={<Legend items={[SERIES.in, SERIES.out]} />}
-          table={{ head: ['Month', 'Income', 'Expense'], rows: labels.map((l, i) => [l, inrFull(d.credits[i]), inrFull(d.debits[i])]) }}>
-          <Columns labels={labels} series={[{ ...SERIES.in, values: d.credits.map((v) => Math.max(0, v)) }, { ...SERIES.out, values: d.debits.map((v) => Math.max(0, v)) }]} />
-        </ChartCard>
+        {phone && cashCard}
 
-        <ChartCard span={2} title="Bank accounts & deposits" sub="Account balance plus deposits and investments"
-          table={{ head: ['Account', 'Balance + deposits'], rows: d.bankRows.map((r) => [r.label, inrFull(r.value)]) }}>
-          <HBars rows={d.bankRows} color="var(--viz-1)" />
-        </ChartCard>
+        {phone && bankCard}
 
         <ChartCard span={2} title={`Income vs forecast · ${fy}`} sub="Bar = received so far, faint bar = forecast"
           table={{ head: ['Line', 'Received', 'Forecast'], rows: d.incomeRows.map((r) => [r.label, inrFull(r.value), inrFull(r.track)]) }}>
@@ -383,19 +401,9 @@ export default function TreasurerDashboard({ onTab = null }) {
           <HBars rows={d.headRows} color="var(--viz-2)" empty="No spending in this year." />
         </ChartCard>
 
-        <ChartCard span={3} title="Dues collection" sub="All bills by status"
-          legend={<div className="viz-legend">{d.duesBy.map((x) => <span key={x.s}><i style={{ background: DUE_COLOR[x.s] }} />{DUE_ICON[x.s]} {x.s} · {x.n} · {inr(x.amt)}</span>)}</div>}
-          table={{ head: ['Status', 'Bills', 'Amount'], rows: d.duesBy.map((x) => [x.s, x.n, inrFull(x.amt)]) }}>
-          <div className="viz-stack" ref={tipDues.box} onPointerLeave={tipDues.hide}>
-            {d.duesBy.filter((x) => x.amt > 0).map((x) => (
-              <i key={x.s} tabIndex={0} style={{ width: `${(x.amt / duesTotal) * 100}%`, background: DUE_COLOR[x.s] }}
-                onPointerMove={(e) => tipDues.show(e, x.s, [{ name: `${x.n} bill${x.n === 1 ? '' : 's'}`, color: DUE_COLOR[x.s], value: inrFull(x.amt) }])} />
-            ))}
-            {tipDues.node}
-          </div>
-        </ChartCard>
+        {phone && duesCard}
 
-        <ChartCard span={3} title="Approvals pipeline" sub="Invoices and quotations on their way to the books"
+        <ChartCard span={phone ? 3 : 0} wide={!phone} title="Approvals pipeline" sub="Invoices and quotations on their way to the books"
           table={{ head: ['Stage', 'Items', 'Amount'], rows: [['Waiting for EC', d.pipe.ec.n, inrFull(d.pipe.ec.amt)], ['Waiting for final approval', d.pipe.fin.n, inrFull(d.pipe.fin.amt)], ['Approved, not in ledger', d.pipe.book.n, inrFull(d.pipe.book.amt)]] }}>
           <HBars color="var(--viz-1)" valueFmt={inr}
             rows={[

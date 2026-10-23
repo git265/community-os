@@ -3,6 +3,7 @@ import { useApp, useCollection } from '../../context/AppContext.jsx';
 import { COLLECTIONS } from '../../lib/storage/index.js';
 import { CATEGORIES } from '../../lib/access/roles.js';
 import ServerTable from '../../components/ServerTable.jsx';
+import { usePhone } from '../../components/Tabs.jsx';
 import Modal from '../../components/Modal.jsx';
 import RecordMeta from '../../components/RecordMeta.jsx';
 import { secureStorage } from '../../lib/storage/secureStorage.js';
@@ -22,6 +23,8 @@ export default function UsersModule() {
   const { roles, roleFor } = useApp();
   const { save } = useCollection(COLLECTIONS.USERS, 'Users');
   const [editing, setEditing] = useState(null);
+  const phone = usePhone();
+  const docked = !!editing?.id && !phone;   // a computer: the person opens beside the list
   const [draft, setDraft] = useState(blank());
   const [errs, setErrs] = useState({});
   const [villas, setVillas] = useState([]);
@@ -71,7 +74,7 @@ export default function UsersModule() {
   ];
 
   return (
-    <div>
+    <div className={docked ? 'list-docked' : undefined}>
       <div className="page-head">
         <div>
           <h1>Users</h1>
@@ -88,12 +91,14 @@ export default function UsersModule() {
           searchKeys={['name', 'phone', 'email', 'units', 'roleId']}
           showId
           onRowClick={open}
+          rowClassName={(u) => (u.id === editing?.id ? 'row-sel' : '')}
+          cardsAlways={docked}
           emptyText="No users."
         />
       </div>
 
       {editing && (
-        <Modal title={editing.id ? 'Edit user' : 'Add a user'} subtitle="Who can sign in: their main role, any extra roles, and the villa(s) they own." onClose={() => setEditing(null)}>
+        <Modal dock={!!editing.id} title={editing.id ? 'Edit user' : 'Add a user'} subtitle="Who can sign in: their main role, any extra roles, and the villa(s) they own." onClose={() => setEditing(null)}>
           <form className="form-grid" onSubmit={submit} noValidate>
             {loadErr && <div className="notice error" data-testid="user-load-error" style={{ gridColumn: '1 / -1' }}>{loadErr} Close and open the form again.</div>}
             <div className={`field${errs.name ? ' invalid' : ''}`}><label>Name *</label><input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />{errs.name && <div className="field-error">{errs.name}</div>}</div>

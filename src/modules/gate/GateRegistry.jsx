@@ -8,6 +8,7 @@ import { notifyGate } from '../../lib/gate/engine.js';
 import { checkIdNumber, freshness, idHash } from '../../lib/gate/idcheck.js';
 import { Chips, Photo, PhotoCapture, StateTag } from './gateUi.jsx';
 import { PhoneSearch, PhoneFilters } from '../../components/ToolIcons.jsx';
+import { usePhone } from '../../components/Tabs.jsx';
 
 const ld = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const today = () => ld(new Date());
@@ -76,7 +77,7 @@ function IdCheck({ p, people, set }) {
   );
 }
 
-export function PersonPanel({ personId, onClose, canEdit = true }) {
+export function PersonPanel({ personId, onClose, canEdit = true, dock = false }) {
   const { records, save } = useCollection(COLLECTIONS.GATE_PEOPLE, 'Gate');
   const p = records.find((r) => r.id === personId);
   const [reason, setReason] = useState(''); const [err, setErr] = useState(''); const [edit, setEdit] = useState(false);
@@ -91,7 +92,7 @@ export function PersonPanel({ personId, onClose, canEdit = true }) {
   }
   const toggle = (k) => (k === 'licence' || k === 'vendor' ? setEdit(true) : set({ [k]: !p[k], ...(k === 'policeVerified' && !p.policeVerified && !p.policeExpiry ? { policeExpiry: inDays(365) } : {}) }));
   return (
-    <Modal title={p.name} subtitle={`${p.shortId || ''} · ${p.personClass}${p.vendor ? ` · ${p.vendor}` : ''}`} onClose={onClose} wide>
+    <Modal dock={dock} title={p.name} subtitle={`${p.shortId || ''} · ${p.personClass}${p.vendor ? ` · ${p.vendor}` : ''}`} onClose={onClose} wide>
       <div className="gg-row" style={{ alignItems: 'flex-start' }} data-testid="person-panel">
         <Photo src={p.photo} name={p.name} size={96} />
         <div style={{ flex: 1 }}>
@@ -169,11 +170,12 @@ export default function GateRegistry({ canEdit = true }) {
   const { records: people } = useCollection(COLLECTIONS.GATE_PEOPLE, 'Gate');
   const { records: links } = useCollection(COLLECTIONS.GATE_LINKS, 'Gate');
   const [status, setStatus] = useState(''); const [cls, setCls] = useState(''); const [q, setQ] = useState(''); const [open, setOpen] = useState(null); const [adding, setAdding] = useState(false);
+  const phone = usePhone(); const docked = !!open && !phone;   // a computer: the person opens beside the list
   const count = (s) => people.filter((p) => p.status === s).length;
   const rows = useMemo(() => people.filter((p) => (!status || p.status === status) && (!cls || p.personClass === cls) && (!q || `${p.name} ${p.vendor || ''} ${p.phone || ''} ${p.shortId}`.toLowerCase().includes(q.toLowerCase()))).sort((a, b) => PERSON_STATUS.indexOf(a.status) - PERSON_STATUS.indexOf(b.status) || a.name.localeCompare(b.name)), [people, status, cls, q]);
   const needs = people.filter((p) => ['Documents pending', 'Under review'].includes(p.status)).length;
   return (
-    <div data-testid="gate-registry">
+    <div data-testid="gate-registry" className={docked ? 'list-docked' : undefined}>
       <div className="gg-kpis"><div className="gg-kpi"><span className="muted">Active</span><b>{count('Active')}</b></div><div className={`gg-kpi${needs ? ' warn' : ''}`}><span className="muted">Vetting queue</span><b>{needs}</b></div><div className={`gg-kpi${people.filter(expiring).length ? ' warn' : ''}`}><span className="muted">Expiring in 30 days</span><b>{people.filter(expiring).length}</b></div><div className="gg-kpi"><span className="muted">Suspended or blocked</span><b>{count('Suspended') + count('Blocked')}</b></div></div>
       <Freshness people={people} links={links} canEdit={canEdit} onOpen={setOpen} />
       <div className="card">
@@ -195,7 +197,7 @@ export default function GateRegistry({ canEdit = true }) {
         <div className="show-sm" data-testid="reg-list">
           {rows.length === 0 && <div className="empty">Nobody matches.</div>}
           {rows.map((p) => (
-            <div key={p.id} className="gg-mini" data-testid="reg-card" onClick={() => setOpen(p.id)}>
+            <div key={p.id} className={`gg-mini${open === p.id ? ' row-sel' : ''}`} data-testid="reg-card" onClick={() => setOpen(p.id)}>
               <Photo src={p.photo} name={p.name} size={36} />
               <div className="gg-main"><b>{p.name}</b><small className="muted">{p.personClass} · checks {vettingBadge(p)}{expiring(p) ? ' · papers expire soon' : ''}</small></div>
               <StateTag state={p.status} />
@@ -203,7 +205,7 @@ export default function GateRegistry({ canEdit = true }) {
           ))}
         </div>
       </div>
-      {open && <PersonPanel personId={open} onClose={() => setOpen(null)} canEdit={canEdit} />}
+      {open && <PersonPanel dock personId={open} onClose={() => setOpen(null)} canEdit={canEdit} />}
       {adding && <RecordModal collection={COLLECTIONS.GATE_PEOPLE} label="Gate" record={{ status: 'Documents pending', personClass: 'Maid / cook' }} title="Add a person to the registry" subtitle="Start the vetting: add the basics here, then tick the checks and take the photo." onSaved={(saved) => setOpen(saved.id)} onClose={() => setAdding(false)} />}
     </div>
   );

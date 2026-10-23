@@ -5,15 +5,16 @@ import Modal from '../../components/Modal.jsx';
 import { VISIT_KINDS, VISIT_STATES } from '../../lib/gate/constants.js';
 import { Photo, StateTag, clock, sameDay, stamp } from './gateUi.jsx';
 import { PhoneSearch, PhoneFilters } from '../../components/ToolIcons.jsx';
+import { usePhone } from '../../components/Tabs.jsx';
 
 const mins = (a, b) => (a && b ? Math.max(0, Math.round((new Date(b) - new Date(a)) / 60000)) : null);
 export const dur = (m) => (m == null ? '' : m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`);
 
-export function VisitDetail({ v, onClose }) {
+export function VisitDetail({ v, onClose, dock = false }) {
   const { records: approvals } = useCollection(COLLECTIONS.GATE_APPROVALS, 'Gate');
   const ap = approvals.find((a) => a.id === v.approvalId);
   return (
-    <Modal title={v.name} subtitle={`${v.shortId || ''} · ${v.kind}`} onClose={onClose}>
+    <Modal dock={dock} title={v.name} subtitle={`${v.shortId || ''} · ${v.kind}`} onClose={onClose}>
       <div className="gg-row" style={{ alignItems: 'flex-start' }}>
         <Photo src={v.photo} name={v.name} size={120} />
         <dl className="kv" style={{ margin: 0 }}>
@@ -37,6 +38,7 @@ export function VisitDetail({ v, onClose }) {
 export default function GateVisits() {
   const { records: visits } = useCollection(COLLECTIONS.GATE_VISITS, 'Gate');
   const [range, setRange] = useState('today'); const [kind, setKind] = useState(''); const [state, setState] = useState(''); const [q, setQ] = useState(''); const [open, setOpen] = useState(null);
+  const phone = usePhone(); const docked = !!open && !phone;   // a computer: the visit opens beside the list
   const rows = useMemo(() => visits.filter((v) => {
     if (range === 'today' && !sameDay(v.inAt)) return false;
     if (range === '7' && Date.now() - new Date(v.inAt) > 7 * 86400000) return false;
@@ -49,7 +51,7 @@ export default function GateVisits() {
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([[head.join(','), ...body].join('\n')], { type: 'text/csv' })); a.download = 'gate-visits.csv'; a.click();
   }
   return (
-    <div className="card" data-testid="gate-visits">
+    <div className={`card${docked ? ' list-docked' : ''}`} data-testid="gate-visits">
       <div className="toolbar" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
         <select aria-label="Period" value={range} onChange={(e) => setRange(e.target.value)} style={{ width: 'auto' }}><option value="today">Today</option><option value="7">Last 7 days</option><option value="all">All</option></select>
         <select aria-label="Kind" value={kind} onChange={(e) => setKind(e.target.value)} style={{ width: 'auto' }}><option value="">All kinds</option>{VISIT_KINDS.map((k) => <option key={k}>{k}</option>)}</select>
@@ -69,14 +71,14 @@ export default function GateVisits() {
       <div className="show-sm" data-testid="visit-list">
         {rows.length === 0 && <div className="empty">No visits match.</div>}
         {rows.slice(0, 100).map((v) => (
-          <div key={v.id} className="gg-mini" data-testid="visit-card" onClick={() => setOpen(v)}>
+          <div key={v.id} className={`gg-mini${open?.id === v.id ? ' row-sel' : ''}`} data-testid="visit-card" onClick={() => setOpen(v)}>
             <Photo src={v.photo} name={v.name} size={36} />
             <div className="gg-main"><b>{v.name}</b><small className="muted">{[v.kind, v.unit && `→ ${v.unit}`, clock(v.inAt)].filter(Boolean).join(' · ')}{v.vehicle ? ` · ${v.vehicle}` : ''}</small></div>
             <StateTag state={v.state} />
           </div>
         ))}
       </div>
-      {open && <VisitDetail v={open} onClose={() => setOpen(null)} />}
+      {open && <VisitDetail dock v={open} onClose={() => setOpen(null)} />}
     </div>
   );
 }

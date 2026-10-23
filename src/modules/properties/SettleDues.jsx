@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Modal from '../../components/Modal.jsx';
 import { useApp, useCollection } from '../../context/AppContext.jsx';
 import { COLLECTIONS, storage } from '../../lib/storage/index.js';
@@ -14,15 +14,19 @@ import { ONLINE_MODES as ONLINE, ALL_MODES as OFFLINE } from '../../lib/region/p
  * Settle a unit's dues in one go. Tick the bills (oldest first by default), optionally use the unit's advance,
  * and pay the rest with ONE payment. Every bill gets its own receipt; the advance is used oldest-bill-first.
  */
-export default function SettleDues({ unit, dues, credit, resident, onClose }) {
+export default function SettleDues({ unit, dues, credit, resident: isResident, onClose }) {
   const { currentUser } = useApp();
   const { save } = useCollection(COLLECTIONS.DUES, 'Billing & Finance');
   const today = todayIso();
   const open = useMemo(() => dues.filter((d) => !['Paid', 'Cancelled'].includes(d.status)).sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate))), [dues]);
   const [picked, setPicked] = useState(() => new Set(open.map((d) => d.id)));
   const [useAdv, setUseAdv] = useState(credit > 0);
+  // the office records money received, or takes it online through the payment gateway (the simulator in this demo); owners pay online
+  const [online, setOnline] = useState(false);
+  const resident = isResident || online;
   const modes = resident ? ONLINE : OFFLINE;
   const [mode, setMode] = useState(modes[0]);
+  useEffect(() => { if (!modes.includes(mode)) setMode(modes[0]); }, [resident]);   // eslint-disable-line react-hooks/exhaustive-deps -- switching online / received keeps a mode of that kind
   const [ref, setRef] = useState('');
   const [paidOn, setPaidOn] = useState(today);
   const [busy, setBusy] = useState(false);
@@ -103,6 +107,12 @@ export default function SettleDues({ unit, dues, credit, resident, onClose }) {
           <span><b>To pay now</b></span><b data-testid="settle-topay">{money(toPay)}</b></div>
         {credit > 0 && <label className="check" style={{ marginTop: 6 }}><input type="checkbox" checked={useAdv} onChange={(e) => setUseAdv(e.target.checked)} /> Use the unit's advance first</label>}
       </div>
+      {toPay > 0 && !isResident && (
+        <div className="chips" role="group" aria-label="How" style={{ margin: '8px 0' }} data-testid="settle-how">
+          <button type="button" className={`chip${!online ? ' on' : ''}`} aria-pressed={!online} onClick={() => setOnline(false)}>Record a payment received</button>
+          <button type="button" className={`chip${online ? ' on' : ''}`} aria-pressed={online} data-testid="settle-online" onClick={() => setOnline(true)}>Pay online (payment gateway)</button>
+        </div>
+      )}
       {toPay > 0 && !resident && (
         <div className="form-grid">
           <div className="field"><label>{resident ? 'Pay using' : 'Payment mode'} *</label><select value={mode} onChange={(e) => setMode(e.target.value)}>{modes.map((m) => <option key={m}>{m}</option>)}</select></div>

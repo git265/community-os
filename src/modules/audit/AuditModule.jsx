@@ -4,6 +4,7 @@ import { SegTabs } from '../../components/ui.jsx';
 import { secureStorage } from '../../lib/storage/secureStorage.js';
 import { DEFAULT_SCHEMAS } from '../../lib/schema/registry.js';
 import ServerTable from '../../components/ServerTable.jsx';
+import { usePhone } from '../../components/Tabs.jsx';
 import { ChangesList } from '../../components/RecordMeta.jsx';
 import Modal from '../../components/Modal.jsx';
 import { COLLECTIONS } from '../../lib/storage/index.js';
@@ -52,8 +53,10 @@ export default function AuditModule() {
   const [selected, setSelected] = useState(null);
   const { tabAllowed } = useApp();
   const [tab, setTab] = useState('log');
+  const phone = usePhone();
+  const docked = !!selected && !phone;   // a computer: the entry opens beside the list
   return (
-    <div>
+    <div className={docked ? 'list-docked' : undefined}>
       <div className="page-head">
         <div>
           <h1>Audit trail</h1>
@@ -75,11 +78,13 @@ export default function AuditModule() {
           dateFields={[{ key: 'when', label: 'Date' }]}
           searchKeys={['who', 'what', 'action', 'summary', 'recordShortId']}
           onRowClick={setSelected}
+          rowClassName={(a) => (a.id === selected?.id ? 'row-sel' : '')}
+          cardsAlways={docked}
         />
       </div>}
 
       {selected && (
-        <Modal title="Audit entry" subtitle="Who did what, when, and exactly which fields changed." onClose={() => setSelected(null)}>
+        <Modal dock title="Audit entry" subtitle="Who did what, when, and exactly which fields changed." onClose={() => setSelected(null)}>
           <ul className="list">
             <li><span>When</span><b>{new Date(selected.when).toLocaleString()}</b></li>
             <li><span>Who</span><b>{selected.who}</b></li>
