@@ -49,7 +49,7 @@ import ReleasesPanel from '../approval/ReleasesPanel.jsx';
 import { releaseSummary } from '../../lib/approval/releases.js';
 import { moneyPosition } from '../../lib/approval/position.js';
 import { money } from '../../lib/locale.js';
-import Tabs from '../../components/Tabs.jsx';
+import Tabs, { usePhone } from '../../components/Tabs.jsx';
 import PageActions from '../../components/PageActions.jsx';
 
 const EMOJI = { Plumbing: '🔧', Electrical: '⚡', MEP: '🌀', Carpentry: '🪚', Housekeeping: '🧹', Gardening: '🌿', Landscape: '🌳', Security: '🛡', Amenities: '🎾', Cultural: '🎭', Helpdesk: '💬', General: '🧰', Other: '📋' };
@@ -174,6 +174,7 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
 
   const [tabRaw, setTab] = useState('tickets');
   const [selectedId, setSelectedId] = useState(null);
+  const phoneView = usePhone();
   // Jumped here from another screen (e.g. a financial task in the Payments Cross-check): open that task's details.
   useEffect(() => {
     let want = null;
@@ -368,6 +369,8 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
   }
 
   const selected = tickets.find((t) => t.id === selectedId) ?? null;
+  // on a computer the open ticket sits beside the list (split view) and the list turns into two-line rows
+  const docked = !!selected && !embeddedRef && !phoneView;
   const selectedType = taskTypeOf(selected);
   const myQueueTicket = !!(isHandymanRole && selected && selected.category === myTrade && !isInternalType(taskTypeOf(selected)));
   const isMyTicket = !!(isResident && selected && selected.unit === currentUser?.unit);
@@ -780,7 +783,7 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
 
 
   return (
-    <div>
+    <div className={docked ? 'tk-docked' : undefined}>
       {!embeddedRef && (<>
       <div className="page-head">
         <div>
@@ -888,7 +891,8 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
                   columns={ticketColumns}
                   cardRender={ticketCard}
                   cardSorts={[{ key: 'recordCreatedAt', dir: 'desc', label: 'Newest first' }, { key: 'slaDueAt', dir: 'asc', label: 'SLA soonest' }, { key: 'status', dir: 'asc', label: 'Status' }]}
-                  rowClassName={(t) => `prio-${t.priority}`}
+                  rowClassName={(t) => `prio-${t.priority}${t.id === selectedId ? ' row-sel' : ''}`}
+                  cardsAlways={docked}
                   baseFilters={{
                     ...(isHandymanRole && roleId !== 'handyman_mep' ? { category: myTrade } : {}),
                     ...(cardKey ? SUMMARY_FILTERS[cardKey] : {}),
@@ -913,7 +917,7 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
                   toolbarExtra={(
                     <button type="button" className="icon-btn reset-filters" title="Reset all filters" aria-label="Reset all filters" onClick={resetAllFilters}>⟲</button>
                   )}
-                  onRowClick={(t) => setSelectedId(t.id)}
+                  onRowClick={(t) => { if (selectedId && t.id !== selectedId && !confirmLoseChanges()) return; setSelectedId(t.id); }}
                   emptyText="No tickets match."
                 />
               )}
@@ -1068,7 +1072,7 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
           { key: 'history', label: 'History', hidden: !tabAllowed('tickets.d.history') },
         ];
         return (
-        <Modal title={selected.title} onClose={closeDetail} wide>
+        <Modal title={selected.title} onClose={closeDetail} wide dock={!embeddedRef}>
           {photoView && <FilePreview meta={photoView} onClose={() => setPhotoView(null)} />}
           {ticketHero(selected)}
           <SegTabs tabs={tabs} value={dtab} onChange={setDtab} label="Ticket sections" />

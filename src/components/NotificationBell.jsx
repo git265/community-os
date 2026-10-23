@@ -110,7 +110,7 @@ export default function NotificationBell({ onOpen, onViewAll }) {
     <>
       <div className="bell-wrap" ref={wrap}>
         <button type="button" className="bell" aria-label={`Notifications${unread ? `, ${unread} unread` : ''}`} onClick={() => (open ? closePanel() : setOpen(true))}>
-          🔔{unread > 0 && <span className="bell-badge">{unread}</span>}
+          <span className="bell-emo">🔔</span><svg className="bell-svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 8 3 8H3s3-1 3-8" /><path d="M10 20a2 2 0 0 0 4 0" /></svg>{unread > 0 && <span className="bell-badge">{unread}</span>}
         </button>
         {open && (
           <div className="bell-panel" role="dialog" aria-label="Notifications">

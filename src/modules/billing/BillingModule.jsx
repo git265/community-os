@@ -70,7 +70,7 @@ export default function BillingModule({ onNavigate }) {
         {tabs.map(([id, label]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}>{label}</button>)}
       </Tabs>
 
-      {isTreasury && tab === 'dashboard' && <TreasurerDashboard />}
+      {isTreasury && tab === 'dashboard' && <TreasurerDashboard onTab={(id) => (tabs.some(([t]) => t === id) ? () => setTab(id) : null)} />}
 
       {tab === 'taxsplit' && <TaxSplit />}
       {tab === 'itc' && <InputCredit />}

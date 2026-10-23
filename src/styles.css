@@ -2641,3 +2641,192 @@ html.comfortable .needs-you .nu-row { min-height: 58px; background: #fff; border
 .wf-step.now { background: #dbeafe !important; color: #1e3a8a !important; border-color: #93c5fd !important; }
 .infra-chip.on { background: #dbeafe !important; color: #1e3a8a !important; border-color: #93c5fd !important; }
 .infra-chip.on small { color: #3b5ba8 !important; }
+
+/* ===== Round 56: desktop layout A (split view) - computers only (901px and up); phones keep their own layout =====
+   menu       216px, the community and who is signed in at the top, one text row per page
+   header     page title with its one-line description, a wide search box, bell and profile - the same on every page
+   page row   the page's tabs on the left and its buttons on the right, on one row */
+.search-svg, .search-ph, .search-kbd, .bell-svg, .crumb-desc, .brand-txt small { display: none; }
+@media (min-width: 901px) {
+  .app { grid-template-columns: 216px minmax(0, 1fr) !important; }
+  .side { padding: 14px 10px 40px !important; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; scrollbar-width: thin; border-right: 1px solid #e5e7eb !important; }
+  .side .brand { margin: 0 0 2px !important; padding: 2px 6px; gap: 10px !important; align-items: center; }
+  .side .brand .mark { width: 30px; height: 30px; flex: none; border-radius: 8px !important; background: #dbeafe !important; color: #1e3a8a !important; font-size: 12.5px; letter-spacing: 0; }
+  .brand-txt { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+  .brand-txt b { font-size: 15px; font-weight: 600 !important; color: #111827; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .brand-txt small { display: block; font-size: 12px; color: #4b5563; font-weight: 400 !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .side .community { display: none !important; }
+  .side .nav-label { font-size: 11.5px !important; font-weight: 500 !important; color: #6b7280 !important; letter-spacing: .05em !important; margin: 0 !important; padding: 0 8px 4px; }
+  .side .nav { display: flex; flex-direction: column; gap: 1px; }
+  .side .nav button { height: 30px; min-height: 30px !important; padding: 0 8px !important; margin: 0 !important; border-radius: 7px !important; font-size: 13.5px !important; gap: 8px; color: #111827 !important; }
+  .side .nav button .ico { display: none !important; }
+  .side .nav button:hover:not(.active) { background: #f3f4f6 !important; }
+  .side .nav button.active, .side .nav button.active * { background: #eff6ff !important; color: #1d4ed8 !important; font-weight: 500 !important; }
+
+  .top { height: 64px !important; padding: 0 28px !important; gap: 14px; }
+  .crumb-wrap { flex: 1 1 auto; min-width: 0; }
+  .crumb-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .top .crumb { font-size: 19px !important; font-weight: 600 !important; line-height: 1.2; }
+  .crumb-desc { display: block; font-size: 13px; color: #4b5563; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.3; }
+  .top-right { gap: 10px !important; flex: none; }
+  .top .role { display: none !important; }
+  .top [data-testid=search-open] { width: 320px; height: 36px; min-height: 36px !important; justify-content: flex-start; padding: 0 10px !important; border: 1px solid #d1d5db !important; border-radius: 9px !important; background: #fff !important; color: #6b7280 !important; gap: 8px !important; }
+  .top [data-testid=search-open] .search-ph { font-weight: 400 !important; color: #6b7280 !important; font-size: 14px; }
+  .search-emo, .top .search-label { display: none !important; }
+  .search-svg { display: inline-flex; } .search-svg svg { width: 16px; height: 16px; }
+  .search-ph { display: block; flex: 1; min-width: 0; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .search-kbd { display: inline-block; font-family: inherit; font-size: 11.5px; font-weight: 400 !important; border: 1px solid #d1d5db; border-radius: 5px; padding: 0 5px; color: #4b5563 !important; line-height: 18px; }
+  .bell { width: 36px !important; height: 36px !important; border: 1px solid #d1d5db !important; border-radius: 9px !important; display: inline-flex !important; align-items: center; justify-content: center; color: #111827; padding: 0; }
+  .bell-emo { display: none; } .bell-svg { display: block; }
+  .top .avatar { width: 34px; height: 34px; font-size: 12.5px; font-weight: 600 !important; }
+
+  .content { padding: 20px 28px 48px !important; }
+  /* the description now sits in the header, so the page's own copy (and a head left empty) steps aside */
+  .content p.desc-moved { display: none !important; }
+  .content .page-head > div:first-child:not(:has(> :not(h1, p.desc-moved))) { display: none !important; }
+  .content .page-head:not(:has(> :not(h1, p.desc-moved))),
+  .content .page-head:not(:has(> :nth-child(2))):not(:has(> :not(div, h1, p))):not(:has(> div > :not(h1, p.desc-moved))) { display: none !important; }
+  .content .page-head { justify-content: flex-end; margin-bottom: 14px; }
+  /* tabs and the page's buttons on one row (row-reverse: the buttons keep the right; when both do not fit the tabs drop to a row of their own below) */
+  .content > :has(> .page-head:first-child + .tabs) { display: flex !important; flex-direction: row-reverse; flex-wrap: wrap; align-items: flex-end; }
+  .content > :has(> .page-head:first-child + .tabs) > * { flex: 0 0 100%; min-width: 0; }
+  .content > :has(> .page-head:first-child + .tabs) > .tabs { flex: 1 1 320px; align-self: stretch; align-items: flex-end; margin-bottom: 16px !important; }
+  .content > :has(> .page-head:first-child + .tabs) > .page-head { flex: 0 0 auto; max-width: 100%; margin: 0 0 16px auto !important; padding: 0 0 4px 16px; flex-wrap: wrap; justify-content: flex-end; }
+  .content .page-head .page-actions { justify-content: flex-end; }
+}
+@media (min-width: 901px) and (max-width: 1199px) {
+  :root { --dock-w: calc((100vw - 216px) * .5) !important; }
+}
+@media (min-width: 901px) and (max-width: 1180px) {
+  .top [data-testid=search-open] { width: 220px; }
+  .top .search-kbd { display: none; }
+}
+
+/* --- Maintenance split view: the open ticket docks on the right, under the header; the list stays usable beside it --- */
+@media (min-width: 901px) {
+  :root { --dock-w: min(720px, calc((100vw - 216px) * .56)); }
+  .modal-overlay.docked { inset: 64px 0 0 auto; width: var(--dock-w); padding: 0; background: transparent !important; display: block; z-index: 4; }
+  .modal-overlay.docked > .modal-card { width: 100%; max-width: none !important; height: 100%; max-height: none; border-radius: 0 !important; border: 0 !important; border-left: 1px solid #e5e7eb !important; box-shadow: -8px 0 24px rgba(17, 24, 39, .06) !important; }
+  .modal-overlay.docked > .modal-card > .modal-handle { display: none; }
+  .modal-overlay.docked > .modal-card > .modal-header { padding: 14px 24px; }
+  .modal-overlay.docked > .modal-card > .modal-header h2 { font-size: 19px; }
+  .modal-overlay.docked > .modal-card > .modal-body { padding: 16px 24px; }
+  .top:has(.bell-panel, .push-banner, .modal-overlay) { z-index: 10 !important; }   /* the header's own pop-ups (notifications, search) open over a docked panel */
+  .main:has(.modal-overlay.docked) > .content { margin-right: var(--dock-w) !important; max-width: none !important; padding-left: 20px !important; padding-right: 20px !important; }
+  .tk-docked .page-head .btn { white-space: nowrap; }
+  /* the list beside it: two-line rows - title and due date, then priority · number · category · place, who and status */
+  .tk-docked .tcards.tgrid { display: flex !important; flex-direction: column; gap: 0 !important; }
+  .tk-docked .tcard-wrap { border-radius: 9px !important; cursor: pointer; }
+  .tk-docked .tcard-wrap:hover { background: #f9fafb; }
+  .tk-docked .tcard-wrap.row-sel { background: #eff6ff !important; }
+  .tk-docked .tk-card { border: 0 !important; border-bottom: 1px solid #f1f3f5 !important; border-radius: 0 !important; box-shadow: none !important; background: transparent !important; padding: 9px 10px !important;
+    display: grid !important; grid-template-columns: auto auto minmax(0, 1fr) auto auto; column-gap: 8px; row-gap: 3px; align-items: center;
+    grid-template-areas: "title title title title due" "prio id meta who status" "money money money money money" "extra extra extra extra extra"; }
+  .tk-docked .tk-card .tk-card-top, .tk-docked .tk-card .tk-foot, .tk-docked .tk-card .tk-state { display: contents !important; }
+  .tk-docked .tk-card .tk-card-top .mono { grid-area: id; font-size: 12.5px; }
+  .tk-docked .tk-card .tk-prio { grid-area: prio; font-size: 12.5px; }
+  .tk-docked .tk-card .tk-prio::before { display: none; }
+  .tk-docked .tk-card .tk-prio.Medium, .tk-docked .tk-card .tk-prio.Low, .tk-docked .tk-card .tk-age { display: none; }
+  .tk-docked .tk-card .tk-title { grid-area: title; margin: 0 !important; font-size: 14.5px !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .tk-docked .tk-card .tk-meta { grid-area: meta; font-size: 12.5px; color: #4b5563; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .tk-docked .tk-card .tk-state .tag { grid-area: status; margin: 0 !important; }
+  .tk-docked .tk-card .tk-sla { grid-area: due; justify-self: end; background: none !important; padding: 0 !important; font-size: 12.5px !important; white-space: nowrap; }
+  .tk-docked .tk-card .tk-sla .sla-i { display: none; }
+  .tk-docked .tk-card .tk-who { grid-area: who; flex: none !important; font-size: 12.5px; }
+  .tk-docked .tk-card .tk-who-name { display: none; }
+  .tk-docked .tk-card .tk-money { grid-area: money; margin: 2px 0 0; font-size: 12.5px; }
+  .tk-docked .tk-card .tk-foot > .tag, .tk-docked .tk-card .tk-needs { grid-area: extra; justify-self: start; margin: 2px 0 0 !important; }
+  .tk-docked .tk-card.needs-me { background: #fffbeb !important; }
+  /* the list's filters wait behind its Filters button while a ticket is open */
+  .tk-docked .stable-filter-toggle { display: inline-flex !important; }
+  .tk-docked .stable-filters { display: none !important; }
+  .tk-docked .stable-filters.open { display: flex !important; flex-wrap: wrap; gap: 8px; width: 100%; }
+  .tk-docked .stable-sort { display: none; }
+  .tk-docked .stable-filters.open ~ .stable-sort, .tk-docked .filters-open .stable-sort { display: inline-block; }
+}
+
+/* --- Home on a computer: the numbers, then what needs doing (left) beside notices and important numbers (right) --- */
+.nu-btn { display: none; }
+@media (min-width: 901px) {
+  .home-cols { display: flex; flex-wrap: wrap; gap: 18px; align-items: flex-start; margin-top: 18px; }
+  .home-main { flex: 2 1 520px; min-width: 0; display: flex; flex-direction: column; gap: 18px; }
+  .home-side { flex: 1 1 300px; min-width: 0; display: flex; flex-direction: column; gap: 18px; }
+  .home-cols > div > * { margin-top: 0 !important; margin-bottom: 0 !important; }
+  .home-cols > div > .link-btn { align-self: flex-start; margin-top: -8px !important; }
+  .home-cols h2 { font-size: 16px !important; }
+  .home-cols .card { border-radius: 12px !important; padding: 14px 16px !important; }
+  .home-main .needs-you { border: 1px solid #d1d5db; border-radius: 12px; padding: 14px 16px; gap: 8px; }
+  .home-main .needs-you .nu-row { min-height: 0; padding: 8px 10px; gap: 12px; cursor: pointer; }
+  .home-main .needs-you .nu-row:hover { background: #f3f4f6; }
+  .home-main .needs-you .nu-go { display: none; }
+  .home-main .nu-btn { display: inline-flex; align-items: center; height: 32px; padding: 0 12px; border: 1px solid #93c5fd; border-radius: 8px; background: #dbeafe; color: #1e3a8a; font-size: 13.5px; font-weight: 500; flex: none; }
+  .home-main .nu-row:hover .nu-btn { background: #bfdbfe; border-color: #60a5fa; }
+  /* the maintenance counts as a row of chips */
+  .home-main [data-testid=maint-summary] > p.muted { display: none; }
+  .home-main [data-testid=maint-summary] .stat-cards.six { display: flex !important; flex-wrap: wrap; gap: 8px !important; margin-top: 10px !important; }
+  .home-main [data-testid=maint-summary] .stat-card { flex-direction: row-reverse; justify-content: flex-end; align-items: baseline; gap: 6px !important; min-height: 0 !important; padding: 5px 12px !important; border: 1px solid #d1d5db !important; border-radius: 999px !important; background: #fff !important; }
+  .home-main [data-testid=maint-summary] .stat-card:hover:not(:disabled) { background: #f9fafb !important; }
+  .home-main [data-testid=maint-summary] .sc-value { font-size: 15px !important; line-height: 1.2; }
+  .home-main [data-testid=maint-summary] .sc-label { font-size: 13px !important; color: #374151; }
+  .home-main [data-testid=maint-summary] > small.muted { display: block; margin-top: 10px; }
+}
+
+/* --- Billing overview on a computer: the numbers, then collect / approve / pay beside the bank balances, then every chart --- */
+@media (min-width: 901px) {
+  .bill-cols { display: flex; flex-wrap: wrap; gap: 18px; align-items: flex-start; margin: 16px 0 22px; }
+  .bill-main { flex: 2 1 520px; min-width: 0; display: flex; flex-direction: column; gap: 18px; }
+  .bill-side { flex: 1 1 300px; min-width: 0; display: flex; flex-direction: column; gap: 18px; }
+  .bill-panel { margin: 0 !important; padding: 14px 16px !important; border-radius: 12px !important; display: flex; flex-direction: column; gap: 10px; }
+  .bill-panel h2 { margin: 0; font-size: 16px !important; }
+  .bill-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+  .bill-acts { display: flex; gap: 8px; }
+  .bill-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  .bill-table th { text-align: left; font-size: 12.5px; color: #4b5563; padding: 6px 8px; border-bottom: 1px solid #d1d5db; background: none; }
+  .bill-table td { padding: 9px 8px; border-bottom: 1px solid #f1f3f5; }
+  .bill-table tr:last-child td { border-bottom: 0; }
+  .bill-table .num { text-align: right; white-space: nowrap; }
+  .bill-table .late { color: #b91c1c; }
+  .bill-bar { display: flex; flex-direction: column; gap: 6px; }
+  .bill-bar > div { display: flex; justify-content: space-between; gap: 10px; font-size: 13.5px; color: #374151; }
+  .bill-bar > div > span:first-child { font-weight: 500; color: #111827; }
+  .bill-bar > i { display: block; height: 10px; border-radius: 5px; background: #e5e7eb; overflow: hidden; }
+  .bill-bar > i > b { display: block; height: 10px; border-radius: 5px; }
+  .bill-wait { background: #fffbeb !important; border-color: #fde68a !important; gap: 8px; }
+  .bill-wait h2 { color: #92400e; }
+  .bill-wait > small { color: #92400e; font-size: 13px; font-weight: 500; margin-top: -6px; }
+  .bill-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 0 0; border: 0; border-top: 1px solid #f1f3f5; background: none; text-align: left; font: inherit; color: inherit; }
+  button.bill-row { cursor: pointer; }
+  .bill-wait .bill-row { border-top-color: #fde68a; }
+  .bill-row > span:first-child { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+  .bill-row b { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bill-row small { font-size: 12.5px; color: #4b5563; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bill-panel[data-testid=bill-banks] { gap: 2px; }
+  .bill-panel[data-testid=bill-banks] > .bill-panel-head { margin-bottom: 6px; }
+  .bill-kv { display: flex; justify-content: space-between; gap: 10px; font-size: 13.5px; padding: 4px 0; }
+  .bill-kv > span:last-child { font-weight: 500; }
+  .bill-kv.total { border-top: 1px solid #e5e7eb; padding-top: 8px; margin-top: 2px; }
+  .bill-kv.total > span { font-weight: 600; }
+  .bill-charts-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin: 0 0 12px; }
+  .bill-charts-head h2 { margin: 0; font-size: 16px !important; }
+}
+
+/* --- fields on a computer: white with a grey border (phones keep the filled fields); html body :is() outranks the older filled-field rules --- */
+@media (min-width: 901px) {
+  html body :is(input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=range]):not([type=color]), select, textarea, .filter, .search, .rte) {
+    background-color: #fff !important; border: 1px solid #d1d5db !important; border-radius: 8px !important;
+  }
+  /* a drop-down shows its arrow */
+  html body :is(select, .filter):not([multiple]) {
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path d='M1 1.5l5 5 5-5' fill='none' stroke='%236b7280' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/></svg>") !important;
+    background-repeat: no-repeat !important; background-position: right 10px center !important; background-size: 11px 7px !important; padding-right: 30px !important;
+  }
+  /* single-line fields take their height from the control size; vertical padding inside the border would clip the text */
+  html body :is(input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=range]):not([type=color]), select, .filter, .search):not(textarea) { padding-top: 0 !important; padding-bottom: 0 !important; }
+  html body :is(input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=range]):not([type=color]), select, textarea, .rte):hover { background-color: #fff !important; border-color: #9ca3af !important; }
+  html body :is(input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=range]):not([type=color]), select, textarea):focus, html body .rte:focus-within {
+    background-color: #fff !important; border-color: #1d4ed8 !important; outline: 2px solid #bfdbfe !important; outline-offset: 0 !important;
+  }
+  html body :is(input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=range]):not([type=color]), select, textarea):disabled { background-color: #f9fafb !important; border-color: #e5e7eb !important; }
+  html body .field.invalid :is(input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=range]):not([type=color]), select, textarea) { background-color: #fef2f2 !important; border-color: #ef4444 !important; }
+  html body .rte :is(.rte-body, [contenteditable]) { border: 0 !important; background: transparent !important; outline: 0 !important; }
+}

@@ -175,6 +175,31 @@ function ProfileModal({ onClose }) {
   );
 }
 
+/**
+ * The desktop header shows the open page's one-line description under its title. It is the first
+ * paragraph of the page's own head (`.page-head`), read from the screen as the page draws it and kept
+ * up to date; that paragraph is then marked `desc-moved` and hidden on a computer (phones keep it).
+ */
+function usePageDescription() {
+  const [desc, setDesc] = useState('');
+  useEffect(() => {
+    let raf = 0;
+    const read = () => {
+      raf = 0;
+      const head = document.querySelector('.app .content .page-head');
+      const p = head?.querySelector(':scope > div > p, :scope > p');
+      if (p && !p.classList.contains('desc-moved')) p.classList.add('desc-moved');
+      setDesc((p?.textContent || '').replace(/\s+/g, ' ').trim());
+    };
+    const kick = () => { if (!raf) raf = requestAnimationFrame(read); };
+    const mo = new MutationObserver(kick);
+    mo.observe(document.body, { childList: true, subtree: true, characterData: true });
+    kick();
+    return () => { mo.disconnect(); cancelAnimationFrame(raf); };
+  }, []);
+  return desc;
+}
+
 function Shell() {
   const { currentUser, role, roles, hasPermission, logout, ready, community } = useApp();
   const [otherCommunities, setOtherCommunities] = useState([]);
@@ -215,6 +240,7 @@ function Shell() {
   const [spill, setSpill] = useState(() => storageOverflowed()); // the demo store ran out of browser space and holds a big collection in memory
   useEffect(() => { const f = () => setSpill(true); window.addEventListener('communityos:storage-overflow', f); return () => window.removeEventListener('communityos:storage-overflow', f); }, []);
   const [navKey, setNavKey] = useState(0);
+  const pageDesc = usePageDescription();
   const [clockOpen, setClockOpen] = useState(false);
   const duty = useDuty();
   const [navUse, setNavUse] = useState(() => { try { return JSON.parse(localStorage.getItem(`communityos:navUse:${role?.id}`) || '{}'); } catch { return {}; } });
@@ -329,7 +355,8 @@ function Shell() {
     <div className="app">
       <aside className="side">
         <div className="brand" onClick={() => setProfileMenuOpen((v) => !v)} style={{ cursor: 'pointer' }}>
-          <span className="mark">⌂</span> {community?.name || 'CommunityOS'}
+          <span className="mark">{(community?.name || 'CommunityOS').split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase()}</span>
+          <span className="brand-txt"><b>{community?.name || 'CommunityOS'}</b><small>{role.name}{currentUser.unit ? ` · ${currentUser.unit}` : ''}</small></span>
         </div>
         <div className="community" onClick={() => setProfileMenuOpen((v) => !v)} style={{ cursor: 'pointer' }}>
           <small>SIGNED IN AS</small>
@@ -352,7 +379,7 @@ function Shell() {
 
       <main className="main">
         <header className="top">
-          <div className="crumb-wrap">{trail.length > 0 && <button type="button" className="back-btn" data-testid="nav-back" aria-label="Back to previous page" onClick={goBack}>←</button>}<div className="crumb">{activeLabel}</div></div>
+          <div className="crumb-wrap">{trail.length > 0 && <button type="button" className="back-btn" data-testid="nav-back" aria-label="Back to previous page" onClick={goBack}>←</button>}<div className="crumb-txt"><div className="crumb">{activeLabel}</div>{pageDesc && <div className="crumb-desc" title={pageDesc}>{pageDesc}</div>}</div></div>
           <div className="top-right">
             {isClockRole(role) && (() => { const mins = duty.open ? Math.max(0, Math.floor((Date.now() - new Date(duty.open.clockIn)) / 60000)) : 0; return (
               <button type="button" className={`btn sm ${duty.open ? 'danger' : 'good'}`} data-testid="clock-chip" aria-label={duty.open ? 'On duty, tap to end your shift' : 'Off duty, tap to start your shift'} onClick={() => setClockOpen(true)}>

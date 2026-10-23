@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { search } from '../lib/globalSearch.js';
+import { SearchIcon } from './ToolIcons.jsx';
 
 /** Search box in the header (press / or Ctrl+K anywhere): pages, sections and records the person may open. */
 export default function GlobalSearch({ pages, onGo }) {
@@ -33,7 +34,7 @@ export default function GlobalSearch({ pages, onGo }) {
   };
   return (
     <>
-      <button type="button" className="btn secondary sm" data-testid="search-open" aria-label="Search" title="Search (press /)" onClick={() => setOpen(true)} style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>🔍 <span className="search-label">Search</span></button>
+      <button type="button" className="btn secondary sm" data-testid="search-open" aria-label="Search" title="Search (press /)" onClick={() => setOpen(true)} style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}><span className="search-emo">🔍</span><span className="search-svg"><SearchIcon /></span> <span className="search-label">Search</span><span className="search-ph">Search tickets, homes, people…</span><kbd className="search-kbd">{/Mac|iPhone|iPad/.test(navigator.platform || '') ? '⌘K' : 'Ctrl K'}</kbd></button>
       {open && (
         <div className="modal-overlay" onClick={() => setOpen(false)} style={{ alignItems: 'flex-start', paddingTop: 70 }}>
           <div className="modal-card" role="dialog" aria-label="Search" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560, width: '92%' }} data-testid="search-dialog">

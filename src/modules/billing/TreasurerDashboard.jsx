@@ -4,6 +4,9 @@ import { COLLECTIONS } from '../../lib/storage/index.js';
 import { invoiceApproval, approvalState } from '../tickets/ticketEngine.js';
 import { actualsByHead, sumHeads, fyRange, fyOptions, currentFy, fyOfDate, kindOfHead, EXPENSE_HEADS } from '../../lib/bank/analysis.js';
 import { computeHeadroom, depositsOf } from '../../lib/bank/headroom.js';
+import { defaultersOf } from '../../lib/finance/rules.js';
+import { useApprovals } from '../approvals/ApprovalsPanel.jsx';
+import { usePhone } from '../../components/Tabs.jsx';
 
 /* ---------------------------------------------------------------- helpers -- */
 const inrFull = (n) => `₹${Math.round(Number(n) || 0).toLocaleString('en-IN')}`;
@@ -179,7 +182,83 @@ function fyMonths(fy, lastYm) {
   return out;
 }
 
-export default function TreasurerDashboard() {
+/**
+ * Computer only (layout A): what to collect, approve and pay, beside the bank balances - above the charts.
+ * `onTab(id)` gives the click that opens another Billing tab (null when this person cannot open it).
+ */
+function MoneyDesk({ d, fy, overdue, toPay, approvals, onTab }) {
+  const openLink = (link) => window.dispatchEvent(new CustomEvent('communityos:openlink', { detail: { link } }));
+  const reminders = onTab?.('defaulters'); const record = onTab?.('dues'); const pay = onTab?.('pay');
+  const pct = (a, b) => (b > 0 ? Math.min(100, Math.round((a / b) * 100)) : 0);
+  const mine = approvals.filter((i) => i.mine).length;
+  return (
+    <div className="bill-cols" data-testid="money-desk">
+      <div className="bill-main">
+        <section className="card bill-panel" data-testid="overdue-units">
+          <div className="bill-panel-head">
+            <h2>Overdue by unit</h2>
+            <span className="bill-acts">
+              {reminders && <button type="button" className="btn secondary sm" onClick={reminders}>Send reminders</button>}
+              {record && <button type="button" className="btn sm" onClick={record}>Record payment</button>}
+            </span>
+          </div>
+          {overdue.length === 0 ? <p className="muted" style={{ margin: 0 }}>No unit has overdue bills.</p> : (
+            <table className="bill-table">
+              <thead><tr><th>Unit</th><th>Billed to</th><th>Block</th><th className="num">Bills</th><th className="num">Overdue</th><th className="num">Oldest</th></tr></thead>
+              <tbody>{overdue.slice(0, 6).map((r) => (
+                <tr key={r.unit}><td><b>{r.unit}</b></td><td>{r.owner || '—'}</td><td>{r.block || '—'}</td><td className="num">{r.bills}</td><td className="num"><b>{inrFull(r.amount)}</b></td><td className={`num${r.days > 90 ? ' late' : ''}`}>{r.days} days</td></tr>
+              ))}</tbody>
+            </table>
+          )}
+          {overdue.length > 6 && reminders && <button type="button" className="link-btn" style={{ alignSelf: 'flex-start' }} onClick={reminders}>All {overdue.length} units ›</button>}
+        </section>
+        <section className="card bill-panel" data-testid="fy-forecast">
+          <h2>{fy} against the forecast</h2>
+          {[
+            { l: 'Income received', a: d.incomeSoFar, b: d.incForecast, c: 'var(--viz-1)' },
+            { l: 'Spent', a: d.expenseSoFar, b: d.expForecast, c: 'var(--viz-2)' },
+          ].map((x) => (
+            <div key={x.l} className="bill-bar">
+              <div><span>{x.l}</span><span>{inr(x.a)}{x.b ? ` of ${inr(x.b)} · ${pct(x.a, x.b)}%` : ' · no forecast entered'}</span></div>
+              <i><b style={{ width: `${pct(x.a, x.b)}%`, background: x.c }} /></i>
+            </div>
+          ))}
+        </section>
+      </div>
+      <div className="bill-side">
+        {approvals.length > 0 && (
+          <section className="card bill-panel bill-wait" data-testid="bill-approvals">
+            <h2>{approvals.length} waiting for approval</h2>
+            <small>{inr(approvals.reduce((n, i) => n + (Number(i.amount) || 0), 0))}{mine ? ` · ${mine} waiting for you` : ''}</small>
+            {approvals.slice(0, 3).map((it) => (
+              <button key={it.id} type="button" className="bill-row" onClick={() => openLink(it.link)}>
+                <span><b>{it.title}</b><small>{it.kind} · {inr(it.amount)}</small></span><span className="btn secondary sm">Review</span>
+              </button>
+            ))}
+          </section>
+        )}
+        {toPay.length > 0 && (
+          <section className="card bill-panel" data-testid="bill-topay">
+            <h2>To pay · {inrFull(toPay.reduce((n, x) => n + (Number(x.amount) || 0), 0))}</h2>
+            {toPay.slice(0, 3).map((x) => (
+              <div key={x.id} className="bill-row">
+                <span><b>{x.vendor || 'Vendor'}</b><small>{[x.ref, x.title].filter(Boolean).join(' · ')} · {inrFull(x.amount)}</small></span>
+                {pay && <button type="button" className="btn sm" onClick={pay}>Pay</button>}
+              </div>
+            ))}
+          </section>
+        )}
+        <section className="card bill-panel" data-testid="bill-banks">
+          <div className="bill-panel-head"><h2>Bank accounts &amp; deposits</h2><small className="muted">{d.asOf ? `as of ${d.asOf}` : ''}</small></div>
+          {d.bankRows.map((r) => <div key={r.label} className="bill-kv"><span>{r.label}</span><span>{inr(r.value)}</span></div>)}
+          <div className="bill-kv total"><span>Total</span><span>{inr(d.totalBalance)}</span></div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+export default function TreasurerDashboard({ onTab = null }) {
   const { records: ledger } = useCollection(COLLECTIONS.LEDGER, 'Payments Cross-check');
   const { records: banks } = useCollection(COLLECTIONS.BANK_ACCOUNTS, 'Bank Accounts');
   const { records: txns } = useCollection(COLLECTIONS.BANK_TXNS, 'Bank Statement');
@@ -190,6 +269,9 @@ export default function TreasurerDashboard() {
   const { records: dues } = useCollection(COLLECTIONS.DUES, 'Billing & Finance');
   const { records: docs } = useCollection(COLLECTIONS.QUOTATIONS, 'Quotations');
   const { records: tickets } = useCollection(COLLECTIONS.TICKETS, 'Maintenance');
+  const { records: props } = useCollection(COLLECTIONS.PROPERTIES, 'Properties & Residents');
+  const approvals = useApprovals();
+  const phone = usePhone();
   const [fy, setFy] = useState(currentFy());
   const fys = useMemo(() => fyOptions(txns, budget), [txns, budget]);
 
@@ -239,6 +321,10 @@ export default function TreasurerDashboard() {
     };
   }, [ledger, banks, deposits, txns, budget, fixed, settings, dues, docs, tickets, fy]);
 
+  const overdue = useMemo(() => (phone ? [] : defaultersOf(dues, props).sort((a, b) => b.amount - a.amount)), [phone, dues, props]);
+  // approved invoices not yet in the ledger: the money still to pay out
+  const toPay = useMemo(() => (phone ? [] : docs.filter((x) => x.kind === 'Invoice' && x.selected !== false && invoiceApproval(x).key === 'approved' && !ledger.some((l) => l.sourceId === x.id))
+    .map((x) => { const t = tickets.find((k) => k.id === x.ticketId); return { ...x, ref: t?.ticketNumber || '', title: t?.title || x.title || '' }; })), [phone, docs, ledger, tickets]);
   const SERIES = { in: { name: 'Income', color: 'var(--viz-1)' }, out: { name: 'Expense', color: 'var(--viz-2)' } };
   const labels = d.months.map(monthName);
   const awaiting = d.pipe.ec.n + d.pipe.fin.n;
@@ -267,6 +353,9 @@ export default function TreasurerDashboard() {
         <Tile label="Dues outstanding" value={inr(d.outstanding)} sub={`${d.outstandingN} unpaid bill${d.outstandingN === 1 ? '' : 's'}`} />
         <Tile label="To approve" value={awaiting} sub={`${inr(d.pipe.ec.amt + d.pipe.fin.amt)} across invoices and quotations`} />
       </div>
+
+      {!phone && <MoneyDesk d={d} fy={fy} overdue={overdue} toPay={toPay} approvals={approvals} onTab={onTab} />}
+      {!phone && <div className="bill-charts-head"><h2>Charts · {fy}</h2><small className="muted">Each chart can be shown as a table</small></div>}
 
       <div className="viz-grid2">
         <ChartCard span={4} title="Cash flow by month" sub={`Income and expense from the bank statements, ${fy}`} legend={<Legend items={[SERIES.in, SERIES.out]} />}

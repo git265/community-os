@@ -7,6 +7,7 @@ import DataHealthChip from './DataHealthChip.jsx';
 import NoticeList from '../../components/NoticeList.jsx';
 import { useApprovals } from '../approvals/ApprovalsPanel.jsx';
 import { money } from '../../lib/locale.js';
+import { usePhone } from '../../components/Tabs.jsx';
 
 /** Phone home: the few things waiting for THIS person, one tap each (approvals, tickets nobody has, unpaid bills). Hidden when nothing waits. */
 function NeedsYou({ unassigned, unpaidTotal, unpaidUnits, goTickets, go }) {
@@ -14,9 +15,9 @@ function NeedsYou({ unassigned, unpaidTotal, unpaidUnits, goTickets, go }) {
   const owed = items.reduce((n, i) => n + (Number(i.amount) || 0), 0);
   const openLink = (link) => window.dispatchEvent(new CustomEvent('communityos:openlink', { detail: { link } }));
   const rows = [
-    items.length > 0 && { k: 'approve', tone: 'warn', t: `${items.length} waiting for your approval`, s: owed ? `${money(owed)} · ${[...new Set(items.map((i) => i.kind))].slice(0, 2).join(', ').toLowerCase()}` : items[0].title, on: () => (items.length === 1 ? openLink(items[0].link) : goTickets('live')) },
-    unassigned > 0 && { k: 'assign', tone: 'info', t: `${unassigned} ticket${unassigned === 1 ? '' : 's'} not yet assigned`, s: 'Open them in Maintenance', on: () => goTickets('open') },
-    unpaidUnits > 0 && { k: 'unpaid', tone: 'bad', t: `${money(unpaidTotal)} unpaid dues`, s: 'Open Billing to collect or remind', on: () => go('billing') },
+    items.length > 0 && { k: 'approve', b: 'Review', tone: 'warn', t: `${items.length} waiting for your approval`, s: owed ? `${money(owed)} · ${[...new Set(items.map((i) => i.kind))].slice(0, 2).join(', ').toLowerCase()}` : items[0].title, on: () => (items.length === 1 ? openLink(items[0].link) : goTickets('live')) },
+    unassigned > 0 && { k: 'assign', b: 'Assign', tone: 'info', t: `${unassigned} ticket${unassigned === 1 ? '' : 's'} not yet assigned`, s: 'Open them in Maintenance', on: () => goTickets('open') },
+    unpaidUnits > 0 && { k: 'unpaid', b: 'Collect', tone: 'bad', t: `${money(unpaidTotal)} unpaid dues`, s: 'Open Billing to collect or remind', on: () => go('billing') },
   ].filter(Boolean);
   if (!rows.length) return null;
   return (
@@ -27,6 +28,7 @@ function NeedsYou({ unassigned, unpaidTotal, unpaidUnits, goTickets, go }) {
           <span className={`nu-dot ${r.tone}`} aria-hidden="true" />
           <span className="nu-text"><b>{r.t}</b><small>{r.s}</small></span>
           <span className="nu-go" aria-hidden="true">›</span>
+          <span className="nu-btn" aria-hidden="true">{r.b}</span>
         </button>
       ))}
     </section>
@@ -59,6 +61,7 @@ function useServerSummary(on) {
 
 export default function DashboardModule({ onNavigate }) {
   const { role, roleId, hasPermission } = useApp();
+  const phone = usePhone();
   // on the v2 back end the server counts (one call); otherwise the lists are read and counted here
   const v2 = getDataSource().mode === 'v2';
   const sum = useServerSummary(v2);
@@ -102,6 +105,37 @@ export default function DashboardModule({ onNavigate }) {
 
   const goTickets = (k) => { try { sessionStorage.setItem('communityos:ticketCard', k); } catch { /* ignore */ } onNavigate?.('tickets'); };
   const go = (id) => onNavigate?.(id);
+  const needsYou = role?.category !== 'Resident' && <NeedsYou unassigned={slaTickets} unpaidTotal={unpaidTotal} unpaidUnits={unpaidUnits} goTickets={goTickets} go={go} />;
+  const notices = <NoticeList limit={10} title="Notices" onOpen={onNavigate ? () => go('communications') : null} />;
+  const maintSummary = (
+    <div className="card" style={{ marginTop: 16 }} data-testid="maint-summary">
+      <h2 style={{ margin: 0 }}>Maintenance summary</h2>
+      <p className="muted" style={{ margin: '2px 0 0', fontSize: 13 }}>Tap a card to open those tasks in Maintenance.</p>
+      <div className="stat-cards six" style={{ marginTop: 12 }}>
+        {[
+          { k: 'live', label: 'Open tasks', n: live },
+          { k: 'overdue', label: 'Past SLA date', n: overdue, tone: overdue ? 'red' : '' },
+          { k: 'critical', label: 'High / critical', n: critical, tone: critical ? 'amber' : '' },
+          { k: 'open', label: 'Not yet picked up', n: unassigned },
+          { k: 'hold', label: 'On hold / awaiting parts', n: onHold },
+          { k: 'completed', label: 'Completed, to close', n: awaitingClose, tone: awaitingClose ? 'green' : '' },
+        ].map((c) => (
+          <button key={c.k} type="button" className={`stat-card ${c.tone || ''}`} data-testid={`mc-${c.k}`} disabled={!onNavigate} onClick={() => goTickets(c.k)} aria-label={`${c.label}: ${c.n}. Open in Maintenance`}>
+            <span className="sc-label">{c.label}</span>
+            <span className="sc-value">{c.n}</span>
+          
+          </button>
+        ))}
+      </div>
+      {overdue > 0 && mostOverdue.length > 0 && (
+        <div style={{ marginTop: 10 }}>
+          <h3 style={{ margin: '0 0 6px' }}>Most overdue</h3>
+          <ul className="list">{mostOverdue.map((t) => <li key={t.id}><span><b>{t.title}</b><br /><small className="muted">{t.category} · {t.unit} · {t.assignedTo || 'unassigned'}</small></span><span className="tag red">due {t.slaDueAt}</span></li>)}</ul>
+        </div>
+      )}
+      <small className="muted">{closedMonth} closed this month.</small>
+    </div>
+  );
 
   return (
     <div>
@@ -135,41 +169,27 @@ export default function DashboardModule({ onNavigate }) {
         </button>
       </div>
 
-      {role?.category !== 'Resident' && <NeedsYou unassigned={slaTickets} unpaidTotal={unpaidTotal} unpaidUnits={unpaidUnits} goTickets={goTickets} go={go} />}
-      <DataHealthChip onNavigate={onNavigate} />
-      <ImportantNumbers />
-
-      <NeedsAttention role={role} roleId={roleId} hasPermission={hasPermission} onNavigate={onNavigate} />
-
-      <div className="card" style={{ marginTop: 16 }} data-testid="maint-summary">
-        <h2 style={{ margin: 0 }}>Maintenance summary</h2>
-        <p className="muted" style={{ margin: '2px 0 0', fontSize: 13 }}>Tap a card to open those tasks in Maintenance.</p>
-        <div className="stat-cards six" style={{ marginTop: 12 }}>
-          {[
-            { k: 'live', label: 'Open tasks', n: live },
-            { k: 'overdue', label: 'Past SLA date', n: overdue, tone: overdue ? 'red' : '' },
-            { k: 'critical', label: 'High / critical', n: critical, tone: critical ? 'amber' : '' },
-            { k: 'open', label: 'Not yet picked up', n: unassigned },
-            { k: 'hold', label: 'On hold / awaiting parts', n: onHold },
-            { k: 'completed', label: 'Completed, to close', n: awaitingClose, tone: awaitingClose ? 'green' : '' },
-          ].map((c) => (
-            <button key={c.k} type="button" className={`stat-card ${c.tone || ''}`} data-testid={`mc-${c.k}`} disabled={!onNavigate} onClick={() => goTickets(c.k)} aria-label={`${c.label}: ${c.n}. Open in Maintenance`}>
-              <span className="sc-label">{c.label}</span>
-              <span className="sc-value">{c.n}</span>
-              
-            </button>
-          ))}
-        </div>
-        {overdue > 0 && mostOverdue.length > 0 && (
-          <div style={{ marginTop: 10 }}>
-            <h3 style={{ margin: '0 0 6px' }}>Most overdue</h3>
-            <ul className="list">{mostOverdue.map((t) => <li key={t.id}><span><b>{t.title}</b><br /><small className="muted">{t.category} · {t.unit} · {t.assignedTo || 'unassigned'}</small></span><span className="tag red">due {t.slaDueAt}</span></li>)}</ul>
+      {phone ? (<>
+        {needsYou}
+        <DataHealthChip onNavigate={onNavigate} />
+        <ImportantNumbers />
+        <NeedsAttention role={role} roleId={roleId} hasPermission={hasPermission} onNavigate={onNavigate} />
+        {maintSummary}
+        {notices}
+      </>) : (
+        <div className="home-cols">   {/* computer: what needs doing on the left, notices and numbers on the right */}
+          <div className="home-main">
+            {needsYou}
+            <DataHealthChip onNavigate={onNavigate} />
+            <NeedsAttention role={role} roleId={roleId} hasPermission={hasPermission} onNavigate={onNavigate} />
+            {maintSummary}
           </div>
-        )}
-        <small className="muted">{closedMonth} closed this month.</small>
-      </div>
-
-      <NoticeList limit={10} title="Notices" onOpen={onNavigate ? () => go('communications') : null} />
+          <div className="home-side">
+            {notices}
+            <ImportantNumbers />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
