@@ -531,7 +531,7 @@ class PostgresFlowTest {
             assertTrue(in1.ok()); assertEquals("Inside", in1.visit().state.label); assertNotNull(in1.visit().expectedUntil);
             assertEquals("This one-time pass has already been used", as(admin, () -> gateSvc.admitPass(admin, pass.id, "Main gate", null, null)).reason());
             // the guard asks; the resident approves and always allows; the guard opens by hand (a flag)
-            var asked = as(admin, () -> gateSvc.ask(admin, new com.communityos.api.gate.application.GateService.Ask("Guest", "Ravi Uncle", null, null, "KA01AB1234", "Visit", new UnitId(unitA), "Main gate", null, null, null, null, null)));
+            var asked = as(admin, () -> gateSvc.ask(admin, new com.communityos.api.gate.application.GateService.Ask("Guest", "Ravi Uncle", null, null, "KA01AB1234", "Visit", new UnitId(unitA), "Main gate", null, null, null, null, null, null)));
             assertEquals("Awaiting approval", asked.visit().state.label); assertEquals("Pending", asked.approval().status);
             assertThrows(AccessDenied.class, () -> as(treasurer, () -> gateSvc.answer(treasurer, asked.approval().id, "Approved", false)), "not the treasurer's unit");
             var ans = as(ownerC, () -> gateSvc.answer(ownerC, asked.approval().id, "Approved", true));
@@ -552,6 +552,23 @@ class PostgresFlowTest {
             as(ownerC, () -> kit.create(ownerC, com.communityos.api.gate.GateResources.UNIT_RULES, ruleRepo, new com.communityos.api.gate.GateResources.UnitRuleFields(unitA, "Allow all", List.of(), null, true, "Deny", false, false, true)));
             assertThrows(AccessDenied.class, () -> as(ownerC, () -> kit.create(ownerC, com.communityos.api.gate.GateResources.UNIT_RULES, ruleRepo, new com.communityos.api.gate.GateResources.UnitRuleFields(unitB, null, List.of(), null, false, null, false, false, true))));
             assertEquals("left", as(admin, () -> gateSvc.delivery(admin, "Rider 3", null, null, "Amazon", new UnitId(unitA), "Main gate", null)).outcome(), "away: left at the gate");
+            // away: a pass holder waits for the unit's answer and is let in on its yes (the pass is used then)
+            var awayPass = as(ownerC, () -> gateSvc.createPass(ownerC, new com.communityos.api.gate.application.GateService.NewPass("Aunt Kamala", null, null, "One-time", null, null, null, null, List.of(), null,
+                null, null, null, null, false, null, null)));
+            var awayAsk = as(admin, () -> gateSvc.admitPass(admin, awayPass.id, "Main gate", null, null));
+            assertEquals("ask", awayAsk.outcome(), "away: even a pass holder is asked about"); assertEquals("Awaiting approval", awayAsk.visit().state.label);
+            assertEquals("Active", as(ownerC, () -> gateSvc.pass(ownerC, awayPass.id)).status, "not used while waiting");
+            as(ownerC, () -> gateSvc.answer(ownerC, awayAsk.approval().id, "Approved", false));
+            var awayV = as(admin, () -> gateSvc.visit(admin, awayAsk.visit().id));
+            assertEquals("Inside", as(admin, () -> gateSvc.admitApproved(admin, awayV.id, awayV.version, null)).state.label);
+            assertEquals("Used", as(ownerC, () -> gateSvc.pass(ownerC, awayPass.id)).status, "used once let in");
+            // away: a goods vehicle is held until the guard says why it may open (a flag)
+            var awayGoods = as(ownerC, () -> gateSvc.createPass(ownerC, new com.communityos.api.gate.application.GateService.NewPass("Sofa shop", null, null, "Goods", null, null, null, null, List.of(), "KA05MN2222",
+                null, "Goods delivery", 2, "Sofa", false, null, null)));
+            assertEquals("away", as(admin, () -> gateSvc.admitGoods(admin, awayGoods.id, "Service gate", 2, null, null, null)).outcome());
+            var awayGIn = as(admin, () -> gateSvc.admitGoods(admin, awayGoods.id, "Service gate", 2, null, null, "Resident confirmed by phone"));
+            assertTrue(awayGIn.ok()); assertEquals("Manual open", awayGIn.visit().method);
+            as(admin, () -> gateSvc.exitGoods(admin, awayGIn.visit().id, awayGIn.visit().version, 2, false));
             // household staff from the vetted registry
             var people = new com.communityos.api.shared.resource.JdbcResourceRepository<>(com.communityos.api.gate.GateResources.PEOPLE.table(), app, json);
             assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> kit.create(admin, com.communityos.api.gate.GateResources.PEOPLE, people, new com.communityos.api.gate.GateResources.PersonFields(
@@ -569,9 +586,37 @@ class PostgresFlowTest {
                 "Unvetted", "Maid / cook", "+919845010005", null, null, null, null, null, null, true, null, null, null, false, false, false, null, false, false, null, null, null, null)));
             assertThrows(AccessDenied.class, () -> as(ownerC, () -> kit.create(ownerC, com.communityos.api.gate.GateResources.LINKS, links, new com.communityos.api.gate.GateResources.LinkFields(unvetted.id(), "Unvetted", unitA, List.of(), null, null, null))),
                 "a unit cannot link someone nobody cleared and it did not invite");
+            var maidAway = as(admin, () -> gateSvc.admitPerson(admin, maid.id(), "Main gate", "Face", null));
+            assertEquals("ask", maidAway.outcome(), "away: household staff wait for the unit's answer"); assertEquals(maid.id(), maidAway.visit().personId);
+            as(admin, () -> gateSvc.refuse(admin, maidAway.visit().id, maidAway.visit().version, "Back tomorrow"));
+            owner.sql("UPDATE gate.unit_rule SET away_mode = false WHERE unit_id = '" + unitA + "' RETURNING 1");
             var maidIn = as(admin, () -> gateSvc.admitPerson(admin, maid.id(), "Main gate", "Face", null));
             assertTrue(maidIn.ok(), maidIn.reason()); assertEquals(new UnitId(unitA), maidIn.visit().unit);
             assertEquals("already-inside", as(admin, () -> gateSvc.admitPerson(admin, maid.id(), "Main gate", "Face", null)).outcome());
+            // the unit reports her to security and stops her coming; back at the gate she is turned away and security is told again
+            assertThrows(AccessDenied.class, () -> as(plumberC, () -> gateSvc.report(plumberC, maid.id(), null, "Other", null, false)), "only a unit she works for");
+            assertThrows(DomainException.RuleViolated.class, () -> as(ownerC, () -> gateSvc.report(ownerC, maid.id(), null, "Because", null, false)), "one of the reasons");
+            var rep = as(ownerC, () -> gateSvc.report(ownerC, maid.id(), null, "Suspected theft", "Jewellery missing", true));
+            assertTrue(rep.entryStopped());
+            assertEquals("Ended", owner.sql("SELECT status FROM gate.household_link WHERE person_id = '" + maid.id() + "' AND unit_id = '" + unitA + "'").get(0).get("status"));
+            as(admin, () -> gateSvc.exitPerson(admin, maid.id(), "Guard"));
+            var back = as(admin, () -> gateSvc.admitPerson(admin, maid.id(), "Main gate", "Guard manual", null));
+            assertEquals("reported", back.outcome()); assertTrue(back.reason().contains("Suspected theft"), back.reason());
+            assertEquals("2", owner.sql("SELECT count(*)::text AS n FROM gate.flag WHERE person_id = '" + maid.id() + "' AND type = 'Reported person' AND state = 'Open'").get(0).get("n"), "the report and the arrival");
+            // a registered car with no tag reader: the guard records it by its plate
+            var vehRepo = new com.communityos.api.shared.resource.JdbcResourceRepository<>(com.communityos.api.gate.GateResources.VEHICLES.table(), app, json);
+            as(admin, () -> kit.create(admin, com.communityos.api.gate.GateResources.VEHICLES, vehRepo, new com.communityos.api.gate.GateResources.VehicleFields("KA 03 MN 4455", null, unitA, "Owner A", "Resident", "Active", false, null, null)));
+            var carIn = as(admin, () -> gateSvc.vehicleAtGate(admin, "ka03mn4455", "Main gate", "In"));
+            assertTrue(carIn.ok(), carIn.reason()); assertEquals("Resident vehicle", carIn.visit().kind); assertEquals(new UnitId(unitA), carIn.visit().unit);
+            var carIn2 = as(admin, () -> gateSvc.vehicleAtGate(admin, "KA03 MN4455", "Main gate", "In"));
+            assertTrue(carIn2.ok());
+            assertEquals("Auto-closed", owner.sql("SELECT state FROM gate.visit WHERE id = '" + carIn.visit().id + "'").get(0).get("state"), "an entry with no exit closes at the next entry");
+            assertEquals("exited", as(admin, () -> gateSvc.vehicleAtGate(admin, "KA 03 MN 4455", "Main gate", "Out")).outcome());
+            assertEquals("Exited", owner.sql("SELECT state FROM gate.visit WHERE id = '" + carIn2.visit().id + "'").get(0).get("state"));
+            var carOut2 = as(admin, () -> gateSvc.vehicleAtGate(admin, "KA 03 MN 4455", "Main gate", "Out"));
+            assertTrue(carOut2.ok()); assertEquals("No entry on record", carOut2.visit().note, "an exit with no entry is still written down");
+            assertEquals("unknown", as(admin, () -> gateSvc.vehicleAtGate(admin, "XX 00 ZZ 0000", "Main gate", "In")).outcome());
+            assertThrows(AccessDenied.class, () -> as(ownerC, () -> gateSvc.vehicleAtGate(ownerC, "KA 03 MN 4455", "Main gate", "In")), "the desk is the guards'");
             var blockedP = as(admin, () -> kit.create(admin, com.communityos.api.gate.GateResources.PEOPLE, people, new com.communityos.api.gate.GateResources.PersonFields(
                 "Thief", "Other", "+919845010006", null, "Blocked", null, null, null, null, false, null, null, null, false, false, false, null, false, false, null, "Theft in 2025", null, null)));
             assertEquals("blocked", as(admin, () -> gateSvc.admitPerson(admin, blockedP.id(), "Main gate", "Face", null)).outcome());
@@ -584,7 +629,7 @@ class PostgresFlowTest {
             var gOut = as(admin, () -> gateSvc.exitGoods(admin, gIn.visit().id, gIn.visit().version, 2, false));
             assertEquals(2, gOut.headcountOut.intValue());
             // the minute sweep: an approval nobody answered applies the unit's fallback (Deny)
-            var asked2 = as(admin, () -> gateSvc.ask(admin, new com.communityos.api.gate.application.GateService.Ask("Guest", "Unknown caller", null, null, null, null, new UnitId(unitA), "Main gate", null, null, null, null, null)));
+            var asked2 = as(admin, () -> gateSvc.ask(admin, new com.communityos.api.gate.application.GateService.Ask("Guest", "Unknown caller", null, null, null, null, new UnitId(unitA), "Main gate", null, null, null, null, null, null)));
             var gateSettings = as(admin, () -> new com.communityos.api.gate.adapter.JdbcGateDirectory(app, json).settings());
             boolean quietNow = gateSettings.quiet(java.time.ZonedDateTime.now(clock.withZone(ZoneId.of("Asia/Kolkata"))));
             assertEquals(quietNow ? gateSettings.quietFallback() : "Deny", asked2.approval().fallback, "the unit's own fallback (the community's quiet-hours one at night)");
@@ -601,6 +646,20 @@ class PostgresFlowTest {
             assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> gateSvc.scan(admin, "GGCP|" + cp.id() + "|WRONG", null)));
             assertEquals("Pump room", as(admin, () -> gateSvc.scan(admin, "GGCP|" + cp.id() + "|" + cp.data().code(), null)).checkpoint());
             assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> gateSvc.scan(admin, "GGCP|" + cp.id() + "|" + cp.data().code(), null)), "too soon after the last scan");
+            // the sweep: a guard clocked in two hours ago with a quiet console, and a round that closed an hour ago unwalked, are flagged once
+            UUID guardPerson = id(owner, "INSERT INTO identity.person (phone_e164, full_name) VALUES ('+9194" + String.format("%08d", Long.parseLong(tag) % 100_000_000L) + "', 'Shankar Guard') RETURNING id");
+            owner.sql("SELECT set_config('app.community_id', '" + cid + "', false)");
+            UUID guardMember = id(owner, "INSERT INTO identity.membership (community_id, person_id, display_name) VALUES ('" + cid + "', '" + guardPerson + "', 'Shankar Guard') RETURNING id");
+            owner.sql("INSERT INTO identity.membership_role (community_id, membership_id, role_id, is_primary) SELECT '" + cid + "', '" + guardMember + "', id, true FROM identity.role WHERE community_id = '" + cid + "' AND code = 'handyman_security' RETURNING 1");
+            owner.sql("INSERT INTO workforce.attendance_session (community_id, member_id, staff_name, role_name, date, clock_in, source) VALUES ('" + cid + "', '" + guardMember + "', 'Shankar Guard', 'Handyman · Security', current_date, now() - interval '2 hours', 'Self') RETURNING 1");
+            java.time.LocalTime roundAt = java.time.LocalTime.now(clock).minusMinutes(90).withSecond(0).withNano(0);
+            boolean roundToday = java.time.LocalTime.now(clock).isAfter(java.time.LocalTime.of(2, 0));
+            var rounds = new com.communityos.api.shared.resource.JdbcResourceRepository<>(com.communityos.api.gate.GateResources.ROUNDS.table(), app, json);
+            var round = as(admin, () -> kit.create(admin, com.communityos.api.gate.GateResources.ROUNDS, rounds, new com.communityos.api.gate.GateResources.RoundFields("Night round", roundAt, new java.math.BigDecimal("30"), List.of(cp.id()), List.of(), true)));
+            as(gateJob, () -> gateSvc.sweep(gateJob)); as(gateJob, () -> gateSvc.sweep(gateJob));
+            assertEquals("1", owner.sql("SELECT count(*)::text AS n FROM gate.flag WHERE community_id = '" + cid + "' AND type = 'Guard silence' AND person_name = 'Shankar Guard'").get(0).get("n"), "a quiet console, once");
+            if (roundToday) assertEquals("1", owner.sql("SELECT count(*)::text AS n FROM gate.flag WHERE type = 'Missed patrol' AND round_id = '" + round.id() + "'").get(0).get("n"), "an unwalked round, once");
+            owner.sql("UPDATE workforce.attendance_session SET clock_out = now(), hours = 2 WHERE member_id = '" + guardMember + "' AND clock_out IS NULL RETURNING 1");
             // what each sees
             var flags = as(admin, () -> gateSvc.flags(admin, true));
             assertTrue(flags.stream().map((f) -> f.type).toList().containsAll(List.of("Manual open", "Blocked person attempt", "Headcount mismatch")), flags.stream().map((f) -> f.type).toList().toString());

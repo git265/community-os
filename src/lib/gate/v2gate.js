@@ -12,7 +12,7 @@ async function call(path, body, headers = {}) {
   if (!res.ok) { const e = new Error(out?.detail || `Gate: ${res.status}`); e.status = res.status; e.code = out?.code; throw e; }
   if (body !== undefined) {   // a desk command can change the people and vehicle lists, and the visits, passes, approvals and flags on screen
     const { forgetKept, COLLECTIONS: C } = await import('../storage/index.js'); forgetKept();
-    (await import('../storage/changes.js')).announceChange(C.GATE_VISITS, C.GATE_PASSES, C.GATE_APPROVALS, C.GATE_FLAGS, C.GATE_PEOPLE, C.GATE_VEHICLES, C.GATE_WORKORDERS);
+    (await import('../storage/changes.js')).announceChange(C.GATE_VISITS, C.GATE_PASSES, C.GATE_APPROVALS, C.GATE_FLAGS, C.GATE_PEOPLE, C.GATE_VEHICLES, C.GATE_WORKORDERS, C.GATE_LINKS);
   }
   return out;
 }
@@ -46,6 +46,13 @@ export const deliveryDecision = ({ person = null, name = '', phone = '', photo =
 export const admitGoods = (p, { gate = 'Main gate', people, vehicle = '', photo = '', force = '' } = {}) => soft(async () => outcome(await call(`/gate/passes/${p.id}/admit-goods`,
   { gate, people: Number(people), vehicle: vehicle || null, photo: photo || null, force: force || null })));
 export const exitGoods = (v, { people, itemsChecked = false } = {}) => soft(async () => ({ ok: true, visit: gateVisitOf(await call(`/gate/visits/${v.id}/exit-goods`, { people: Number(people), itemsChecked }, ifMatch(v.version))) }));
+export const vehicleAtGate = ({ plate, gate = 'Main gate', direction = 'In' }) => soft(async () => outcome(await call('/gate/visits/vehicle', { plate, gate, direction })));
+export async function reportPerson(person, { unit = '', reason, note = '', stopEntry = true } = {}) {
+  try {
+    const r = await call(`/gate/people/${person.id}/report`, { unitId: await unitId(unit), reason, note: String(note || '').trim() || null, stopEntry: !!stopEntry });
+    return { ok: true, entryStopped: !!r?.entryStopped };
+  } catch (e) { if ([403, 404, 422].includes(e.status)) return { ok: false, reason: e.message }; throw e; }
+}
 export async function resolveFlag(flag, resolution, note = '') { return gateFlagOf(await call(`/gate/flags/${flag.id}/resolve`, { resolution, note: note || null }, ifMatch(flag.version))); }
 export const scanCheckpoint = (text, { note = '' } = {}) => soft(async () => {
   const r = await call('/gate/scans', { text, note: note || null });

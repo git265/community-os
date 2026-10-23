@@ -54,6 +54,8 @@ public class GateController {
     public record AnswerRequest(@NotNull @Pattern(regexp = "Approved|Denied") String decision, Boolean always) {}
     public record ResolveRequest(@NotBlank @Size(max = 60) String resolution, @Size(max = 500) String note) {}
     public record ScanRequest(@NotBlank @Size(max = 200) String text, @Size(max = 300) String note) {}
+    public record VehicleAtGateRequest(@NotBlank @Size(max = 20) String plate, @Size(max = 40) String gate, @NotNull @Pattern(regexp = "In|Out") String direction) {}
+    public record ReportRequest(UUID unitId, @NotBlank @Size(max = 60) String reason, @Size(max = 500) String note, Boolean stopEntry) {}
 
     private final GateService gate;
     public GateController(GateService gate) { this.gate = gate; }
@@ -97,7 +99,7 @@ public class GateController {
     @PostMapping("/api/v1/gate/visits/ask")
     public GateService.Outcome ask(@Valid @RequestBody AskRequest b) {
         return gate.ask(CallerHolder.require(), new GateService.Ask(b.kind(), b.name(), b.phone(), b.company(), b.vehicle(), b.purpose(), b.unitId() == null ? null : new UnitId(b.unitId()),
-            b.gate(), b.photo(), b.personId(), b.workOrderId(), b.headcount(), b.material()));
+            b.gate(), b.photo(), b.personId(), b.workOrderId(), b.headcount(), b.material(), null));
     }
     @PostMapping("/api/v1/gate/visits/delivery")
     public GateService.Outcome delivery(@Valid @RequestBody DeliveryRequest b) {
@@ -131,6 +133,12 @@ public class GateController {
     }
     @PostMapping("/api/v1/gate/people/{id}/exit")
     public Gate.Visit exitPerson(@PathVariable UUID id, @Valid @RequestBody ExitRequest b) { return gate.exitPerson(CallerHolder.require(), id, b.method()); }
+    @PostMapping("/api/v1/gate/people/{id}/report")
+    public GateService.Reported report(@PathVariable UUID id, @Valid @RequestBody ReportRequest b) {
+        return gate.report(CallerHolder.require(), id, b.unitId() == null ? null : new UnitId(b.unitId()), b.reason(), b.note(), Boolean.TRUE.equals(b.stopEntry()));
+    }
+    @PostMapping("/api/v1/gate/visits/vehicle")
+    public GateService.Outcome vehicleAtGate(@Valid @RequestBody VehicleAtGateRequest b) { return gate.vehicleAtGate(CallerHolder.require(), b.plate(), b.gate(), b.direction()); }
 
     // ---- staff badges ----------------------------------------------------------------------------------------------------------------------------
     @GetMapping("/api/v1/gate/badge/mine")

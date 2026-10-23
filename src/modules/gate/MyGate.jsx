@@ -5,8 +5,8 @@ import MyPasses from './MyPasses.jsx';
 import { validatePhone } from '../../lib/phone.js';
 import { SegTabs } from '../../components/ui.jsx';
 import { ApprovalCard } from '../../components/GateApproval.jsx';
-import { makeCode, readDigest, villaRule } from '../../lib/gate/engine.js';
-import { DAYS, DELIVERY_COMPANIES, DELIVERY_MODES, PASS_TYPES, VILLA_CLASSES } from '../../lib/gate/constants.js';
+import { makeCode, readDigest, reportPerson, villaRule } from '../../lib/gate/engine.js';
+import { DAYS, DELIVERY_COMPANIES, DELIVERY_MODES, PASS_TYPES, REPORT_REASONS, VILLA_CLASSES } from '../../lib/gate/constants.js';
 import { Chips, Kpi, Photo, StateTag, PhotoCapture, stamp, clock } from './gateUi.jsx';
 
 const ld = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -62,18 +62,46 @@ function ShareToDirectory({ person, unit }) {
     </div>
   );
 }
+/** Tell security about someone who works for the villa: they are alerted now, and again whenever this person comes to the gate, until they close it. */
+function ReportToSecurity({ person, unit, onDone }) {
+  const [open, setOpen] = useState(false); const [reason, setReason] = useState(REPORT_REASONS[0]); const [note, setNote] = useState(''); const [stop, setStop] = useState(true);
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState('');
+  async function send() {
+    setBusy(true); setErr('');
+    try {
+      const r = await reportPerson(person, { unit, reason, note, stopEntry: stop });
+      if (!r.ok) { setErr(r.reason); return; }
+      setOpen(false);
+      onDone(`Security has been told about ${person.name}${r.entryStopped ? `, and ${person.name} can no longer come to ${unit}` : ''}. Until they close it, the guard is warned and security is alerted whenever ${person.name} comes to the gate.`);
+    } finally { setBusy(false); }
+  }
+  if (!open) return <button type="button" className="btn secondary sm" data-testid="report-open" onClick={() => setOpen(true)}>Report to security</button>;
+  return (
+    <div className="form-grid" data-testid="report-form" style={{ marginTop: 8, width: '100%' }}>
+      <div className="field" style={{ gridColumn: '1 / -1' }}><label>What happened</label><Chips options={REPORT_REASONS} value={reason} onChange={setReason} label="Reason" /></div>
+      <div className="field" style={{ gridColumn: '1 / -1' }}><label>Anything security should know</label><input data-testid="report-note" value={note} maxLength={400} onChange={(e) => setNote(e.target.value)} placeholder="e.g. jewellery missing since Monday" /></div>
+      <label className="gg-row" style={{ gridColumn: '1 / -1' }}><input type="checkbox" data-testid="report-stop" checked={stop} onChange={(e) => setStop(e.target.checked)} style={{ width: 'auto' }} /> Stop {person.name} coming to {unit}</label>
+      <small className="muted" style={{ gridColumn: '1 / -1' }}>Security gets this now, with the photo. Only security can close it.</small>
+      {err && <div className="field-error" style={{ gridColumn: '1 / -1' }}>{err}</div>}
+      <div className="form-actions"><button type="button" className="btn deny" data-testid="report-send" disabled={busy} onClick={send}>Send report</button><button type="button" className="btn secondary" onClick={() => setOpen(false)}>Cancel</button></div>
+    </div>
+  );
+}
+
 function Household({ unit }) {
   const { records: links, save: saveLink } = useCollection(COLLECTIONS.GATE_LINKS, 'Villa links');
   const { records: people } = useCollection(COLLECTIONS.GATE_PEOPLE, 'Registry');
+  const [done, setDone] = useState('');
   const mine = links.filter((l) => l.unit === unit && l.status !== 'Ended');
   return (
     <div data-testid="my-household">
       <p className="muted">People registered to work at your villa. The security office vets everyone before they start. To add or remove someone, ask the office.</p>
+      {done && <div className="notice" role="status" data-testid="report-done">{done}</div>}
       {mine.length === 0 ? <div className="empty">Nobody is linked to your villa yet.</div> : mine.map((l) => {
         const p = people.find((x) => x.id === l.personId); if (!p) return null;
         return (
           <div className="gg-card" key={l.id}><Photo src={p.photo} name={p.name} size={56} />
-            <div className="gg-main"><b>{p.name} <StateTag state={p.status} /></b><span className="muted">{p.personClass} · {(l.days || []).join(', ')} {l.fromTime ? `${l.fromTime}–${l.toTime}` : ''}</span>{p.status !== 'Active' && <small className="muted">Cannot enter until the office has finished checking documents.</small>}<div className="gg-row" style={{ flexWrap: 'wrap' }}>{p.status === 'Active' && (l.confirmedAt && l.confirmedAt.slice(0, 10) >= new Date(Date.now() - 180 * 864e5).toISOString().slice(0, 10) ? <small className="muted" data-testid="confirmed">✔ You confirmed on {l.confirmedAt.slice(0, 10)}</small> : <button type="button" className="btn secondary sm" data-testid="confirm-link" onClick={() => saveLink({ ...l, confirmedAt: new Date().toISOString() })}>Yes, still works for us</button>)}{VILLA_CLASSES.includes(p.personClass) && <ShareToDirectory person={p} unit={unit} />}</div></div></div>
+            <div className="gg-main"><b>{p.name} <StateTag state={p.status} /></b><span className="muted">{p.personClass} · {(l.days || []).join(', ')} {l.fromTime ? `${l.fromTime}–${l.toTime}` : ''}</span>{p.status !== 'Active' && <small className="muted">Cannot enter until the office has finished checking documents.</small>}<div className="gg-row" style={{ flexWrap: 'wrap' }}>{p.status === 'Active' && (l.confirmedAt && l.confirmedAt.slice(0, 10) >= new Date(Date.now() - 180 * 864e5).toISOString().slice(0, 10) ? <small className="muted" data-testid="confirmed">✔ You confirmed on {l.confirmedAt.slice(0, 10)}</small> : <button type="button" className="btn secondary sm" data-testid="confirm-link" onClick={() => saveLink({ ...l, confirmedAt: new Date().toISOString() })}>Yes, still works for us</button>)}{VILLA_CLASSES.includes(p.personClass) && <ShareToDirectory person={p} unit={unit} />}<ReportToSecurity person={p} unit={unit} onDone={setDone} /></div></div></div>
         );
       })}
     </div>

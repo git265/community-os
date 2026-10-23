@@ -9,7 +9,9 @@ export const GOODS_KINDS = ['Move in', 'Move out', 'Goods delivery', 'Contractor
 export const MANUAL_REASONS = ['Face did not match', 'Kiosk offline', 'Poor light or camera', 'Visitor cannot use the kiosk', 'Other'];
 export const VISIT_STATES = ['Awaiting approval', 'Approved', 'Denied', 'No answer', 'Inside', 'Exited', 'Auto-closed', 'Left at gate', 'Refused'];
 export const APPROVAL_STATES = ['Pending', 'Approved', 'Denied', 'No answer'];
-export const FLAG_TYPES = ['Unrecorded entry', 'Tailgate', 'Override entry', 'Identity mismatch', 'Wrong destination', 'Overstay', 'Blocked person attempt', 'Guard silence', 'Headcount mismatch', 'Manual open', 'Missed patrol'];
+export const FLAG_TYPES = ['Unrecorded entry', 'Tailgate', 'Override entry', 'Identity mismatch', 'Wrong destination', 'Overstay', 'Blocked person attempt', 'Guard silence', 'Headcount mismatch', 'Manual open', 'Missed patrol', 'Reported person'];
+/** Why a villa reports someone who works for it to security. */
+export const REPORT_REASONS = ['No longer works for us', 'Suspected theft', 'Misbehaviour', 'Other'];
 export const FLAG_STATES = ['Watching', 'Open', 'Closed'];
 export const FLAG_RESOLUTIONS = ['Registered late', 'False alarm', 'Escorted out', 'Escalated to manager'];
 export const PASS_TYPES = ['One-time', 'Recurring', 'Event', 'Goods'];

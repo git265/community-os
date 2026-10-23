@@ -8,7 +8,8 @@ import { pushNotifications } from '../notifications.js';
 import { alsoRolesOf, queueExtraChannels } from '../notify.js';
 import { uuid } from '../uuid.js';
 import { avatar } from './photo.js';
-import { DAYS, DEFAULT_SETTINGS, GATE_EVENTS, VILLA_CLASSES, CREW_CLASSES } from './constants.js';
+import { DAYS, DEFAULT_SETTINGS, GATE_EVENTS, VILLA_CLASSES, CREW_CLASSES, REPORT_REASONS } from './constants.js';
+import { announceChange } from '../storage/changes.js';
 import * as v2 from './v2gate.js';   // on the v2 back end the server's gate desk decides: these functions hand over to it
 
 const C = COLLECTIONS;
@@ -117,7 +118,7 @@ async function requestApprovalLocal(f) {
   const rule = unit === 'Common area' ? null : await villaRule(unit);
   const fallback = isQuiet(s, now) ? s.quietFallback : rule && rule.fallback && rule.fallback !== 'Community default' ? rule.fallback : s.fallback;
   const photo = f.photo || avatar(f.name || 'Visitor');
-  const visit = await newVisit({ kind: f.kind || 'Guest', name: f.name, phone: f.phone || '', company: f.company || '', vehicle: f.vehicle || '', purpose: f.purpose || '', unit, gate: f.gate || 'Main gate', photo, ...(f.headcountIn ? { headcountIn: f.headcountIn, headcountExpected: f.headcountIn, material: f.material || '' } : {}), personId: f.personId || '', workOrderId: f.workOrderId || '', method: 'Guard approval' }, 'Awaiting approval');
+  const visit = await newVisit({ kind: f.kind || 'Guest', name: f.name, phone: f.phone || '', company: f.company || '', vehicle: f.vehicle || '', purpose: f.purpose || '', unit, gate: f.gate || 'Main gate', photo, ...(f.headcountIn ? { headcountIn: f.headcountIn, headcountExpected: f.headcountIn, material: f.material || '' } : {}), personId: f.personId || '', workOrderId: f.workOrderId || '', passId: f.passId || '', method: 'Guard approval' }, 'Awaiting approval');
   const approval = await put(C.GATE_APPROVALS, { visitId: visit.id, kind: visit.kind, name: f.name, unit, company: f.company || '', purpose: f.purpose || '', vehicle: f.vehicle || '', gate: visit.gate, photo, status: 'Pending', requestedAt: iso(now), expiresAt: iso(new Date(now.getTime() + Number(s.waitSeconds || 60) * 1000)), fallback });
   await put(C.GATE_VISITS, { ...visit, approvalId: approval.id });
   await notifyGate('approval', { unit, approvalId: approval.id, visitId: visit.id, image: photo, title: `${f.name} is at ${visit.gate}`, body: `${[f.purpose || visit.kind, f.company, f.vehicle].filter(Boolean).join(' · ')}. Approve or deny.` });
@@ -187,6 +188,10 @@ async function admitApprovedLocal(v, { manualReason = '' } = {}) {
   const s = await getSettings();
   const out = await put(C.GATE_VISITS, { ...v, state: 'Inside', inAt: iso(), expectedUntil: expectedFor(v.kind, s, new Date()), method: manualReason ? 'Manual open' : 'Guard approval', openReason: manualReason, verifiedBy: me() });
   if (manualReason) await flagManual(out, manualReason);
+  if (v.passId) {   // a pass holder who waited for an away villa: the pass is used now
+    const p = (await list(C.GATE_PASSES)).find((x) => x.id === v.passId);
+    if (p) await put(C.GATE_PASSES, { ...p, usedCount: Number(p.usedCount || 0) + 1, status: p.type === 'One-time' ? 'Used' : p.status });
+  }
   return out;
 }
 /** The guard opened the gate by hand for someone who already had a record. Never silent: a flag says who, why and where. */
@@ -231,6 +236,10 @@ export async function admitPass(...args) {
 }
 async function admitPassLocal(p, { gate = 'Main gate', photo = '', vehicle = '' } = {}) {
   const bad = passProblem(p); if (bad) return { ok: false, reason: bad };
+  if (p.unit && (await villaRule(p.unit)).awayMode) {   // away: even a pass holder waits for the villa's answer
+    const r = await requestApprovalLocal({ kind: 'Guest', name: p.visitorName, phone: p.phone, unit: p.unit, gate, vehicle: vehicle || p.vehicle || '', photo: photo || p.photo || '', purpose: `${p.type} pass · the villa is away`, passId: p.id });
+    return { ok: false, outcome: 'ask', reason: `${p.unit} is in away mode, so they have been asked first`, visit: r.visit, approval: r.approval };
+  }
   const s = await getSettings();
   const visit = await newVisit({ kind: 'Guest', name: p.visitorName, phone: p.phone || '', unit: p.unit, gate, vehicle: vehicle || p.vehicle || '', photo: photo || p.photo || avatar(p.visitorName), passId: p.id, method: 'QR / OTP', purpose: `${p.type} pass`, expectedUntil: iso(addMin(new Date(), Number(s.durations?.Guest ?? 240))) });
   const used = Number(p.usedCount || 0) + 1;
@@ -381,15 +390,34 @@ async function admitPersonLocal(person, { gate = 'Main gate', method = 'Face', u
   if (VILLA_CLASSES.includes(person.personClass)) {
     const mine = links.filter((l) => l.personId === person.id && l.status !== 'Ended');
     const ok = mine.filter((l) => windowOpen(l, now, 15));
+    const kind = person.personClass === 'Driver' ? 'Driver' : 'Maid / cook';
+    const reports = (await list(C.GATE_FLAGS)).filter((f) => f.type === 'Reported person' && f.personId === person.id && f.state !== 'Closed' && !f.visitId).sort((a, b) => String(b.raisedAt).localeCompare(String(a.raisedAt)));
+    const alert = reports[0]?.detail || '';
+    if (alert && !ok.length) {   // reported, and no villa they may still come to now: turned away, security told again
+      const r = await newVisit({ kind, name: person.name, gate, photo: person.photo, personId: person.id, method, unit: reports[0].unit || '', note: 'Reported to security' }, 'Refused');
+      await raiseFlag({ type: 'Reported person', visitId: r.id, personId: person.id, personName: person.name, unit: reports[0].unit || '', gate, photo: person.photo, detail: `${person.name} came to ${gate} and was turned away. ${alert}.` });
+      return { ok: false, outcome: 'reported', reason: `${alert}. Do not let in - call the security supervisor` };
+    }
     if (!ok.length) {
       await raiseFlag({ type: 'Wrong destination', personId: person.id, personName: person.name, unit: mine[0]?.unit || '', gate, photo: person.photo, detail: mine.length ? `${person.name} arrived outside the allowed days or hours.` : `${person.name} is not linked to any villa.` });
-      await newVisit({ kind: person.personClass === 'Driver' ? 'Driver' : 'Maid / cook', name: person.name, gate, photo: person.photo, personId: person.id, method, note: 'Outside allowed window' }, 'Refused');
+      await newVisit({ kind, name: person.name, gate, photo: person.photo, personId: person.id, method, note: 'Outside allowed window' }, 'Refused');
       return { ok: false, outcome: 'window', reason: mine.length ? 'Outside the allowed days or hours' : 'Not linked to any villa' };
     }
-    const kind = person.personClass === 'Driver' ? 'Driver' : 'Maid / cook';
-    const first = ok.find((l) => l.unit === wanted) || ok[0];
-    const visit = await newVisit({ kind, name: person.name, phone: person.phone, unit: first.unit, gate, photo: person.photo, personId: person.id, method, purpose: person.personClass, vehicle: person.vehicleNo || '', expectedUntil: expectedFor(kind, s, now, first), note: ok.length > 1 ? `Also works at ${ok.filter((l) => l !== first).map((l) => l.unit).join(', ')}` : '' });
-    for (const l of ok) notifyGate('staff_inout', { unit: l.unit, visitId: visit.id, image: person.photo, title: `${person.name} arrived`, body: `${person.personClass} signed in at ${hm(now)}.` });
+    const home = [];
+    for (const l of ok) if (!(await villaRule(l.unit)).awayMode) home.push(l);
+    if (!home.length) {   // every villa they may come to now is away: the villa is asked
+      const to = ok.find((l) => l.unit === wanted) || ok[0];
+      const r = await requestApprovalLocal({ kind, name: person.name, phone: person.phone, unit: to.unit, gate, photo: person.photo, personId: person.id, vehicle: person.vehicleNo || '', purpose: `${person.personClass} · the villa is away` });
+      if (alert) await raiseFlag({ type: 'Reported person', visitId: r.visit.id, personId: person.id, personName: person.name, unit: to.unit, gate, photo: person.photo, detail: `${person.name} came to ${gate}; ${to.unit} was asked. ${alert}.` });
+      return { ok: false, outcome: 'ask', reason: `${to.unit} is in away mode, so they have been asked first`, visit: r.visit };
+    }
+    const first = home.find((l) => l.unit === wanted) || home[0];
+    const visit = await newVisit({ kind, name: person.name, phone: person.phone, unit: first.unit, gate, photo: person.photo, personId: person.id, method, purpose: person.personClass, vehicle: person.vehicleNo || '', expectedUntil: expectedFor(kind, s, now, first), note: home.length > 1 ? `Also works at ${home.filter((l) => l !== first).map((l) => l.unit).join(', ')}` : '' });
+    for (const l of home) notifyGate('staff_inout', { unit: l.unit, visitId: visit.id, image: person.photo, title: `${person.name} arrived`, body: `${person.personClass} signed in at ${hm(now)}.` });
+    if (alert) {
+      await raiseFlag({ type: 'Reported person', visitId: visit.id, personId: person.id, personName: person.name, unit: first.unit, gate, photo: person.photo, detail: `${person.name} came in to ${first.unit} at ${gate}. ${alert}.` });
+      return { ok: true, outcome: 'admitted', reason: `${alert}. Security has been told`, visit };
+    }
     return { ok: true, outcome: 'admitted', visit };
   }
   if (CREW_CLASSES.includes(person.personClass)) {
@@ -464,6 +492,51 @@ export async function plateEvent({ plate, gate = 'Main gate', direction = 'In', 
   const v = await newVisit({ kind: 'Resident vehicle', name: veh.owner || veh.plate, unit: veh.unit, gate, vehicle: veh.plate, method: 'FASTag', purpose: `${veh.vehicleClass} vehicle`, photo: avatar(veh.owner || veh.plate, 3), expectedUntil: '' });
   return { ok: true, outcome: 'admitted', visit: v };
 }
+/** No tag reader: the guard records a registered vehicle by its plate. In: an older entry with no exit closes first. Out with no entry: the exit is still written down. */
+export async function vehicleAtGate(...args) {
+  if (v2.onV2()) return v2.vehicleAtGate(...args);
+  return vehicleAtGateLocal(...args);
+}
+async function vehicleAtGateLocal({ plate, gate = 'Main gate', direction = 'In' }) {
+  const out = direction === 'Out';
+  const veh = (await list(C.GATE_VEHICLES)).find((v) => normPlate(v.plate) === normPlate(plate));
+  if (!veh) return { ok: false, outcome: 'unknown', reason: 'This plate is not registered. Use Visitor without a pass' };
+  if (veh.recurringGoods) return { ok: false, outcome: 'goods', reason: 'A regular goods vehicle comes in on a goods pass, with its people counted' };
+  const who = veh.owner || veh.plate; const how = 'Guard (plate)';
+  const base = { kind: 'Resident vehicle', name: who, unit: veh.unit || '', gate, vehicle: veh.plate, method: how, purpose: `${veh.vehicleClass || 'Resident'} vehicle`, photo: avatar(who, 3), expectedUntil: '' };
+  if (veh.status === 'Blocked' && !out) {
+    const r = await newVisit({ ...base, note: 'Blocked vehicle' }, 'Refused');
+    await raiseFlag({ type: 'Blocked person attempt', visitId: r.id, personName: who, unit: veh.unit || '', gate, detail: `Blocked vehicle ${veh.plate} came to ${gate}.` });
+    return { ok: false, outcome: 'blocked', reason: 'This vehicle is blocked' };
+  }
+  const open = (await list(C.GATE_VISITS)).find((v) => v.kind === 'Resident vehicle' && v.state === 'Inside' && normPlate(v.vehicle) === normPlate(veh.plate));
+  if (out && open) return { ok: true, outcome: 'exited', visit: await put(C.GATE_VISITS, { ...open, state: 'Exited', outAt: iso(), outMethod: how }) };
+  if (!out && open) await put(C.GATE_VISITS, { ...open, state: 'Auto-closed', outAt: iso(), outMethod: 'No exit read' });
+  if (out) { const t = iso(); return { ok: true, outcome: 'exited', reason: 'No entry on record: the exit is written down', visit: await put(C.GATE_VISITS, { ...base, state: 'Exited', inAt: t, outAt: t, outMethod: how, note: 'No entry on record', verifiedBy: me() }) }; }
+  return { ok: true, outcome: 'admitted', visit: await newVisit(base) };
+}
+
+/** A villa reports someone who works for it: security is told now, and again each time they come to the gate, until security closes the flag. */
+export async function reportPerson(...args) {
+  if (v2.onV2()) return v2.reportPerson(...args);
+  return reportPersonLocal(...args);
+}
+async function reportPersonLocal(person, { unit = '', reason, note = '', stopEntry = true } = {}) {
+  if (!REPORT_REASONS.includes(reason)) return { ok: false, reason: `Pick a reason: ${REPORT_REASONS.join(', ')}` };
+  const link = (await list(C.GATE_LINKS)).find((l) => l.personId === person.id && l.unit === unit && l.status !== 'Ended');
+  if (!link) return { ok: false, reason: 'You can report only people who work for your villa' };
+  const open = (await rawList(C.GATE_FLAGS)).find((f) => f.type === 'Reported person' && f.personId === person.id && (f.unit || '') === unit && f.state !== 'Closed' && !f.visitId);
+  if (!open) {   // written for the villa as the server would: a resident cannot raise gate flags themselves
+    const flag = { id: uuid(), type: 'Reported person', state: 'Open', gate: '', personId: person.id, personName: person.name, unit, photo: person.photo || '', raisedAt: iso(), graceUntil: '',
+      detail: `Reported by ${unit}: ${reason}${String(note).trim() ? ` (${String(note).trim()})` : ''}` };
+    await storage.put(C.GATE_FLAGS, flag);
+    await notifyFlag(flag);
+  }
+  if (stopEntry) await put(C.GATE_LINKS, { ...link, status: 'Ended' });
+  announceChange(C.GATE_FLAGS, C.GATE_LINKS);
+  return { ok: true, entryStopped: !!stopEntry };
+}
+
 /** The barrier's sensor counts what crossed. More crossed than the register shows: somebody followed somebody. */
 export async function barrierCycle({ gate = 'Main gate', vehicles = 1 }) {
   const visits = await list(C.GATE_VISITS); const cutoff = Date.now() - 120000;
@@ -500,14 +573,17 @@ async function admitGoodsLocal(p, { gate = 'Main gate', people, vehicle = '', ph
   const visits = await list(C.GATE_VISITS);
   if (visits.some((v) => v.passId === p.id && v.state === 'Inside')) return { ok: false, outcome: 'inside', reason: 'This vehicle is already inside' };
   const s = await getSettings(); const plate = vehicle || p.vehicle || '';
+  const away = !!p.unit && !!(await villaRule(p.unit)).awayMode;
   const wrongPlate = !!p.vehicle && !!vehicle && normPlate(p.vehicle) !== normPlate(vehicle);
   const expected = Number(p.peopleCount) || 0; const extra = expected > 0 && n > expected;
   if (wrongPlate && !force) return { ok: false, outcome: 'plate', reason: `The plate is ${vehicle} but the pass is for ${p.vehicle}` };
+  if (away && !force) return { ok: false, outcome: 'away', reason: `${p.unit} is in away mode. Open only if the resident confirms` };
   if (extra && !force && s.goodsExtraPeople !== 'Let in and flag') return { ok: false, outcome: 'headcount', expected, counted: n, reason: `${n} people counted but the pass allows ${expected}` };
   const now = new Date();
   const visit = await newVisit({ kind: 'Goods vehicle', name: p.visitorName || 'Goods vehicle', phone: p.phone || '', unit: p.unit || 'Common area', gate, vehicle: plate, photo: photo || p.photo || avatar(p.visitorName || 'Goods', 4), passId: p.id, method: force ? 'Manual open' : 'Goods pass', purpose: [p.goodsKind, p.material].filter(Boolean).join(' · ') || 'Goods vehicle', headcountExpected: expected, headcountIn: n, material: p.material || '', carryingOut: !!p.carryingOut, outItems: p.outItems || '', openReason: force || '', expectedUntil: goodsExpiry(p, s, now) });
   await put(C.GATE_PASSES, { ...p, usedCount: Number(p.usedCount || 0) + 1 });
   if (wrongPlate) await raiseFlag({ type: 'Manual open', visitId: visit.id, personName: visit.name, unit: visit.unit, gate, photo: visit.photo, detail: `Plate ${vehicle} let in on a pass for ${p.vehicle}. Reason: ${force}.` });
+  if (away) await raiseFlag({ type: 'Manual open', visitId: visit.id, personName: visit.name, unit: visit.unit, gate, photo: visit.photo, detail: `${p.unit} is in away mode; the guard let the vehicle in. Reason: ${force}.` });
   if (extra) await raiseFlag({ type: 'Headcount mismatch', visitId: visit.id, personName: visit.name, unit: visit.unit, gate, photo: visit.photo, detail: `${n} people counted in, the pass allows ${expected}.${force ? ` Guard confirmed: ${force}.` : ''}` });
   if (p.unit) notifyGate('guest_arrived', { unit: p.unit, visitId: visit.id, image: visit.photo, title: `${p.visitorName || 'Goods vehicle'} has arrived`, body: `${plate || 'Vehicle'} came in at ${gate} with ${n} ${n === 1 ? 'person' : 'people'}${p.material ? ` carrying ${p.material}` : ''}.` });
   return { ok: true, visit };

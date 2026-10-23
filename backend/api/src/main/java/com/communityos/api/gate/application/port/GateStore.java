@@ -31,6 +31,8 @@ public interface GateStore {
     boolean useBadge(UUID member, long window);
     Optional<Gate.Visit> insideByPerson(UUID personId);
     Optional<Gate.Visit> insideByPass(UUID passId);
+    /** A registered vehicle's open entry, by its plate (spaces and case ignored). */
+    Optional<Gate.Visit> insideByPlate(String normalisedPlate);
     /** Inside and past the time they were expected out. */
     List<Gate.Visit> overdue(Instant before);
     void insert(Gate.Visit v);
@@ -45,6 +47,12 @@ public interface GateStore {
     List<Gate.Flag> flags(boolean openOnly);
     Optional<Gate.Flag> flag(UUID id);
     boolean hasFlag(String type, UUID visitId);
+    /** Open resident reports of a person (the report itself, not the alerts raised when they came to the gate). */
+    List<Gate.Flag> openReports(UUID personId);
+    /** An open flag of this type about this person raised since then. */
+    boolean openFlagSince(String type, String personName, Instant since);
+    /** A missed-patrol flag for this round on this day. */
+    boolean hasRoundFlag(UUID roundId, LocalDate day);
     void insert(Gate.Flag f);
     boolean save(Gate.Flag f);
     // patrols

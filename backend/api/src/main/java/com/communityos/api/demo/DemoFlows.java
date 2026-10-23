@@ -381,7 +381,7 @@ final class DemoFlows {
             else if ("Delivery".equals(kind)) o = d.at(in, guard, () -> d.s.gate().delivery(guard, r.path("name").asText(), phone(text(r, "phone")), null, text(r, "company"),
                 unit == null ? null : new UnitId(unit), gate, text(r, "vehicle")));
             else o = d.at(in, guard, () -> d.s.gate().ask(guard, new GateService.Ask(kind, r.path("name").asText(), phone(text(r, "phone")), text(r, "company"), text(r, "vehicle"),
-                r.path("purpose").asText(), unit == null ? null : new UnitId(unit), gate, null, null, d.ref(r, "workOrderId"), null, null)));
+                r.path("purpose").asText(), unit == null ? null : new UnitId(unit), gate, null, null, d.ref(r, "workOrderId"), null, null, null)));
             if (!o.ok() && o.visit() == null && o.approval() == null) throw new IllegalArgumentException(o.reason() == null ? o.outcome() : o.reason());
             v = o.visit();
             if (o.approval() != null) {

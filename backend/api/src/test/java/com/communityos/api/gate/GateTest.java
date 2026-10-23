@@ -24,7 +24,7 @@ class GateTest {
         assertTrue(Gate.windowOpen(List.of("Tue"), LocalTime.of(9, 0), LocalTime.of(12, 0), TUE_10, 0));
         assertFalse(Gate.windowOpen(List.of(), LocalTime.of(10, 30), null, TUE_10, 0));
         assertTrue(Gate.windowOpen(List.of(), LocalTime.of(10, 10), null, TUE_10, 15), "slack");
-        Gate.Settings s = new Gate.Settings(60, "Hold at gate", 30, 10, 2, LocalTime.of(22, 0), LocalTime.of(6, 0), "Deny", null, 20, Map.of("Guest", 240), List.of());
+        Gate.Settings s = new Gate.Settings(60, "Hold at gate", 30, 10, 2, LocalTime.of(22, 0), LocalTime.of(6, 0), "Deny", null, 20, Map.of("Guest", 240), List.of(), 45);
         assertTrue(s.quiet(TUE_10.withHour(23))); assertTrue(s.quiet(TUE_10.withHour(5))); assertFalse(s.quiet(TUE_10));
         assertEquals(240, s.minutesFor("Guest")); assertEquals(120, s.minutesFor("Cab")); assertEquals(0, s.minutesFor("Resident vehicle"));
     }

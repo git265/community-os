@@ -40,7 +40,8 @@ public final class Gate {
 
     /** The community's gate settings. */
     public record Settings(int waitSeconds, String fallback, int graceSeconds, int overstayGraceMinutes, int autoCloseHours, LocalTime quietFrom, LocalTime quietTo,
-                           String quietFallback, String goodsExtraPeople, int patrolMinSeconds, Map<String, Integer> durations, List<String> approvedCompanies) {
+                           String quietFallback, String goodsExtraPeople, int patrolMinSeconds, Map<String, Integer> durations, List<String> approvedCompanies,
+                           int guardSilenceMinutes) {
         public boolean quiet(ZonedDateTime now) {
             if (quietFrom == null || quietTo == null) return false;
             LocalTime t = now.toLocalTime();
@@ -60,6 +61,11 @@ public final class Gate {
     public record Staff(UUID memberId, String name, String roleName, boolean active, boolean staff) {}
     /** A household-staff link: this person works for this unit on these days and hours. */
     public record Link(UUID personId, UnitId unit, String unitNo, List<String> days, LocalTime fromTime, LocalTime toTime, String status) {}
+    /** A registered vehicle (resident, tenant, staff...): the guard records it in and out by its plate when no tag reader is fitted. */
+    public record Vehicle(UUID id, String plate, String owner, UnitId unit, String vehicleClass, String status, boolean recurringGoods) {}
+    /** A resident's report of a household worker to security: the flag stays open until security closes it. */
+    public static final String REPORTED = "Reported person";
+    public static final List<String> REPORT_REASONS = List.of("No longer works for us", "Suspected theft", "Misbehaviour", "Other");
     /** A crew work order with its roster. */
     public record WorkOrder(UUID id, String title, String vendor, List<String> days, LocalTime fromTime, LocalTime toTime, List<UUID> rosterIds, String status) {}
 

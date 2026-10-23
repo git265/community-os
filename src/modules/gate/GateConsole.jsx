@@ -1,14 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useApp, useCollection } from '../../context/AppContext.jsx';
 import { COLLECTIONS } from '../../lib/storage/index.js';
-import { admitApproved, admitPass, admitPerson, answerApproval, closeVisit, deliveryDecision, findPasses, overrideEntry, passProblem, refuseVisit, requestApproval, retryApproval, sweep, guardBeat, admitGoods, exitGoods, getSettings, verifyBadge, badgeEntry } from '../../lib/gate/engine.js';
+import { admitApproved, admitPass, admitPerson, answerApproval, closeVisit, deliveryDecision, findPasses, overrideEntry, passProblem, refuseVisit, requestApproval, retryApproval, sweep, guardBeat, admitGoods, exitGoods, getSettings, verifyBadge, badgeEntry, vehicleAtGate } from '../../lib/gate/engine.js';
 import { avatar } from '../../lib/gate/photo.js';
 import { DELIVERY_COMPANIES, GATE_NAMES, MANUAL_REASONS } from '../../lib/gate/constants.js';
 import { CamScan, ScanBox } from './QrImage.jsx';
 import { Chips, Countdown, Kpi, Photo, PhotoCapture, StateTag, clock, sameDay, useTick } from './gateUi.jsx';
 
 const KINDS = ['Guest', 'Cab', 'Goods vehicle', 'Other'];
-const MODES = [['pass', '🎫 Pass or code'], ['person', '🪪 Registered person'], ['delivery', '📦 Delivery'], ['other', '🚶 Visitor without a pass'], ['badge', '🪪 Staff badge']];
+const MODES = [['pass', '🎫 Pass or code'], ['person', '🪪 Registered person'], ['car', '🚗 Resident car'], ['delivery', '📦 Delivery'], ['other', '🚶 Visitor without a pass'], ['badge', '🪪 Staff badge']];
+const plateKey = (x) => String(x || '').replace(/\s+/g, '').toUpperCase();
 
 export default function GateConsole() {
   const { roleId } = useApp();
@@ -31,13 +32,15 @@ export default function GateConsole() {
   const units = useMemo(() => props.map((p) => p.unit).sort(), [props]);
   const note = (ok, text, extra = {}) => { setMsg({ ok, text, ...extra }); if (ok) setTimeout(() => setMsg((m) => (m && m.text === text ? null : m)), 9000); };
 
-  const inside = visits.filter((v) => v.state === 'Inside');
+  const inside = visits.filter((v) => v.state === 'Inside' && v.kind !== 'Resident vehicle');
   const waiting = visits.filter((v) => ['Awaiting approval', 'Approved', 'No answer'].includes(v.state) || (v.state === 'Denied' && Date.now() - new Date(v.outAt || v.inAt).getTime() < 5 * 60000));
   const todayIn = visits.filter((v) => sameDay(v.inAt) && !['Refused', 'Denied', 'Awaiting approval', 'No answer', 'Approved'].includes(v.state)).length;
   const openFlags = flags.filter((f) => f.state === 'Open').length;
   const apOf = (v) => approvals.find((a) => a.id === v.approvalId);
   const demo = roleId === 'super_admin';
   const villasOf = (p) => links.filter((l) => l.personId === p.id && l.status !== 'Ended').map((l) => l.unit);
+  // a villa reported this person to security (open until security closes it)
+  const reported = useMemo(() => Object.fromEntries(flags.filter((f) => f.type === 'Reported person' && f.state !== 'Closed' && !f.visitId && f.personId).map((f) => [f.personId, f.detail])), [flags]);
 
   return (
     <div data-testid="gate-console" onPointerDownCapture={() => guardBeat()} onKeyDownCapture={() => guardBeat()}>
@@ -59,7 +62,8 @@ export default function GateConsole() {
             <div className="gg-modes" role="tablist" aria-label="Entry type">{MODES.map(([k, l]) => <button key={k} type="button" role="tab" aria-selected={mode === k} className={mode === k ? 'on' : ''} data-testid={`mode-${k}`} onClick={() => { setMode(k); setMsg(null); setQ(''); }}>{l}</button>)}</div>
             {msg && <div className={`notice${msg.ok ? '' : ' error'}`} data-testid="gate-msg" role="status">{msg.text}</div>}
             {mode === 'pass' && <PassMode gate={gate} note={note} q={q} setQ={setQ} />}
-            {mode === 'person' && <PersonMode gate={gate} note={note} people={people} villasOf={villasOf} units={units} q={q} setQ={setQ} />}
+            {mode === 'person' && <PersonMode gate={gate} note={note} people={people} villasOf={villasOf} units={units} q={q} setQ={setQ} reported={reported} />}
+            {mode === 'car' && <CarMode gate={gate} note={note} visits={visits} />}
             {mode === 'delivery' && <DeliveryMode gate={gate} note={note} people={people} units={units} />}
             {mode === 'other' && <OtherMode gate={gate} note={note} units={units} />}
             {mode === 'badge' && <BadgeMode gate={gate} note={note} />}
@@ -134,7 +138,7 @@ function PassMode({ gate, note, q, setQ }) {
           <div className={`gg-card ${bad ? 'bad' : 'good'}`} key={p.id} style={{ marginTop: 10 }} data-testid="pass-result">
             <Photo src={p.photo} name={p.visitorName} size={64} />
             <div className="gg-main"><b>{p.visitorName}</b><span className="muted">Host: {p.hostName || p.unit} · {p.unit} · {p.type} pass</span><small className="muted">Valid {p.validFrom} to {p.validTo}{p.fromTime ? ` · ${p.fromTime}-${p.toTime}` : ''}{p.vehicle ? ` · ${p.vehicle}` : ''}</small>
-              {bad ? <div className="field-error" data-testid="pass-problem">{bad}</div> : p.type === 'Goods' ? <GoodsAdmit p={p} gate={gate} note={note} done={() => { setFound([]); setQ(''); }} /> : <div className="gg-actions"><button type="button" className="btn good" data-testid="pass-let-in" onClick={async () => { const r = await admitPass(p, { gate, photo }); if (r.ok) { note(true, `${p.visitorName} let in to ${p.unit}.`); setFound([]); setQ(''); setPhoto(''); } else note(false, r.reason); }}>Let in</button></div>}
+              {bad ? <div className="field-error" data-testid="pass-problem">{bad}</div> : p.type === 'Goods' ? <GoodsAdmit p={p} gate={gate} note={note} done={() => { setFound([]); setQ(''); }} /> : <div className="gg-actions"><button type="button" className="btn good" data-testid="pass-let-in" onClick={async () => { const r = await admitPass(p, { gate, photo }); if (r.ok || r.outcome === 'ask') { note(true, r.ok ? `${p.visitorName} let in to ${p.unit}.` : `${p.visitorName}: ${r.reason}. Waiting for the answer.`); setFound([]); setQ(''); setPhoto(''); } else note(false, r.reason); }}>Let in</button></div>}
             </div>
           </div>
         );
@@ -144,7 +148,7 @@ function PassMode({ gate, note, q, setQ }) {
   );
 }
 
-function PersonMode({ gate, note, people, villasOf, units, q, setQ }) {
+function PersonMode({ gate, note, people, villasOf, units, q, setQ, reported = {} }) {
   const [villa, setVilla] = useState({});
   const list = people.filter((p) => !q || `${p.name} ${p.personClass} ${p.vendor || ''}`.toLowerCase().includes(q.toLowerCase())).slice(0, 8);
   return (
@@ -155,18 +159,58 @@ function PersonMode({ gate, note, people, villasOf, units, q, setQ }) {
       {list.map((p) => (
         <div className="gg-card" key={p.id} style={{ marginTop: 10 }} data-testid="person-result">
           <Photo src={p.photo} name={p.name} size={64} />
-          <div className="gg-main"><b>{p.name} <StateTag state={p.status} /></b><span className="muted">{p.personClass}{p.vendor ? ` · ${p.vendor}` : ''}{p.deliveryCompany ? ` · ${p.deliveryCompany}` : ''}</span>{villasOf(p).length > 0 && <small className="muted">Works at {villasOf(p).join(', ')}</small>}
+          <div className="gg-main"><b>{p.name} <StateTag state={p.status} />{reported[p.id] && <span className="tag gg-tag-coral" data-testid="person-reported">⚠ Reported to security</span>}</b><span className="muted">{p.personClass}{p.vendor ? ` · ${p.vendor}` : ''}{p.deliveryCompany ? ` · ${p.deliveryCompany}` : ''}</span>{villasOf(p).length > 0 && <small className="muted">Works at {villasOf(p).join(', ')}</small>}{reported[p.id] && <small className="field-error">{reported[p.id]}. Call the security supervisor before letting in.</small>}
             <div className="gg-actions">
               {p.personClass === 'Delivery rider' && <input list="gg-units" aria-label="Deliver to villa" placeholder="Deliver to villa" value={villa[p.id] || ''} onChange={(e) => setVilla((s) => ({ ...s, [p.id]: e.target.value }))} style={{ maxWidth: 150 }} />}
               <button type="button" className="btn good" data-testid="person-let-in" onClick={async () => {
                 const r = await admitPerson(p, { gate, method: 'Guard verified', unit: villa[p.id] || '' });
-                if (r.ok) note(true, `${p.name} let in${r.visit?.unit ? ` to ${r.visit.unit}` : ''}.`); else note(false, `${p.name}: ${r.reason}`);
+                if (r.ok) note(!r.reason, `${p.name} let in${r.visit?.unit ? ` to ${r.visit.unit}` : ''}.${r.reason ? ` ⚠ ${r.reason}.` : ''}`);
+                else if (['ask', 'needs-approval'].includes(r.outcome)) note(true, `${p.name}: ${r.reason}. Waiting for the answer.`);
+                else note(false, `${p.name}: ${r.reason}`);
               }}>Let in</button>
             </div>
           </div>
         </div>
       ))}
       <datalist id="gg-units">{units.map((u) => <option key={u} value={u} />)}</datalist>
+    </div>
+  );
+}
+
+/** No tag reader: the guard finds a registered car by plate, owner or villa and records it in or out. */
+function CarMode({ gate, note, visits }) {
+  const { records: vehicles } = useCollection(COLLECTIONS.GATE_VEHICLES, 'Gate');
+  const [q, setQ] = useState(''); const [busy, setBusy] = useState('');
+  const t = plateKey(q);
+  const list = t.length < 2 ? [] : vehicles.filter((v) => !v.recurringGoods && plateKey(`${v.plate} ${v.owner || ''} ${v.unit || ''}`).includes(t)).slice(0, 8);
+  const openOf = (v) => visits.find((x) => x.kind === 'Resident vehicle' && x.state === 'Inside' && plateKey(x.vehicle) === plateKey(v.plate));
+  async function go(v, direction) {
+    setBusy(v.id);
+    try {
+      const r = await vehicleAtGate({ plate: v.plate, gate, direction });
+      if (r.ok) { note(true, `${v.plate} recorded ${direction === 'Out' ? 'out' : 'in'}${r.reason ? `. ${r.reason}` : ''}.`); setQ(''); } else note(false, `${v.plate}: ${r.reason}`);
+    } finally { setBusy(''); }
+  }
+  return (
+    <div data-testid="car-mode">
+      <input aria-label="Plate, owner or villa" data-testid="car-q" placeholder="Part of the plate, the owner or the villa" value={q} onChange={(e) => setQ(e.target.value)} autoComplete="off" />
+      {t.length < 2 && <p className="muted" style={{ marginBottom: 0 }}>Registered cars of residents, tenants and staff, for when there is no tag reader. A car that left without being recorded is closed when it next comes in.</p>}
+      {t.length >= 2 && list.length === 0 && <div className="empty">No registered vehicle matches. Use "Visitor without a pass".</div>}
+      {list.map((v) => {
+        const open = openOf(v); const blocked = v.status === 'Blocked';
+        return (
+          <div className={`gg-card${blocked ? ' bad' : ''}`} key={v.id} style={{ marginTop: 10 }} data-testid="car-result">
+            <div className="gg-main"><b>{v.plate} {blocked ? <StateTag state="Blocked" /> : open ? <StateTag state="Inside" /> : null}</b>
+              <span className="muted">{[v.owner, v.unit, v.vehicleClass].filter(Boolean).join(' · ')}</span>
+              {open && <small className="muted">In since {clock(open.inAt)}</small>}
+              <div className="gg-actions">
+                <button type="button" className={`btn ${open ? 'secondary' : 'good'}`} data-testid="car-in" disabled={busy === v.id} onClick={() => go(v, 'In')}>In</button>
+                <button type="button" className={`btn ${open ? 'good' : 'secondary'}`} data-testid="car-out" disabled={busy === v.id} onClick={() => go(v, 'Out')}>Out</button>
+              </div>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -260,7 +304,7 @@ function GoodsAdmit({ p, gate, note, done }) {
   async function go(force = '') {
     const r = await admitGoods(p, { gate, people: n, vehicle: plate, photo, force });
     if (r.ok) { note(true, `${p.visitorName} (${plate || 'vehicle'}) let in with ${n} ${Number(n) === 1 ? 'person' : 'people'}.`); setHold(null); done(); return; }
-    if (['headcount', 'plate'].includes(r.outcome)) { setHold(r); return; }
+    if (['headcount', 'plate', 'away'].includes(r.outcome)) { setHold(r); return; }
     note(false, r.reason);
   }
   return (
@@ -273,7 +317,7 @@ function GoodsAdmit({ p, gate, note, done }) {
       </div>
       {hold && (
         <div className="notice error" data-testid="goods-hold"><b>{hold.reason}.</b> Do not open unless the resident confirms. If you open it anyway, pick a reason; supervisors are told.
-          <div className="gg-chips" style={{ marginTop: 6 }}>{['Resident confirmed by phone', 'Driver is a known regular', 'Extra helpers are staying outside', 'Other'].map((r) => <button type="button" key={r} data-testid="goods-force" onClick={() => go(r)}>{r}</button>)}</div></div>
+          <div className="gg-chips" style={{ marginTop: 6 }}>{(hold.outcome === 'away' ? ['Resident confirmed by phone', 'Committee approved', 'Other'] : ['Resident confirmed by phone', 'Driver is a known regular', 'Extra helpers are staying outside', 'Other']).map((r) => <button type="button" key={r} data-testid="goods-force" onClick={() => go(r)}>{r}</button>)}</div></div>
       )}
       <div className="gg-actions"><button type="button" className="btn good" data-testid="goods-let-in" onClick={() => go('')}>Let in</button></div>
     </div>

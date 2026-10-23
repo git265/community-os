@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
 
@@ -38,7 +39,12 @@ import java.util.function.Supplier;
  *   people     the vetted registry decides: blocked people are refused and flagged; household staff only inside their link's window; crews
  *              only on an active work order's roster (else the FM is asked); delivery riders by the unit's delivery rule
  *   goods      people counted in and out; more than the pass allows is held (or let in and flagged); a different count out is a flag
- *   never silent: an override or a hand-opened gate is always a flag; the sweep raises overstays and closes forgotten pass visits
+ *   away       a unit in away mode is asked before anyone comes in for it: pass holders and household staff wait for its answer, a goods
+ *              vehicle is held until the guard says why it may open (flagged), deliveries are left at the gate
+ *   vehicles   with no tag reader the guard records a registered car in and out by its plate; an entry with no exit is closed by the next entry
+ *   reports    a unit reports a household worker to security: security is told at once, and again each time the worker comes to the gate
+ *   never silent: an override or a hand-opened gate is always a flag; the sweep raises overstays, closes forgotten pass visits, flags a
+ *              guard console left quiet too long and a patrol round not walked
  * Every step publishes an event (gate.*) so notifications can tell the unit or the security team.
  */
 public final class GateService {
@@ -46,7 +52,7 @@ public final class GateService {
     public record NewPass(String visitorName, String phone, UnitId unit, String type, LocalDate validFrom, LocalDate validTo, LocalTime fromTime, LocalTime toTime, List<String> days,
                           String vehicle, Integer guestCap, String goodsKind, Integer peopleCount, String material, boolean carryingOut, String outItems, String photo) {}
     public record Ask(String kind, String name, String phone, String company, String vehicle, String purpose, UnitId unit, String gate, String photo, UUID personId, UUID workOrderId,
-                      Integer headcount, String material) {}
+                      Integer headcount, String material, UUID passId) {}
     public record Outcome(boolean ok, String outcome, String reason, Gate.Visit visit, Gate.Approval approval) {
         static Outcome in(Gate.Visit v) { return new Outcome(true, "admitted", null, v, null); }
         static Outcome no(String outcome, String reason) { return new Outcome(false, outcome, reason, null, null); }
@@ -143,6 +149,11 @@ public final class GateService {
             if ("Goods".equals(p.type)) return Outcome.no("goods", "A goods pass is admitted with a head count");
             String bad = p.problem(now());
             if (!bad.isEmpty()) return Outcome.no("pass", bad);
+            if (p.unit != null && dir.unitRule(p.unit).awayMode()) {   // away: even a pass holder waits for the unit's answer (the pass is used once they are let in)
+                Outcome r = askInTx(c, new Ask("Guest", p.visitorName, p.phone, null, blank(vehicle) != null ? vehicle.strip() : p.vehicle, p.type + " pass · the unit is away", p.unit, gate,
+                    blank(photo) != null ? photo : p.photo, null, null, null, null, p.id));
+                return new Outcome(false, "ask", nz(p.unitNo, "The unit") + " is in away mode, so they have been asked first", r.visit(), r.approval());
+            }
             Gate.Visit v = visit(c, "Guest", p.visitorName, p.unit, gate, "QR / OTP", VisitState.INSIDE);
             v.phone = p.phone; v.vehicle = blank(vehicle) != null ? vehicle.strip() : p.vehicle; v.photo = blank(photo) != null ? photo : p.photo; v.passId = p.id; v.purpose = p.type + " pass";
             store.insert(v);
@@ -167,7 +178,7 @@ public final class GateService {
         String fallback = s.quiet(now) ? s.quietFallback() : rule != null && rule.fallback() != null && !"Community default".equals(rule.fallback()) ? rule.fallback() : s.fallback();
         Gate.Visit v = visit(c, kind, a.name().strip(), a.unit(), a.gate(), "Guard approval", VisitState.AWAITING);
         v.phone = blank(a.phone()); v.company = blank(a.company()); v.vehicle = blank(a.vehicle()); v.purpose = blank(a.purpose()); v.photo = blank(a.photo()); v.personId = a.personId();
-        v.workOrderId = a.workOrderId(); v.headcountIn = a.headcount(); v.headcountExpected = a.headcount(); v.material = blank(a.material());
+        v.workOrderId = a.workOrderId(); v.headcountIn = a.headcount(); v.headcountExpected = a.headcount(); v.material = blank(a.material()); v.passId = a.passId();
         v.inAt = null; v.expectedUntil = null;
         Gate.Approval ap = new Gate.Approval();
         ap.id = UUID.randomUUID(); ap.visitId = v.id; ap.kind = kind; ap.name = v.name; ap.unit = a.unit(); ap.company = v.company; ap.purpose = v.purpose; ap.vehicle = v.vehicle; ap.gate = v.gate;
@@ -220,6 +231,7 @@ public final class GateService {
             v.move(VisitState.INSIDE); v.inAt = clock.instant(); v.expectedUntil = expected(v.kind, null, null);
             v.method = blank(manualReason) != null ? "Manual open" : "Guard approval"; v.openReason = blank(manualReason);
             if (v.openReason != null) flag(c, "Manual open", v, "Opened by hand by " + c.displayName() + ". Reason: " + v.openReason + ".");
+            if (v.passId != null) store.pass(v.passId, com.communityos.api.shared.access.Spec.all()).ifPresent((p) -> { p.used(); if (!store.save(p)) throw new DomainException.Conflict("Pass " + p.shortId); });
             return "Let in " + v.name;
         }, "gate.visit.admitted");
     }
@@ -232,7 +244,7 @@ public final class GateService {
             if (v.state != VisitState.NO_ANSWER && v.state != VisitState.AWAITING) throw new DomainException.RuleViolated("not-waiting", "This visitor is not waiting for an answer");
             v.move(VisitState.REFUSED); v.outAt = clock.instant(); v.note = "Asked again";
             if (!store.save(v)) throw new DomainException.Conflict("Visit " + v.shortId);
-            return askInTx(c, new Ask(v.kind, v.name, v.phone, v.company, v.vehicle, v.purpose, v.unit, v.gate, v.photo, v.personId, v.workOrderId, v.headcountIn, v.material));
+            return askInTx(c, new Ask(v.kind, v.name, v.phone, v.company, v.vehicle, v.purpose, v.unit, v.gate, v.photo, v.personId, v.workOrderId, v.headcountIn, v.material, v.passId));
         });
     }
     public Gate.Visit refuse(Caller c, UUID visitId, long version, String note) {
@@ -282,12 +294,28 @@ public final class GateService {
                 List<Gate.Link> mine = dir.links(p.id()).stream().filter((l) -> !"Ended".equals(l.status())).toList();
                 List<Gate.Link> ok = mine.stream().filter((l) -> Gate.windowOpen(l.days(), l.fromTime(), l.toTime(), now(), 15)).toList();
                 String kind = "Driver".equals(p.personClass()) ? "Driver" : "Maid / cook";
+                List<Gate.Flag> reports = store.openReports(p.id());
+                String alert = reports.isEmpty() ? null : reports.get(0).detail;
+                if (alert != null && ok.isEmpty()) {   // reported, and no unit she may still come to now: turned away, security told
+                    Gate.Visit r = visit(c, kind, p.name(), reports.get(0).unit, gate, how, VisitState.REFUSED); r.personId = p.id(); r.photo = p.photo(); r.outAt = clock.instant();
+                    r.note = "Reported to security"; store.insert(r);
+                    flag(c, Gate.REPORTED, r, p.name() + " came to " + r.gate + " and was turned away. " + alert + ".");
+                    return Outcome.no("reported", alert + ". Do not let in - call the security supervisor");
+                }
                 if (ok.isEmpty()) {
                     Gate.Visit r = visit(c, kind, p.name(), mine.isEmpty() ? null : mine.get(0).unit(), gate, how, VisitState.REFUSED); r.personId = p.id(); r.photo = p.photo(); r.outAt = clock.instant();
                     r.note = "Outside allowed window"; store.insert(r);
                     flag(c, "Wrong destination", r, mine.isEmpty() ? p.name() + " is not linked to any unit." : p.name() + " arrived outside the allowed days or hours.");
                     return Outcome.no("window", mine.isEmpty() ? "Not linked to any unit" : "Outside the allowed days or hours");
                 }
+                List<Gate.Link> home = ok.stream().filter((l) -> !dir.unitRule(l.unit()).awayMode()).toList();
+                if (home.isEmpty()) {   // every unit she may come to now is away: the unit is asked
+                    Gate.Link to = ok.stream().filter((l) -> l.unit().equals(wanted)).findFirst().orElse(ok.get(0));
+                    Outcome r = askInTx(c, new Ask(kind, p.name(), p.phone(), null, p.vehicleNo(), p.personClass() + " · the unit is away", to.unit(), gate, p.photo(), p.id(), null, null, null, null));
+                    if (alert != null) flag(c, Gate.REPORTED, r.visit(), p.name() + " came to " + r.visit().gate + "; " + to.unitNo() + " was asked. " + alert + ".");
+                    return new Outcome(false, "ask", to.unitNo() + " is in away mode, so they have been asked first", r.visit(), r.approval());
+                }
+                ok = home;
                 Gate.Link first = ok.stream().filter((l) -> l.unit().equals(wanted)).findFirst().orElse(ok.get(0));
                 Gate.Visit v = visit(c, kind, p.name(), first.unit(), gate, how, VisitState.INSIDE);
                 v.phone = p.phone(); v.photo = p.photo(); v.personId = p.id(); v.purpose = p.personClass(); v.vehicle = p.vehicleNo(); v.expectedUntil = expected(kind, first.toTime(), null);
@@ -295,12 +323,13 @@ public final class GateService {
                 store.insert(v);
                 for (Gate.Link l : ok) events.publish(List.of(new GateEvent("gate.staff.arrived", v.id, c.community(), l.unit().value(), kind, v.state.label, clock.instant())));
                 audit.write(c, AuditWriter.Action.Create, "gate.visit", v.id, v.shortId, v.unit == null ? null : v.unit.value(), p.name() + " in (" + p.personClass() + ")", List.of());
+                if (alert != null) { flag(c, Gate.REPORTED, v, p.name() + " came in to " + first.unitNo() + " at " + v.gate + ". " + alert + "."); return new Outcome(true, "admitted", alert + ". Security has been told", v, null); }
                 return Outcome.in(v);
             }
             if (Gate.CREW_CLASSES.contains(p.personClass())) {
                 Optional<Gate.WorkOrder> order = dir.activeWorkOrders().stream().filter((o) -> o.rosterIds().contains(p.id()) && Gate.windowOpen(o.days(), o.fromTime(), o.toTime(), now(), 30)).findFirst();
                 if (order.isEmpty()) {
-                    Outcome r = askInTx(c, new Ask("Crew", p.name(), p.phone(), p.vendor(), null, "Not on today's roster" + (p.vendor() == null ? "" : " · " + p.vendor()), null, gate, p.photo(), p.id(), null, null, null));
+                    Outcome r = askInTx(c, new Ask("Crew", p.name(), p.phone(), p.vendor(), null, "Not on today's roster" + (p.vendor() == null ? "" : " · " + p.vendor()), null, gate, p.photo(), p.id(), null, null, null, null));
                     return new Outcome(false, "needs-approval", "Not on today's roster: sent to the Facility Manager", r.visit(), r.approval());
                 }
                 Gate.Visit v = visit(c, "Crew", p.name(), null, gate, how, VisitState.INSIDE);
@@ -396,7 +425,7 @@ public final class GateService {
         boolean listed = rule.companies().isEmpty() ? approved : rule.companies().contains(company);
         boolean free = approved && ("Allow all".equals(mode) || ("Allow listed".equals(mode) && listed));
         if (!free) {
-            Outcome r = askInTx(c, new Ask("Delivery", who, phone, company, vehicle, company + " delivery", unit, gate, photo, person == null ? null : person.id(), null, null, null));
+            Outcome r = askInTx(c, new Ask("Delivery", who, phone, company, vehicle, company + " delivery", unit, gate, photo, person == null ? null : person.id(), null, null, null, null));
             return new Outcome(false, "ask", approved ? "The unit asked to be asked" : company + " is not an approved delivery company", r.visit(), r.approval());
         }
         Gate.Visit v = visit(c, "Delivery", who, unit, gate, "Pre-approved", VisitState.INSIDE); v.company = company; v.phone = blank(phone); v.photo = blank(photo); v.vehicle = blank(vehicle);
@@ -416,12 +445,14 @@ public final class GateService {
             if (people < 1) return Outcome.no("count", "Count the people in the vehicle, driver included");
             if (store.insideByPass(p.id).isPresent()) return Outcome.no("inside", "This vehicle is already inside");
             Gate.Settings s = dir.settings();
+            boolean away = p.unit != null && dir.unitRule(p.unit).awayMode();
             String plate = blank(vehicle) != null ? vehicle.strip() : p.vehicle;
             boolean wrongPlate = p.vehicle != null && blank(vehicle) != null && !norm(p.vehicle).equals(norm(vehicle));
             int expectedPeople = p.peopleCount == null ? 0 : p.peopleCount;
             boolean extra = expectedPeople > 0 && people > expectedPeople;
             String why = blank(force);
             if (wrongPlate && why == null) return Outcome.no("plate", "The plate is " + vehicle + " but the pass is for " + p.vehicle);
+            if (away && why == null) return Outcome.no("away", nz(p.unitNo, "The unit") + " is in away mode. Open only if the resident confirms");
             if (extra && why == null && !"Let in and flag".equals(s.goodsExtraPeople())) return new Outcome(false, "headcount", people + " people counted but the pass allows " + expectedPeople, null, null);
             Gate.Visit v = visit(c, "Goods vehicle", p.visitorName, p.unit, gate, why != null ? "Manual open" : "Goods pass", VisitState.INSIDE);
             v.phone = p.phone; v.vehicle = plate; v.photo = blank(photo) != null ? photo : p.photo; v.passId = p.id; v.headcountExpected = expectedPeople; v.headcountIn = people;
@@ -432,6 +463,7 @@ public final class GateService {
             p.usedCount++;
             if (!store.save(p)) throw new DomainException.Conflict("Pass " + p.shortId);
             if (wrongPlate) flag(c, "Manual open", v, "Plate " + vehicle + " let in on a pass for " + p.vehicle + ". Reason: " + why + ".");
+            if (away) flag(c, "Manual open", v, nz(p.unitNo, "The unit") + " is in away mode; the guard let the vehicle in. Reason: " + why + ".");
             if (extra) flag(c, "Headcount mismatch", v, people + " people counted in, the pass allows " + expectedPeople + "." + (why != null ? " Guard confirmed: " + why + "." : ""));
             done(c, "gate.guest.arrived", v.id, v.unit, v.kind, v.state.label, AuditWriter.Action.Create, "gate.visit", v.shortId, "Goods vehicle " + plate + " in with " + people);
             return Outcome.in(v);
@@ -448,6 +480,72 @@ public final class GateService {
                 flag(c, "Headcount mismatch", v, v.headcountIn + " people came in and " + people + " left" + (v.headcountIn != null && people < v.headcountIn ? ". " + (v.headcountIn - people) + " may still be inside." : "."));
             return v.vehicle + " left with " + people;
         }, "gate.visit.exited");
+    }
+
+    // ---- registered vehicles without a tag reader ------------------------------------------------------------------------------------------------
+    /** The guard records a registered vehicle by its plate. In: an older entry with no exit is closed first. Out with no entry: the exit is still written down. */
+    public Outcome vehicleAtGate(Caller c, String plate, String gate, String direction) {
+        desk(c);
+        if (blank(plate) == null) throw new DomainException.RuleViolated("plate-required", "Which plate?");
+        boolean out = "Out".equals(direction);
+        return tx.inTx(() -> {
+            Gate.Vehicle veh = dir.vehicleByPlate(norm(plate)).orElse(null);
+            if (veh == null) return Outcome.no("unknown", "This plate is not registered. Use Visitor without a pass");
+            if (veh.recurringGoods()) return Outcome.no("goods", "A regular goods vehicle comes in on a goods pass, with its people counted");
+            String who = blank(veh.owner()) != null ? veh.owner() : veh.plate(), how = "Guard (plate)";
+            Instant now = clock.instant();
+            if ("Blocked".equals(veh.status()) && !out) {
+                Gate.Visit r = visit(c, "Resident vehicle", who, veh.unit(), gate, how, VisitState.REFUSED); r.vehicle = veh.plate(); r.note = "Blocked vehicle"; store.insert(r);
+                flag(c, "Blocked person attempt", r, "Blocked vehicle " + veh.plate() + " came to " + r.gate + ".");
+                return Outcome.no("blocked", "This vehicle is blocked");
+            }
+            Optional<Gate.Visit> open = store.insideByPlate(norm(veh.plate()));
+            if (out && open.isPresent()) {
+                Gate.Visit v = open.get();
+                v.move(VisitState.EXITED); v.outAt = now; v.outMethod = how;
+                if (!store.save(v)) throw new DomainException.Conflict("Visit " + v.shortId);
+                done(c, "gate.vehicle.out", v.id, v.unit, v.kind, v.state.label, AuditWriter.Action.Update, "gate.visit", v.shortId, veh.plate() + " out");
+                return new Outcome(true, "exited", null, v, null);
+            }
+            if (!out && open.isPresent()) {   // it left without being recorded: that entry closes now
+                Gate.Visit old = open.get();
+                old.move(VisitState.AUTO_CLOSED); old.outAt = now; old.outMethod = "No exit read";
+                if (!store.save(old)) throw new DomainException.Conflict("Visit " + old.shortId);
+            }
+            Gate.Visit v = visit(c, "Resident vehicle", who, veh.unit(), gate, how, out ? VisitState.EXITED : VisitState.INSIDE);
+            v.vehicle = veh.plate(); v.purpose = nz(veh.vehicleClass(), "Resident") + " vehicle"; v.expectedUntil = null;
+            if (out) { v.inAt = now; v.outAt = now; v.outMethod = how; v.note = "No entry on record"; }
+            store.insert(v);
+            done(c, out ? "gate.vehicle.out" : "gate.vehicle.in", v.id, v.unit, v.kind, v.state.label, AuditWriter.Action.Create, "gate.visit", v.shortId, veh.plate() + (out ? " out (no entry on record)" : " in"));
+            return out ? new Outcome(true, "exited", "No entry on record: the exit is written down", v, null) : Outcome.in(v);
+        });
+    }
+
+    // ---- a unit reports a household worker ---------------------------------------------------------------------------------------------------
+    public record Reported(UUID flagId, String shortId, boolean entryStopped) {}
+    /** A unit the person works for (or the gate team) reports them: security is told now, and each time they come to the gate until security closes it. */
+    public Reported report(Caller c, UUID personId, UnitId unit, String reason, String note, boolean stopEntry) {
+        if (c.membership() == null) throw new AccessDenied("Sign in to report someone");
+        if (!Gate.REPORT_REASONS.contains(reason)) throw new DomainException.RuleViolated("bad-reason", "Pick a reason: " + String.join(", ", Gate.REPORT_REASONS));
+        return tx.inTx(() -> {
+            Gate.Person p = dir.person(personId).orElseThrow(AccessDenied.NotVisible::new);
+            Gate.Link link = dir.links(p.id()).stream().filter((l) -> !"Ended".equals(l.status()) && c.units().contains(l.unit()) && (unit == null || l.unit().equals(unit))).findFirst().orElse(null);
+            if (link == null && !GatePolicy.gateOrFm(c)) throw new AccessDenied("You can report only people who work for your unit");
+            UnitId u = link != null ? link.unit() : unit;
+            String by = link != null ? link.unitNo() : u != null ? dir.unit(u).map(GateDirectory.UnitRef::unitNo).orElse(c.displayName()) : c.displayName();
+            Gate.Flag f = store.openReports(p.id()).stream().filter((x) -> Objects.equals(x.unit, u)).findFirst().orElse(null);   // one open report per unit
+            if (f == null) {
+                f = new Gate.Flag();
+                f.id = UUID.randomUUID(); f.type = Gate.REPORTED; f.state = "Open"; f.personName = p.name(); f.personId = p.id(); f.unit = u; f.photo = p.photo();
+                f.detail = "Reported by " + by + ": " + reason + (blank(note) == null ? "" : " (" + note.strip() + ")"); f.raisedAt = clock.instant(); f.day = now().toLocalDate();
+                store.insert(f);
+                events.publish(List.of(new GateEvent("gate.flag.raised", f.id, c.community(), u == null ? null : u.value(), f.type, f.state, clock.instant())));
+            }
+            boolean stop = stopEntry && link != null;
+            if (stop) dir.endLink(p.id(), link.unit());
+            audit.write(c, AuditWriter.Action.Create, "gate.flag", f.id, f.shortId, u == null ? null : u.value(), "Reported " + p.name() + " to security: " + reason + (stop ? " (no longer comes to " + by + ")" : ""), List.of());
+            return new Reported(f.id, f.shortId, stop);
+        });
     }
 
     // ---- flags, patrols, the console ---------------------------------------------------------------------------------------------------------------
@@ -518,6 +616,31 @@ public final class GateService {
                 if ("QR / OTP".equals(v.method) && s.autoCloseHours() > 0 && late) { v.move(VisitState.AUTO_CLOSED); v.outAt = now; v.outMethod = "Auto"; store.save(v); n++; continue; }
                 if (!store.hasFlag("Overstay", v.id)) { flag(system, "Overstay", v, "Expected out by " + v.expectedUntil.atZone(clock.getZone()).toLocalTime().withNano(0).withSecond(0) + "; still inside."); n++; }
             }
+            // a guard clocked in whose console has been quiet for longer than the limit: one flag per quiet spell
+            int limit = s.guardSilenceMinutes();
+            if (limit > 0) for (GateDirectory.OnDuty g : dir.guardsOnDuty()) {
+                Instant last = g.lastBeat() != null && g.lastBeat().isAfter(g.clockIn()) ? g.lastBeat() : g.clockIn();
+                long quiet = Duration.between(last, now).toMinutes();
+                if (quiet <= limit || store.openFlagSince("Guard silence", g.name(), g.clockIn())) continue;
+                raise(system, "Guard silence", g.name(), null, "No activity on the gate console for " + quiet + " min (limit " + limit + "). Clocked in " + hhmm(g.clockIn()) + ".", null);
+                n++;
+            }
+            // a patrol round whose window closed in the last 6 hours, not fully walked although a guard was on duty: one flag per round and day
+            ZonedDateTime zn = now(); LocalDate today = zn.toLocalDate();
+            for (GateDirectory.Round r : dir.rounds()) {
+                if (!r.active() || r.time() == null || r.checkpointIds().isEmpty() || (!r.days().isEmpty() && !r.days().contains(Gate.dayOf(today)))) continue;
+                ZonedDateTime start = today.atTime(r.time()).atZone(clock.getZone()), end = start.plusMinutes(r.windowMin() <= 0 ? 60 : r.windowMin());
+                if (!zn.isAfter(end) || Duration.between(end, zn).toHours() >= 6) continue;
+                if (store.hasRoundFlag(r.id(), today) || !dir.guardOnDutyBetween(start.toInstant(), end.toInstant())) continue;
+                Set<UUID> walked = new java.util.HashSet<>();
+                for (GateStore.Scan x : store.scans(r.id(), today)) walked.add(x.checkpointId());
+                walked.retainAll(r.checkpointIds());
+                if (walked.size() >= r.checkpointIds().size()) continue;
+                List<String> missing = r.checkpointIds().stream().filter((id) -> !walked.contains(id)).map((id) -> dir.checkpoint(id).map(GateDirectory.Checkpoint::name).orElse("a checkpoint")).toList();
+                raise(system, "Missed patrol", r.name(), r.id(), r.name() + " (" + r.time() + ") was " + (walked.isEmpty() ? "not walked" : "only partly walked (" + walked.size() + " of " + r.checkpointIds().size() + ")")
+                    + ". Not scanned: " + String.join(", ", missing) + ".", today);
+                n++;
+            }
             return n;
         });
     }
@@ -547,6 +670,15 @@ public final class GateService {
         store.insert(f);
         events.publish(List.of(new GateEvent("gate.flag.raised", f.id, c.community(), v.unit == null ? null : v.unit.value(), type, f.state, clock.instant())));
     }
+    /** A flag that is not about one visit (a quiet console, a missed round). */
+    private void raise(Caller c, String type, String personName, UUID roundId, String detail, LocalDate day) {
+        Gate.Flag f = new Gate.Flag();
+        f.id = UUID.randomUUID(); f.type = type; f.state = "Open"; f.personName = personName; f.roundId = roundId; f.detail = detail; f.raisedAt = clock.instant(); f.day = day != null ? day : now().toLocalDate();
+        store.insert(f);
+        events.publish(List.of(new GateEvent("gate.flag.raised", f.id, c.community(), null, type, f.state, clock.instant())));
+    }
+    private String hhmm(Instant t) { return t.atZone(clock.getZone()).toLocalTime().withSecond(0).withNano(0).toString(); }
+    static String nz(String s, String d) { return s == null || s.isBlank() ? d : s; }
     private Gate.Visit changeVisit(Caller c, UUID id, long version, java.util.function.Function<Gate.Visit, String> work, String topic) {
         return tx.inTx(() -> {
             Gate.Visit v = store.visit(id, com.communityos.api.shared.access.Spec.all()).orElseThrow(AccessDenied.NotVisible::new);

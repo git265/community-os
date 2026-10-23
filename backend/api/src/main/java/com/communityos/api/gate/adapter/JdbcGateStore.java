@@ -53,6 +53,7 @@ public final class JdbcGateStore implements GateStore {
     static final String INSIDE_BY_PERSON = VISIT_COLUMNS + "\nWHERE v.person_id = CAST(:person AS uuid) AND v.state = 'Inside' LIMIT 1";
     static final String INSIDE_BY_MEMBER = VISIT_COLUMNS + "\nWHERE v.member_id = CAST(:member AS uuid) AND v.state = 'Inside' LIMIT 1";
     static final String INSIDE_BY_PASS = VISIT_COLUMNS + "\nWHERE v.pass_id = CAST(:pass AS uuid) AND v.state = 'Inside' LIMIT 1";
+    static final String INSIDE_BY_PLATE = VISIT_COLUMNS + "\nWHERE v.kind = 'Resident vehicle' AND v.state = 'Inside' AND upper(regexp_replace(v.vehicle, '\\s', '', 'g')) = :plate ORDER BY v.in_at DESC LIMIT 1";
     static final String OVERDUE = VISIT_COLUMNS + "\nWHERE v.state = 'Inside' AND v.expected_until < CAST(:before AS timestamptz) ORDER BY v.expected_until LIMIT 500";
     static final String VISIT_INSERT = """
         INSERT INTO gate.visit (community_id, id, name, kind, unit_id, gate, company, vehicle, phone, purpose, state, method, in_at, out_at, expected_until, photo, person_id, member_id, pass_id,
@@ -94,6 +95,9 @@ public final class JdbcGateStore implements GateStore {
     static final String FLAGS = FLAG_COLUMNS + "\nWHERE (CAST(:open AS boolean) IS FALSE OR f.state <> 'Closed') ORDER BY f.raised_at DESC LIMIT 1000";
     static final String FLAG = FLAG_COLUMNS + "\nWHERE f.id = CAST(:id AS uuid)";
     static final String HAS_FLAG = "SELECT count(*) FROM gate.flag f WHERE f.type = :type AND f.visit_id = CAST(:visit AS uuid)";
+    static final String OPEN_REPORTS = FLAG_COLUMNS + "\nWHERE f.type = 'Reported person' AND f.person_id = CAST(:person AS uuid) AND f.visit_id IS NULL AND f.state <> 'Closed' ORDER BY f.raised_at DESC";
+    static final String OPEN_FLAG_SINCE = "SELECT count(*) FROM gate.flag f WHERE f.type = :type AND f.person_name = :name AND f.state <> 'Closed' AND f.raised_at >= CAST(:since AS timestamptz)";
+    static final String HAS_ROUND_FLAG = "SELECT count(*) FROM gate.flag f WHERE f.type = 'Missed patrol' AND f.round_id = CAST(:round AS uuid) AND f.day = CAST(:day AS date)";
     static final String FLAG_INSERT = """
         INSERT INTO gate.flag (community_id, id, type, state, gate, person_name, unit_id, detail, raised_at, grace_until, visit_id, person_id, photo, round_id, day)
         VALUES (platform.current_community(), CAST(:id AS uuid), :type, :state, :gate, :personName, CAST(:unit AS uuid), :detail, CAST(:raisedAt AS timestamptz),
@@ -151,6 +155,7 @@ public final class JdbcGateStore implements GateStore {
     }
     @Override public boolean useBadge(UUID member, long window) { return !jdbc.query(BADGE_USE, Map.of("member", member.toString(), "window", window), (rs, i) -> rs.getLong(1)).isEmpty(); }
     @Override public Optional<Gate.Visit> insideByPass(UUID pass) { return jdbc.query(INSIDE_BY_PASS, Map.of("pass", pass.toString()), (rs, i) -> visit(rs)).stream().findFirst(); }
+    @Override public Optional<Gate.Visit> insideByPlate(String plate) { return jdbc.query(INSIDE_BY_PLATE, Map.of("plate", plate), (rs, i) -> visit(rs)).stream().findFirst(); }
     @Override public List<Gate.Visit> overdue(Instant before) { return jdbc.query(OVERDUE, Map.of("before", Rows.ts(before)), (rs, i) -> visit(rs)); }
     @Override public void insert(Gate.Visit v) {
         Map<String, Object> p = visitParams(v);
@@ -189,6 +194,11 @@ public final class JdbcGateStore implements GateStore {
     @Override public List<Gate.Flag> flags(boolean openOnly) { return jdbc.query(FLAGS, Map.of("open", openOnly), (rs, i) -> flag(rs)); }
     @Override public Optional<Gate.Flag> flag(UUID id) { return jdbc.query(FLAG, Map.of("id", id.toString()), (rs, i) -> flag(rs)).stream().findFirst(); }
     @Override public boolean hasFlag(String type, UUID visit) { return jdbc.queryForObject(HAS_FLAG, Map.of("type", type, "visit", visit.toString()), Long.class) > 0; }
+    @Override public List<Gate.Flag> openReports(UUID person) { return jdbc.query(OPEN_REPORTS, Map.of("person", person.toString()), (rs, i) -> flag(rs)); }
+    @Override public boolean openFlagSince(String type, String name, Instant since) {
+        return jdbc.queryForObject(OPEN_FLAG_SINCE, Map.of("type", type, "name", name == null ? "" : name, "since", Rows.ts(since)), Long.class) > 0;
+    }
+    @Override public boolean hasRoundFlag(UUID round, LocalDate day) { return jdbc.queryForObject(HAS_ROUND_FLAG, Map.of("round", round.toString(), "day", Rows.sqlDate(day)), Long.class) > 0; }
     @Override public void insert(Gate.Flag f) {
         Map<String, Object> p = new HashMap<>();
         p.put("id", f.id.toString()); p.put("type", f.type); p.put("state", f.state); p.put("gate", f.gate); p.put("personName", f.personName); p.put("unit", uid(f.unit)); p.put("detail", f.detail);

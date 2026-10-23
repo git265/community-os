@@ -21,7 +21,7 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 public final class JdbcGateDirectory implements GateDirectory {
     static final String SETTINGS = """
         SELECT s.wait_seconds, s.fallback, s.grace_seconds, s.overstay_grace_minutes, s.auto_close_hours, s.quiet_from::text AS quiet_from, s.quiet_to::text AS quiet_to, s.quiet_fallback,
-               s.goods_extra_people, s.patrol_min_seconds, s.durations::text AS durations, s.approved_companies
+               s.goods_extra_people, s.patrol_min_seconds, s.durations::text AS durations, s.approved_companies, s.guard_silence_minutes
         FROM gate.setting s ORDER BY s.created_at LIMIT 1""";
     static final String UNIT_RULE = "SELECT r.unit_id, r.delivery_mode, r.companies, r.expecting_until, r.away_mode, r.fallback FROM gate.unit_rule r WHERE r.unit_id = CAST(:unit AS uuid)";
     static final String ALLOW_COMPANY = """
@@ -50,6 +50,26 @@ public final class JdbcGateDirectory implements GateDirectory {
     static final String BEAT = """
         INSERT INTO gate.console_pulse (community_id, guard_id, last_at, kind) VALUES (platform.current_community(), CAST(:guard AS uuid), now(), :kind)
         ON CONFLICT (community_id, guard_id) DO UPDATE SET last_at = now(), kind = :kind""";
+    static final String VEHICLE_BY_PLATE = """
+        SELECT v.id, v.plate, v.owner, v.unit_id, v.vehicle_class, v.status, v.recurring_goods FROM gate.vehicle v
+        WHERE upper(regexp_replace(v.plate, '\\s', '', 'g')) = :plate""";
+    static final String END_LINK = """
+        UPDATE gate.household_link SET status = 'Ended', version = version + 1, updated_at = now()
+        WHERE person_id = CAST(:person AS uuid) AND unit_id = CAST(:unit AS uuid) AND status <> 'Ended'""";
+    /** Security staff: the security handyman role, or an attendance role named for guards or security. */
+    static final String GUARDS_ON_DUTY = """
+        SELECT s.member_id, m.display_name, s.clock_in, p.last_at
+        FROM workforce.attendance_session s
+        JOIN identity.membership m ON m.community_id = s.community_id AND m.id = s.member_id
+        LEFT JOIN gate.console_pulse p ON p.community_id = s.community_id AND p.guard_id = s.member_id
+        WHERE s.clock_out IS NULL AND (s.role_name ~* '(guard|security)' OR EXISTS (
+          SELECT 1 FROM identity.membership_role mr JOIN identity.role r ON r.community_id = mr.community_id AND r.id = mr.role_id
+          WHERE mr.community_id = s.community_id AND mr.membership_id = s.member_id AND r.code = 'handyman_security'))""";
+    static final String GUARD_BETWEEN = """
+        SELECT count(*) FROM workforce.attendance_session s
+        WHERE s.clock_in <= CAST(:to AS timestamptz) AND (s.clock_out IS NULL OR s.clock_out >= CAST(:from AS timestamptz)) AND (s.role_name ~* '(guard|security)' OR EXISTS (
+          SELECT 1 FROM identity.membership_role mr JOIN identity.role r ON r.community_id = mr.community_id AND r.id = mr.role_id
+          WHERE mr.community_id = s.community_id AND mr.membership_id = s.member_id AND r.code = 'handyman_security'))""";
 
     private final NamedParameterJdbcTemplate jdbc; private final ObjectMapper json;
     public JdbcGateDirectory(NamedParameterJdbcTemplate jdbc, ObjectMapper json) { this.jdbc = jdbc; this.json = json; }
@@ -60,9 +80,9 @@ public final class JdbcGateDirectory implements GateDirectory {
             try { d = json.readValue(rs.getString("durations") == null ? "{}" : rs.getString("durations"), new TypeReference<Map<String, Integer>>() {}); } catch (java.io.IOException e) { d = Map.of(); }
             return new Gate.Settings(n(rs, "wait_seconds", 60), or(rs.getString("fallback"), "Hold at gate"), n(rs, "grace_seconds", 30), n(rs, "overstay_grace_minutes", 10),
                 n(rs, "auto_close_hours", 2), t(rs, "quiet_from"), t(rs, "quiet_to"), or(rs.getString("quiet_fallback"), "Hold at gate"), or(rs.getString("goods_extra_people"), "Block until the guard confirms"),
-                n(rs, "patrol_min_seconds", 20), d, Rows.list(rs, "approved_companies", String::valueOf));
+                n(rs, "patrol_min_seconds", 20), d, Rows.list(rs, "approved_companies", String::valueOf), n(rs, "guard_silence_minutes", 45));
         });
-        return s.isEmpty() ? new Gate.Settings(60, "Hold at gate", 30, 10, 2, null, null, "Hold at gate", "Block until the guard confirms", 20, Map.of(), List.of()) : s.get(0);
+        return s.isEmpty() ? new Gate.Settings(60, "Hold at gate", 30, 10, 2, null, null, "Hold at gate", "Block until the guard confirms", 20, Map.of(), List.of(), 45) : s.get(0);
     }
     @Override public Optional<Gate.Staff> staff(UUID memberId) {
         return jdbc.query(STAFF, Map.of("id", memberId.toString()), (rs, i) -> new Gate.Staff(Rows.uuid(rs, "id"), rs.getString("display_name"), rs.getString("role_name"),
@@ -97,6 +117,17 @@ public final class JdbcGateDirectory implements GateDirectory {
             Rows.list(rs, "checkpoint_ids", (o) -> o instanceof UUID u ? u : UUID.fromString(o.toString())), Rows.list(rs, "days", String::valueOf), rs.getBoolean("active")));
     }
     @Override public void beat(UUID guard, String kind) { jdbc.update(BEAT, Map.of("guard", guard.toString(), "kind", kind)); }
+    @Override public Optional<Gate.Vehicle> vehicleByPlate(String plate) {
+        return jdbc.query(VEHICLE_BY_PLATE, Map.of("plate", plate), (rs, i) -> { UUID u = Rows.uuid(rs, "unit_id"); return new Gate.Vehicle(Rows.uuid(rs, "id"), rs.getString("plate"), rs.getString("owner"),
+            u == null ? null : new UnitId(u), rs.getString("vehicle_class"), rs.getString("status"), rs.getBoolean("recurring_goods")); }).stream().findFirst();
+    }
+    @Override public void endLink(UUID person, UnitId unit) { jdbc.update(END_LINK, Map.of("person", person.toString(), "unit", unit.toString())); }
+    @Override public List<OnDuty> guardsOnDuty() {
+        return jdbc.query(GUARDS_ON_DUTY, Map.of(), (rs, i) -> new OnDuty(Rows.uuid(rs, "member_id"), rs.getString("display_name"), Rows.instant(rs, "clock_in"), Rows.instant(rs, "last_at")));
+    }
+    @Override public boolean guardOnDutyBetween(java.time.Instant from, java.time.Instant to) {
+        return jdbc.queryForObject(GUARD_BETWEEN, Map.of("from", Rows.ts(from), "to", Rows.ts(to)), Long.class) > 0;
+    }
 
     static int n(ResultSet rs, String c, int d) throws SQLException { BigDecimal b = rs.getBigDecimal(c); return b == null ? d : b.intValue(); }
     static LocalTime t(ResultSet rs, String c) throws SQLException { String s = rs.getString(c); return s == null ? null : LocalTime.parse(s); }
