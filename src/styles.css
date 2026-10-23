@@ -2486,45 +2486,39 @@ b, strong { font-weight: 500 !important; }
   :not(.stable-bar) > .icon-tool, :not(.stable-bar) > .phone-search { order: 8; }
 }
 
-/* ===== Round 54: the Ink colour scheme (D3) - black and white for actions and selection; colour only where something needs attention =====
-   main button  black, white text      other buttons  white, grey border      destructive  red text / red outline
-   selected     black (tab underline, filter chip, page in the bar)
+/* ===== Round 54: calm colours - soft blue for actions and selection, grey for anything open or in work; colour only where it needs attention =====
+   main button  light blue, dark-blue text      other buttons  white, grey border      destructive  red text / red outline
+   selected     blue (tab underline, filter chip, page in the bar)
    statuses     grey = open or in work · amber = waiting / due today · red = overdue, High, Critical · green = done, paid */
-:root { --blue: #111827; --t-info-bg: #f3f4f6; --t-info: #374151; }
-.btn:not(.secondary):not(.danger):not(.icon-tool) { background: #111827 !important; color: #fff !important; border: 1px solid #111827 !important; }
+:root { --blue: #1d4ed8; --t-info-bg: #f3f4f6; --t-info: #374151; }
+.btn:not(.secondary):not(.danger):not(.icon-tool), .btn.good { background: #dbeafe !important; color: #1e3a8a !important; border: 1px solid #93c5fd !important; }
 .btn:not(.secondary):not(.danger):not(.icon-tool) * { color: inherit; }
-.btn:not(.secondary):not(.danger):not(.icon-tool):hover:not(:disabled) { background: #1f2937 !important; border-color: #1f2937 !important; }
-.btn:not(.secondary):not(.danger):not(.icon-tool):disabled { background: #e5e7eb !important; color: #6b7280 !important; border-color: #e5e7eb !important; }
-.btn:focus-visible, button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid #111827; outline-offset: 2px; }
-input[type=checkbox], input[type=radio], input[type=range] { accent-color: #111827; }
-.tabs button.active, .tabs button.on, .seg-tabs button.on, .tabs button[aria-selected=true] { color: var(--ink) !important; border-color: var(--ink) !important; }
+.btn:not(.secondary):not(.danger):not(.icon-tool):hover:not(:disabled) { background: #bfdbfe !important; border-color: #60a5fa !important; }
+.btn:not(.secondary):not(.danger):not(.icon-tool):disabled { background: #eef4fc !important; color: #7a8cab !important; border-color: #cfe0f7 !important; }
+.btn:focus-visible, button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid #3b82f6; outline-offset: 2px; }
+input[type=checkbox], input[type=radio], input[type=range] { accent-color: #1d4ed8; }
+.tabs button.active, .tabs button.on, .seg-tabs button.on, .tabs button[aria-selected=true] { color: #1d4ed8 !important; border-color: #1d4ed8 !important; }
 .chip-btn.on, .chip.on, .chip-btn.active, .chip-row button.active, .chips .chip.on, .year-chips button.active, .pick-tile.on {
-  background: #111827 !important; color: #fff !important; border-color: #111827 !important;
+  background: #dbeafe !important; color: #1e3a8a !important; border-color: #93c5fd !important;
 }
-.chip-btn.on b, .chip.on b, .chip-btn.on small, .chip.on small, .year-chips button.active small { color: #e5e7eb !important; }
-.chip-row .chip-x, .chip-btn.on .chip-x { background: #fff !important; color: #111827 !important; border: 1px solid #d1d5db !important; }
-.stat-tile.on, .ud-card.on, .up-sec.on { background: #fff !important; border-color: #111827 !important; box-shadow: inset 0 0 0 1px #111827 !important; }
-.stat-tile.on *, .ud-card.on *, .up-sec.on b { color: var(--ink) !important; }
-.nav button.active, .nav button.active * { background: #f3f4f6; color: var(--ink) !important; }
-.bottom-nav button.active { color: var(--ink) !important; background: #f3f4f6 !important; }
-.avatar { background: #e5e7eb !important; color: #111827 !important; }
+.chip-btn.on b, .chip.on b, .chip-btn.on small, .chip.on small, .year-chips button.active small { color: #1e3a8a !important; }
+.chip-row .chip-x, .chip-btn.on .chip-x { background: #fff !important; color: #1e3a8a !important; border: 1px solid #93c5fd !important; }
+.stat-tile.on, .ud-card.on, .up-sec.on { background: #eff6ff !important; border-color: #93c5fd !important; box-shadow: none !important; }
+.stat-tile.on *, .ud-card.on *, .up-sec.on b { color: #1e3a8a !important; }
+.nav button.active, .nav button.active * { background: #eff6ff; color: #1d4ed8 !important; }
+.bottom-nav button.active { color: #1d4ed8 !important; background: #eff6ff !important; }
+.avatar { background: #dbeafe !important; color: #1e3a8a !important; }
 .tk-who i { background: #f3f4f6; color: #374151; }
 .seg-badge { background: #f3f4f6; color: #374151; }
-.content a[href]:not(.btn):not(.call-btn):not(.duty-call):not(.tab):not(.nav-item):not(.pill-link):not([class*="btn"]), .content .link-btn:not(.danger-link) {
-  background: #fff; border-color: #d1d5db; color: var(--ink);
-}
-.content a[href]:not(.btn):not(.call-btn):not(.duty-call):hover, .content .link-btn:not(.danger-link):hover { background: #f3f4f6; }
-.link-btn:not(.danger-link) { color: var(--ink); }
-.icon-tool[aria-expanded=true] { background: #f3f4f6 !important; border-color: #111827 !important; color: #111827 !important; }
-.icon-tool-badge { background: #111827 !important; }
-.btn.good { background: #111827 !important; color: #fff !important; border-color: #111827 !important; }
+.icon-tool[aria-expanded=true] { background: #eff6ff !important; border-color: #93c5fd !important; color: #1d4ed8 !important; }
+.icon-tool-badge { background: #1d4ed8 !important; }
 
 /* ===== Round 55: the Compact phone layout (A) - chosen per person in the profile menu (html.compact); Comfortable keeps the cards ===== */
 .label-short { display: none; }
 .menu-seg { display: flex; align-items: center; gap: 4px; padding: 6px 10px; }
 .menu-seg > span { flex: 1; font-size: 13px; color: var(--muted); }
 .menu-seg > button { width: auto !important; display: inline-flex !important; padding: 6px 10px !important; border: 1px solid #d1d5db !important; border-radius: 8px !important; font-size: 13px; background: #fff; }
-.menu-seg > button[aria-pressed=true] { background: #111827 !important; color: #fff !important; border-color: #111827 !important; }
+.menu-seg > button[aria-pressed=true] { background: #dbeafe !important; color: #1e3a8a !important; border-color: #93c5fd !important; }
 /* "Needs you" on the phone home (both layouts) */
 .needs-you { display: flex; flex-direction: column; gap: 6px; margin: 14px 0 0; }
 .needs-you h2 { margin: 0; font-size: 15px; display: flex; align-items: center; gap: 8px; }
@@ -2643,3 +2637,7 @@ html.comfortable .needs-you .nu-row { min-height: 58px; background: #fff; border
 .profile-menu .menu-seg > span { flex: 1 0 auto; margin-right: 6px; }
 .profile-menu .menu-seg > button { flex: none; background: #fff; margin: 0 !important; }
 @media (max-width: 900px) { .profile-menu { min-width: 260px; } }
+/* the current workflow step and the selected map layer: the same soft blue as every other selection */
+.wf-step.now { background: #dbeafe !important; color: #1e3a8a !important; border-color: #93c5fd !important; }
+.infra-chip.on { background: #dbeafe !important; color: #1e3a8a !important; border-color: #93c5fd !important; }
+.infra-chip.on small { color: #3b5ba8 !important; }
