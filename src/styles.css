@@ -2406,3 +2406,35 @@ b, strong { font-weight: 500 !important; }
 .resp-table td::before, .kv dt, .kv-grid dt, dl dt, .content summary, .content summary *, .record-meta-toggle b { font-weight: 500 !important; }
 /* the summary line in a card (under a number, or under a record's title) */
 .viz-tile small, .card.metric .muted, .money-tile > small ~ *, .sc-sub, .stat-card .muted, .tk-meta, .card .value + .muted, .card .value ~ small { font-weight: 500 !important; }
+
+/* ===== Round 52: Amenities on a phone ===== */
+@media (max-width: 900px) {
+  /* "Book an amenity": one row of amenities to swipe, not a wall of buttons */
+  .amen-book-h { font-size: 17px !important; margin: 4px 0 8px !important; }
+  .amen-picks { display: flex !important; flex-wrap: nowrap !important; gap: 6px; overflow-x: auto; scrollbar-width: none; margin: 0 -16px; padding: 0 16px 4px;
+    -webkit-mask-image: linear-gradient(90deg, #000 88%, transparent); mask-image: linear-gradient(90deg, #000 88%, transparent); }
+  .amen-picks::-webkit-scrollbar { display: none; }
+  .amen-picks .chip-btn { flex: none; white-space: nowrap; padding: 6px 12px !important; min-height: 34px; font-size: 14px; }
+  /* "All bookings": no frame around the list (each booking is already a card), one row of search + Filters */
+  .bookings-card { border: 0 !important; padding: 0 !important; background: transparent !important; margin-top: 18px !important; }
+  .bookings-card > h2 { font-size: 17px; margin: 0 0 6px !important; }
+  .bookings-card .exp-tools { flex-wrap: wrap; }
+  .bookings-card .exp-tools input[type=search] { flex: 1 1 0 !important; min-width: 0; }
+  .bookings-card .exp-tools .bk-filter-btn { flex: none; }
+  .bookings-card .exp-tools select { flex: 1 1 28% !important; }
+}
+@media (max-width: 900px) {
+  .bookings-card .exp-tools input[type=search] { flex: 1 1 60% !important; }
+  .bookings-card .exp-tools select { flex: 1 1 30% !important; min-width: 0; }
+  /* one booking = three short lines: what and how much / when and where / its status */
+  .bk-cards { display: grid; gap: 8px; }
+  .bk-card { display: grid; gap: 4px; width: 100%; text-align: left; background: #fff; border: 1px solid var(--edge); border-radius: 12px; padding: 10px 12px; color: var(--ink); font: inherit; }
+  .bk-card:active { background: #f8fafc; }
+  .bk-card-top { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+  .bk-card-name { font-size: 15px; font-weight: 600 !important; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bk-card-amt { font-size: 14px; font-weight: 600 !important; flex: none; }
+  .bk-card-meta { font-size: 13px; color: var(--muted); font-weight: 500; }
+  .bk-card-foot { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+  .bk-card-foot .tag { margin: 0 !important; }
+  .bk-card-id { margin-left: auto; font-size: 11.5px; }
+}

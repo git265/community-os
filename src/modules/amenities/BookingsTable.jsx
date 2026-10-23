@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { SegTabs } from '../../components/ui.jsx';
+import { usePhone } from '../../components/Tabs.jsx';
 import { inr } from '../../lib/amenityEngine.js';
 import { BOOKING_PAY_TONE as TONE } from '../../components/StatusTag.jsx';
 
@@ -21,6 +22,8 @@ export default function BookingsTable({ bookings, isResident, onOpen, title }) {
   const [q, setQ] = useState('');
   const [sort, setSort] = useState({ key: 'date', dir: 'desc' });
   const [page, setPage] = useState(1);
+  const phone = usePhone();
+  const [showF, setShowF] = useState(false);   // on a phone the year / month / amenity pickers wait behind "Filters"
   const y = year || (years.includes(nowY) ? nowY : years[0] || '');
   const inYear = bookings.filter((b) => !y || String(b.date || '').startsWith(y));
   const base = inYear.filter((b) => (!month || String(b.date || '').slice(5, 7) === month) && (!amenity || b.amenity === amenity));
@@ -47,17 +50,37 @@ export default function BookingsTable({ bookings, isResident, onOpen, title }) {
   const th = (key, label) => <th key={key} onClick={() => setSort((s) => ({ key, dir: s.key === key && s.dir === 'asc' ? 'desc' : 'asc' }))} data-testid={`bk-sort-${key}`} aria-sort={sort.key === key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>{label}{sort.key === key && <span className="arr"> {sort.dir === 'asc' ? '▲' : '▼'}</span>}</th>;
   const total = fin.filter((b) => b.status !== 'Cancelled').reduce((n, b) => n + (Number(b.totalPayable) || 0), 0);
   return (
-    <div className="card" style={{ marginTop: 20 }} data-testid="bookings-card">
+    <div className="card bookings-card" style={{ marginTop: 20 }} data-testid="bookings-card">
       <h2 style={{ marginTop: 0 }}>{title}</h2>
       <SegTabs label="Booking type" value={kind} onChange={setKind} tabs={[{ key: 'financial', label: 'Financial', count: fin.length }, { key: 'free', label: 'Free', count: free.length }, { key: 'all', label: 'All', count: base.length }]} />
       <div className="exp-tools" style={{ marginTop: 10 }}>
-        <input type="search" aria-label="Search bookings" data-testid="bk-search" placeholder="Search amenity, villa or booking no." value={q} onChange={(e) => setQ(e.target.value)} />
+        <input type="search" aria-label="Search bookings" data-testid="bk-search" placeholder={phone ? 'Search bookings' : 'Search amenity, villa or booking no.'} value={q} onChange={(e) => setQ(e.target.value)} />
+        {phone && <button type="button" className="btn secondary bk-filter-btn" aria-expanded={showF} data-testid="bk-filters" onClick={() => setShowF((v) => !v)}>⚙ Filters{(month ? 1 : 0) + (amenity ? 1 : 0) + (year ? 1 : 0) ? ` (${(month ? 1 : 0) + (amenity ? 1 : 0) + (year ? 1 : 0)})` : ''}</button>}
+        {(!phone || showF) && <>
         <select aria-label="Year" data-testid="bk-year" value={y} onChange={(e) => setYear(e.target.value)} style={{ width: 'auto' }}>{years.length ? years.map((v) => <option key={v}>{v}</option>) : <option>{nowY}</option>}</select>
         <select aria-label="Month" data-testid="bk-month" value={month} onChange={(e) => setMonth(e.target.value)} style={{ width: 'auto' }}><option value="">All months</option>{MON.map((m, i) => <option key={m} value={String(i + 1).padStart(2, '0')}>{m}</option>)}</select>
         <select aria-label="Amenity" data-testid="bk-amenity" value={amenity} onChange={(e) => setAmenity(e.target.value)} style={{ width: 'auto' }}><option value="">All amenities</option>{amenities.map((a) => <option key={a}>{a}</option>)}</select>
+        </>}
       </div>
       {kind !== 'free' && <div className="muted" style={{ fontSize: 13, margin: '0 0 8px' }}>{rows.length} booking{rows.length === 1 ? '' : 's'}{kind === 'financial' ? ` · ${inr(total)} payable (excluding cancelled)` : ''}</div>}
-      {shown.length === 0 ? <div className="empty">No bookings match.</div> : (
+      {shown.length === 0 ? <div className="empty">No bookings match.</div> : phone ? (
+        <div className="bk-cards" data-testid="bookings-table">
+          {shown.map((b) => {
+            const pay = kind !== 'free' && b.paymentStatus && b.paymentStatus !== 'Not required' ? b.paymentStatus : '';
+            return (
+              <button type="button" key={b.id} className="bk-card" data-testid="booking-row" onClick={() => onOpen(b.id)}>
+                <span className="bk-card-top"><b className="bk-card-name">{b.amenity}</b>{Number(b.totalPayable) > 0 && <b className="bk-card-amt">{inr(b.totalPayable)}</b>}</span>
+                <span className="bk-card-meta">{b.date}{b.slot ? ` · ${b.slot}` : ''}{!isResident && b.unit ? ` · ${b.unit}` : ''}</span>
+                <span className="bk-card-foot">
+                  <span className={`tag ${b.status === 'Cancelled' ? '' : b.status === 'Confirmed' || b.status === 'Completed' ? 'green' : 'orange'}`}>{b.status}</span>
+                  {pay && <span className={`tag ${TONE[pay] || ''}`}>{pay}</span>}
+                  <span className="mono bk-card-id">{b.shortId}</span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      ) : (
         <div className="table-wrap"><table className="resp-table sortable" data-testid="bookings-table">
           <thead><tr>{th('shortId', 'Booking')}{th('amenity', 'Amenity')}{th('date', 'Date')}<th>Slot</th>{!isResident && th('unit', 'Villa')}{th('status', 'Status')}{kind !== 'free' && th('totalPayable', 'Amount')}{kind !== 'free' && th('paymentStatus', 'Payment')}</tr></thead>
           <tbody>{shown.map((b) => (

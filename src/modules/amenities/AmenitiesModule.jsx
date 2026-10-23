@@ -232,7 +232,7 @@ export default function AmenitiesModule() {
             </div>
           )}
 
-          <h2 style={{ margin: '0 0 8px' }} data-testid="book-heading">Book an amenity</h2>
+          <h2 className="amen-book-h" style={{ margin: '0 0 8px' }} data-testid="book-heading">Book an amenity</h2>
           {isResident && creditBalance(credits, myUnit) >= 0.01 && (
             <div className="notice" data-testid="credit-banner">💳 Your villa has <b>{inr(creditBalance(credits, myUnit))}</b> of unit credit (from a refund). Choose “Use unit credit” when you pay for your next booking — it can cover all of it or just part.</div>
           )}
@@ -242,7 +242,7 @@ export default function AmenitiesModule() {
               <select aria-label="Facility filter" data-testid="facility-filter" value={facFilter} onChange={(e) => setFacFilter(e.target.value)}><option value="">All locations</option>{facilityNames.map((f) => <option key={f}>{f}</option>)}</select>
             </div>
           )}
-          <div className="chip-row">
+          <div className="chip-row amen-picks" data-testid="amen-picks">
             {openCatalog.filter((a) => !facFilter || a.facility === facFilter).map((a) => (
               <button key={a.id} className={`chip-btn${selected === a.name ? ' on' : ''}`} onClick={() => pickAmenity(a.name)}>
                 {a.icon} {a.name}{a.facility && !facFilter && facilityNames.length > 1 && !a.name.includes(a.facility) ? <small className="muted"> · {a.facility}</small> : null}
