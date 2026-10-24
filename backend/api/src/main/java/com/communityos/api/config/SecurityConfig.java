@@ -45,6 +45,7 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.POST, "/api/v1/auth/otp", "/api/v1/auth/token", "/api/v1/auth/refresh", "/api/v1/auth/logout").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/webhooks/*").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/v1/public/**").permitAll()
+                .requestMatchers("/api/v1/bridge/**").permitAll()   // a site bridge signs each call with its own token (X-Bridge-Token), checked by the site service
                 .requestMatchers("/api/v1/demo/**").permitAll()   // the demo controller exists only with cos.demo.enabled (never in prod): otherwise 404
                 // health for the load balancer; the rest of /actuator is guarded by the metrics secret (RequestGuardFilter), not a user's sign-in
                 .requestMatchers("/actuator/**", "/v3/api-docs/**", "/swagger-ui/**").permitAll()

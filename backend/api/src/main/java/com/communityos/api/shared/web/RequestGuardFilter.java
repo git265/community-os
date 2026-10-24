@@ -24,7 +24,7 @@ import org.slf4j.MDC;
  * The first thing every request meets (before sign-in is looked at):
  *   request id   the caller's X-Request-Id when it is a plain token, else a new one; echoed back, put in the log context (MDC "requestId"),
  *                which the audit writer records, so one id ties the client's report, the log lines and the audit rows together
- *   body limit   a body is never read past its limit (413): files 26 MB, a site plan 13 MB, a provider webhook 256 KB, anything else 2 MB -
+ *   body limit   a body is never read past its limit (413): files 26 MB, a site plan 13 MB, a bridge's punches 8 MB, a provider webhook 256 KB, anything else 2 MB -
  *                checked on Content-Length and again while the bytes are read (a chunked body has no length)
  *   metrics      /actuator/* other than health needs the scraper's basic-auth secret (COS_METRICS_TOKEN); with none set it is not there (404)
  */
@@ -43,6 +43,7 @@ public final class RequestGuardFilter implements Filter {
         if (path.startsWith("/api/v1/webhooks/")) return 256 * 1024;
         if ("POST".equals(method) && path.equals("/api/v1/files")) return 26 * MB;
         if (path.startsWith("/api/v1/assets/site-plans")) return 13 * MB;
+        if ("POST".equals(method) && path.equals("/api/v1/bridge/events")) return 8 * MB;
         return 2 * MB;
     }
 

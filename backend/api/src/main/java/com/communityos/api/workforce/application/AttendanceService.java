@@ -91,6 +91,42 @@ public final class AttendanceService {
         });
     }
 
+    /** What a staff member's punch on an entry device did to their attendance. */
+    public record DevicePunch(UUID sessionId, String outcome) {}
+    /**
+     * A staff member's punch on an entry device (the site's device layer calls this as the system): In opens their session at the device's time
+     * unless one is already open (from the app, say), Out closes the open one. The device stands at the gate, so the place is "Inside site".
+     */
+    public DevicePunch devicePunch(Caller system, UUID memberId, String name, boolean in, Instant at, String device) {
+        if (system.category() != Caller.Category.System) throw new AccessDenied("Only the device layer records device punches");
+        return tx.inTx(() -> {
+            Attendance.Settings s = store.settings();
+            Attendance.Fix here = new Attendance.Fix(null, null, null, "Inside site", null);
+            java.util.Optional<Attendance.Session> open = store.openSession(memberId);
+            if (in) {
+                if (open.isPresent()) return new DevicePunch(open.get().id, "Already on duty since " + HM.format(open.get().clockIn.atZone(clock.getZone())));
+                LocalDate day = LocalDate.ofInstant(at, clock.getZone());
+                Attendance.Session x = new Attendance.Session();
+                x.memberId = memberId; x.staffName = name; x.roleName = store.roleName(memberId); x.date = day; x.clockIn = at; x.in = here; x.source = "Device";
+                x.shiftType = store.shiftOf(memberId, day); x.lateMin = Attendance.lateMinutes(x.shiftType, s, at, clock.getZone()); x.note = "In at " + device;
+                store.insert(x);
+                store.onDuty(memberId, true);
+                audit.write(system, AuditWriter.Action.Create, "workforce.attendance_session", x.id, x.shortId, null, name + " clocked in at " + device + (x.lateMin > 0 ? ", " + x.lateMin + " min late" : ""), List.of());
+                return new DevicePunch(x.id, "On duty" + (x.lateMin > 0 ? ", " + x.lateMin + " min late" : ""));
+            }
+            if (open.isEmpty()) return new DevicePunch(null, "Was not on duty: nothing to close");
+            Attendance.Session x = open.get();
+            x.clockOut = at.isAfter(x.clockIn) ? at : x.clockIn.plusSeconds(60); x.out = here; x.hours = Attendance.hours(x.clockIn, x.clockOut);
+            x.note = (x.note == null ? "" : x.note + " · ") + "Out at " + device;
+            if (!store.update(x)) throw new DomainException.Conflict("The attendance of " + name);
+            store.onDuty(memberId, false);
+            audit.write(system, AuditWriter.Action.Update, "workforce.attendance_session", x.id, x.shortId, null, name + " clocked out at " + device + " after " + x.hours + " h", List.of());
+            return new DevicePunch(x.id, "Off duty after " + x.hours + " h");
+        });
+    }
+    /** Is this staff member on duty now (an open session)? */
+    public boolean onDuty(UUID memberId) { return store.openSession(memberId).isPresent(); }
+
     /** A supervisor's correction: the times as they were, and why. */
     public Attendance.Session correct(Caller c, UUID id, long version, Correction f) {
         if (!WorkforcePolicy.supervisor(c)) throw new AccessDenied("Only a supervisor corrects attendance");

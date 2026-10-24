@@ -690,6 +690,135 @@ class PostgresFlowTest {
                 new com.communityos.api.gate.GateResources.CheckpointFields("Guard room", null, 9, true, null, new java.math.BigDecimal("12.9743"), new java.math.BigDecimal("77.5946"), null))), "a guard does not set up the posts they walk");
             assertEquals("At the post", as(guardC, () -> gateSvc.scan(guardC, cpQr, null, gps.apply(12.97161, 77.59461))).place(), "but walks them");
             owner.sql("UPDATE workforce.attendance_session SET clock_out = now(), hours = 2 WHERE member_id = '" + guardMember + "' AND clock_out IS NULL RETURNING 1");
+            // ---- site devices: a bridge and a face terminal; consent puts people on it; the bridge's jobs; punches become visits and attendance -------
+            var siteSvc = new com.communityos.api.site.application.SiteService(new com.communityos.api.site.adapter.JdbcSiteStore(app), new com.communityos.api.site.adapter.JdbcBridgeDirectory(platform),
+                gateSvc, new com.communityos.api.workforce.application.AttendanceService(new com.communityos.api.workforce.adapter.JdbcAttendanceStore(app, json), audit, app, clock), audit, app, clock);
+            java.util.function.Function<java.awt.Color, String> face = (col) -> {
+                var img = new java.awt.image.BufferedImage(240, 300, java.awt.image.BufferedImage.TYPE_INT_RGB);
+                var g2 = img.createGraphics(); g2.setColor(java.awt.Color.LIGHT_GRAY); g2.fillRect(0, 0, 240, 300); g2.setColor(col); g2.fillOval(50, 60, 140, 180); g2.dispose();
+                var bo = new java.io.ByteArrayOutputStream();
+                try { javax.imageio.ImageIO.write(img, "jpeg", bo); } catch (java.io.IOException e) { throw new IllegalStateException(e); }
+                return "data:image/jpeg;base64," + java.util.Base64.getEncoder().encodeToString(bo.toByteArray());
+            };
+            var savitri = as(admin, () -> kit.create(admin, com.communityos.api.gate.GateResources.PEOPLE, people, new com.communityos.api.gate.GateResources.PersonFields(
+                "Savitri", "Maid / cook", "+919845010009", face.apply(java.awt.Color.PINK), "Active", null, null, "Aadhaar", "4321", true, null, null, null, true, true, true, null, true, true, null, null, null, null)));
+            as(ownerC, () -> kit.create(ownerC, com.communityos.api.gate.GateResources.LINKS, links, new com.communityos.api.gate.GateResources.LinkFields(savitri.id(), "Savitri", unitA, List.of(), null, null, null)));
+            assertThrows(AccessDenied.class, () -> as(guardC, () -> siteSvc.createBridge(guardC, "Gate PC")), "a guard does not set up bridges");
+            var nb = as(admin, () -> siteSvc.createBridge(admin, "Gate PC"));
+            String bt = nb.token();
+            assertTrue(bt.startsWith("cosb_") && bt.length() > 40, bt);
+            assertEquals(Crypto.sha256(bt).length * 2, owner.sql("SELECT token_hash FROM gate.bridge WHERE id = '" + nb.bridge().id() + "'").get(0).get("token_hash").toString().length(), "only the hash is kept");
+            java.util.function.Function<String, com.communityos.api.site.domain.Site.DeviceFields> devFields = (pw) -> new com.communityos.api.site.domain.Site.DeviceFields("Main gate face", "Main gate",
+                "Face terminal", "Hikvision", "DS-K1T344MBWX-QRE1", "hikvision-isapi", "Both", List.of(), nb.bridge().id(), "192.168.1.64", null, false, null, pw, null, null, null);
+            assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> siteSvc.saveDevice(admin, null, devFields.apply(null))), "the device's admin password");
+            var dev = as(admin, () -> siteSvc.saveDevice(admin, null, devFields.apply("S3cret!pass")));
+            assertEquals(List.of("Face", "Card", "QR", "Relay"), dev.capabilities()); assertEquals(80, dev.port().intValue()); assertTrue(dev.hasPassword()); assertEquals("admin", dev.username());
+            assertFalse(owner.sql("SELECT secret_enc FROM gate.device WHERE id = '" + dev.id() + "'").get(0).get("secret_enc").toString().contains("S3cret"), "the password is sealed");
+            assertTrue(as(admin, () -> siteSvc.enrolments(admin, dev.id())).isEmpty(), "nobody goes on a device without consent");
+            assertThrows(AccessDenied.class, () -> as(ownerC, () -> siteSvc.saveProfile(ownerC, "person", savitri.id(), new com.communityos.api.site.application.SiteService.Consent(true, null, null, null))));
+            as(guardC, () -> siteSvc.saveProfile(guardC, "person", savitri.id(), new com.communityos.api.site.application.SiteService.Consent(true, null, "100200300", null)));
+            assertThrows(DomainException.RuleViolated.class, () -> as(guardC, () -> siteSvc.saveProfile(guardC, "member", guardMember,
+                new com.communityos.api.site.application.SiteService.Consent(true, "data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=", null, null))), "a drawn avatar is not a face");
+            assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> siteSvc.saveProfile(admin, "person", maid.id(),
+                new com.communityos.api.site.application.SiteService.Consent(true, null, "100200300", null))), "a card is given to one person");
+            var guardFace = as(guardC, () -> siteSvc.saveProfile(guardC, "member", guardMember, new com.communityos.api.site.application.SiteService.Consent(true, face.apply(java.awt.Color.ORANGE), null, null))).orElseThrow();
+            assertTrue(guardFace.hasPhoto()); assertEquals(com.communityos.api.site.domain.Site.CONSENT_TEXT, guardFace.consentText(), "staff record their own consent");
+            String savEmp = savitri.id().toString().replace("-", ""), guardEmp = guardMember.toString().replace("-", "");
+            var enr = as(admin, () -> siteSvc.enrolments(admin, dev.id()));
+            assertEquals(java.util.Set.of(savEmp, guardEmp), enr.stream().map(com.communityos.api.site.domain.Site.Enrolment::employeeNo).collect(java.util.stream.Collectors.toSet()));
+            assertTrue(enr.stream().allMatch((e) -> "Pending enrol".equals(e.state())));
+            assertEquals(0, as(admin, () -> siteSvc.sync(admin)).enrol(), "nothing changed: nothing queued");
+            // the bridge signs in with its token, gets its devices (the password opened for it) and its jobs
+            assertThrows(AccessDenied.class, () -> siteSvc.asBridge("cosb_nope", null, siteSvc::hello));
+            assertThrows(AccessDenied.class, () -> siteSvc.asBridge(bt, null, (c, b) -> { siteSvc.enrolments(c, dev.id()); return siteSvc.createBridge(c, "Sneaky"); }), "a bridge does no administration");
+            var hello = siteSvc.asBridge(bt, "cos-bridge/0.1", siteSvc::hello);
+            assertEquals("Gate PC", hello.name()); assertEquals(1, hello.devices().size()); assertEquals("S3cret!pass", hello.devices().get(0).password());
+            assertEquals("cos-bridge/0.1", owner.sql("SELECT agent_version FROM gate.bridge WHERE id = '" + nb.bridge().id() + "'").get(0).get("agent_version"));
+            var jobs = siteSvc.asBridge(bt, null, (c, b) -> siteSvc.tasks(c, b, 10));
+            assertEquals(2, jobs.size()); assertTrue(jobs.stream().allMatch((j) -> "enrol".equals(j.kind()) && j.faceJpegBase64() != null && java.util.Base64.getDecoder().decode(j.faceJpegBase64()).length < 190_000));
+            assertTrue(siteSvc.asBridge(bt, null, (c, b) -> siteSvc.tasks(c, b, 10)).isEmpty(), "a claimed job is not handed out twice");
+            var savJob = jobs.stream().filter((j) -> savEmp.equals(j.employeeNo())).findFirst().orElseThrow();
+            var guardJob = jobs.stream().filter((j) -> guardEmp.equals(j.employeeNo())).findFirst().orElseThrow();
+            assertEquals("100200300", savJob.cardNo()); assertEquals("Savitri", savJob.name());
+            siteSvc.asBridge(bt, null, (c, b) -> { siteSvc.taskResult(c, b, savJob.id(), true, null, false); siteSvc.taskResult(c, b, guardJob.id(), false, "Device busy", false); return null; });
+            java.util.function.Function<String, String> enrState = (emp) -> owner.sql("SELECT state FROM gate.device_enrolment WHERE device_id = '" + dev.id() + "' AND employee_no = '" + emp + "'").get(0).get("state").toString();
+            assertEquals("Enrolled", enrState.apply(savEmp)); assertEquals("Pending enrol", enrState.apply(guardEmp), "a failed job is tried again");
+            var retry = siteSvc.asBridge(bt, null, (c, b) -> siteSvc.tasks(c, b, 10));
+            assertEquals(1, retry.size()); assertEquals(2, retry.get(0).attempts());
+            siteSvc.asBridge(bt, null, (c, b) -> { siteSvc.taskResult(c, b, retry.get(0).id(), true, null, false); return null; });
+            assertEquals("Enrolled", enrState.apply(guardEmp));
+            // health: a clock half a minute off is set right
+            siteSvc.asBridge(bt, null, (c, b) -> { siteSvc.health(c, b, List.of(new com.communityos.api.site.domain.Site.Health(dev.id(), true, "DS-K1T344-SN1", null, "V3.2.30", 45, 2, null))); return null; });
+            var timeJobs = siteSvc.asBridge(bt, null, (c, b) -> siteSvc.tasks(c, b, 10));
+            assertEquals(List.of("set-time"), timeJobs.stream().map(com.communityos.api.site.domain.Site.Task::kind).toList());
+            siteSvc.asBridge(bt, null, (c, b) -> { siteSvc.taskResult(c, b, timeJobs.get(0).id(), true, null, false); return null; });
+            assertTrue(as(admin, () -> siteSvc.devices(admin)).get(0).online());
+            // a reported maid the device still knows by her card: let in by the device, flagged by the platform
+            as(admin, () -> siteSvc.saveProfile(admin, "person", maid.id(), new com.communityos.api.site.application.SiteService.Consent(true, null, "555666777", null)));
+            assertEquals(2, as(admin, () -> siteSvc.enrolments(admin, dev.id())).size(), "she is not wanted on the device (no unit she works for)");
+            // the punches: in by face, a double tap, staff in, an unknown face, a refusal, out by card, staff out, the reported maid; one sent twice
+            Instant now0 = clock.instant();
+            java.util.function.BiFunction<Long, Object[], com.communityos.api.site.domain.Site.Punch> pz = (no, a) -> new com.communityos.api.site.domain.Site.Punch(no, now0.minusSeconds((Integer) a[0]),
+                (String) a[1], (String) a[2], (String) a[3], (String) a[4], (String) a[5], (String) a[6], null, "{\"major\":5}");
+            List<com.communityos.api.site.domain.Site.Punch> punches = List.of(
+                pz.apply(1L, new Object[] {300, "Face", savEmp, null, "Allowed", null, null}), pz.apply(1L, new Object[] {300, "Face", savEmp, null, "Allowed", null, null}),
+                pz.apply(2L, new Object[] {240, "Face", savEmp, null, "Allowed", null, null}), pz.apply(3L, new Object[] {180, "Face", guardEmp, null, "Allowed", null, "checkIn"}),
+                pz.apply(4L, new Object[] {150, "Face", "1", null, "Allowed", null, null}), pz.apply(5L, new Object[] {120, "Card", null, "100200300", "Refused", "Outside schedule", null}),
+                pz.apply(6L, new Object[] {60, "Card", null, "100200300", "Allowed", null, null}), pz.apply(7L, new Object[] {10, "Face", guardEmp, null, "Allowed", null, "checkOut"}),
+                pz.apply(8L, new Object[] {30, "Card", null, "555666777", "Allowed", null, null}));
+            var ingest = siteSvc.asBridge(bt, null, (c, b) -> siteSvc.events(c, b, dev.id(), punches));
+            assertEquals(9, ingest.received()); assertEquals(8, ingest.added(), "a punch reported twice is kept once"); assertEquals(5, ingest.counted()); assertEquals(2, ingest.flagged());
+            assertEquals(0, siteSvc.asBridge(bt, null, (c, b) -> siteSvc.events(c, b, dev.id(), punches)).added(), "the bridge sending again changes nothing");
+            assertEquals("8", owner.sql("SELECT last_event_no::text AS n FROM gate.device WHERE id = '" + dev.id() + "'").get(0).get("n"), "where the device's events stopped");
+            var ledger = as(admin, () -> siteSvc.events(admin, null, null));
+            java.util.function.Function<Long, com.communityos.api.site.domain.Site.Event> evOf = (no) -> ledger.stream().filter((e) -> e.eventNo() == no).findFirst().orElseThrow();
+            assertEquals("In", evOf.apply(1L).outcome()); assertTrue(evOf.apply(1L).counted()); assertEquals("Savitri", evOf.apply(1L).name());
+            assertEquals("Double tap: not counted", evOf.apply(2L).outcome()); assertFalse(evOf.apply(2L).counted());
+            assertTrue(evOf.apply(3L).outcome().startsWith("In · On duty"), evOf.apply(3L).outcome()); assertNotNull(evOf.apply(3L).sessionId());
+            assertEquals("Unknown person: flagged", evOf.apply(4L).outcome());
+            assertEquals("Refused by the device: Outside schedule", evOf.apply(5L).outcome()); assertEquals("Savitri", evOf.apply(5L).name(), "a refusal is kept, with whose card it was");
+            assertEquals("Out", evOf.apply(6L).outcome()); assertEquals("Out", evOf.apply(6L).direction());
+            assertTrue(evOf.apply(7L).outcome().startsWith("Out · Off duty after"), evOf.apply(7L).outcome());
+            assertTrue(evOf.apply(8L).outcome().startsWith("In · flagged: "), evOf.apply(8L).outcome());
+            var sv = owner.sql("SELECT state, kind, unit_id::text AS unit, method, out_method, extract(epoch FROM out_at - in_at)::int::text AS secs FROM gate.visit WHERE person_id = '" + savitri.id() + "'");
+            assertEquals(1, sv.size()); assertEquals("Exited", sv.get(0).get("state")); assertEquals("Maid / cook", sv.get(0).get("kind")); assertEquals(unitA.toString(), sv.get(0).get("unit"));
+            assertEquals("Face · Main gate face", sv.get(0).get("method")); assertEquals("Card · Main gate face", sv.get(0).get("out_method")); assertEquals("240", sv.get(0).get("secs"), "at the device's times");
+            var gAtt = owner.sql("SELECT source, clock_out IS NOT NULL AS closed, in_site FROM workforce.attendance_session WHERE member_id = '" + guardMember + "' AND source = 'Device'");
+            assertEquals(1, gAtt.size()); assertEquals("t", gAtt.get(0).get("closed")); assertEquals("Inside site", gAtt.get(0).get("in_site"));
+            assertEquals("Exited", owner.sql("SELECT state FROM gate.visit WHERE member_id = '" + guardMember + "' AND kind = 'Staff' ORDER BY in_at DESC LIMIT 1").get(0).get("state"));
+            assertEquals("1", owner.sql("SELECT count(*)::text AS n FROM gate.flag WHERE community_id = '" + cid + "' AND type = 'Device entry' AND person_name = 'Unknown person'").get(0).get("n"));
+            assertEquals("3", owner.sql("SELECT count(*)::text AS n FROM gate.flag WHERE person_id = '" + maid.id() + "' AND type = 'Reported person' AND state = 'Open'").get(0).get("n"), "the reported maid let in by the device");
+            // a change while the job is out is sent again
+            as(guardC, () -> siteSvc.saveProfile(guardC, "person", savitri.id(), new com.communityos.api.site.application.SiteService.Consent(true, null, "100200301", null)));
+            var out1 = siteSvc.asBridge(bt, null, (c, b) -> siteSvc.tasks(c, b, 10));
+            assertEquals("100200301", out1.get(0).cardNo());
+            as(guardC, () -> siteSvc.saveProfile(guardC, "person", savitri.id(), new com.communityos.api.site.application.SiteService.Consent(true, null, "100200302", null)));
+            siteSvc.asBridge(bt, null, (c, b) -> { siteSvc.taskResult(c, b, out1.get(0).id(), true, null, false); return null; });
+            assertEquals("Pending enrol", enrState.apply(savEmp), "the device got the old card");
+            var out2 = siteSvc.asBridge(bt, null, (c, b) -> siteSvc.tasks(c, b, 10));
+            assertEquals("100200302", out2.get(0).cardNo());
+            siteSvc.asBridge(bt, null, (c, b) -> { siteSvc.taskResult(c, b, out2.get(0).id(), true, null, false); return null; });
+            assertEquals("Enrolled", enrState.apply(savEmp));
+            // consent withdrawn: the staff photo goes at once and they come off the device
+            as(guardC, () -> siteSvc.saveProfile(guardC, "member", guardMember, new com.communityos.api.site.application.SiteService.Consent(false, null, null, null)));
+            assertEquals("t", owner.sql("SELECT photo IS NULL AND withdrawn_at IS NOT NULL AS gone FROM gate.face_profile WHERE subject_id = '" + guardMember + "'").get(0).get("gone"));
+            var rm = siteSvc.asBridge(bt, null, (c, b) -> siteSvc.tasks(c, b, 10));
+            assertEquals(List.of("remove"), rm.stream().map(com.communityos.api.site.domain.Site.Task::kind).toList()); assertEquals(guardEmp, rm.get(0).employeeNo());
+            siteSvc.asBridge(bt, null, (c, b) -> { siteSvc.taskResult(c, b, rm.get(0).id(), true, null, false); return null; });
+            assertEquals("Removed", enrState.apply(guardEmp));
+            // the door from the screen: the gate desk only, with a reason, always flagged; sent only within a minute
+            assertThrows(AccessDenied.class, () -> as(ownerC, () -> { siteSvc.openDoor(ownerC, dev.id(), "Let me in"); return null; }));
+            assertThrows(DomainException.RuleViolated.class, () -> as(guardC, () -> { siteSvc.openDoor(guardC, dev.id(), " "); return null; }));
+            as(guardC, () -> { siteSvc.openDoor(guardC, dev.id(), "Ambulance"); return null; });
+            owner.sql("UPDATE gate.device_task SET created_at = now() - interval '2 minutes' WHERE device_id = '" + dev.id() + "' AND kind = 'open' RETURNING 1");
+            as(guardC, () -> { siteSvc.openDoor(guardC, dev.id(), "Water tanker"); return null; });
+            var opens = siteSvc.asBridge(bt, null, (c, b) -> siteSvc.tasks(c, b, 10));
+            assertEquals(1, opens.size()); assertEquals("Water tanker", opens.get(0).note());
+            assertEquals("Too late to open", owner.sql("SELECT last_error FROM gate.device_task WHERE device_id = '" + dev.id() + "' AND note = 'Ambulance'").get(0).get("last_error"));
+            assertEquals("2", owner.sql("SELECT count(*)::text AS n FROM gate.flag WHERE community_id = '" + cid + "' AND type = 'Manual open' AND detail LIKE '%Main gate face%'").get(0).get("n"));
+            // a revoked bridge no longer signs in; another community sees none of it
+            as(admin, () -> { siteSvc.revokeBridge(admin, nb.bridge().id()); return null; });
+            assertThrows(AccessDenied.class, () -> siteSvc.asBridge(bt, null, siteSvc::hello), "revoked");
             // what each sees
             var flags = as(admin, () -> gateSvc.flags(admin, true));
             assertTrue(flags.stream().map((f) -> f.type).toList().containsAll(List.of("Manual open", "Blocked person attempt", "Headcount mismatch")), flags.stream().map((f) -> f.type).toList().toString());

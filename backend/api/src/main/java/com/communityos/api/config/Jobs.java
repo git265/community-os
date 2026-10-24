@@ -29,6 +29,7 @@ public class Jobs {
     private final com.communityos.api.billing.application.LateFeeService lateFees;
     private final com.communityos.api.docs.application.FileService files;
     private final java.util.Optional<com.communityos.api.comms.adapter.PushDelivery> pushes;
+    private final com.communityos.api.site.application.SiteService site;
 
     public Jobs(OutboxRelay outbox, WebhookDeliveryWorker webhooks, PaymentService payments, @Qualifier("platform") NamedParameterJdbcTemplate platformJdbc,
                 com.communityos.api.gate.application.GateService gate, com.communityos.api.comms.application.BroadcastService notices,
@@ -37,8 +38,9 @@ public class Jobs {
                 java.util.Optional<com.communityos.api.billing.adapter.gateway.SimulatedGateway> simulatedBank,
                 java.util.Optional<com.communityos.api.billing.application.RefundService> refunds, com.communityos.api.comms.adapter.LiveHub live,
                 java.util.Optional<com.communityos.api.comms.adapter.PushDelivery> pushes, com.communityos.api.billing.application.PaymentReconciler recon,
-                com.communityos.api.billing.application.LateFeeService lateFees, com.communityos.api.docs.application.FileService files) {
-        this.recon = recon; this.lateFees = lateFees; this.files = files;
+                com.communityos.api.billing.application.LateFeeService lateFees, com.communityos.api.docs.application.FileService files,
+                com.communityos.api.site.application.SiteService site) {
+        this.recon = recon; this.lateFees = lateFees; this.files = files; this.site = site;
         this.channels = channels; this.simulatedBank = simulatedBank; this.refunds = refunds; this.live = live; this.pushes = pushes;
         this.outbox = outbox; this.webhooks = webhooks; this.payments = payments; this.platformJdbc = platformJdbc; this.gate = gate; this.notices = notices; this.attendance = attendance; this.reports = reports;
     }
@@ -67,6 +69,13 @@ public class Jobs {
     @Scheduled(fixedDelayString = "${cos.jobs.attendance-delay:600000}", initialDelay = 90000)
     public void closeForgottenAttendance() {
         perCommunity("attendance", ATTENDANCE_DUE, "attendance", (system) -> attendance.closeOverdue(system));
+    }
+
+    /** Communities with a device, or with face profiles (whose photos are deleted some days after the person left). */
+    static final String SITE_DUE = "SELECT community_id FROM gate.device WHERE status = 'Active' UNION SELECT community_id FROM gate.face_profile";
+    @Scheduled(fixedDelayString = "${cos.jobs.site-delay:600000}", initialDelay = 100000)
+    public void syncDevices() {
+        perCommunity("site devices", SITE_DUE, "device sync", (system) -> site.sync(system));
     }
 
     /** Communities with an active report schedule (each one is checked against its own time and day). */

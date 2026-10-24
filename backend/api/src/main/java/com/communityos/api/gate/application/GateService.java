@@ -355,6 +355,108 @@ public final class GateService {
         return exit(c, v.id, v.version, method);
     }
 
+    // ---- entry devices (face / QR terminals): the device decided already; the platform records it and flags what the rules would have held -------
+    static final List<String> SERIOUS = List.of("Blocked person attempt", "Reported person", "Wrong destination", "Device entry");
+    static String worse(String a, String b) { return SERIOUS.indexOf(b) < SERIOUS.indexOf(a) ? b : a; }
+
+    /** Is this registered person ("person") or staff member ("member") inside now? */
+    public boolean inside(String kind, UUID id) { return tx.inTx(() -> "member".equals(kind) ? store.insideByMember(id).isPresent() : store.insideByPerson(id).isPresent()); }
+
+    /**
+     * A registered person came in through an entry device. The visit starts at the device's time; a visit still open from before is closed
+     * ("No exit read"). When the rules would have held them (blocked, reported, outside their days or hours, an expired document, an away unit,
+     * not on the roster) one flag is raised, the most serious type.
+     */
+    public Outcome deviceIn(Caller c, UUID personId, String gate, String how, Instant at) {
+        desk(c);
+        return tx.inTx(() -> {
+            Gate.Person p = dir.person(personId).orElseThrow(AccessDenied.NotVisible::new);
+            store.insideByPerson(p.id()).ifPresent((o) -> { o.move(VisitState.AUTO_CLOSED); o.outAt = o.inAt != null && o.inAt.isAfter(at) ? o.inAt : at; o.outMethod = "No exit read"; store.save(o); });
+            ZonedDateTime when = at.atZone(clock.getZone()); LocalDate day = when.toLocalDate();
+            List<String> why = new ArrayList<>(); String type = "Device entry";
+            if ("Blocked".equals(p.status())) { type = "Blocked person attempt"; why.add(p.statusReason() == null ? "the person is blocked" : p.statusReason()); }
+            else if (!"Active".equals(p.status())) why.add("not cleared for entry (" + p.status() + ")");
+            if ((p.policeExpiry() != null && day.isAfter(p.policeExpiry())) || ("Driver".equals(p.personClass()) && p.licenceExpiry() != null && day.isAfter(p.licenceExpiry()))) why.add("a document has expired");
+            String kind = "Other"; List<Gate.Link> homes = List.of(); LocalTime linkTo = null; Gate.WorkOrder order = null;
+            if (Gate.VILLA_CLASSES.contains(p.personClass())) {
+                kind = "Driver".equals(p.personClass()) ? "Driver" : "Maid / cook";
+                List<Gate.Link> mine = dir.links(p.id()).stream().filter((l) -> !"Ended".equals(l.status())).toList();
+                List<Gate.Link> ok = mine.stream().filter((l) -> Gate.windowOpen(l.days(), l.fromTime(), l.toTime(), when, 15)).toList();
+                List<Gate.Flag> reports = store.openReports(p.id());
+                if (!reports.isEmpty()) { type = worse(type, Gate.REPORTED); why.add(reports.get(0).detail); }
+                if (ok.isEmpty()) { type = worse(type, "Wrong destination"); why.add(mine.isEmpty() ? "not linked to any unit" : "outside the allowed days or hours"); }
+                List<Gate.Link> from = ok.isEmpty() ? mine : ok;
+                homes = from.stream().filter((l) -> !dir.unitRule(l.unit()).awayMode()).toList();
+                if (homes.isEmpty() && !from.isEmpty()) { why.add(from.get(0).unitNo() + " is in away mode"); homes = List.of(from.get(0)); }
+                if (!homes.isEmpty()) linkTo = homes.get(0).toTime();
+            } else if (Gate.CREW_CLASSES.contains(p.personClass())) {
+                kind = "Crew";
+                order = dir.activeWorkOrders().stream().filter((o) -> o.rosterIds().contains(p.id()) && Gate.windowOpen(o.days(), o.fromTime(), o.toTime(), when, 30)).findFirst().orElse(null);
+                if (order == null) why.add("not on today's roster");
+            }
+            Gate.Visit v = visit(c, kind, p.name(), homes.isEmpty() ? null : homes.get(0).unit(), gate, how, VisitState.INSIDE);
+            v.inAt = at; v.phone = p.phone(); v.photo = p.photo(); v.personId = p.id(); v.vehicle = p.vehicleNo(); v.purpose = order != null ? order.title() : p.personClass();
+            if (order != null) v.workOrderId = order.id();
+            if ("Crew".equals(kind)) v.company = p.vendor() != null ? p.vendor() : order == null ? null : order.vendor();
+            v.expectedUntil = expectedAt(kind, linkTo, order == null ? null : order.toTime(), when);
+            if (homes.size() > 1) v.note = "Also works at " + String.join(", ", homes.subList(1, homes.size()).stream().map(Gate.Link::unitNo).toList());
+            store.insert(v);
+            String topic = "Crew".equals(kind) ? "gate.crew.arrived" : homes.isEmpty() ? "gate.visit.admitted" : "gate.staff.arrived";
+            for (Gate.Link l : homes.size() > 1 ? homes.subList(1, homes.size()) : List.<Gate.Link>of()) events.publish(List.of(new GateEvent(topic, v.id, c.community(), l.unit().value(), kind, v.state.label, clock.instant())));
+            done(c, topic, v.id, v.unit, v.kind, v.state.label, AuditWriter.Action.Create, "gate.visit", v.shortId, p.name() + " in at " + v.gate + " (" + how + ")");
+            if (!why.isEmpty()) flag(c, type, v, p.name() + " came in through " + how + " at " + v.gate + " although " + String.join("; ", why) + ".");
+            return new Outcome(true, "admitted", why.isEmpty() ? null : String.join("; ", why), v, null);
+        });
+    }
+    /** A registered person went out through an entry device: their open visit closes at the device's time (or an exit with no entry is kept). */
+    public Outcome deviceOut(Caller c, UUID personId, String gate, String how, Instant at) {
+        desk(c);
+        return tx.inTx(() -> {
+            Gate.Person p = dir.person(personId).orElseThrow(AccessDenied.NotVisible::new);
+            Optional<Gate.Visit> open = store.insideByPerson(p.id());
+            if (open.isPresent()) return out(c, open.get(), p.name(), how, at);
+            String kind = Gate.VILLA_CLASSES.contains(p.personClass()) ? ("Driver".equals(p.personClass()) ? "Driver" : "Maid / cook") : Gate.CREW_CLASSES.contains(p.personClass()) ? "Crew" : "Other";
+            return outOnly(c, visit(c, kind, p.name(), null, gate, how, VisitState.EXITED), p.id(), null, how, at);
+        });
+    }
+    /** A staff member passed an entry device: their own visit opens or closes, as with the badge. */
+    public Outcome staffAtGate(Caller c, UUID memberId, String gate, boolean in, String how, Instant at) {
+        desk(c);
+        return tx.inTx(() -> {
+            Gate.Staff who = dir.staff(memberId).orElseThrow(() -> new DomainException.NotFound("Staff member"));
+            Optional<Gate.Visit> open = store.insideByMember(memberId);
+            if (!in) return open.isPresent() ? out(c, open.get(), who.name(), how, at) : outOnly(c, visit(c, "Staff", who.name(), null, gate, how, VisitState.EXITED), null, memberId, how, at);
+            open.ifPresent((o) -> { o.move(VisitState.AUTO_CLOSED); o.outAt = o.inAt != null && o.inAt.isAfter(at) ? o.inAt : at; o.outMethod = "No exit read"; store.save(o); });
+            Gate.Visit v = visit(c, "Staff", who.name(), null, gate, how, VisitState.INSIDE);
+            v.inAt = at; v.memberId = memberId; v.purpose = who.roleName() == null ? "Staff" : who.roleName(); v.expectedUntil = null;
+            store.insert(v);
+            done(c, "gate.staff.arrived", v.id, null, v.kind, v.state.label, AuditWriter.Action.Create, "gate.visit", v.shortId, who.name() + " in at " + v.gate + " (" + how + ")");
+            return Outcome.in(v);
+        });
+    }
+    private Outcome out(Caller c, Gate.Visit v, String name, String how, Instant at) {
+        v.move(VisitState.EXITED); v.outAt = v.inAt != null && v.inAt.isAfter(at) ? v.inAt : at; v.outMethod = how;
+        if (!store.save(v)) throw new DomainException.Conflict("Visit " + v.shortId);
+        done(c, "gate.visit.exited", v.id, v.unit, v.kind, v.state.label, AuditWriter.Action.Update, "gate.visit", v.shortId, name + " out (" + how + ")");
+        return new Outcome(true, "out", null, v, null);
+    }
+    private Outcome outOnly(Caller c, Gate.Visit v, UUID personId, UUID memberId, String how, Instant at) {
+        v.personId = personId; v.memberId = memberId; v.inAt = at; v.outAt = at; v.outMethod = how; v.note = "No entry on record"; v.expectedUntil = null;
+        store.insert(v);
+        done(c, "gate.visit.exited", v.id, null, v.kind, v.state.label, AuditWriter.Action.Create, "gate.visit", v.shortId, v.name + " out with no entry on record (" + how + ")");
+        return new Outcome(true, "out", "No entry on record", v, null);
+    }
+    /** A flag about no visit: a device let in someone the platform does not know, a door opened from the screen. */
+    public void raiseFlag(Caller c, String type, String personName, String gate, String detail, String photo) {
+        desk(c);
+        tx.run(() -> {
+            Gate.Flag f = new Gate.Flag();
+            f.id = UUID.randomUUID(); f.type = type; f.state = "Open"; f.gate = gate; f.personName = personName; f.detail = detail; f.photo = photo; f.raisedAt = clock.instant(); f.day = now().toLocalDate();
+            store.insert(f);
+            events.publish(List.of(new GateEvent("gate.flag.raised", f.id, c.community(), null, type, f.state, clock.instant())));
+        });
+    }
+
     // ---- staff badges -----------------------------------------------------------------------------------------------------------------------------
     public record Badge(String text, int secondsLeft) {}
     public record BadgeHolder(UUID memberId, String name, String roleName, String direction) {}
@@ -693,6 +795,14 @@ public final class GateService {
         if (orderTo != null) return now.toLocalDate().atTime(orderTo).atZone(clock.getZone()).plusMinutes(30).toInstant();
         int m = dir.settings().minutesFor(kind);
         return m <= 0 ? null : now.plusMinutes(m).toInstant();
+    }
+    /** The same, from a device's time; an end already past (they came late) falls back to the community's minutes. */
+    private Instant expectedAt(String kind, LocalTime linkTo, LocalTime orderTo, ZonedDateTime when) {
+        Instant end = linkTo != null ? when.toLocalDate().atTime(linkTo).atZone(clock.getZone()).toInstant()
+            : orderTo != null ? when.toLocalDate().atTime(orderTo).atZone(clock.getZone()).plusMinutes(30).toInstant() : null;
+        if (end != null && end.isAfter(when.toInstant())) return end;
+        int m = dir.settings().minutesFor(kind);
+        return m <= 0 ? null : when.plusMinutes(m).toInstant();
     }
     private void flag(Caller c, String type, Gate.Visit v, String detail) {
         Gate.Flag f = new Gate.Flag();

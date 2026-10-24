@@ -205,6 +205,14 @@ public class ModulesConfig {
         return new com.communityos.api.workforce.application.AttendanceService(new com.communityos.api.workforce.adapter.JdbcAttendanceStore(jdbc, json), audit, tx, clock);
     }
 
+    // ---- site devices: bridges, terminals, the punch ledger --------------------------------------------------------------------------------------
+    @Bean com.communityos.api.site.application.SiteService siteService(NamedParameterJdbcTemplate jdbc, @org.springframework.beans.factory.annotation.Qualifier("platform") NamedParameterJdbcTemplate platformJdbc,
+                                                                       com.communityos.api.gate.application.GateService gate, com.communityos.api.workforce.application.AttendanceService attendance,
+                                                                       AuditWriter audit, Tx tx, Clock clock) {
+        return new com.communityos.api.site.application.SiteService(new com.communityos.api.site.adapter.JdbcSiteStore(jdbc), new com.communityos.api.site.adapter.JdbcBridgeDirectory(platformJdbc),
+            gate, attendance, audit, tx, clock);
+    }
+
     // ---- reports ----------------------------------------------------------------------------------------------------------------------------------
     @Bean com.communityos.api.reports.application.ReportService reportService(NamedParameterJdbcTemplate jdbc, com.communityos.api.comms.adapter.JdbcInbox inbox, ObjectMapper json,
                                                                             AuditWriter audit, Tx tx, Clock clock, CosProperties p) {
