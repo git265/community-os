@@ -35,11 +35,17 @@ export function validate(row) {
     if (has(a) && Number(a) < 0) return `${m.label}: readings cannot be negative.`;
   }
   for (const k of ['saltStock', 'saltUsed', 'chlorineStock', 'chlorineUsed']) if (has(row[k]) && Number(row[k]) < 0) return 'Stock and use cannot be negative.';
-  const more = ' If a delivery came in, record it in Inventory first (or correct the stock here).';
-  if (has(row.saltUsed) && has(row.saltStock) && Number(row.saltUsed) > Number(row.saltStock)) return `Salt used (${row.saltUsed} kg) is more than the stock (${row.saltStock} kg).${more}`;
-  if (has(row.chlorineUsed) && has(row.chlorineStock) && Number(row.chlorineUsed) > Number(row.chlorineStock)) return `Chlorine used (${row.chlorineUsed} L) is more than the stock (${row.chlorineStock} L).${more}`;
   const any = METERS.some((m) => has(row[m.open])) || ['saltStock', 'saltUsed', 'chlorineStock', 'chlorineUsed'].some((k) => has(row[k]));
   return any ? '' : 'Enter at least one reading for the day.';
+}
+
+/** Use above the stock does not stop the day's log (the water readings still count): it is said, so the delivery gets recorded in Inventory. */
+export function stockWarnings(row) {
+  const out = [];
+  if (has(row.saltUsed) && has(row.saltStock) && Number(row.saltUsed) > Number(row.saltStock)) out.push(`Salt used (${row.saltUsed} kg) is more than the stock (${row.saltStock} kg).`);
+  if (has(row.chlorineUsed) && has(row.chlorineStock) && Number(row.chlorineUsed) > Number(row.chlorineStock)) out.push(`Chlorine used (${row.chlorineUsed} L) is more than the stock (${row.chlorineStock} L).`);
+  if (out.length) out.push('If a delivery came in, record it in Inventory.');
+  return out;
 }
 
 const byDate = (rows) => [...rows].sort((a, b) => (a.date < b.date ? -1 : 1));

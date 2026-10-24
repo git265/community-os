@@ -6,7 +6,7 @@ import { COLLECTIONS as C } from '../../lib/storage/index.js';
 import { secureStorage } from '../../lib/storage/secureStorage.js';
 import { canWriteCollection } from '../../lib/security/authz.js';
 import { getPrincipal } from '../../lib/security/principal.js';
-import { METERS, klOf, withKl, validate, suggestOpening, checks, stockOf, monthTotals, monthOfDate, parseWorkbook } from '../../lib/plantLogs.js';
+import { METERS, klOf, withKl, validate, stockWarnings, suggestOpening, checks, stockOf, monthTotals, monthOfDate, parseWorkbook } from '../../lib/plantLogs.js';
 import { readWorkbook } from '../../lib/files/xlsxRead.js';
 import { CHEMICALS, plantItem, issueForLog, movesInMonth } from '../../lib/plantStock.js';
 import { money } from '../../lib/locale.js';
@@ -93,7 +93,7 @@ function LogDialog({ rows, initial, onClose, onSaved, save, inventory = [] }) {
     setBusy(true);
     const target = rows.find((r) => r.date === clean.date);
     const out = await save(target ? { ...target, ...clean } : clean);
-    const said = out ? await issueForLog(target || null, out).catch(() => []) : [];   // the day's salt and chlorine come out of Inventory
+    const said = out ? [...stockWarnings(clean), ...await issueForLog(target || null, out).catch(() => [])] : [];   // the day's salt and chlorine come out of Inventory
     setBusy(false);
     if (out) onSaved(out, said); else setErr('Not saved. Only the EC, Facility Manager, MEP or the people who record meter readings can change the plant logs.');
   }
@@ -127,6 +127,7 @@ function LogDialog({ rows, initial, onClose, onSaved, save, inventory = [] }) {
             {CHEMICALS.map((c) => { const i = plantItem(inventory, c); return <div key={c.key}>{c.label}: {i ? <>taken from <b>{i.item}</b> in Inventory · <b>{n0(i.quantity)} {i.uom || c.unit}</b> in store now</> : 'no Inventory item yet (add one under Inventory, category Water & Sewage)'}</div>; })}
             <div>What you enter as used is taken out of Inventory when you save. Record deliveries in Inventory.</div>
           </div>
+          {stockWarnings(withKl(d)).length > 0 && <div className="notice warn" data-testid="plant-stock-warn" style={{ marginTop: 6 }}>{stockWarnings(withKl(d)).join(' ')} You can still save the log.</div>}
         </fieldset>
         <div className="field"><label>Remarks</label><input aria-label="Remarks" value={d.remarks || ''} onChange={(e) => set('remarks', e.target.value)} placeholder="e.g. pump tripped, tanker delivery" /></div>
         <div className="form-actions"><button className="btn good" disabled={busy} data-testid="plant-save" onClick={go}>{busy ? 'Saving…' : 'Save log'}</button><button className="btn secondary" onClick={onClose}>Cancel</button></div>
