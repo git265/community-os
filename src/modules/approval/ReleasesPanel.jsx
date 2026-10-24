@@ -121,7 +121,7 @@ export default function ReleasesPanel({ ticket, kit, open, canEC, canAsk, onSave
             <div className="field"><label>Amount (₹) *</label><input type="number" min="0" data-testid="rel-amount" value={f.amount} onChange={(e) => set('amount', e.target.value)} /></div>
             <div className="field" data-testid="rel-vendor"><label>Pay to *</label><Combobox value={f.vendor || ''} onChange={(v) => set('vendor', v)} options={payeeOptions} allowCustom placeholder="Search vendors or people…" /></div>
             <PayeeFields value={f} onChange={setF} pending={qr} onPending={setQr} />
-            <div className="field" style={{ gridColumn: '1 / -1' }}><label>Note</label><textarea rows={2} data-testid="rel-note" value={f.note || ''} onChange={(e) => set('note', e.target.value)} placeholder="e.g. advance for materials, first stage" /></div>
+            <div className="field" style={{ gridColumn: '1 / -1' }}><label>Note</label><textarea rows={2} data-testid="rel-note" maxLength={2000} value={f.note || ''} onChange={(e) => set('note', e.target.value)} placeholder="e.g. advance for materials, first stage" /></div>
           </div>
           <div style={{ display: 'flex', gap: 8 }}><button type="button" className="btn" data-testid="rel-save" onClick={ask}>Send for approval</button><button type="button" className="btn secondary" onClick={() => setDlg(null)}>Cancel</button></div>
         </Modal>

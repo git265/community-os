@@ -32,7 +32,7 @@ function Links({ person, canEdit }) {
   const { records: props } = useUnitRoster();   // the unit numbers for the picker: one small read
   const mine = links.filter((l) => l.personId === person.id);
   const [f, setF] = useState({ unit: '', days: DAYS.slice(0, 6), fromTime: '07:00', toTime: '13:00' }); const [err, setErr] = useState('');
-  async function add() { if (!f.unit.trim()) { setErr('Choose the villa'); return; } setErr(''); await save({ personId: person.id, personName: person.name, ...f, unit: f.unit.trim(), status: 'Active' }); setF((s) => ({ ...s, unit: '' })); }
+  async function add() { if (!f.unit.trim()) { setErr('Choose the villa'); return; } if (f.fromTime && f.toTime && f.toTime < f.fromTime) { setErr('The end time is before the start time'); return; } setErr(''); await save({ personId: person.id, personName: person.name, ...f, unit: f.unit.trim(), status: 'Active' }); setF((s) => ({ ...s, unit: '' })); }
   return (
     <div data-testid="person-links">
       <h3>Villas this person works at</h3>

@@ -78,12 +78,13 @@ public class ResourceController {
     private <F extends Record> void delete(ResourceRegistry.Entry<F> e, Caller c, UUID id, long v) { service.delete(c, e.resource(), e.repository(), id, v); }
 
     private <F extends Record> F read(ResourceRegistry.Entry<F> e, JsonNode body) {
-        try { return json.treeToValue(body, e.resource().table().type()); }
-        catch (com.fasterxml.jackson.core.JsonProcessingException | IllegalArgumentException x) {
-            // the field at fault, never the parser's own text (class names, positions)
-            String field = x instanceof com.fasterxml.jackson.databind.JsonMappingException m && !m.getPath().isEmpty() ? m.getPath().get(m.getPath().size() - 1).getFieldName() : null;
-            throw new DomainException.RuleViolated("bad-request", field == null ? "The record is not valid" : "The record is not valid: check \"" + field + "\"");
-        }
+        // a tick box left out of the request is unticked (false), as a form that never touched it means - not a refused record
+        try { return json.readerFor(e.resource().table().type()).without(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES).readValue(body); }
+        catch (java.io.IOException | IllegalArgumentException x) { throw unreadable(x); }   // the field at fault, never the parser's own text
+    }
+    private static DomainException.RuleViolated unreadable(Exception x) {
+        String field = x instanceof com.fasterxml.jackson.databind.JsonMappingException m && !m.getPath().isEmpty() ? m.getPath().get(m.getPath().size() - 1).getFieldName() : null;
+        return new DomainException.RuleViolated("bad-request", field == null ? "The record is not valid" : "The record is not valid: check \"" + field + "\"");
     }
     /** {id, shortId, version, createdAt, updatedAt, ...fields} */
     public JsonNode flat(Item<?> it) { return Items.flat(json, it); }

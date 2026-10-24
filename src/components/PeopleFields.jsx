@@ -52,15 +52,17 @@ export function PeopleEditor({ list, onChange, errors = {} }) {
   );
 }
 
-/** Checks the people rows; returns { [id]: {name?, phone?, email?} } (empty when all fine). */
-export function peopleErrors(list) {
-  const out = {}; const seen = new Set();
+/** Checks the people rows; returns { [id]: {name?, phone?, email?} } (empty when all fine). `taken`: numbers already on the unit (owner, tenant). */
+export function peopleErrors(list, taken = []) {
+  const out = {}; const seen = new Set(taken.map((t) => validatePhone(t)).filter((v) => v.ok).map((v) => v.e164));
   for (const x of list) {
     const e = {};
     if (!String(x.name || '').trim()) e.name = 'Name is required';
+    else if (String(x.name).trim().length > 120) e.name = 'A name has up to 120 characters';
+    if (String(x.email || '').length > 200) e.email = 'An e-mail address has up to 200 characters';
     const v = validatePhone(x.phone);
     if (!v.ok) e.phone = v.error;
-    else if (seen.has(v.e164)) e.phone = 'Same number is entered twice';
+    else if (seen.has(v.e164)) e.phone = 'This number is already on the unit (owner, tenant or another person)';
     else seen.add(v.e164);
     const em = emailError(x.email);
     if (em) e.email = em;

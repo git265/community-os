@@ -37,6 +37,8 @@ public final class UtilityResources {
             @Override public boolean mayWrite(Caller c) { return types(c); }
             @Override public UtilityTypeFields validate(Caller c, UtilityTypeFields f, UtilityTypeFields old) {
                 String name = Checks.text(Checks.required(f.name(), "Utility name"), "Utility name", 40).strip();
+                // the name is its bills' category code too (billing.charge_category.code): a letter first, then letters, digits, spaces, - or _
+                Checks.rule(name.matches("[A-Za-z][A-Za-z0-9 _-]{0,39}"), "bad-name", "A utility name starts with a letter and has only letters, digits, spaces, - and _ (e.g. Gas, Solar power)");
                 Checks.rule(old == null || old.name().equalsIgnoreCase(name), "rename", "A utility keeps its name (its bills and readings use it) - retire it and add a new one instead");
                 return new UtilityTypeFields(name, Checks.text(f.icon(), "Icon", 8), Checks.text(f.label(), "Label", 60), Checks.text(f.unitName(), "Measured in", 20),
                     f.active() == null ? Boolean.TRUE : f.active(), extraInputs(f.extraInputs()));

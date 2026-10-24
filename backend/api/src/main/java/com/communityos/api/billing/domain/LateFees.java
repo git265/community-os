@@ -40,8 +40,10 @@ public final class LateFees {
             rules.add(new Rule("*", "Fixed per month".equals(kind) ? "Fixed per month" : "Percent per month", value, grace == null ? 0 : Math.max(0, grace.intValue()), maxMonths == null ? 0 : Math.max(0, maxMonths.intValue())));
         return new Settings(enabled, auto, List.copyOf(rules));
     }
+    /** The app names two bill types longer than their charge category codes (V10): a rule set for "Corpus fund" is the Corpus bills' rule. */
+    static final java.util.Map<String, String> CATEGORY_ALIASES = java.util.Map.of("Corpus fund", "Corpus", "Special levy", "Levy");
     public static Rule ruleFor(Settings s, String category) {
-        Rule hit = s.rules().stream().filter((r) -> category != null && category.equals(r.appliesTo())).findFirst().orElse(s.rules().stream().filter(Rule::all).findFirst().orElse(null));
+        Rule hit = s.rules().stream().filter((r) -> category != null && (category.equals(r.appliesTo()) || category.equals(CATEGORY_ALIASES.get(r.appliesTo())))).findFirst().orElse(s.rules().stream().filter(Rule::all).findFirst().orElse(null));
         return hit != null && hit.value() != null && hit.value().signum() > 0 ? hit : null;
     }
     /** Fees due on `asOf` that are not charged yet (`charged` holds "billId#no"). */

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { sanitizeHtml, linkify, isEmptyHtml } from '../lib/richtext/sanitize.js';
 import { shrinkImage } from '../lib/files/attachments.js';
+import { getDataSource } from '../lib/storage/dataSource.js';
 
 const toDataUrl = (blob) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(blob); });
 const ZW = '​';   // a zero-width space: where the cursor waits after a word made bold, so the next letters are plain again (never saved)
@@ -73,7 +74,10 @@ function lineBefore(root) {
  *   - onEnter (chat boxes): Enter sends on a computer, Shift+Enter is a new line; on a phone Enter is a new line, as in WhatsApp
  * The value is sanitized HTML; pasted text is flattened (links kept).
  */
-export default function RichTextEditor({ value, onChange, placeholder = 'Write a comment…', minHeight = 72, maxHeight = 320, id, images = true, onEnter }) {
+export default function RichTextEditor({ value, onChange, placeholder = 'Write a comment…', minHeight = 72, maxHeight = 320, id, images: imagesProp, onEnter }) {
+  // A picture is kept inside the text as data; the server holds text fields to a few thousand characters, so with the back end pictures go
+  // in only where the screen turns them into attachments before saving (it passes images explicitly) - elsewhere they use "Attach files".
+  const images = imagesProp ?? getDataSource().mode !== 'v2';
   const ref = useRef(null);
   const last = useRef('');
   const saved = useRef(null);       // the selection, kept while the link box has the focus

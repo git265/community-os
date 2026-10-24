@@ -36,7 +36,7 @@ public class AssetController {
     }
     @GetMapping("/api/v1/assets/inventory/{id}/movements")
     public List<AssetStore.Movement> movements(@PathVariable UUID id) { return assets.movements(CallerHolder.require(), id); }
-    public record VisitRequest(LocalDate date, @Size(max = 30) String kind, @Size(max = 60) String vendor, @Size(max = 40) String condition, @Size(max = 4000) String note, LocalDate nextService) {}
+    public record VisitRequest(LocalDate date, @Size(max = 30) String kind, @Size(max = 200) String vendor, @Size(max = 40) String condition, @Size(max = 4000) String note, LocalDate nextService) {}
     /** An AMC / service visit on an asset: its condition history and service dates (the report is attached to the entry it returns). */
     @PostMapping("/api/v1/assets/{id}/service-visits")
     public ResponseEntity<AssetStore.ConditionEntry> serviceVisit(@PathVariable UUID id, @Valid @RequestBody VisitRequest b) {

@@ -73,7 +73,7 @@ export default function ExpenseReleases({ expense, event, kit, canAsk, vendors =
           <div className="form-grid">
             <div className="field"><label>Amount (₹) *</label><input type="number" min="0" data-testid="exp-rel-amount" value={f.amount} onChange={(e) => set('amount', e.target.value)} /></div>
             <div className="field" data-testid="exp-rel-vendor"><label>Pay to *</label><Combobox value={f.vendor || ''} onChange={(v) => set('vendor', v)} options={options} allowCustom placeholder="Search vendors or people…" /></div>
-            <div className="field" style={{ gridColumn: '1 / -1' }}><label>Note</label><textarea rows={2} value={f.note || ''} onChange={(e) => set('note', e.target.value)} placeholder="e.g. advance to the caterer, balance after the event" /></div>
+            <div className="field" style={{ gridColumn: '1 / -1' }}><label>Note</label><textarea rows={2} maxLength={2000} value={f.note || ''} onChange={(e) => set('note', e.target.value)} placeholder="e.g. advance to the caterer, balance after the event" /></div>
           </div>
           <div style={{ display: 'flex', gap: 8 }}><button type="button" className="btn" data-testid="exp-rel-save" onClick={ask}>Send for approval</button><button type="button" className="btn secondary" onClick={() => setDlg(false)}>Cancel</button></div>
         </Modal>

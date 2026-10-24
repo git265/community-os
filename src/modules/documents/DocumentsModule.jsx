@@ -55,10 +55,10 @@ function UploadModal({ schema, onClose, folders = [], folderId = '' }) {
   return (
     <Modal title="Upload a document" subtitle="Add a file to the repository and choose who can see it. Files are checked for viruses and active content." onClose={onClose}>
       <form className="form-grid" onSubmit={submit}>
-        <div className={`field${errs.title ? ' invalid' : ''}`} style={{ gridColumn: '1 / -1' }}><label>Document title *</label><input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />{errs.title && <div className="field-error">{errs.title}</div>}</div>
+        <div className={`field${errs.title ? ' invalid' : ''}`} style={{ gridColumn: '1 / -1' }}><label>Document title *</label><input maxLength={200} value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />{errs.title && <div className="field-error">{errs.title}</div>}</div>
         <div className="field"><label>Category</label><select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>{field('category').options.map((o) => <option key={o}>{o}</option>)}</select></div>
         <div className="field"><label>Folder</label><select aria-label="Folder" value={form.folderId} onChange={(e) => setForm({ ...form, folderId: e.target.value })}><option value="">Not in a folder</option>{flatTree(folders).map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}</select></div>
-        <div className="field"><label>Version</label><input value={form.version} onChange={(e) => setForm({ ...form, version: e.target.value })} /></div>
+        <div className="field"><label>Version</label><input maxLength={40} value={form.version} onChange={(e) => setForm({ ...form, version: e.target.value })} /></div>
         <div className="field"><label>Group *</label><select aria-label="Group" value={form.access} onChange={(e) => setForm({ ...form, access: e.target.value })}>{DOC_GROUPS.map((o) => <option key={o}>{o}</option>)}</select>
           <small className="muted">{form.access === DOC_VILLA_GROUP ? 'Only the owner / resident of the chosen villa (and document managers) can open it.' : form.access === 'Everyone' ? 'Every resident can open it.' : 'Only this group can open it.'}</small></div>
         <div className={`field${errs.unit ? ' invalid' : ''}`}><label>Villa / unit{form.access === DOC_VILLA_GROUP ? ' *' : ' (optional)'}</label>
@@ -110,6 +110,7 @@ export default function DocumentsModule() {
     e.preventDefault();
     const name = naming.name.trim();
     if (!name) { setFolderErr('Give the folder a name.'); return; }
+    if (name.length > 120) { setFolderErr('A folder name has up to 120 characters.'); return; }
     if (folders.some((f) => f.id !== naming.id && (f.parentId || '') === (naming.parentId || '') && f.name.toLowerCase() === name.toLowerCase())) { setFolderErr('A folder with this name already exists here.'); return; }
     const out = await saveFolder({ ...(naming.id ? folders.find((f) => f.id === naming.id) : {}), name, parentId: naming.parentId || '', accessRoles: naming.accessRoles || [] });
     if (out) { setNaming(null); setFolderErr(''); if (!naming.id) setFolderId(out.id); }

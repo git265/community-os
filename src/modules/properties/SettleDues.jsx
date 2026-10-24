@@ -44,9 +44,12 @@ export default function SettleDues({ unit, dues, credit, resident: isResident, o
   async function confirm() {
     setErr('');
     if (!sel.length) return setErr('Tick at least one bill');
+    if (resident && sel.length > 24) return setErr('Pay up to 24 bills at a time - untick some and pay the rest after');
     const reference = resident ? `TXN-${Date.now().toString(36).toUpperCase()}` : ref.trim();
     if (toPay > 0 && !resident && mode !== 'Cash' && !reference) return setErr(`Enter the ${mode === 'Cheque' ? 'cheque number' : 'transaction reference'}`);
     if (toPay > 0 && !resident && paidOn > today) return setErr('The payment date cannot be in the future');
+    if (toPay > 0 && !resident && (new Date(`${today}T00:00:00`) - new Date(`${paidOn}T00:00:00`)) / 864e5 > 90) return setErr('An office receipt is for a payment in the last 90 days');
+    if (reference.length > 100) return setErr('The reference has up to 100 characters');
     setBusy(true);
     try {
       const ids = sel.map((d) => d.id);

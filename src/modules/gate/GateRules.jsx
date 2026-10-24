@@ -11,7 +11,14 @@ export default function GateRules({ canEdit = false }) {
   const set = (k, v) => { setS((x) => ({ ...x, [k]: v })); setSaved(''); };
   const num = (k, label, hint) => <div className="field"><label>{label}</label><input type="number" min="0" disabled={!canEdit} data-testid={`set-${k}`} value={s[k] ?? ''} onChange={(e) => set(k, Number(e.target.value))} />{hint && <small className="muted">{hint}</small>}</div>;
   const ev = (id, patch) => set('events', { ...s.events, [id]: { ...(s.events[id] || {}), ...patch } });
-  async function save() { await saveSettings(s); setSaved('Saved. New rules apply from the next visit.'); }
+  // the server's ranges, said here first
+  const RANGES = { waitSeconds: [10, 600, 'Seconds to wait'], graceSeconds: [0, 600, 'Ghost flag grace'], overstayGraceMinutes: [0, 1440, 'Overstay grace'], guardSilenceMinutes: [0, 1440, 'Guard silence'],
+    autoCloseHours: [0, 72, 'Auto-close'], photoRetentionDays: [1, 3650, 'Keep gate photos'], patrolMinSeconds: [0, 3600, 'Seconds between two scans'] };
+  async function save() {
+    for (const [k, [lo, hi, label]] of Object.entries(RANGES)) if (s[k] !== '' && s[k] != null && !(Number(s[k]) >= lo && Number(s[k]) <= hi)) { setSaved(`${label}: ${lo} to ${hi}`); return; }
+    for (const [k, v] of Object.entries(s.durations || {})) if (!(Number(v) >= 0 && Number(v) <= 1440)) { setSaved(`${k}: a visit lasts 0 to 1440 minutes`); return; }
+    await saveSettings(s); setSaved('Saved. New rules apply from the next visit.');
+  }
   return (
     <div data-testid="gate-rules">
       {!canEdit && <div className="notice">These are the community's gate rules. Only the committee can change them.</div>}

@@ -1,4 +1,5 @@
 import { storage, COLLECTIONS } from './storage/index.js';
+import { getDataSource } from './storage/dataSource.js';
 import { getPrincipal } from './security/principal.js';
 import { canWriteCollection } from './security/authz.js';
 import { logChange } from './audit/auditLog.js';
@@ -48,7 +49,8 @@ export async function planShifts({ staff, dates, shiftType, note = '' }) {
     for (const date of dates) {
       const old = byKey.get(`${st.id}|${date}`);
       const row = old
-        ? { ...old, shiftType, note, lastUpdatedBy: p.name, lastUpdatedAt: now, version: (old.version || 1) + 1 }
+        // on the back end the version is the one read (it is sent as If-Match and the server moves it on); the browser demo counts it here
+        ? { ...old, shiftType, note, lastUpdatedBy: p.name, lastUpdatedAt: now, version: getDataSource().mode === 'v2' ? old.version : (old.version || 1) + 1 }
         : { id: uuid(), shortId: await nextShortId(COLLECTIONS.SHIFTS), staffId: st.id, staffName: st.name, trade: st.trade, date, shiftType, note, recordCreatedAt: now, lastUpdatedBy: p.name, lastUpdatedAt: now, version: 1 };
       await storage.put(COLLECTIONS.SHIFTS, row);
       byKey.set(`${st.id}|${date}`, row);

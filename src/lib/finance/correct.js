@@ -14,6 +14,7 @@ const fail = (e) => ({ error: e?.message || 'Not permitted' });
 /** Cancel an unpaid bill (wrong unit, duplicate, raised in error). Its unpaid late fees go with it. */
 export async function cancelBill(due, reason) {
   if (!String(reason || '').trim()) return { error: 'Give a reason' };
+  if (String(reason).trim().length < 3 || String(reason).trim().length > 500) return { error: 'The reason has 3 to 500 characters' };
   if (due.status === 'Paid') return { error: 'This bill is paid. Reverse the payment first.' };
   if (due.status === 'Cancelled') return { error: 'This bill is already cancelled' };
   try {
@@ -28,10 +29,15 @@ export async function cancelBill(due, reason) {
 /** Replace an unpaid bill with a corrected one (another unit, amount or due date). The old one is cancelled and linked to the new one. */
 export async function reissueBill(due, { unit, amount, dueDate }, reason) {
   if (!String(reason || '').trim()) return { error: 'Give a reason' };
+  if (String(reason).trim().length < 3 || String(reason).trim().length > 500) return { error: 'The reason has 3 to 500 characters' };
   if (due.status === 'Paid') return { error: 'This bill is paid. Reverse the payment first.' };
   const amt = r2(amount); if (!(amt > 0)) return { error: 'Enter the correct amount' };
   if (!String(unit || '').trim()) return { error: 'Choose the unit' };
   if (!dueDate) return { error: 'Choose the payable-by date' };
+  if (amt > 10000000) return { error: 'A bill is at most 1,00,00,000' };
+  { const d = new Date(); const lo = new Date(d); lo.setFullYear(d.getFullYear() - 1); const hi = new Date(d); hi.setFullYear(d.getFullYear() + 2);
+    const iso = (x) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
+    if (dueDate < iso(lo) || dueDate > iso(hi)) return { error: 'The payable-by date is within a year back and two years ahead' }; }
   try {
     const props = await secureStorage.list(C.PROPERTIES);
     if (props.length && !props.some((p) => p.unit === unit.trim())) return { error: `${unit} is not a unit in this community` };
@@ -50,6 +56,7 @@ export async function reissueBill(due, { unit, amount, dueDate }, reason) {
 /** A payment that was recorded wrongly: the bill is Unpaid again and its Payments line is removed (and logged). Refused once the line is matched to a bank statement. */
 export async function reverseBillPayment(due, reason) {
   if (!String(reason || '').trim()) return { error: 'Give a reason' };
+  if (String(reason).trim().length < 3 || String(reason).trim().length > 500) return { error: 'The reason has 3 to 500 characters' };
   if (due.status !== 'Paid') return { error: 'This bill is not marked paid' };
   try {
     const line = (await secureStorage.list(C.LEDGER).catch(() => [])).find((l) => l.sourceId === `due:${due.id}`);

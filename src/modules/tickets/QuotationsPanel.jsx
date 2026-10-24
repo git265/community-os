@@ -157,6 +157,7 @@ export default function QuotationsPanel({ kind = 'Quotation', ticket, selectedId
   async function sendBack() {
     const { doc, amount, reason } = fixing;
     if (!String(reason || '').trim()) return setFixing({ ...fixing, err: 'Say what is being corrected' });
+    if (String(reason).trim().length > 1800) return setFixing({ ...fixing, err: 'Keep the reason to about 1,800 characters (the amount change and who sent it back are added to it)' });
     const total = Number(amount) || Number(doc.amount);
     if (!(total > 0)) return setFixing({ ...fixing, err: 'Enter the corrected invoice amount' });
     const sp = Number(doc.gstRate) > 0 ? gstSplit(total, 'Included', doc.gstRate) : { base: total, gst: 0, total };
@@ -176,6 +177,7 @@ export default function QuotationsPanel({ kind = 'Quotation', ticket, selectedId
     e.preventDefault();
     const er = {};
     if (!form.vendor.trim()) er.vendor = 'Vendor is required';
+    else if (form.vendor.trim().length > 200) er.vendor = 'The vendor name is up to 200 characters';
     if (!(Number(form.amount) > 0)) er.amount = isInvoice ? 'Enter the invoice amount' : 'Enter the quoted amount';
     if (isInvoice && pending.length === 0) er.file = 'Attach the invoice (PDF or photo)';
     setFe(er);
@@ -205,7 +207,7 @@ export default function QuotationsPanel({ kind = 'Quotation', ticket, selectedId
           {fixing.err && <div className="notice error" data-testid="fix-error">{fixing.err}</div>}
           <div className="form-grid">
             <div className="field"><label>Corrected invoice total (₹)</label><input type="number" min="0" aria-label="Corrected amount" data-testid="fix-amount" value={fixing.amount} onChange={(e) => setFixing({ ...fixing, amount: e.target.value })} /></div>
-            <div className="field" style={{ gridColumn: '1 / -1' }}><label>What is wrong? *</label><textarea rows={2} aria-label="Correction reason" data-testid="fix-reason" value={fixing.reason} onChange={(e) => setFixing({ ...fixing, reason: e.target.value })} placeholder="e.g. vendor typed 85,000 instead of 58,000" /></div>
+            <div className="field" style={{ gridColumn: '1 / -1' }}><label>What is wrong? *</label><textarea rows={2} aria-label="Correction reason" data-testid="fix-reason" maxLength={1800} value={fixing.reason} onChange={(e) => setFixing({ ...fixing, reason: e.target.value })} placeholder="e.g. vendor typed 85,000 instead of 58,000" /></div>
           </div>
           <div style={{ display: 'flex', gap: 8 }}><button type="button" className="btn" data-testid="fix-go" onClick={sendBack}>Send back</button><button type="button" className="btn secondary" onClick={() => setFixing(null)}>Cancel</button></div>
         </Modal>
@@ -310,7 +312,7 @@ export default function QuotationsPanel({ kind = 'Quotation', ticket, selectedId
                 )}
               </>
             )}
-            <div className="field"><label>Scope / note</label><input value={form.note} onChange={(e) => set('note', e.target.value)} /></div>
+            <div className="field"><label>Scope / note</label><input maxLength={4000} value={form.note} onChange={(e) => set('note', e.target.value)} /></div>
             <div className={`field${fe.file && pending.length === 0 ? ' invalid' : ''}`} style={{ gridColumn: '1 / -1' }}><label>{isInvoice ? 'Invoice file *' : 'Quotation files'}</label><AttachmentPicker pending={pending} onChange={setPending} />{fe.file && pending.length === 0 && <div className="field-error">{fe.file}</div>}</div>
           </div>
           {isInvoice && Number(form.amount) > 0 && (

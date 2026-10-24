@@ -48,14 +48,14 @@ export default function Brochure({ ev, manager, programs, offerings, saveEvent }
   useEffect(() => { let on = true; build().then((h) => on && setHtml(h)); return () => { on = false; }; }, [sig]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function addPage(kind) {
-    const p = await save({ eventId: ev.id, order: (pages.at(-1)?.order || 0) + 10, kind, heading: kind === 'Cover' ? ev.name : kind === 'Text' ? 'About the event' : kind === 'Contact' ? 'Join us' : '', body: '', layout: 'Picture top' });
+    const p = await save({ eventId: ev.id, order: (pages.at(-1)?.order || 0) + 10, kind, heading: kind === 'Cover' ? ev.name : kind === 'Text' ? 'About the event' : kind === 'Contact' ? 'Join us' : '', body: '', layout: 'Picture on top' });
     if (p) setEdit(p);
   }
   async function starter() {
     let n = 0;
     const plain = String(ev.description || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
     for (const row of [{ kind: 'Cover', heading: ev.name }, { kind: 'Text', heading: 'About the event', body: plain }, { kind: 'Programme', heading: 'Programme' }, { kind: 'Offerings', heading: 'Seva offerings' }, { kind: 'Contact', heading: 'Join us', body: 'Everyone is welcome. Sign up for seva and contribute from the Cultural page.' }]) {
-      n += 10; await save({ eventId: ev.id, order: n, layout: 'Picture top', ...row });
+      n += 10; await save({ eventId: ev.id, order: n, layout: 'Picture on top', ...row });
     }
   }
   async function move(p, dir) {
@@ -169,7 +169,7 @@ function PageEditor({ page, ev, all, onSave, onDelete, onClose }) {
         <div className="field"><label>Page type</label><select aria-label="Page type" value={p.kind} onChange={(e) => set('kind', e.target.value)}>{KINDS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></div>
         <div className="field"><label>Heading</label><input aria-label="Heading" data-testid="bro-heading" value={p.heading || ''} onChange={(e) => set('heading', e.target.value)} /></div>
         <div className="field" style={{ gridColumn: '1 / -1' }}><label>{p.kind === 'Cover' ? 'Tagline' : 'Text'}</label><textarea rows={p.kind === 'Text' ? 6 : 3} aria-label="Text" data-testid="bro-body" value={p.body || ''} onChange={(e) => set('body', e.target.value)} /></div>
-        {p.kind === 'Text' && p.fileId && <div className="field"><label>Picture position</label><select aria-label="Picture position" value={p.layout || 'Picture top'} onChange={(e) => set('layout', e.target.value)}><option>Picture top</option><option>Picture left</option><option>Picture right</option></select></div>}
+        {p.kind === 'Text' && p.fileId && <div className="field"><label>Picture position</label><select aria-label="Picture position" value={p.layout || 'Picture on top'} onChange={(e) => set('layout', e.target.value)}><option>Picture on top</option><option>Picture left</option><option>Picture right</option></select></div>}
       </div>
       {!auto && (
         <div className="field" style={{ marginTop: 8 }}>

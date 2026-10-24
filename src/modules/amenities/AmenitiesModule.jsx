@@ -327,7 +327,7 @@ export default function AmenitiesModule() {
                       <label className="check" style={{ marginTop: 8 }}><input type="checkbox" data-testid="free-of-charge" checked={free} onChange={(e) => setFree(e.target.checked)} /> Free of charge (waive the fee, GST and deposit)</label>
                       {free && rawQ && rawQ.total > 0 && (
                         <div className={`field${fe.free ? ' invalid' : ''}`}><label>Reason for waiving {inr(rawQ.total)} *</label>
-                          <input data-testid="free-reason" value={freeWhy} onChange={(e) => setFreeWhy(e.target.value)} placeholder="e.g. Community event organised by the cultural committee" />
+                          <input data-testid="free-reason" maxLength={500} value={freeWhy} onChange={(e) => setFreeWhy(e.target.value)} placeholder="e.g. Community event organised by the cultural committee" />
                           {fe.free && <div className="field-error">{fe.free}</div>}
                         </div>
                       )}

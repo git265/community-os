@@ -24,7 +24,7 @@ export function syncPaymentModes(region) {
   fill(ALL_MODES, [...online, 'Cheque', 'Cash', 'Bank transfer']);
   fill(REF_MODES, [...online.filter((m) => m !== 'Card'), 'Bank transfer', 'Cheque']);
   fill(PAYOUT_MODES, ['Cash', 'Cheque', 'Bank transfer', ...online.filter((m) => m !== 'Card' && m !== 'Direct debit' && m !== 'Apple Pay')]);
-  fill(DONATION_MODES, [...online.filter((m) => m !== 'Direct debit' && m !== 'Apple Pay'), 'Cash', 'Cheque', 'Card', 'In kind']);
+  fill(DONATION_MODES, [...new Set([...online.filter((m) => m !== 'Direct debit' && m !== 'Apple Pay'), 'Cash', 'Cheque', 'Bank transfer', 'Card', 'In kind'])]);   // In kind: only for an in-kind gift (the form says)
   qr = !!p.upiQr;
 }
 export const needsRef = (m) => REF_MODES.includes(m);

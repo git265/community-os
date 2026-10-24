@@ -66,8 +66,9 @@ public final class MaintenanceResources {
                     "Only the Super Admin changes a category's sub-categories (tasks and reports use them)");
                 Checks.rule(f.startWithinMin() == null || (f.startWithinMin() >= 5 && f.startWithinMin() <= 1440), "bad-start", "Start within: 5 to 1440 minutes");
                 Checks.rule(f.fixWithinHours() == null || (f.fixWithinHours() >= 1 && f.fixWithinHours() <= 240), "bad-fix", "Fix within: 1 to 240 hours");
-                return new CategoryFields(Checks.required(f.category(), "Category"), Checks.list(f.subCategories()), Checks.text(f.vendor(), "Vendor", 200),
-                    Checks.text(f.assetLink(), "Asset", 200), Checks.list(f.coordinator()), Checks.text(f.notes(), "Notes", 2000), f.startWithinMin(), f.fixWithinHours());
+                // the ticket's own list: a coverage row for any other name could never be used on a task (Ticket.raise refuses it)
+                return new CategoryFields(Checks.requiredOneOf(f.category(), "Category", com.communityos.api.maintenance.domain.Ticket.CATEGORIES), Checks.list(f.subCategories()), Checks.text(f.vendor(), "Vendor", 200),
+                    Checks.oneOf(f.assetLink(), "Asset on tasks", List.of("Optional", "Required", "Hidden")), Checks.list(f.coordinator()), Checks.text(f.notes(), "Notes", 2000), f.startWithinMin(), f.fixWithinHours());
             }
             @Override public String label(CategoryFields f) { return f.category(); }
         });

@@ -67,10 +67,10 @@ public final class AmenityResources {
                 int cap = f.capacity() == null ? 1 : f.capacity();
                 Checks.rule(cap >= 1 && cap <= 1000, "bad-capacity", "Capacity is 1 to 1000 bookings at a time");
                 for (AmenityType.Tier t : Checks.list(f.cancellationRules()))
-                    Checks.rule(t.hoursBefore() != null && t.hoursBefore().signum() >= 0 && t.refundPct() != null && t.refundPct().signum() >= 0 && t.refundPct().compareTo(BigDecimal.valueOf(100)) <= 0,
+                    Checks.rule(t != null && t.hoursBefore() != null && t.hoursBefore().signum() >= 0 && t.refundPct() != null && t.refundPct().signum() >= 0 && t.refundPct().compareTo(BigDecimal.valueOf(100)) <= 0,
                         "bad-tier", "A cancellation tier is hours before (0 or more) and a refund of 0 to 100%");
-                for (String d : Checks.list(f.blackoutDates())) Checks.rule(d.matches("\\d{4}-\\d{2}-\\d{2}"), "bad-date", "Blocked dates are written YYYY-MM-DD");
-                for (String s : Checks.list(f.slots())) Checks.rule(s.matches("\\d{1,2}:\\d{2}\\s*[-–]\\s*\\d{1,2}:\\d{2}"), "bad-slot", "A slot is written like 08:00–09:00");
+                for (String d : Checks.list(f.blackoutDates())) Checks.rule(d != null && d.matches("\\d{4}-\\d{2}-\\d{2}"), "bad-date", "Blocked dates are written YYYY-MM-DD");
+                for (String s : Checks.list(f.slots())) Checks.rule(s != null && s.matches("\\d{1,2}:\\d{2}\\s*[-–]\\s*\\d{1,2}:\\d{2}"), "bad-slot", "A slot is written like 08:00–09:00");
                 return new TypeFields(name, Checks.text(f.icon(), "Icon", 8), Checks.text(f.facility(), "Facility", 120), f.active(), Checks.text(f.price(), "Price", 120), f.rate(),
                     f.rateUnit(), f.weekendRate(), f.gstApplicable(), f.gstRate(), f.gstMode(), f.depositAmount(), f.cancellationRules() == null || f.cancellationRules().isEmpty() ? null : f.cancellationRules(),
                     f.minNoticeHours(), f.maxAdvanceDays(), cap, Checks.text(f.hours(), "Hours", 60), f.bookingMode(), Checks.text(f.rules(), "Rules", 20000), f.reservation(),

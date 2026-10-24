@@ -75,7 +75,7 @@ export default function NoticeTemplateDesigner({ scope = 'all' }) {
     if (!newField.label.trim()) er.label = 'Label is required';
     if (!newField.token.trim()) er.token = 'Token name is required';
     const token = newField.token.startsWith('{{') ? newField.token : `{{${newField.token.toUpperCase().replace(/\s+/g, '_')}}}`;
-    if (newField.token.trim() && !/^\{\{[A-Z0-9_]+\}\}$/.test(token)) er.token = 'Use capital letters, numbers and underscores only, e.g. GAS_METER_NO';
+    if (newField.token.trim() && !/^\{\{[A-Z][A-Z0-9_]{0,40}\}\}$/.test(token)) er.token = 'Start with a letter, then capital letters, numbers and underscores (up to 41), e.g. GAS_METER_NO';
     else if (mergeFields.some((f) => f.token === token)) er.token = `${token} already exists`;
     setMfErrs(er);
     if (Object.keys(er).length) return;
@@ -109,8 +109,8 @@ export default function NoticeTemplateDesigner({ scope = 'all' }) {
           <div className="form-grid">
             <div className={`field${errs.name ? ' invalid' : ''}`}><label>Template name *</label><input value={draft.name} onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))} />{errs.name && <div className="field-error">{errs.name}</div>}</div>
             <div className="field"><label>Used for</label><select value={draft.appliesTo} onChange={(e) => setDraft((d) => ({ ...d, appliesTo: e.target.value }))}>{[...new Set([...usedFor, draft.appliesTo])].map((o) => <option key={o}>{o}</option>)}</select></div>
-            <div className="field"><label>Logo (emoji)</label><input value={draft.logo} onChange={(e) => setDraft((d) => ({ ...d, logo: e.target.value }))} /></div>
-            <div className="field" style={{ gridColumn: '1 / -1' }}><label>Header text</label><input value={draft.headerText} onChange={(e) => setDraft((d) => ({ ...d, headerText: e.target.value }))} /></div>
+            <div className="field"><label>Logo (emoji)</label><input maxLength={8} value={draft.logo} onChange={(e) => setDraft((d) => ({ ...d, logo: e.target.value }))} /></div>
+            <div className="field" style={{ gridColumn: '1 / -1' }}><label>Header text</label><input maxLength={500} value={draft.headerText} onChange={(e) => setDraft((d) => ({ ...d, headerText: e.target.value }))} /></div>
           </div>
 
           <div style={{ margin: '12px 0 6px', display: 'flex', gap: 6, flexWrap: 'wrap' }}>

@@ -37,7 +37,14 @@ function RuleDialog({ rule, kit, onClose, onSave }) {
   const go = () => {
     if (!r.name.trim()) { setErr('Give the rule a name'); return; }
     if (!r.steps.length) { setErr('Add at least one approval step'); return; }
-    onSave({ ...r, minAmount: Number(r.minAmount) || 0, maxAmount: Number(r.maxAmount) || 0 });
+    const min = Number(r.minAmount) || 0; const max = Number(r.maxAmount) || 0;
+    if (min < 0 || max < 0) { setErr('Amounts cannot be negative'); return; }
+    if (max > 0 && min > max) { setErr('The "from" amount is above the "up to" amount'); return; }
+    // the server takes the count as a number (1 to 20) and a step name of up to 60 characters
+    const steps = r.steps.map((st) => ({ ...st, needed: Math.round(Number(st.needed) || 1) }));
+    if (steps.some((st) => st.needed < 1 || st.needed > 20)) { setErr('A step needs 1 to 20 approvals'); return; }
+    if (steps.some((st) => String(st.name || '').length > 60)) { setErr('A step name has up to 60 characters'); return; }
+    onSave({ ...r, steps, minAmount: min, maxAmount: max });
   };
   return (
     <Modal title={rule.id ? 'Edit approval rule' : 'New approval rule'} subtitle="When a thing matches, these steps are added to its approval. Every matching rule applies." onClose={onClose} wide>
@@ -55,9 +62,9 @@ function RuleDialog({ rule, kit, onClose, onSave }) {
       <b>Approval steps, in order</b>
       {r.steps.map((s, i) => (
         <div key={i} className="form-grid" style={{ alignItems: 'end', marginTop: 6 }}>
-          <div className="field"><label>Step {i + 1} name</label><input value={s.name} onChange={(e) => upd(i, 'name', e.target.value)} /></div>
+          <div className="field"><label>Step {i + 1} name</label><input maxLength={60} value={s.name} onChange={(e) => upd(i, 'name', e.target.value)} /></div>
           <div className="field"><label>Who approves</label><select data-testid={`rule-who-${i}`} value={`${s.approvers[0].kind}:${s.approvers[0].value}`} onChange={(e) => { const [k, ...v] = e.target.value.split(':'); upd(i, 'approvers', [{ kind: k, value: v.join(':') }]); }}>{opts.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}</select></div>
-          <div className="field"><label>How many must approve</label><input type="number" min="1" value={s.needed} onChange={(e) => upd(i, 'needed', e.target.value)} /></div>
+          <div className="field"><label>How many must approve</label><input type="number" min="1" max="20" value={s.needed} onChange={(e) => upd(i, 'needed', e.target.value === '' ? '' : Number(e.target.value))} /></div>
           <label className="approver-opt" style={{ alignSelf: 'center' }}><input type="checkbox" checked={!!s.canFinish} onChange={(e) => upd(i, 'canFinish', e.target.checked)} /><span>Can be the last step<small className="muted">approver may skip the later steps</small></span></label>
           {r.steps.length > 1 && <button type="button" className="link-btn" onClick={() => set('steps', r.steps.filter((_, j) => j !== i))}>Remove</button>}
         </div>

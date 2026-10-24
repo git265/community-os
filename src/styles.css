@@ -73,6 +73,7 @@ button { cursor: pointer; border: 0; }
 .list { padding: 0; margin: 0; list-style: none; }
 .list li { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--line); gap: 10px; }
 .list li:last-child { border: 0; }
+.list li > .tag { white-space: nowrap; flex: none; }   /* a status or date beside a row's text stays on one line */
 
 .toolbar { display: flex; gap: 9px; align-items: center; flex-wrap: wrap; }
 .search { flex: 1; max-width: 360px; border: 1px solid var(--line); border-radius: 7px; padding: 9px 11px; background: #fff; }
@@ -752,6 +753,8 @@ img, video, svg, canvas, iframe { max-width: 100%; }
   /* horizontally scrolling tables/tabs keep their own scroll, never the page's */
   .table-wrap, .tabs, .viz-table-wrap { overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; touch-action: pan-x pan-y; }
   .toast, .bell-panel, .profile-menu { max-width: calc(100vw - 24px); }
+  /* the bell sits left of the avatar: its panel spans the screen instead of hanging off the left edge */
+  .bell-panel { position: fixed; top: 58px; left: 8px; right: 8px; width: auto; max-width: none; max-height: calc(100vh - 150px); }
 }
 
 /* quotation / invoice selection + approval */
@@ -1235,6 +1238,7 @@ tr.prio-High td:first-child { box-shadow: inset 3px 0 #f97316; }
   .page-head .btn { flex: 1 1 calc(50% - 6px); }
   .page-head .btn:only-child { flex-basis: 100%; }
   .segmented button, .tk-scope .segmented button { padding: 6px 12px; min-height: 36px; white-space: nowrap; }
+  .segmented { flex-wrap: wrap; }   /* a third long choice moves to a second line instead of off the screen */
   .tk-scope .segmented { width: 100%; }
   .link-btn, .card li a, .card li .link-btn, .card p .link-btn { display: inline-block; padding: 7px 0; }
   .check { min-height: 36px; display: inline-flex; align-items: center; gap: 6px; }
@@ -1706,7 +1710,7 @@ textarea { font-size: var(--ctl-fs); padding: 8px 10px; border-radius: var(--ctl
 .infra-board-tiles { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0; }
 .infra-tile { display: flex; align-items: center; gap: 6px; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; }
 .infra-tile b { font-size: 20px; } .infra-tile small { color: var(--muted); }
-.infra-kinds { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 6px; }
+.infra-kinds { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr)); gap: 6px; }   /* one column when the screen is narrower than a kind */
 .infra-kind { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
 .infra-kind.off { opacity: .55; }
 @media (max-width: 900px) {
@@ -1797,7 +1801,7 @@ textarea { font-size: var(--ctl-fs); padding: 8px 10px; border-radius: var(--ctl
 .spec-cell label { display: block; font-size: 12px; color: var(--muted, #64748b); margin-bottom: 2px; }
 .spec-add { display: grid; grid-template-columns: 1fr 1fr auto; gap: 6px; margin-top: 8px; align-items: center; }
 @media (max-width: 520px) { .spec-add { grid-template-columns: 1fr 1fr; } .spec-add button { grid-column: 1 / -1; } }
-.infra-kind-specs { flex-basis: 100%; display: flex; gap: 8px; align-items: center; margin-top: 4px; }
+.infra-kind-specs { flex-basis: 100%; min-width: 0; max-width: 100%; display: flex; gap: 8px; align-items: center; margin-top: 4px; }   /* shrinks with the card (its field gives way) */
 .infra-kind-specs label { font-size: 12px; color: var(--muted, #64748b); white-space: nowrap; }
 .infra-kind-specs input { flex: 1; min-width: 0; font-size: 13px; }
 .infra-kind { flex-wrap: wrap; }
@@ -1843,7 +1847,13 @@ textarea { font-size: var(--ctl-fs); padding: 8px 10px; border-radius: var(--ctl
 .gg-tag-coral { background: #ffe9ea; color: #c7364a; }
 .gg-code { font-size: 30px; letter-spacing: 6px; font-weight: 750; font-variant-numeric: tabular-nums; }
 .gg-grid2 { display: grid; grid-template-columns: 1.15fr 1fr; gap: 16px; align-items: start; }
-@media (max-width: 900px) { .gg-grid2 { grid-template-columns: 1fr; } }
+@media (max-width: 900px) {
+  /* one column that may shrink to the screen (1fr alone grows to the widest row inside), rows that wrap, fields that give way */
+  .gg-grid2 { grid-template-columns: minmax(0, 1fr); }
+  .gg-grid2 > * { min-width: 0; }
+  .gg-row { flex-wrap: wrap; }
+  .gg-row > input { flex: 1 1 160px; min-width: 0; }
+}
 .gg-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 14px; }
 @media (max-width: 700px) { .gg-kpis { grid-template-columns: 1fr 1fr; } }
 .gg-kpi { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: #fff; }

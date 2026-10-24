@@ -32,6 +32,8 @@ public final class AssetResources {
         return close.subtract(open);
     }
     static BigDecimal nn(BigDecimal v, String label) { return Checks.nonNegative(v, label); }
+    /** KL per unit on the Bhagiratha supply meter's dial. */
+    static final BigDecimal BH_FACTOR = BigDecimal.TEN;
 
     // ---- equipment ---------------------------------------------------------------------------------------------------------------------------------
     public record EquipmentFields(String name, String area, String type, String repairCategory, List<String> alsoCategories, String location, Integer quantity, Map<String, Object> specs,
@@ -51,6 +53,7 @@ public final class AssetResources {
                 Integer qty = Checks.nonNegative(f.quantity(), "Quantity"), faulty = Checks.nonNegative(f.faulty(), "Faulty");
                 Checks.rule(faulty == null || qty == null || faulty <= qty, "too-many-faulty", "More faulty than there are");
                 Checks.rule(f.nextService() == null || f.lastService() == null || !f.nextService().isBefore(f.lastService()), "bad-dates", "The next service is before the last one");
+                Checks.rule(f.warrantyUntil() == null || f.installDate() == null || !f.warrantyUntil().isBefore(f.installDate()), "bad-warranty", "The warranty ends before the asset was installed");
                 Checks.present(f.area(), "Area"); Checks.present(f.type(), "Type");
                 return new EquipmentFields(name, f.area(), f.type(), f.repairCategory(), Checks.list(f.alsoCategories()), Checks.text(f.location(), "Location", 200), qty, f.specs(),
                     nn(f.backupHours(), "Backup hours"), f.batteryChanged(), f.make(), f.model(), f.serialNo(), f.rating(), f.installDate(), f.warrantyUntil(), f.warrantyProvider(),
@@ -99,7 +102,9 @@ public final class AssetResources {
             @Override public boolean mayWrite(Caller c) { return AssetPolicy.writer(c); }
             @Override public PlantLogFields validate(Caller c, PlantLogFields f, PlantLogFields old) {
                 Checks.rule(f.date() != null, "date-required", "Which day?");
+                // the Bhagiratha dial counts in 10 KL steps (the app's lib/plantLogs.js BH_FACTOR); the WTP and STP meters read in KL
                 BigDecimal bh = diff(f.bhOpen(), f.bhClose(), "Bhagiratha"), wtp = diff(f.wtpOpen(), f.wtpClose(), "WTP"), stp = diff(f.stpOpen(), f.stpClose(), "STP");
+                if (bh != null) bh = bh.multiply(BH_FACTOR);
                 return new PlantLogFields(f.date(), f.bhOpen(), f.bhClose(), bh == null ? nn(f.bhKl(), "KL") : bh, f.wtpOpen(), f.wtpClose(), wtp == null ? nn(f.wtpKl(), "KL") : wtp,
                     f.stpOpen(), f.stpClose(), stp == null ? nn(f.stpKl(), "KL") : stp, nn(f.saltStock(), "Salt stock"), nn(f.saltUsed(), "Salt used"), nn(f.chlorineStock(), "Chlorine stock"),
                     nn(f.chlorineUsed(), "Chlorine used"), Checks.text(f.remarks(), "Remarks", 2000));

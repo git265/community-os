@@ -35,10 +35,10 @@ public final class FinanceResources {
                 Checks.nonNegative(f.minAmount(), "From amount"); Checks.nonNegative(f.maxAmount(), "Up to amount");
                 Checks.rule(f.minAmount() == null || f.maxAmount() == null || f.maxAmount().signum() == 0 || f.minAmount().compareTo(f.maxAmount()) <= 0, "bad-range", "The range starts above where it ends");
                 String flag = f.requireFlag() == null || f.requireFlag().isBlank() ? null : Checks.oneOf(f.requireFlag(), "Condition", Policy.FLAGS);
-                List<StepIn> steps = Checks.list(f.steps());
+                List<StepIn> steps = Checks.list(f.steps()).stream().filter(java.util.Objects::nonNull).toList();   // a null entry is no step (never a 500)
                 Checks.rule(!steps.isEmpty(), "steps-required", "Add at least one approval step");
                 List<StepIn> clean = steps.stream().map((s) -> {
-                    List<ApproverIn> who = Checks.list(s.approvers());
+                    List<ApproverIn> who = Checks.list(s.approvers()).stream().filter(java.util.Objects::nonNull).toList();
                     Checks.rule(!who.isEmpty(), "approvers-required", "Each step needs at least one approver");
                     for (ApproverIn a : who) {
                         Checks.requiredOneOf(a.kind(), "Approver kind", List.of("group", "role", "user"));
@@ -158,7 +158,7 @@ public final class FinanceResources {
     public static final Resource<CashCountFields> CASH_COUNTS = new Resource<>(new ResourceTable<>("cashCounts", "finance/cash-counts", "finance.cash_count", CashCountFields.class, "r.date DESC")
         .computed("difference", ResourceTable.Kind.MONEY, "(coalesce(r.counted, 0) - coalesce(r.expected, 0))"), books((c, f) -> {
         Checks.rule(f.date() != null, "date-required", "When was the cash counted?");
-        Checks.nonNegative(f.counted(), "Counted"); Checks.nonNegative(f.expected(), "Expected");
+        Checks.nonNegative(f.counted(), "Counted");   // expected is the books' cash balance, which can be below zero (spending recorded before the receipts)
         return new CashCountFields(f.date(), f.counted() == null ? BigDecimal.ZERO : f.counted(), f.expected() == null ? BigDecimal.ZERO : f.expected(), Checks.text(f.notes(), "Notes", 2000));
     }));
     public record ImportProfileFields(String name, String account, String sheet, BigDecimal headerRow, String dateCol, String narrationCol, String debitCol, String creditCol, String balanceCol,
@@ -168,11 +168,12 @@ public final class FinanceResources {
         return new ImportProfileFields(Checks.required(f.name(), "Name"), f.account(), f.sheet(), f.headerRow(), Checks.required(f.dateCol(), "Date column"), Checks.required(f.narrationCol(), "Narration column"), f.debitCol(), f.creditCol(),
             f.balanceCol(), f.partyCol(), f.remarksCol(), f.dateMode(), f.skipSweep());
     }));
-    public record LedgerSkipFields(java.util.UUID sourceId, String taskRef, String label, String reason) {}
+    /** sourceId: what is skipped, as the app names it ("cultural:<id>", "assoc:<id>", "elec:<id>", "dgfuel:<id>" or a plain id). */
+    public record LedgerSkipFields(String sourceId, String taskRef, String label, String reason) {}
     public static final Resource<LedgerSkipFields> LEDGER_SKIPS = new Resource<>(new ResourceTable<>("ledgerSkips", "finance/ledger-skips", "finance.ledger_skip", LedgerSkipFields.class, "r.created_at DESC"), books((c, f) ->
-        new LedgerSkipFields(f.sourceId(), f.taskRef(), f.label(), Checks.required(f.reason(), "Reason"))));
+        new LedgerSkipFields(Checks.text(Checks.required(f.sourceId(), "What is skipped"), "What is skipped", 120), f.taskRef(), f.label(), Checks.required(f.reason(), "Reason"))));
     public record AssocBillFields(String utility, String location, String provider, String accountNo, String period, LocalDate billDate, LocalDate dueDate, Integer quantity, BigDecimal amount,
-                                  LocalDate paidOn, java.util.Map<String, Object> billFile, String notes) {}
+                                  LocalDate paidOn, List<java.util.Map<String, Object>> billFile, String notes) {}   // billFile: the attached copies (file records), as the column holds them
     public static final Resource<AssocBillFields> ASSOC_BILLS = new Resource<>(new ResourceTable<>("assocBills", "finance/association-bills", "finance.association_bill", AssocBillFields.class, "r.bill_date DESC NULLS LAST"),
         new ResourceRules<>() {
             @Override public Spec<AssocBillFields> readScope(Caller c) { return ResourceRules.only(FinanceResources::reads, c); }
@@ -182,7 +183,7 @@ public final class FinanceResources {
                 Checks.present(f.location(), "Location"); Checks.present(f.provider(), "Provider"); Checks.present(f.period(), "Period"); Checks.present(f.dueDate(), "Due date");
                 Checks.rule(f.billDate() == null || !f.dueDate().isBefore(f.billDate()), "bad-dates", "The bill is due on or after its date");
                 return new AssocBillFields(Checks.required(f.utility(), "Utility"), f.location(), f.provider(), f.accountNo(), f.period(), f.billDate(), f.dueDate(), f.quantity(), f.amount(), f.paidOn(),
-                    f.billFile(), Checks.text(f.notes(), "Notes", 2000));
+                    Checks.list(f.billFile()), Checks.text(f.notes(), "Notes", 2000));
             }
         });
     /** The chart of accounts. The accounts the server posts to are fixed (code, kind); others may be added, renamed or switched off. */

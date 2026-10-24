@@ -6,7 +6,7 @@ import ImportantNumbers from './ImportantNumbers.jsx';
 import DataHealthChip from './DataHealthChip.jsx';
 import NoticeList from '../../components/NoticeList.jsx';
 import { useApprovals } from '../approvals/ApprovalsPanel.jsx';
-import { money } from '../../lib/locale.js';
+import { money, fmtDate } from '../../lib/locale.js';
 import { usePhone } from '../../components/Tabs.jsx';
 
 /** Phone home: the few things waiting for THIS person, one tap each (approvals, tickets nobody has, unpaid bills). Hidden when nothing waits. */
@@ -130,7 +130,7 @@ export default function DashboardModule({ onNavigate }) {
       {overdue > 0 && mostOverdue.length > 0 && (
         <div style={{ marginTop: 10 }}>
           <h3 style={{ margin: '0 0 6px' }}>Most overdue</h3>
-          <ul className="list">{mostOverdue.map((t) => <li key={t.id}><span><b>{t.title}</b><br /><small className="muted">{t.category} · {t.unit} · {t.assignedTo || 'unassigned'}</small></span><span className="tag red">due {t.slaDueAt}</span></li>)}</ul>
+          <ul className="list">{mostOverdue.map((t) => <li key={t.id}><span><b>{t.title}</b><br /><small className="muted">{t.category} · {t.unit} · {t.assignedTo || 'unassigned'}</small></span><span className="tag red">due {fmtDate(t.slaDueAt)}</span></li>)}</ul>
         </div>
       )}
       <small className="muted">{closedMonth} closed this month.</small>

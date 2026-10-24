@@ -8,9 +8,10 @@ import java.util.List;
 /** Small field checks used by resource rules; each throws a RuleViolated with a sentence a person can act on. */
 public final class Checks {
     private Checks() {}
+    /** Not blank; its size is the field's own (a text(...) around it, else the FieldLimits floor every register field has). */
     public static String required(String v, String label) {
         if (v == null || v.isBlank()) throw new DomainException.RuleViolated("required", label + " is required");
-        return text(v, label, 500);
+        return text(v, label, FieldLimits.LONG);
     }
     public static String text(String v, String label, int max) {
         if (v == null) return null;

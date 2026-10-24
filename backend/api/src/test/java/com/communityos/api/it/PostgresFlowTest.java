@@ -1379,7 +1379,7 @@ class PostgresFlowTest {
             assertEquals(bal3.get("d"), bal3.get("c"), "double entry still balances");
 
             // ---- 6k. governance: a meeting published to residents, its minutes; a ballot - frozen roll, code, one vote per unit, sealed box, the count ----
-            var gstore = new com.communityos.api.governance.adapter.JdbcGovernanceStore(app, json);
+            var gstore = new com.communityos.api.governance.adapter.JdbcGovernanceStore(app, json, clock);
             var meetSvc = new com.communityos.api.governance.application.MeetingService(gstore, events, audit, app, clock);
             var ballotSvc = new com.communityos.api.governance.application.BallotService(gstore, events, audit, app, clock);
             List<String> voteCodes = new ArrayList<>();
@@ -1518,7 +1518,7 @@ class PostgresFlowTest {
             assertThrows(RuntimeException.class, () -> owner.sql("UPDATE assets.inventory_item SET quantity = -1 WHERE id = '" + saltItem.id() + "' RETURNING 1"));
             var pl = as(admin, () -> kit.create(admin, com.communityos.api.assets.AssetResources.PLANT_LOGS, plRepo, new com.communityos.api.assets.AssetResources.PlantLogFields(today, new java.math.BigDecimal("1000"),
                 new java.math.BigDecimal("1062"), null, null, null, null, null, null, null, null, null, null, null, null)));
-            assertEquals(0, new java.math.BigDecimal("62").compareTo(pl.data().bhKl()));
+            assertEquals(0, new java.math.BigDecimal("620").compareTo(pl.data().bhKl()), "62 on the 10 KL dial");
             assertThrows(RuntimeException.class, () -> as(admin, () -> kit.create(admin, com.communityos.api.assets.AssetResources.PLANT_LOGS, plRepo, new com.communityos.api.assets.AssetResources.PlantLogFields(today,
                 null, null, null, null, null, null, null, null, null, null, null, null, null, null))), "one plant log a day");
             var ue = as(admin, () -> kit.create(admin, com.communityos.api.assets.AssetResources.UNIT_ELECTRICITY, ueRepo, new com.communityos.api.assets.AssetResources.UnitElectricityFields(unitA, "2026-09",
@@ -1569,8 +1569,9 @@ class PostgresFlowTest {
             assertEquals("Record only (flag exceptions)", site.data().enforcement(), "every community starts with one");
             var siteNow = as(admin, () -> kit.replace(admin, com.communityos.api.workforce.WorkforceResources.SETTINGS, wsRepo, site.id(), site.version(),
                 new com.communityos.api.workforce.WorkforceResources.SettingFields("Main gate", new java.math.BigDecimal("12.9716"), new java.math.BigDecimal("77.5946"), 300, "Require location inside the site", 15,
-                    Map.of("Morning", "06:00", "General", "09:00"), new java.math.BigDecimal("12"))));
+                    Map.of("Morning", "06:00", "General", "09:00"), new java.math.BigDecimal("12"), false)));
             assertEquals("Require location inside the site", siteNow.data().enforcement());
+            assertEquals(Boolean.FALSE, siteNow.data().requireClockIn(), "the portal without clocking in: kept");
             assertThrows(RuntimeException.class, () -> as(admin, () -> kit.create(admin, com.communityos.api.workforce.WorkforceResources.SETTINGS, wsRepo, siteNow.data())), "one setting per community");
             as(admin, () -> kit.create(admin, com.communityos.api.workforce.WorkforceResources.SHIFTS, shRepo, new com.communityos.api.workforce.WorkforceResources.ShiftFields(fs.id(), today, "General", null)));
             assertThrows(RuntimeException.class, () -> as(admin, () -> kit.create(admin, com.communityos.api.workforce.WorkforceResources.SHIFTS, shRepo,

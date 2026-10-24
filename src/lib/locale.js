@@ -8,6 +8,7 @@ import { getRegionByCode, setActiveRegion } from './region/regions.js';
 
 export const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 import { applyConfigLists } from './lists/configLists.js';
+import { getDataSource } from './storage/dataSource.js';
 const DEFAULTS = { currencySymbol: '₹', numberFormat: 'Indian (12,34,567)', fyStartMonth: 'April', amountUnit: 'Lakh / crore', propertyTypes: ['Villa', 'Apartment'] };
 let cfg = { ...DEFAULTS };
 
@@ -24,7 +25,8 @@ export const getCommunityConfig = () => cfg;
 export const communityTaxId = () => (cfg?.taxRegistered === 'No' ? '' : String(cfg?.taxId || '').trim());
 export const currencySymbol = () => cfg.currencySymbol || '₹';
 export const fyStartMonth = () => { const i = MONTH_NAMES.indexOf(cfg.fyStartMonth); return i < 0 ? 4 : i + 1; };
-export const propertyTypes = () => (cfg.propertyTypes?.length ? cfg.propertyTypes : DEFAULTS.propertyTypes);
+// the back end keeps a unit's type to Villa or Apartment; the community's own list (Plot, Shop ...) is for the browser demo
+export const propertyTypes = () => (getDataSource().mode === 'v2' ? DEFAULTS.propertyTypes : cfg.propertyTypes?.length ? cfg.propertyTypes : DEFAULTS.propertyTypes);
 export function numberLocale() {
   const f = String(cfg.numberFormat || '');
   if (f.startsWith('International')) return 'en-US';
@@ -42,6 +44,9 @@ if (!Number.prototype.__cosPatched) {
 export const fmtNum = (n, opts) => (Number(n) || 0).toLocaleString(numberLocale(), opts);
 /** "₹12,34,567" - whole rupees. `{ round: false }` keeps the paise as typed (up to 3 decimals, or set maximumFractionDigits). */
 export const money = (n, { round = true, ...opts } = {}) => `${currencySymbol()}${fmtNum(round ? Math.round(Number(n) || 0) : Number(n) || 0, opts)}`;
+
+/** Today as YYYY-MM-DD on this device's calendar (toISOString() is UTC: before 05:30 in India it still says yesterday). */
+export const todayLocal = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 
 // Dates, one style everywhere: "05 Mar 2026" (a day: YYYY-MM-DD or an ISO time, read as that calendar day) and "05 Mar, 14:30" (a moment).
 const asDay = (s) => new Date(`${String(s).slice(0, 10)}T00:00:00`);

@@ -184,8 +184,8 @@ public class ModulesConfig {
     }
 
     // ---- governance: meetings and e-voting -----------------------------------------------------------------------------------------------------
-    @Bean com.communityos.api.governance.adapter.JdbcGovernanceStore governanceStore(NamedParameterJdbcTemplate jdbc, ObjectMapper json) {
-        return new com.communityos.api.governance.adapter.JdbcGovernanceStore(jdbc, json);
+    @Bean com.communityos.api.governance.adapter.JdbcGovernanceStore governanceStore(NamedParameterJdbcTemplate jdbc, ObjectMapper json, Clock clock) {
+        return new com.communityos.api.governance.adapter.JdbcGovernanceStore(jdbc, json, clock);
     }
     @Bean com.communityos.api.governance.application.MeetingService meetingService(com.communityos.api.governance.adapter.JdbcGovernanceStore store, DomainEvents events,
                                                                                  AuditWriter audit, Tx tx, Clock clock, CosProperties p) {

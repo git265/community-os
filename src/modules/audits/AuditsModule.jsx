@@ -12,13 +12,13 @@ import { canWriteCollection } from '../../lib/security/authz.js';
 import { getPrincipal } from '../../lib/security/principal.js';
 import { uuid } from '../../lib/uuid.js';
 import AuditTimeline from './AuditTimeline.jsx';
-import { fmtDate } from '../../lib/locale.js';
+import { fmtDate, todayLocal } from '../../lib/locale.js';
 import { PhoneSearch, PhoneFilters } from '../../components/ToolIcons.jsx';
 
 const DEFAULT_AREAS = ['STP (sewage treatment)', 'WTP (water treatment)', 'Swimming pool water', 'Drinking water quality', 'Fire safety', 'Lifts', 'Electrical safety', 'DG set', 'Structural', 'Security / CCTV', 'Financial'];
 const RESULTS = ['Pass', 'Pass with observations', 'Fail', 'Pending'];
 const TONE = { Pass: 'green', 'Pass with observations': 'orange', Fail: 'red', Pending: '' };
-const today = () => new Date().toISOString().slice(0, 10);
+const today = todayLocal;
 const dmy = (s) => fmtDate(s, { empty: '—' });
 const addMonths = (iso, n) => { const d = new Date(`${iso}T00:00:00`); d.setMonth(d.getMonth() + Number(n)); return d.toISOString().slice(0, 10); };
 const daysTo = (iso) => Math.round((new Date(`${iso}T00:00:00`) - new Date(`${today()}T00:00:00`)) / 86400000);
@@ -55,6 +55,10 @@ function AuditForm({ record, area, areas, onClose, onSaved }) {
     setErr('');
     if (!String(f.area).trim()) return setErr('Say what was audited');
     if (!f.auditDate) return setErr('Enter the audit date');
+    if (f.auditDate > today()) return setErr('The audit date is today or earlier');
+    if (f.score !== '' && f.score != null && !(Number(f.score) >= 0 && Number(f.score) <= 100)) return setErr('A score is from 0 to 100');
+    if (f.frequencyMonths !== '' && f.frequencyMonths != null && !(Number(f.frequencyMonths) >= 0 && Number(f.frequencyMonths) <= 120)) return setErr('Repeat every 0 to 120 months');
+    if (nextDue && nextDue < f.auditDate) return setErr('The next audit is before this one');
     setBusy(true);
     try {
       // the auditor is a vendor record (category "Audit / inspection agency"); a new name creates one so it can be linked next time

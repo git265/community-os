@@ -286,6 +286,8 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
     const errs = {};
     if (!raiseForm.title.trim()) errs.title = 'Issue title is required';
     else if (raiseForm.title.trim().length < 3) errs.title = 'Give a short title (at least 3 characters)';
+    else if ((!ownerForm && raiseForm.assetId ? `${raiseForm.assetName}: ` : '').length + raiseForm.title.trim().length > 200) errs.title = 'Keep the title to 200 characters (with the asset name in front)';
+    if (String(raiseForm.description || '').length > 10000) errs.description = 'The details are too long (up to 10,000 characters) - attach a file for anything longer';
     if (ownerForm) { const v = outageVerdict(svcNotices, { text: `${raiseForm.title} ${String(raiseForm.description || '').replace(/<[^>]+>/g, ' ')}`, block: myBlock, confirmed: raiseForm.outageOk }); if (!v.ok) errs.outage = v.error; }
     if (!raiseForm.category) errs.category = 'Category is required';
     if (!ownerForm && raiseForm.category && raiseSubs.length && !raiseForm.subCategory) errs.subCategory = 'Sub-category is required';
@@ -542,6 +544,8 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
     setFormError('');
     if (selectedInternal && !draft.assignedTo) { setFormError('Assigned to is required.'); return; }
     if (isEC && open && !draft.slaDueAt) { setFormError('SLA due is required.'); return; }
+    if (draft.slaDueAt !== selected.slaDueAt && /^\d{4}-\d{2}-\d{2}$/.test(draft.slaDueAt || '') && draft.slaDueAt < todayIso()) { setFormError('SLA due must be today or a future date.'); return; }
+    if (String(draft.description || '').length > 10000) { setFormError('The description is too long (up to 10,000 characters).'); return; }
     if (draft.status === 'Cancelled' && selected.status !== 'Cancelled' && !String(draft.cancelReason || '').trim()) { setFormError('Say why the ticket is cancelled.'); return; }
     setSavingTicket(true);
     let out = null; const patch = {};
@@ -1027,7 +1031,7 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
             {raiseCommunity && (
               <div className={`field${raiseErrors.location ? ' invalid' : ''}`} style={{ gridColumn: '1 / -1' }}>
                 <label>Where in the community? *</label>
-                <input data-testid="community-location" value={raiseForm.location || ''} onChange={(e) => setRaiseForm((f) => ({ ...f, location: e.target.value }))} placeholder="e.g. Block C lift, Clubhouse, Main gate road, Park" />
+                <input data-testid="community-location" maxLength={200} value={raiseForm.location || ''} onChange={(e) => setRaiseForm((f) => ({ ...f, location: e.target.value }))} placeholder="e.g. Block C lift, Clubhouse, Main gate road, Park" />
                 {raiseErrors.location && <div className="field-error">{raiseErrors.location}</div>}
               </div>
             )}
@@ -1035,7 +1039,7 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
               <label>{raiseOwnerForm ? 'Describe the issue *' : 'Issue / what is wrong *'}</label>
               <div className="gg-row" style={{ flexWrap: 'nowrap' }}>
                 {!raiseOwnerForm && raiseForm.assetId && <span className="tag" data-testid="title-prefix" style={{ whiteSpace: 'nowrap', maxWidth: '45%', overflow: 'hidden', textOverflow: 'ellipsis' }}>{raiseForm.assetName}:</span>}
-                <input data-testid="raise-title" value={raiseForm.title} onChange={(e) => setRaiseForm((f) => ({ ...f, title: e.target.value, outageOk: false }))} placeholder="e.g. Kitchen tap won't stop dripping" style={{ flex: 1 }} />
+                <input data-testid="raise-title" maxLength={200} value={raiseForm.title} onChange={(e) => setRaiseForm((f) => ({ ...f, title: e.target.value, outageOk: false }))} placeholder="e.g. Kitchen tap won't stop dripping" style={{ flex: 1 }} />
               </div>
               {raiseErrors.title && <div className="field-error">{raiseErrors.title}</div>}
             </div>
@@ -1043,7 +1047,9 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
             {raiseErrors.outage && <div className="field-error" style={{ gridColumn: '1 / -1' }} data-testid="outage-error">{raiseErrors.outage}</div>}
             <div className="field" style={{ gridColumn: '1 / -1' }}>
               <label>Additional details</label>
-              <RichTextEditor value={raiseForm.description} onChange={(h) => setRaiseForm((f) => ({ ...f, description: h }))} placeholder="Anything that helps the team — what happened, where, since when…" minHeight={80} />
+              {/* photos go through "Attach files": a picture inside the text would make it too long for the server */}
+              <RichTextEditor value={raiseForm.description} onChange={(h) => setRaiseForm((f) => ({ ...f, description: h }))} placeholder="Anything that helps the team — what happened, where, since when…" minHeight={80} images={false} />
+              {raiseErrors.description && <div className="field-error">{raiseErrors.description}</div>}
             </div>
             <div className="field" style={{ gridColumn: '1 / -1' }}>
               <label>Priority</label>
@@ -1054,13 +1060,13 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
               <>
                 <div className={`field${raiseErrors.unit ? ' invalid' : ''}`}><label>Location</label><div className="ro-value">{ownerUnit || '—'}</div>{raiseErrors.unit && <div className="field-error">{raiseErrors.unit}</div>}</div>
                 <div className="field"><label>Preferred time (optional)</label>
-                  <input value={raiseForm.preferredTime} onChange={(e) => setRaiseForm((f) => ({ ...f, preferredTime: e.target.value }))} placeholder="e.g. After 5pm" />
+                  <input maxLength={120} value={raiseForm.preferredTime} onChange={(e) => setRaiseForm((f) => ({ ...f, preferredTime: e.target.value }))} placeholder="e.g. After 5pm" />
                 </div>
               </>
             ) : (
               <>
                 <div className={`field${raiseErrors.unit ? ' invalid' : ''}`}><label>Location</label>
-                  <input value={raiseForm.unit} onChange={(e) => setRaiseForm((f) => ({ ...f, unit: e.target.value }))} placeholder="Blank for common area" />
+                  <input maxLength={200} value={raiseForm.unit} onChange={(e) => setRaiseForm((f) => ({ ...f, unit: e.target.value }))} placeholder="Blank for common area" />
                   <small className="muted">A villa / unit, or a place such as "Pump room"; blank means the common area.</small>
                   {raiseErrors.unit && <div className="field-error" data-testid="task-unit-error">{raiseErrors.unit}</div>}
                 </div>
@@ -1200,7 +1206,7 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
           {closing && (
             <div className="assign">
               <div className="field"><label>Closing comment (optional)</label>
-                <RichTextEditor value={closeNote} onChange={setCloseNote} placeholder="e.g. Issue resolved, thanks" minHeight={56} />
+                <RichTextEditor value={closeNote} onChange={setCloseNote} placeholder="e.g. Issue resolved, thanks" minHeight={56} images={false} />
               </div>
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                 <button className="btn good" onClick={confirmClose}>Confirm close</button>
@@ -1218,7 +1224,7 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
               <div className="field" style={{ gridColumn: '1 / -1' }}>
                 <label>Description</label>
                 {canEditDesc
-                  ? <RichTextEditor value={draft.description || ''} onChange={(h) => setD('description', h)} minHeight={80} />
+                  ? <RichTextEditor value={draft.description || ''} onChange={(h) => setD('description', h)} minHeight={80} images={false} />
                   : <div className="ro-value ro-rich">{selected.description ? <RichText html={selected.description} /> : '—'}</div>}
                 {isMyTicket && open && !canManageTickets && <small className="muted">You can edit the description for 30 minutes after raising the ticket.</small>}
               </div>

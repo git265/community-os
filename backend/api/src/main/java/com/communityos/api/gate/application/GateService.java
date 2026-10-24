@@ -105,6 +105,7 @@ public final class GateService {
         LocalDate from = n.validFrom() == null ? today : n.validFrom();
         LocalDate to = n.validTo() == null ? ("Recurring".equals(type) ? from.plusMonths(1) : from) : n.validTo();
         if (to.isBefore(from)) throw new DomainException.RuleViolated("bad-dates", "The pass ends before it starts");
+        if (n.fromTime() != null && n.toTime() != null && n.toTime().isBefore(n.fromTime())) throw new DomainException.RuleViolated("bad-times", "The end time is before the start time");   // as a template
         if (to.isBefore(today)) throw new DomainException.RuleViolated("past", "That pass would already be over");
         if (!GatePolicy.gateStaff(c) && from.plusYears(1).isBefore(to)) throw new DomainException.RuleViolated("too-long", "A pass lasts at most a year");
         for (String d : n.days() == null ? List.<String>of() : n.days()) if (!Gate.DAYS.contains(d)) throw new DomainException.RuleViolated("bad-day", "Days are Mon to Sun");

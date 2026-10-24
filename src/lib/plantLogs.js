@@ -28,6 +28,8 @@ export function withKl(row) {
 
 export function validate(row) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(row.date || ''))) return 'Choose the log date.';
+  { const d = new Date(); const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    if (String(row.date) > today) return 'The log date is today or earlier (salt and chlorine use is taken from stock on that day).'; }
   for (const m of METERS) {
     const a = row[m.open]; const b = row[m.close];
     if (has(a) !== has(b)) return `${m.label}: enter both the opening and the closing reading, or leave both empty.`;

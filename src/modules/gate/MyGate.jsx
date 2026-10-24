@@ -20,14 +20,16 @@ function Rules({ unit }) {
   useEffect(() => { let on = true; villaRule(unit).then((r) => { if (on) setDraft((d) => d || row || r); }); return () => { on = false; }; }, [unit]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!draft) return null;
   const set = (k, v) => { setDraft((d) => ({ ...d, [k]: v })); setSaved(''); };
-  async function commit() { await save({ ...draft, unit }); setSaved('Saved.'); }
+  // the time box is local wall-clock time; the server keeps a moment (ISO with its zone)
+  async function commit() { await save({ ...draft, unit, expectingUntil: draft.expectingUntil ? new Date(draft.expectingUntil).toISOString() : '' }); setSaved('Saved.'); }
+  const localInput = (v) => { if (!v) return ''; const d = new Date(v); if (Number.isNaN(d.getTime())) return ''; const p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; };
   return (
     <div className="card" data-testid="my-rules">
       <div className="form-grid">
         <div className="field"><label>Deliveries</label><select data-testid="rule-mode" value={draft.deliveryMode} onChange={(e) => set('deliveryMode', e.target.value)}>{DELIVERY_MODES.map((m) => <option key={m}>{m}</option>)}</select></div>
         <div className="field"><label>If I do not answer</label><select value={draft.fallback} onChange={(e) => set('fallback', e.target.value)}>{['Community default', 'Hold at gate', 'Deny'].map((m) => <option key={m}>{m}</option>)}</select></div>
         {draft.deliveryMode === 'Allow listed' && <div className="field" style={{ gridColumn: '1 / -1' }}><label>Companies let in without asking me</label><Chips multi options={DELIVERY_COMPANIES} value={draft.companies || []} onChange={(v) => set('companies', v)} label="Companies" /></div>}
-        <div className="field"><label>Expecting a delivery until</label><input type="datetime-local" value={draft.expectingUntil || ''} onChange={(e) => set('expectingUntil', e.target.value)} /><small className="muted">Any approved company is let in until then.</small></div>
+        <div className="field"><label>Expecting a delivery until</label><input type="datetime-local" value={localInput(draft.expectingUntil)} onChange={(e) => set('expectingUntil', e.target.value)} /><small className="muted">Any approved company is let in until then.</small></div>
         <label className="gg-row"><input type="checkbox" data-testid="rule-away" checked={!!draft.awayMode} onChange={(e) => set('awayMode', e.target.checked)} style={{ width: 'auto' }} /> Away mode: nobody is let in without my approval, and deliveries are left at the gate</label>
         <label className="gg-row"><input type="checkbox" checked={!!draft.tellDelivery} onChange={(e) => set('tellDelivery', e.target.checked)} style={{ width: 'auto' }} /> Tell me about deliveries</label>
         <label className="gg-row"><input type="checkbox" checked={!!draft.tellGuestExit} onChange={(e) => set('tellGuestExit', e.target.checked)} style={{ width: 'auto' }} /> Tell me when a guest leaves</label>

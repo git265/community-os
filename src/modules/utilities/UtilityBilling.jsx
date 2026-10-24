@@ -39,8 +39,11 @@ export default function UtilityBilling({ onNavigate }) {
   const pending = dues.filter((d) => d.category === type && !['Paid', 'Cancelled'].includes(d.status));
 
   async function saveTemplateForm() {
-    await saveTemplate({ ...tplDraft, id: savedTemplate.id, type });
-    setStatus('Rate card saved; the change is versioned in the audit trail.');
+    // the server's rules: a rate above zero, the fixed charge and tax not negative
+    if (!(Number(tplDraft.ratePerUnit ?? tplDraft.rate) > 0)) { setStatus('Enter the rate per unit (more than zero).'); return; }
+    if (Number(tplDraft.fixedCharge) < 0 || Number(tplDraft.tax ?? tplDraft.taxRate) < 0) { setStatus('The fixed charge and tax cannot be negative.'); return; }
+    const out = await saveTemplate({ ...tplDraft, id: savedTemplate.id, type });
+    setStatus(out ? 'Rate card saved; the change is versioned in the audit trail.' : 'Not saved.');
   }
 
   async function sendReminders() {

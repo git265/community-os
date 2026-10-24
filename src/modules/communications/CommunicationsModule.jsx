@@ -1,4 +1,5 @@
 import AdminDelete from '../../components/AdminDelete.jsx';
+import { todayLocal } from '../../lib/locale.js';
 import { getCommunity } from '../../lib/community.js';
 import { notify, notifyMany } from '../../lib/notify.js';
 import React, { useState } from 'react';
@@ -120,7 +121,7 @@ export default function CommunicationsModule() {
     for (const f of mergeFields) initial[f.token] = f.defaultValue || '';
     if (getCommunity()?.name) initial['{{SOCIETY_NAME}}'] = getCommunity().name;   // the community's own name
     setFieldValues(initial);
-    setDraft((d) => ({ ...d, subject: t.headerText || d.subject }));
+    setDraft((d) => ({ ...d, subject: String(t.headerText || d.subject || '').slice(0, 200) }));   // a subject holds 200 characters
   }
 
   const previewBody = template ? esc(renderTemplate(template.body, fieldValues)) : draft.message;
@@ -130,6 +131,9 @@ export default function CommunicationsModule() {
     const options = draft.pollOptions.map((o) => o.trim()).filter(Boolean);
     if (!draft.subject.trim()) er.subject = isPoll ? 'Poll question is required' : 'Subject is required';
     if (!isPoll && !template && isEmptyHtml(draft.message)) er.message = 'Message is required';
+    else if (String(draft.message || '').length > 20000) er.message = 'The message is too long (up to 20,000 characters, formatting included)';
+    if (isMaint && draft.eventDate && draft.eventDate < todayLocal()) er.eventDate = 'The maintenance date is today or later';
+    if (isPoll && draft.pollClosesOn && draft.pollClosesOn < todayLocal()) er.poll = 'The poll closes today or later';
     if (pickerKind && draft.audienceUnits.length === 0) er.audience = `Choose at least one ${pickerKind.toLowerCase()}`;
     if (draft.audience === 'Selected blocks' && !(draft.audienceBlocks || []).length) er.audience = 'Choose at least one block';
     if (isMaint && !draft.eventDate) er.eventDate = 'Choose the maintenance date';
@@ -232,7 +236,7 @@ export default function CommunicationsModule() {
                     <div className="field"><label>Until</label>
                       <input type="time" aria-label="Until time" value={draft.endTime} onChange={(e) => set({ endTime: e.target.value })} /></div>
                     <div className="field"><label>What is affected</label>
-                      <input value={draft.affects} onChange={(e) => set({ affects: e.target.value })} placeholder="e.g. Water supply, lift 2, power in block C" /></div>
+                      <input maxLength={300} value={draft.affects} onChange={(e) => set({ affects: e.target.value })} placeholder="e.g. Water supply, lift 2, power in block C" /></div>
                   </div>
                 )}
                 {draft.audience === 'Selected blocks' && (
@@ -263,14 +267,14 @@ export default function CommunicationsModule() {
 
                 <div className={`field${errs.subject ? ' invalid' : ''}`} style={{ marginTop: 13 }}>
                   <label>{isPoll ? 'Poll question *' : 'Subject *'}</label>
-                  <input aria-label={isPoll ? 'Poll question' : 'Subject'} value={draft.subject} onChange={(e) => set({ subject: e.target.value })} placeholder={isPoll ? 'Which day suits the cultural evening?' : 'Water supply maintenance — 6 September'} />
+                  <input aria-label={isPoll ? 'Poll question' : 'Subject'} maxLength={200} value={draft.subject} onChange={(e) => set({ subject: e.target.value })} placeholder={isPoll ? 'Which day suits the cultural evening?' : 'Water supply maintenance — 6 September'} />
                   {errs.subject && <div className="field-error">{errs.subject}</div>}
                 </div>
 
                 {isPoll && (
                   <div className={`field${errs.poll ? ' invalid' : ''}`} style={{ marginTop: 13 }}>
                     <label>Answers * <small className="muted">(2 to 12)</small></label>
-                    <TagsInput list={draft.pollOptions.filter(Boolean)} onChange={(l) => set({ pollOptions: l.slice(0, 12) })} label="poll answers" placeholder="Type an answer and press Enter" />
+                    <TagsInput list={draft.pollOptions.filter(Boolean)} onChange={(l) => set({ pollOptions: l.slice(0, 12).map((x) => String(x).slice(0, 200)) })} label="poll answers" placeholder="Type an answer and press Enter" />
                     <label style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}><input type="checkbox" aria-label="Allow multiple answers" checked={draft.pollMultiple} onChange={(e) => set({ pollMultiple: e.target.checked })} />Allow more than one answer</label>
                     {errs.poll && <div className="field-error">{errs.poll}</div>}
                     <div className="field" style={{ marginTop: 8 }}><label>Poll closes on (optional)</label><input type="date" aria-label="Poll closes on" min={new Date().toISOString().slice(0, 10)} value={draft.pollClosesOn} onChange={(e) => set({ pollClosesOn: e.target.value })} /></div>

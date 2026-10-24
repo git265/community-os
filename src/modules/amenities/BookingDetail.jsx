@@ -225,10 +225,10 @@ export default function BookingDetail({ booking: b, amenity, settings, isStaff, 
           <p className="muted" style={{ margin: '6px 0' }}>For a booking nobody has paid for yet. The fee below includes GST. The deposit is unchanged. For a paid booking, cancel it with the right refund and book it again.</p>
           <div className="form-grid">
             <div className="field"><label>Correct fee incl. GST (₹) *</label><input type="number" min="0" data-testid="adjust-fee-input" value={newFee} onChange={(e) => setNewFee(e.target.value)} /></div>
-            <div className="field"><label>Reason *</label><input data-testid="adjust-reason" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Wrong rate applied" /></div>
+            <div className="field"><label>Reason *</label><input data-testid="adjust-reason" maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Wrong rate applied" /></div>
           </div>
           <div className="bk-actions">
-            <button className="btn" disabled={busy || !reason.trim() || newFee === ''} data-testid="adjust-confirm" onClick={() => run({ _action: 'adjust_fee', newFee, adjustReason: reason.trim() })}>Save corrected fee</button>
+            <button className="btn" disabled={busy || reason.trim().length < 3 || newFee === ''} title={reason.trim().length < 3 ? 'Give a reason (at least 3 characters)' : undefined} data-testid="adjust-confirm" onClick={() => run({ _action: 'adjust_fee', newFee, adjustReason: reason.trim() })}>Save corrected fee</button>
             <button className="btn secondary" onClick={() => setMode(null)}>Keep as is</button>
           </div>
         </div>
@@ -264,7 +264,7 @@ export default function BookingDetail({ booking: b, amenity, settings, isStaff, 
               ]} />
             </div>
           )}
-          <div className="field" style={{ marginTop: 8 }}><label>Reason {isStaff ? '*' : '(optional)'}</label><input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Plans changed" /></div>
+          <div className="field" style={{ marginTop: 8 }}><label>Reason {isStaff ? '*' : '(optional)'}</label><input maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Plans changed" /></div>
           {isStaff && cq.paid && (
             <div className="form-grid">
               <label className="check"><input type="checkbox" checked={waive} onChange={(e) => setWaive(e.target.checked)} /> Waive charges (community cancelled)</label>
@@ -283,9 +283,9 @@ export default function BookingDetail({ booking: b, amenity, settings, isStaff, 
           <b>Record payment of {inr(b.totalPayable)}</b>
           <div className="form-grid">
             <div className="field"><label>Received by</label><select value={payMode} onChange={(e) => setPayMode(e.target.value)}>{PAYMENT_MODES.map((m) => <option key={m}>{m}</option>)}</select></div>
-            <div className="field"><label>Receipt / cheque no.</label><input value={ref} onChange={(e) => setRef(e.target.value)} /></div>
+            <div className="field"><label>{payMode === 'Cheque' ? 'Cheque number *' : needsRef(payMode) ? 'Transaction / UTR reference *' : 'Receipt no. (optional)'}</label><input aria-label="Payment reference" maxLength={100} value={ref} onChange={(e) => setRef(e.target.value)} /></div>
           </div>
-          <div className="bk-actions"><button className="btn good" disabled={busy} data-testid="confirm-receive" onClick={() => run({ _action: 'receive_payment', paymentMode: payMode, paymentRef: ref })}>Record in Payments Cross-check</button><button className="btn secondary" onClick={() => setMode(null)}>Back</button></div>
+          <div className="bk-actions"><button className="btn good" disabled={busy || (needsRef(payMode) && !ref.trim())} title={needsRef(payMode) && !ref.trim() ? 'Enter the reference' : undefined} data-testid="confirm-receive" onClick={() => run({ _action: 'receive_payment', paymentMode: payMode, paymentRef: ref })}>Record in Payments Cross-check</button><button className="btn secondary" onClick={() => setMode(null)}>Back</button></div>
         </div>
       )}
 

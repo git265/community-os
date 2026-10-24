@@ -92,7 +92,7 @@ export default function PaymentRequest({ onClose, onDone }) {
         <div className="field"><label>Amount (₹) *</label><input aria-label="Amount" data-testid="payreq-amount" type="number" min="0" value={f.amount} onChange={(e) => set('amount', e.target.value)} /></div>
         <div className="field" data-testid="payreq-vendor"><label>Pay to *</label><Combobox value={f.vendor} onChange={(v) => set('vendor', v)} options={payees} allowCustom placeholder="A vendor, or type a name…" /></div>
         <PayeeFields value={f} onChange={setF} pending={qr} onPending={setQr} />
-        <div className="field" style={{ gridColumn: '1 / -1' }}><label>Note</label><textarea aria-label="Note" rows={2} value={f.note} onChange={(e) => set('note', e.target.value)} placeholder="Anything the Treasurer should know" /></div>
+        <div className="field" style={{ gridColumn: '1 / -1' }}><label>Note</label><textarea aria-label="Note" rows={2} maxLength={2000} value={f.note} onChange={(e) => set('note', e.target.value)} placeholder="Anything the Treasurer should know" /></div>
         <div className="field" style={{ gridColumn: '1 / -1' }}><label>Bill or quote (optional)</label><AttachmentPicker pending={bill} onChange={setBill} label="Attach the bill" /></div>
       </div>
       <div className="form-actions"><button type="button" className="btn" data-testid="payreq-send" disabled={busy} onClick={send}>{busy ? 'Sending…' : 'Send to the Treasurer'}</button><button type="button" className="btn secondary" onClick={onClose}>Cancel</button></div>

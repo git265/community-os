@@ -129,18 +129,23 @@ export function userOf(m, unitNoById = {}) {
 export function dueOf(d, today = new Date().toISOString().slice(0, 10)) {
   const open = d.status === 'Unpaid' || d.status === 'Partly paid';
   return {
-    id: d.id, shortId: d.shortId, unit: d.unitNo || '', unitId: d.unitId, category: d.categoryCode, categoryName: d.category, utility: d.utility,
+    id: d.id, shortId: d.shortId, unit: d.unitNo || '', unitId: d.unitId, category: BILL_CATEGORY_LABEL[d.categoryCode] || d.categoryCode, categoryName: d.category, utility: d.utility,
     amount: num(d.total), baseAmount: num(d.amount), tax: num(d.tax), grossAmount: num(d.total), paidAmount: num(d.paid), outstanding: num(d.outstanding),
     billedMonth: monthLabel(d.billedMonth), billedMonthDate: d.billedMonth, description: d.description || '', dueDate: d.dueDate,
     status: open && d.dueDate < today && d.status === 'Unpaid' ? 'Overdue' : d.status, serverStatus: d.status,
     paidAt: d.paidAt ? String(d.paidAt).slice(0, 10) : '', cancelReason: d.reason || '', version: d.version,
   };
 }
+/** The app's bill category names that the server keeps under a shorter code (V10 charge categories). */
+/** A bill's description holds up to 500 characters on the server: a longer fee notice is cut there (the notice itself goes out in full). */
+const clip = (t, n) => { const x = String(t || '').trim(); return x.length > n ? `${x.slice(0, n - 1).trimEnd()}…` : x; };
+export const BILL_CATEGORY_CODE = { 'Corpus fund': 'Corpus', 'Special levy': 'Levy' };
+const BILL_CATEGORY_LABEL = Object.fromEntries(Object.entries(BILL_CATEGORY_CODE).map(([k, v]) => [v, k]));
 /** A new bill: the amount typed is before tax; the server adds the category's tax and returns the true total. */
 export function raiseBody(rec, unitIdByNo) {
   const unitId = rec.unitId || unitIdByNo[rec.unit];
   if (!unitId) throw new Error(`Unit ${rec.unit || '?'} is not known to the back end.`);
-  return { unitId, categoryCode: rec.category, billedMonth: monthDate(rec.billedMonth), description: rec.description || rec.notice || null, amount: money(rec.baseAmount ?? rec.amount), dueDate: rec.dueDate };
+  return { unitId, categoryCode: BILL_CATEGORY_CODE[rec.category] || rec.category, billedMonth: monthDate(rec.billedMonth), description: clip(rec.description || rec.notice || '', 500) || null, amount: money(rec.baseAmount ?? rec.amount), dueDate: rec.dueDate };
 }
 
 // ---- roles ---------------------------------------------------------------------------------------------------------------------------------

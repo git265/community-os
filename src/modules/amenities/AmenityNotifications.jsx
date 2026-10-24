@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { communityTaxId } from '../../lib/locale.js';
+import { validatePhone } from '../../lib/phone.js';
 import { useApp, useCollection } from '../../context/AppContext.jsx';
 import { COLLECTIONS } from '../../lib/storage/index.js';
 import { Segmented } from '../../components/ui.jsx';
@@ -61,7 +62,7 @@ function TemplateCard({ tpl, community, settings, canEdit, onSave }) {
       </div>
       {isEmail && (
         <div className="field tpl-field"><label htmlFor={`sub-${key}`}>Subject</label>
-          <input id={`sub-${key}`} aria-label={`${tpl.event} ${tpl.audience} subject`} value={d.subject || ''} disabled={!canEdit} placeholder="Subject line, e.g. Booking {{booking_no}} confirmed" onChange={(e) => setD({ ...d, subject: e.target.value })} /></div>
+          <input id={`sub-${key}`} aria-label={`${tpl.event} ${tpl.audience} subject`} maxLength={200} value={d.subject || ''} disabled={!canEdit} placeholder="Subject line, e.g. Booking {{booking_no}} confirmed" onChange={(e) => setD({ ...d, subject: e.target.value })} /></div>
       )}
       <div className="field tpl-field" ref={wrap}><label htmlFor={`msg-${key}`}>Message{isEmail ? ' (formatting is kept in e-mail)' : tpl.channel === 'WhatsApp' ? ' (WhatsApp: *bold*  _italic_)' : ' (plain text)'}</label>
         {isEmail ? (
@@ -69,7 +70,7 @@ function TemplateCard({ tpl, community, settings, canEdit, onSave }) {
             ? <div aria-label={`${tpl.event} ${tpl.channel} ${tpl.audience} message`}><RichTextEditor id={`msg-${key}`} value={toEditorHtml(d.body)} onChange={(h) => setD((x) => ({ ...x, body: h }))} placeholder="Write the e-mail…" minHeight={150} /></div>
             : <RichText html={toEditorHtml(d.body)} className="rte-readonly" />
         ) : (
-          <textarea id={`msg-${key}`} ref={ref} rows={6} aria-label={`${tpl.event} ${tpl.channel} ${tpl.audience} message`} value={d.body || ''} disabled={!canEdit} onChange={(e) => setD({ ...d, body: e.target.value })} />
+          <textarea id={`msg-${key}`} ref={ref} rows={6} maxLength={4000} aria-label={`${tpl.event} ${tpl.channel} ${tpl.audience} message`} value={d.body || ''} disabled={!canEdit} onChange={(e) => setD({ ...d, body: e.target.value })} />
         )}
       </div>
       {canEdit && <div className="token-row" aria-label="Insert field"><span className="muted" style={{ fontSize: 12 }}>Insert:</span>{TOKENS.map((t) => <code key={t} onClick={() => insert(t)}>{t}</code>)}</div>}
@@ -100,8 +101,24 @@ export default function AmenityNotifications({ mode }) {
   if (!sd) return <div className="empty">Loading…</div>;
   const set = (k, v) => setSd((x) => ({ ...x, [k]: v }));
   const keys = (ks) => ks.reduce((o, k) => ({ ...o, [k]: sd[k] }), {});
-  async function persist(ks, ok) { const out = await saveSettings({ ...settingsRows[0], ...keys(ks) }); setMsg(out ? ok : ''); }
-  async function saveOne(t) { const out = await saveTpl(t); setMsg(out ? 'Template saved' : ''); }
+  // a recipient is an e-mail address for e-mail, a number for SMS, a number or a group's name for WhatsApp - else it silently reaches nobody
+  const recipientError = (rows = []) => {
+    for (const r of rows) {
+      const t = String(r.target || '').trim(); if (!t) return `${r.channel}: say where it goes`;
+      if (r.channel === 'Email') { const bad = t.split(/[,;\s]+/).filter(Boolean).find((x) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x)); if (bad) return `${bad} is not an e-mail address`; }
+      if (r.channel === 'SMS' && !validatePhone(t).ok) return `SMS to ${t}: ${validatePhone(t).error}`;
+      if (r.channel === 'WhatsApp' && t.startsWith('+') && !validatePhone(t).ok) return `WhatsApp to ${t}: ${validatePhone(t).error}`;
+    }
+    return '';
+  };
+  async function persist(ks, ok) {
+    for (const k of ['adminRecipients', 'reportRecipients']) if (ks.includes(k)) { const e = recipientError(sd[k]); if (e) { setMsg(e); return; } }
+    const out = await saveSettings({ ...settingsRows[0], ...keys(ks) }); setMsg(out ? ok : '');
+  }
+  async function saveOne(t) {
+    if (String(t.body || '').length > 4000) { setMsg('The message is too long (up to 4,000 characters, formatting included)'); return; }
+    const out = await saveTpl(t); setMsg(out ? 'Template saved' : '');
+  }
 
   if (mode === 'reports') {
     const t0 = new Date().toISOString().slice(0, 10);

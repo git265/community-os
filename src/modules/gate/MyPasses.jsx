@@ -100,6 +100,9 @@ export default function MyPasses({ unit, name }) {
     if (!f.visitorName.trim()) { setErr(goods ? 'Driver or company name is required' : 'Guest name is required'); return; }
     if (String(f.phone || '').trim()) { const v = validatePhone(f.phone); if (!v.ok) { setErr(`${goods ? 'Driver' : 'Guest'} mobile: ${v.error}`); return; } }
     if (f.validTo < f.validFrom) { setErr('Valid until cannot be before valid from'); return; }
+    if (f.validTo < todayStr()) { setErr('That pass would already be over'); return; }
+    if (f.fromTime && f.toTime && f.toTime < f.fromTime) { setErr('The end time is before the start time'); return; }
+    if (f.visitorName.trim().length > 120) { setErr('The name has up to 120 characters'); return; }
     if ((new Date(f.validTo) - new Date(f.validFrom)) / 864e5 > 366) { setErr('A pass lasts a year at most'); return; }
     if (f.type === 'Event' && !(Number(f.guestCap) >= 1 && Number(f.guestCap) <= 2000)) { setErr('Guests allowed is between 1 and 2000'); return; }
     if (goods && !f.vehicle.trim()) { setErr('The vehicle number is required for a goods pass'); return; }
@@ -123,22 +126,22 @@ export default function MyPasses({ unit, name }) {
               <div className="gg-chips">{tplList.map((t) => <button type="button" key={t.id} data-testid="tpl-chip" onClick={() => applyTemplate(t)}>{t.name}{!t.unit && <small> · community</small>}</button>)}</div></div>
           )}
           <div className="field"><label>Pass for</label><select data-testid="pass-type" value={f.type} onChange={(e) => set('type', e.target.value)}>{['One-time', 'Recurring', 'Event', 'Goods'].map((t) => <option key={t} value={t}>{t === 'Goods' ? 'Goods vehicle' : t}</option>)}</select></div>
-          <div className={`field${err && !f.visitorName ? ' invalid' : ''}`}><label>{goods ? 'Driver or company *' : 'Guest name *'}</label><input data-testid="pass-name" value={f.visitorName} onChange={(e) => set('visitorName', e.target.value)} /></div>
-          <div className="field"><label>{goods ? 'Driver mobile' : 'Guest mobile'}</label><input type="tel" data-testid="pass-phone" value={f.phone} onChange={(e) => set('phone', e.target.value)} /></div>
+          <div className={`field${err && !f.visitorName ? ' invalid' : ''}`}><label>{goods ? 'Driver or company *' : 'Guest name *'}</label><input data-testid="pass-name" maxLength={120} value={f.visitorName} onChange={(e) => set('visitorName', e.target.value)} /></div>
+          <div className="field"><label>{goods ? 'Driver mobile' : 'Guest mobile'}</label><input type="tel" data-testid="pass-phone" maxLength={20} value={f.phone} onChange={(e) => set('phone', e.target.value)} /></div>
           <div className="field"><label>Valid from</label><input type="date" value={f.validFrom} onChange={(e) => set('validFrom', e.target.value)} /></div>
           <div className="field"><label>Valid until</label><input type="date" value={f.validTo} onChange={(e) => set('validTo', e.target.value)} /></div>
           <div className="field"><label>Time from</label><input type="time" value={f.fromTime} onChange={(e) => set('fromTime', e.target.value)} /></div>
           <div className="field"><label>Time to</label><input type="time" value={f.toTime} onChange={(e) => set('toTime', e.target.value)} /></div>
           {f.type === 'Recurring' && <div className="field" style={{ gridColumn: '1 / -1' }}><label>Days</label><Chips multi options={DAYS} value={f.days} onChange={(v) => set('days', v)} label="Days" /></div>}
           {f.type === 'Event' && <div className="field"><label>Guests allowed</label><input type="number" min="1" max="2000" value={f.guestCap} onChange={(e) => set('guestCap', Number(e.target.value))} /></div>}
-          <div className="field"><label>Vehicle number{goods ? ' *' : ''}</label><input data-testid="pass-vehicle" value={f.vehicle} onChange={(e) => set('vehicle', e.target.value)} /></div>
+          <div className="field"><label>Vehicle number{goods ? ' *' : ''}</label><input data-testid="pass-vehicle" maxLength={20} value={f.vehicle} onChange={(e) => set('vehicle', e.target.value)} /></div>
           {goods && (
             <>
               <div className="field"><label>What for</label><select data-testid="pass-goodskind" value={f.goodsKind} onChange={(e) => set('goodsKind', e.target.value)}>{GOODS_KINDS.map((k) => <option key={k}>{k}</option>)}</select></div>
               <div className="field"><label>People in the vehicle (driver included) *</label><input type="number" min="1" data-testid="pass-people" value={f.peopleCount} onChange={(e) => set('peopleCount', e.target.value)} /></div>
-              <div className="field"><label>Material</label><input data-testid="pass-material" value={f.material} onChange={(e) => set('material', e.target.value)} placeholder="e.g. sofa set, cement bags" /></div>
+              <div className="field"><label>Material</label><input data-testid="pass-material" maxLength={200} value={f.material} onChange={(e) => set('material', e.target.value)} placeholder="e.g. sofa set, cement bags" /></div>
               <label className="gg-row" style={{ gridColumn: '1 / -1' }}><input type="checkbox" data-testid="pass-carryout" checked={f.carryingOut} onChange={(e) => set('carryingOut', e.target.checked)} style={{ width: 'auto' }} /> Items will leave the community (this is the out-pass)</label>
-              {f.carryingOut && <div className="field" style={{ gridColumn: '1 / -1' }}><label>Items leaving *</label><input data-testid="pass-outitems" value={f.outItems} onChange={(e) => set('outItems', e.target.value)} placeholder="e.g. old sofa, 6 boxes" /></div>}
+              {f.carryingOut && <div className="field" style={{ gridColumn: '1 / -1' }}><label>Items leaving *</label><input data-testid="pass-outitems" maxLength={500} value={f.outItems} onChange={(e) => set('outItems', e.target.value)} placeholder="e.g. old sofa, 6 boxes" /></div>}
             </>
           )}
           {!goods && <div className="field" style={{ gridColumn: '1 / -1' }}><PhotoCapture label="Guest photo (optional)" value={f.photo} onChange={(v) => set('photo', v)} demoName={f.visitorName} testid="pass-photo" /></div>}

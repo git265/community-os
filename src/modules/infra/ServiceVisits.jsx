@@ -8,10 +8,10 @@ import { useCollection } from '../../context/AppContext.jsx';
 import { COLLECTIONS as C } from '../../lib/storage/index.js';
 import { getPrincipal } from '../../lib/security/principal.js';
 import { VISIT_KINDS, visitOf, logServiceVisit } from '../../lib/serviceVisits.js';
-import { fmtDate } from '../../lib/locale.js';
+import { fmtDate, todayLocal } from '../../lib/locale.js';
 
 const CONDS = ['Working', 'Needs attention', 'Under repair', 'Out of service', 'Standby'];
-const today = () => new Date().toISOString().slice(0, 10);
+const today = todayLocal;
 const plusMonths = (iso, n) => { const d = new Date(`${iso}T00:00:00`); d.setMonth(d.getMonth() + n); return d.toISOString().slice(0, 10); };
 
 export default function ServiceVisits({ asset, canEdit = false }) {

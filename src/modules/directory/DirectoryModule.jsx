@@ -38,6 +38,7 @@ function ContactForm({ record, cats, onClose, onSaved, contacts }) {
   async function submit() {
     if (!f.name.trim()) return setErr('Enter their name');
     if (!String(f.category).trim()) return setErr('Say what they do');
+    if (String(f.category).trim().length > 80) return setErr('Keep "What they do" short (up to 80 characters)');
     if (!String(f.phone || '').trim()) return setErr('Enter a phone number');
     if (String(f.phone).trim() !== String(record?.phone || '').trim()) { const v = validatePhone(f.phone); if (!v.ok) return setErr(v.error); }
     if (dup) return setErr(`${dup.name} is already listed with this number - open them and add your review instead`);
@@ -48,12 +49,12 @@ function ContactForm({ record, cats, onClose, onSaved, contacts }) {
     <Modal title={record ? 'Edit contact' : 'Recommend someone'} subtitle="Share a good technician, driver, cook or helper with your neighbours." onClose={onClose} wide>
       {err && <div className="notice error" data-testid="contact-error">{err}</div>}
       <div data-testid="contact-form" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))', gap: '8px 12px' }}>
-        <div className="field"><label>Name *</label><input aria-label="Name" value={f.name} onChange={(e) => set('name', e.target.value)} /></div>
+        <div className="field"><label>Name *</label><input aria-label="Name" maxLength={120} value={f.name} onChange={(e) => set('name', e.target.value)} /></div>
         <div className="field"><label>What they do *</label><Combobox value={f.category} onChange={(v) => set('category', v)} options={cats.map((c) => ({ value: c, label: c }))} allowCustom placeholder="Plumber, cook, driver…" /></div>
-        <div className="field"><label>Phone *</label><input aria-label="Phone" inputMode="tel" value={f.phone} onChange={(e) => set('phone', e.target.value)} placeholder="+91 …" /></div>
-        <div className="field"><label>Works in / lives near</label><input aria-label="Area" value={f.area} onChange={(e) => set('area', e.target.value)} /></div>
-        <div className="field"><label>Typical charges</label><input aria-label="Charges" value={f.rate} onChange={(e) => set('rate', e.target.value)} placeholder="e.g. ₹400 per visit" /></div>
-        <div className="field" style={{ gridColumn: '1 / -1' }}><label>About them</label><textarea rows={2} aria-label="About" value={f.notes} onChange={(e) => set('notes', e.target.value)} placeholder="Speciality, timings, languages…" /></div>
+        <div className="field"><label>Phone *</label><input aria-label="Phone" inputMode="tel" maxLength={30} value={f.phone} onChange={(e) => set('phone', e.target.value)} placeholder="+91 …" /></div>
+        <div className="field"><label>Works in / lives near</label><input aria-label="Area" maxLength={120} value={f.area} onChange={(e) => set('area', e.target.value)} /></div>
+        <div className="field"><label>Typical charges</label><input aria-label="Charges" maxLength={120} value={f.rate} onChange={(e) => set('rate', e.target.value)} placeholder="e.g. ₹400 per visit" /></div>
+        <div className="field" style={{ gridColumn: '1 / -1' }}><label>About them</label><textarea rows={2} aria-label="About" maxLength={4000} value={f.notes} onChange={(e) => set('notes', e.target.value)} placeholder="Speciality, timings, languages…" /></div>
       </div>
       {dup && <div className="notice">Already listed: <b>{dup.name}</b> ({dup.category}).</div>}
       <div className="form-actions"><button className="btn" data-testid="contact-save" onClick={submit}>Save</button><button className="btn secondary" onClick={onClose}>Cancel</button></div>
@@ -73,6 +74,7 @@ function ContactDetail({ contact, reviews, mod, mine, cats, contacts, onClose, o
   const avg = reviews.length ? reviews.reduce((n, r) => n + Number(r.rating), 0) / reviews.length : 0;
   async function post() {
     if (!(rating >= 1)) return setErr('Tap the stars to rate');
+    if (String(comment || '').length > 4000) return setErr('Keep the review to about 4,000 characters');
     const out = await saveReview({ ...(myReview || {}), contactId: contact.id, rating, comment: isEmptyHtml(comment) ? '' : comment, recommend: rec, author: currentUser?.name, unit: currentUser?.unit || '', createdAt: new Date().toISOString() });
     if (out) { setErr(''); onChanged(); }
   }
@@ -106,7 +108,7 @@ function ContactDetail({ contact, reviews, mod, mine, cats, contacts, onClose, o
         <div data-testid="review-form">
           {err && <div className="notice error">{err}</div>}
           <Stars value={rating} size={20} onPick={setRating} testid="review-stars" />
-          <div style={{ marginTop: 6 }} data-testid="review-editor"><RichTextEditor value={comment} onChange={setComment} placeholder="How was the work? Punctual, fair price, clean… (you can add photos)" minHeight={70} /></div>
+          <div style={{ marginTop: 6 }} data-testid="review-editor"><RichTextEditor value={comment} onChange={setComment} placeholder="How was the work? Punctual, fair price, clean…" minHeight={70} images={false} /></div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 6, flexWrap: 'wrap' }}>
             <select aria-label="Would use again" value={rec} onChange={(e) => setRec(e.target.value)} style={{ width: 'auto' }}><option value="Yes">Would use again</option><option value="No">Would not use again</option></select>
             <button className="btn" data-testid="post-review" onClick={post}>{myReview ? 'Update review' : 'Post review'}</button>

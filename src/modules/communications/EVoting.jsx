@@ -189,6 +189,10 @@ export default function EVoting() {
     const opts = (out.options || []).map((o) => String(o).trim()).filter(Boolean);
     out.options = opts.length ? opts : (out.kind === 'Resolution' ? FOR_AGAINST : []);
     if (out.options.length < 2) return 'A ballot needs at least two options.';
+    if (out.options.length > 10) return 'A ballot has up to 10 options.';
+    if (out.options.some((o) => o.length > 80)) return 'An option has up to 80 characters.';
+    if (new Set(out.options.map((o) => o.toLowerCase())).size !== out.options.length) return 'Each option is different.';
+    if (String(out.title || '').trim().length > 200) return 'The title has up to 200 characters.';
     if (out.kind === 'Resolution' && !(out.options.includes('For') && out.options.includes('Against'))) return 'A Resolution ballot needs “For” and “Against” among its options (you can add more, e.g. Abstain or Defer). Use “Choose one” for other questions.';
     if (out.closesOn < out.opensOn) return 'The closing date must be on or after the opening date.';
     if (Number(out.quorumPct) < 0 || Number(out.quorumPct) > 100 || Number(out.passPct) < 0 || Number(out.passPct) > 100) return 'Quorum and pass threshold are percentages between 0 and 100.';

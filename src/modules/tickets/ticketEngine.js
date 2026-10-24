@@ -1,3 +1,4 @@
+import { todayLocal } from '../../lib/locale.js';
 // Pure helpers for the generic Task/Ticket engine. Kept out of
 // TicketsModule.jsx so the workflow rules (who can create what, which
 // statuses follow which, who's eligible to Accept, who's allowed to see a
@@ -233,7 +234,7 @@ export function ledgerEntryForTask(ticket, vendorName, invoice) {
   return entry;
 }
 
-export const todayIso = () => new Date().toISOString().slice(0, 10);
+export const todayIso = todayLocal;   // this device's calendar day (the server's too), not UTC's
 
 /** SLA chip for lists and the ticket header: { tone: 'late' | 'soon' | 'ok' | 'none', text }. Finished tickets never show as late. */
 export function slaInfo(v, status) {

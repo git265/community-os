@@ -45,6 +45,17 @@ export default function Tabs({ base = 'tabs', className = '', children, ...rest 
     return () => ro?.disconnect();
   }, [phone, sig]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // The estimate above uses a standard tab size; a bar with its own padding or bigger tabs (or the open tab swapped in from "More") can still
+  // run past the edge. Then one fewer tab goes on the row, until the last thing on it ends inside the bar.
+  useLayoutEffect(() => {
+    if (!phone || !row.current || fit <= 1) return;
+    const bar = row.current; const cs = getComputedStyle(bar);
+    const edge = bar.getBoundingClientRect().right - (parseFloat(cs.paddingRight) || 0) + 1;
+    const kids = [...bar.children].filter((c) => !c.classList.contains('tabs-measure'));
+    const last = kids[kids.length - 1];
+    if (last && last.getBoundingClientRect().right > edge) setFit((f) => Math.max(1, f - 1));
+  });
+
   useEffect(() => {
     if (!open) return undefined;
     const close = (e) => { if (more.current && !more.current.contains(e.target)) setOpen(false); };

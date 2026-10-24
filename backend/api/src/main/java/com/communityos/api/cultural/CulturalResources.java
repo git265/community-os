@@ -48,7 +48,9 @@ public final class CulturalResources {
             @Override public boolean mayWrite(Caller c) { return manager(c); }
             @Override public EventFields validate(Caller c, EventFields f, EventFields old) {
                 String name = Checks.required(f.name(), "Name");
+                Checks.rule(name.length() >= 2 && name.length() <= 200, "bad-name", "An event name has 2 to 200 characters");   // the table's own rule, said here
                 Checks.present(f.type(), "Type"); Checks.present(f.startDate(), "Start date");
+                Checks.rule(f.repeatUntil() == null || f.startDate() == null || !f.repeatUntil().isBefore(f.startDate()), "bad-repeat", "It repeats until a date before it starts");
                 Checks.oneOf(f.type(), "Type", List.of("Festival", "Cultural programme", "Sports / games", "Celebration", "Other"));
                 Checks.oneOf(f.repeat(), "Repeat", List.of("Does not repeat", "Weekly", "Every 2 weeks", "Monthly (same date)"));
                 String status = f.status() == null ? "Planning" : Checks.oneOf(f.status(), "Status", List.of("Planning", "Open", "Completed", "Cancelled"));

@@ -86,7 +86,7 @@ public final class AssetService {
         String k = kind == null || kind.isBlank() ? "Service" : kind.strip();
         if (!VISIT_KINDS.contains(k)) throw new DomainException.RuleViolated("bad-kind", "A visit is one of: " + String.join(", ", VISIT_KINDS));
         String v = blank(vendor);
-        if (v != null && v.length() > 60) throw new DomainException.RuleViolated("too-long", "The vendor's name is up to 60 characters");
+        if (v != null && v.length() > 200) throw new DomainException.RuleViolated("too-long", "The vendor's name is up to 200 characters");   // as long as a vendor's name
         String cond = condition == null || condition.isBlank() ? "Working" : condition.strip();
         LocalDate day = date == null ? today() : date;
         if (nextService != null && nextService.isBefore(day)) throw new DomainException.RuleViolated("bad-next", "The next service is on or after the visit");

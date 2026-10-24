@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { getDataSource } from '../../lib/storage/dataSource.js';
 import { useApp, useCollection } from '../../context/AppContext.jsx';
 import { COLLECTIONS as C } from '../../lib/storage/index.js';
 import { canWriteCollection } from '../../lib/security/authz.js';
@@ -29,9 +30,14 @@ function EntryForm({ row, names, onClose }) {
     if (!f.staffName.trim() || !f.date) return setErr('Choose the staff member and the date');
     if (!/^\d\d:\d\d$/.test(f.tin)) return setErr('Clock-in time is required (HH:MM)');
     if (f.tout && !/^\d\d:\d\d$/.test(f.tout)) return setErr('Clock-out must be HH:MM');
-    if (f.tout && f.tout <= f.tin) return setErr('Clock-out must be after clock-in');
+    if (f.tout && f.tout === f.tin) return setErr('Clock-out must be after clock-in');
     if (!f.note.trim()) return setErr('Please give the reason (it is kept in the audit trail)');
-    const ci = toIso(f.date, f.tin); const co = f.tout ? toIso(f.date, f.tout) : '';
+    if (f.note.trim().length > 500) return setErr('Keep the reason to 500 characters');
+    // a clock-out earlier than the clock-in is the next morning (a night shift, 22:00 to 06:00)
+    const ci = toIso(f.date, f.tin);
+    const nextDay = (d) => { const x = new Date(`${d}T00:00:00`); x.setDate(x.getDate() + 1); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`; };
+    const co = f.tout ? toIso(f.tout < f.tin ? nextDay(f.date) : f.date, f.tout) : '';
+    if (co && new Date(co) > new Date()) return setErr('The clock-out is in the future');
     const out = await save({ ...row, staffName: f.staffName.trim(), date: f.date, clockIn: ci, clockOut: co, hours: co ? Math.round(((new Date(co) - new Date(ci)) / 3600000) * 100) / 100 : 0, note: f.note.trim(), source: row.source || 'Manager entry', inSite: row.inSite || 'Manual entry', roleName: row.roleName || '' });
     if (out) onClose();
   }
@@ -41,8 +47,8 @@ function EntryForm({ row, names, onClose }) {
         <div className="field"><label>Staff member *</label><input list="att-names" aria-label="Staff member" value={f.staffName} onChange={(e) => set('staffName', e.target.value)} /><datalist id="att-names">{names.map((n) => <option key={n} value={n} />)}</datalist></div>
         <div className="field"><label>Date *</label><input type="date" aria-label="Date" value={f.date} onChange={(e) => set('date', e.target.value)} /></div>
         <div className="field"><label>Clock in *</label><input type="time" aria-label="Clock in" value={f.tin} onChange={(e) => set('tin', e.target.value)} /></div>
-        <div className="field"><label>Clock out</label><input type="time" aria-label="Clock out" value={f.tout} onChange={(e) => set('tout', e.target.value)} /></div>
-        <div className="field" style={{ gridColumn: '1 / -1' }}><label>Reason / note *</label><input aria-label="Reason" value={f.note} onChange={(e) => set('note', e.target.value)} placeholder="e.g. Forgot to clock out; confirmed by supervisor" /></div>
+        <div className="field"><label>Clock out</label><input type="time" aria-label="Clock out" value={f.tout} onChange={(e) => set('tout', e.target.value)} />{f.tout && f.tin && f.tout < f.tin && <small className="muted">Next day (a night shift)</small>}</div>
+        <div className="field" style={{ gridColumn: '1 / -1' }}><label>Reason / note *</label><input aria-label="Reason" maxLength={500} value={f.note} onChange={(e) => set('note', e.target.value)} placeholder="e.g. Forgot to clock out; confirmed by supervisor" /></div>
         {err && <div className="field-error" style={{ gridColumn: '1 / -1' }}>{err}</div>}
         <div className="form-actions"><button type="submit" className="btn" data-testid="att-save">Save</button>{row.id && <button type="button" className="btn danger" onClick={async () => { if (window.confirm('Delete this attendance entry?')) { await remove(row.id); onClose(); } }}>Delete</button>}<button type="button" className="btn secondary" onClick={onClose}>Cancel</button></div>
       </form>
@@ -109,7 +115,8 @@ export default function AttendanceTab() {
           <PageActions inline>
           <button type="button" className="btn secondary sm" data-testid="att-csv" disabled={!rows.length} onClick={() => csv(`attendance-${from}-to-${to}.csv`, sessionCsv())}>⬇ CSV</button>
           {manager && <button type="button" className="btn secondary sm" disabled={!totals.length} onClick={() => csv(`attendance-summary-${from}-to-${to}.csv`, totals.map((t) => ({ Staff: t.name, Role: t.role, 'Days present': t.days, Sessions: t.sessions, 'Total hours': t.hours, 'Late arrivals': t.late, 'Outside site': t.outside, 'No location': t.noGps, 'Gate checks': t.gate })))}>⬇ Summary CSV</button>}
-          {canEdit && <button type="button" className="btn sm" data-testid="att-add" onClick={() => setModal({ date: today, source: 'Manager entry' })}>+ Manual entry</button>}
+          {/* the back end records a clock-in only as the person's own (at its own time); a missed day is corrected on the person's entry */}
+          {canEdit && getDataSource().mode !== 'v2' && <button type="button" className="btn sm" data-testid="att-add" onClick={() => setModal({ date: today, source: 'Manager entry' })}>+ Manual entry</button>}
           </PageActions>
         </div>
 

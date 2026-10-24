@@ -205,9 +205,9 @@ export function PayDialog({ initial = {}, accounts, routing, onClose, onDone }) 
         <div className="field"><label>Bank account *</label>
           <select aria-label="Bank account" value={account} onChange={(e) => set('account', e.target.value)}><option value="">Choose…</option>{accounts.map((a) => <option key={a.id} value={a.name}>{a.name}{a.name === routing[f.area] ? ' (default for ' + f.area + ')' : ''}</option>)}</select></div>
         <div className="field"><label>Mode</label><select aria-label="Mode" value={f.mode} onChange={(e) => set('mode', e.target.value)}>{MODES.map((m) => <option key={m}>{m}</option>)}</select></div>
-        <div className="field"><label>{f.mode === 'Cheque' ? 'Cheque number *' : 'UTR / reference' + (f.mode === 'Cash' ? '' : ' *')}</label><input aria-label="Reference" value={f.ref} onChange={(e) => set('ref', e.target.value)} /></div>
+        <div className="field"><label>{f.mode === 'Cheque' ? 'Cheque number *' : 'UTR / reference' + (f.mode === 'Cash' ? '' : ' *')}</label><input aria-label="Reference" maxLength={100} value={f.ref} onChange={(e) => set('ref', e.target.value)} /></div>
         <div className="field"><label>Date</label><input type="date" aria-label="Payment date" value={f.date} max={today()} onChange={(e) => set('date', e.target.value)} /></div>
-        <div className="field"><label>Paid to</label><input aria-label="Paid to" value={f.vendor} onChange={(e) => set('vendor', e.target.value)} /></div>
+        <div className="field"><label>Paid to</label><input aria-label="Paid to" maxLength={200} value={f.vendor} onChange={(e) => set('vendor', e.target.value)} /></div>
         <div className="field"><label>Fund (optional)</label><select aria-label="Fund" data-testid="pay-fund" value={f.fund || ''} onChange={(e) => set('fund', e.target.value)}><option value="">None</option>{fundRows.map((x) => <option key={x.id} value={x.name}>{x.name}{x.kind ? ` (${x.kind})` : ''}</option>)}</select></div>
         {f.type === 'Debit' && (
           <div className="field" style={{ gridColumn: '1 / -1' }} data-testid="tds-box">
@@ -233,7 +233,7 @@ export function PayDialog({ initial = {}, accounts, routing, onClose, onDone }) 
           {gst.msgs.map((m, i) => <div key={i} data-testid="gst-note" className={m.tone === 'bad' ? 'field-error' : 'muted'} style={{ marginTop: 3, color: m.tone === 'warn' ? '#b45309' : m.tone === 'ok' ? '#15803d' : undefined }}>{m.tone === 'ok' ? '✓ ' : m.tone === 'bad' ? '✕ ' : m.tone === 'warn' ? '⚠ ' : 'ℹ '}{m.text}</div>)}
         </div>
         <div className="field" style={{ gridColumn: '1 / -1' }} data-testid="pay-files"><label>Attachments (bill, receipt, payment proof)</label><AttachmentPicker pending={files} onChange={setFiles} label="Add files" compact /></div>
-        <div className="field" style={{ gridColumn: '1 / -1' }}><label>Note</label><input aria-label="Note" value={f.description} onChange={(e) => set('description', e.target.value)} placeholder={picked ? picked.label : 'What is this for?'} /></div>
+        <div className="field" style={{ gridColumn: '1 / -1' }}><label>Note</label><input aria-label="Note" maxLength={500} value={f.description} onChange={(e) => set('description', e.target.value)} placeholder={picked ? picked.label : 'What is this for?'} /></div>
         {(sameRec.length > 0 || sameTask.length > 0) && (
           <div className="notice" data-testid="prior-payments" style={{ gridColumn: '1 / -1', borderColor: '#f59e0b', background: '#fffbeb' }}>
             <b>⚠ {sameRec.length ? 'This record already has a payment' : 'Other payments exist for this task'}</b>

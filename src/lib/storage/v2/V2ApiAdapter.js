@@ -503,6 +503,8 @@ async function putFieldStaff(rec) {
   return fieldStaffOf(await call(`/field-staff/${encodeURIComponent(rec.id)}`, json('PATCH', { clockedIn: !!rec.clockedIn }, ifMatch(rec.version ?? before.version))));
 }
 
+/** A unit's details beyond its number, block, type, occupancy and area (custom fields on the server, V57; plan and load are its own). */
+const UNIT_EXTRA_KEYS = ['maintenancePlan', 'sanctionedKw', 'bedrooms', 'parking', 'residentsCount', 'vehiclesCount', 'domesticStaffCount', 'possessionDate'];
 async function putProperty(rec) {
   const before = isUuid(rec.id) ? await readers.properties.get(rec.id) : null;
   if (!before) {                                                     // a new unit: the server checks its number (rules, pattern, any case)
@@ -511,6 +513,13 @@ async function putProperty(rec) {
     dropUnits();
     const body = unitPeopleBody(rec);                                // then its people (they sign in to it), its occupancy and who its bills go to
     if (body.people.length || rec.billTo === 'Tenant') await call(`/units/${encodeURIComponent(u.id)}/people`, json('PUT', body));
+    // the unit's other details (bedrooms, parking ... and the plan) are not part of a new unit's request: they follow as an edit
+    const extra = Object.fromEntries(UNIT_EXTRA_KEYS.filter((k) => rec[k] !== undefined && rec[k] !== '' && rec[k] != null).map((k) => [k, rec[k]]));
+    if (Object.keys(extra).length) {
+      const fresh = await readers.properties.get(u.id);
+      const patch = unitPatch(fresh, extra);
+      if (patch) await call(`/units/${encodeURIComponent(u.id)}`, json('PATCH', patch, ifMatch(fresh.version)));
+    }
     return readers.properties.get(u.id);
   }
   // the people go to the server only when they were read with the unit: a list row (or a failed read) never ends anyone
@@ -779,6 +788,8 @@ async function putReportSchedule(rec) {
 async function putAttendance(rec) {
   const before = isUuid(rec.id) ? await readers.attendance.get(rec.id) : null;
   const pos = (p) => ({ lat: n2v(rec[`${p}Lat`]), lng: n2v(rec[`${p}Lng`]), acc: n2v(rec[`${p}Acc`]) });
+  // a supervisor's entry for someone else is not a clock-in of their own (the server would record the supervisor, now)
+  if (!before && rec.source === 'Manager entry') throw new Error('A manual entry for someone else is not on the back end yet - the person clocks in, then a supervisor corrects the times.');
   if (!before) return attendanceOf(await call('/workforce/attendance/clock-in', json('POST', { ...pos('in'), shiftType: rec.shiftType || null, note: rec.note || null })));
   if (!before.clockOut && rec.clockOut && rec.source !== 'Supervisor' && (!rec.clockIn || rec.clockIn === before.clockIn)) {
     return attendanceOf(await call('/workforce/attendance/clock-out', json('POST', { ...pos('out'), note: rec.note && rec.note !== before.note ? rec.note : null })));

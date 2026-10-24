@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { validatePhone } from '../../lib/phone.js';
 import { useApp, useCollection } from '../../context/AppContext.jsx';
 import { useUnitRoster } from '../../lib/unitRoster.js';
 import { COLLECTIONS } from '../../lib/storage/index.js';
@@ -224,6 +225,7 @@ function DeliveryMode({ gate, note, people, units }) {
   async function go() {
     if (!f.unit.trim()) { note(false, 'Which villa is the delivery for?'); return; }
     if (!rider && !f.name.trim()) { note(false, "Enter the rider's name, or pick a registered rider."); return; }
+    { const pe = gateMobileError(f.phone); if (pe) { note(false, `Rider mobile: ${pe}`); return; } }
     const r = await deliveryDecision({ person: rider || null, name: f.name.trim(), phone: f.phone, photo, company: rider?.deliveryCompany && f.company === 'Other' ? rider.deliveryCompany : f.company, unit: f.unit.trim(), gate, vehicle: f.vehicle });
     if (r.outcome === 'admitted') note(true, `${r.visit.name} allowed in for ${f.unit} (${f.company}).`);
     else if (r.outcome === 'left') note(true, `${f.unit} asked for deliveries to be left at the gate. Take the parcel; the villa has been told.`);
@@ -235,7 +237,7 @@ function DeliveryMode({ gate, note, people, units }) {
       <div className="field"><label>Deliver to villa *</label><input list="gg-units2" data-testid="del-unit" value={f.unit} onChange={(e) => set('unit', e.target.value)} /></div>
       <div className="field"><label>Registered rider</label><select data-testid="del-rider" value={f.riderId} onChange={(e) => set('riderId', e.target.value)}><option value="">New or unregistered rider</option>{riders.map((r) => <option key={r.id} value={r.id}>{r.name} · {r.deliveryCompany}</option>)}</select></div>
       {!rider && <><div className="field"><label>Rider name *</label><input data-testid="del-name" value={f.name} onChange={(e) => set('name', e.target.value)} /></div>
-        <div className="field"><label>Rider mobile</label><input value={f.phone} onChange={(e) => set('phone', e.target.value)} /></div>
+        <div className="field"><label>Rider mobile</label><input inputMode="tel" maxLength={20} value={f.phone} onChange={(e) => set('phone', e.target.value)} /></div>
         <div className="field"><label>Vehicle number</label><input value={f.vehicle} onChange={(e) => set('vehicle', e.target.value)} /></div>
         <PhotoCapture label="Rider photo" value={photo} onChange={setPhoto} demoName={f.name || 'Rider'} testid="del-photo" /></>}
       <div className="form-actions"><button type="button" className="btn" data-testid="del-go" onClick={go}>Check delivery</button></div>
@@ -250,6 +252,7 @@ function OtherMode({ gate, note, units }) {
   const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
   async function go() {
     if (!f.name.trim() || !f.unit.trim()) { note(false, 'Name and villa are needed.'); return; }
+    { const pe = gateMobileError(f.phone); if (pe) { note(false, `Mobile: ${pe}`); return; } }
     if (!photo) { note(false, "Take the visitor's photo first. The resident approves from the photo."); return; }
     const gv = f.kind === 'Goods vehicle';
     if (gv && (!f.vehicle.trim() || !(Number(f.people) >= 1))) { note(false, 'A goods vehicle needs its number and how many people are in it.'); return; }
@@ -265,7 +268,7 @@ function OtherMode({ gate, note, units }) {
       <div className="field"><label>Purpose</label><input data-testid="v-purpose" value={f.purpose} onChange={(e) => set('purpose', e.target.value)} placeholder="e.g. plumber, relative" /></div>
       <div className="field"><label>Company</label><input value={f.company} onChange={(e) => set('company', e.target.value)} /></div>
       <div className="field"><label>Vehicle number</label><input value={f.vehicle} onChange={(e) => set('vehicle', e.target.value)} /></div>
-      <div className="field"><label>Mobile</label><input value={f.phone} onChange={(e) => set('phone', e.target.value)} /></div>
+      <div className="field"><label>Mobile</label><input inputMode="tel" maxLength={20} value={f.phone} onChange={(e) => set('phone', e.target.value)} /></div>
       {f.kind === 'Goods vehicle' && <><div className="field"><label>People in the vehicle (driver included) *</label><input type="number" min="1" data-testid="v-people" value={f.people} onChange={(e) => set('people', e.target.value)} /></div><div className="field"><label>Material</label><input data-testid="v-material" value={f.material} onChange={(e) => set('material', e.target.value)} /></div></>}
       <PhotoCapture label={f.kind === 'Goods vehicle' ? 'Photo of the people and vehicle together' : 'Visitor photo'} required value={photo} onChange={setPhoto} demoName={f.name || 'Visitor'} testid="v-photo" />
       <div className="form-actions"><button type="button" className="btn" data-testid="v-send" onClick={go}>Ask the resident</button></div>
@@ -338,6 +341,12 @@ function GoodsExit({ v, note }) {
   );
 }
 
+/** A mobile typed at the gate: empty, a 10-digit Indian mobile (the +91 is assumed), or a full number with its country code. */
+function gateMobileError(raw) {
+  const t = String(raw || '').trim(); if (!t) return '';
+  if (t.startsWith('+')) { const v = validatePhone(t); return v.ok ? '' : v.error; }
+  return /^0?[6-9]\d{9}$/.test(t.replace(/[\s-]/g, '')) ? '' : '10 digits, or the full number with its country code (+44 …)';
+}
 /** A staff member shows the badge QR on their phone: it proves who they are and opens or closes their visit. */
 function BadgeMode({ gate, note }) {
   const [res, setRes] = useState(null);

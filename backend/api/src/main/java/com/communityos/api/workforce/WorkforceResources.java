@@ -31,7 +31,8 @@ public final class WorkforceResources {
     }
 
     /** One per community (created with it); the supervisors set it. */
-    public record SettingFields(String siteName, BigDecimal siteLat, BigDecimal siteLng, Integer radiusM, String enforcement, Integer graceMinutes, Map<String, Object> shiftStarts, BigDecimal maxShiftHours) {}
+    /** requireClockIn: staff open the portal only while clocked in (the app's duty gate); not sent = as it was. */
+    public record SettingFields(String siteName, BigDecimal siteLat, BigDecimal siteLng, Integer radiusM, String enforcement, Integer graceMinutes, Map<String, Object> shiftStarts, BigDecimal maxShiftHours, Boolean requireClockIn) {}
     public static final Resource<SettingFields> SETTINGS = new Resource<>(
         new ResourceTable<>("attendanceSettings", "workforce/attendance-settings", "workforce.attendance_setting", SettingFields.class, "r.created_at"),
         new ResourceRules<>() {
@@ -50,7 +51,8 @@ public final class WorkforceResources {
                 for (var e : starts.entrySet()) Checks.rule(e.getValue() instanceof String s && s.matches(HHMM), "bad-time", e.getKey() + " starts at a time like 06:00");
                 BigDecimal max = f.maxShiftHours() == null ? BigDecimal.valueOf(12) : f.maxShiftHours();
                 Checks.rule(max.compareTo(BigDecimal.ONE) >= 0 && max.compareTo(BigDecimal.valueOf(24)) <= 0, "bad-hours", "A shift is 1 to 24 hours");
-                return new SettingFields(Checks.text(f.siteName(), "Site", 120), f.siteLat(), f.siteLng(), f.radiusM(), enf, f.graceMinutes(), starts, max);
+                Boolean clockIn = f.requireClockIn() != null ? f.requireClockIn() : old == null || old.requireClockIn() == null ? Boolean.TRUE : old.requireClockIn();
+                return new SettingFields(Checks.text(f.siteName(), "Site", 120), f.siteLat(), f.siteLng(), f.radiusM(), enf, f.graceMinutes(), starts, max, clockIn);
             }
         });
 

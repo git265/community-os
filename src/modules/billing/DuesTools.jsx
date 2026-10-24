@@ -135,8 +135,11 @@ function ReminderDialog({ onClose }) {
   const due = dueForReminder(dues, { enabled: true, everyDays: Number(f.reminderEveryDays) || 7, leadDays: Number(f.reminderLeadDays) || 0, max: Number(f.reminderMax) || 4 });
   const tpl = tpls.find((t) => t.appliesTo === 'Payment reminder');
   async function saveRules() {
-    await save({ ...(row || {}), reminderEnabled: !!f.reminderEnabled, reminderEveryDays: Number(f.reminderEveryDays) || 7, reminderLeadDays: Number(f.reminderLeadDays) || 0, reminderMax: Number(f.reminderMax) || 4 });
-    setMsg('Reminder rules saved.');
+    const every = Number(f.reminderEveryDays) || 7; const lead = Number(f.reminderLeadDays) || 0; const max = Number(f.reminderMax) || 4;
+    if (!(every >= 0 && every <= 365) || !(lead >= 0 && lead <= 365)) { setMsg('Reminder days are 0 to 365.'); return; }
+    if (!(max >= 0 && max <= 50)) { setMsg('Up to 50 reminders a bill.'); return; }
+    const out = await save({ ...(row || {}), reminderEnabled: !!f.reminderEnabled, reminderEveryDays: every, reminderLeadDays: lead, reminderMax: max });
+    setMsg(out ? 'Reminder rules saved.' : 'Not saved.');
   }
   async function sendNow() {
     const n = await runDueReminders({ force: true, actor: getPrincipal().name });

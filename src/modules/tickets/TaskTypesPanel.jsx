@@ -3,7 +3,7 @@ import { useCollection } from '../../context/AppContext.jsx';
 import { COLLECTIONS } from '../../lib/storage/index.js';
 
 const STAGE_OPTIONS = ['No', 'Optional', 'Yes'];
-const BLANK = { residentDefault: false, name: '', icon: '🔧', creatorScope: 'Resident', assignmentMode: 'Role queue (staff accepts)', quotationStage: 'No', ecApprovalStage: 'No', treasurerStage: 'No', invoiceStage: 'No', paymentStage: 'No', residentVisible: true };
+const BLANK = { residentDefault: false, name: '', icon: '🔧', creatorScope: 'Resident', assignmentMode: 'Role queue (staff accepts)', quotationStage: 'No', ecApprovalStage: 'No', treasurerStage: 'No', invoiceStage: 'No', paymentStage: 'No', residentVisible: true, active: true };   // active: a new type is in use (the server keeps a missing flag as off)
 
 /**
  * Super-Admin/Facility-Manager config for the Task/Ticket engine: adding a
@@ -21,11 +21,11 @@ function TypeForm({ value, onChange, nameLocked, nameErr }) {
   return (
     <div className="form-grid">
       <div className={`field${nameErr ? ' invalid' : ''}`}><label>Name *</label>
-        <input aria-label="Type name" value={value.name} disabled={nameLocked} onChange={(e) => set({ name: e.target.value })} placeholder="Pest Control" />
+        <input aria-label="Type name" maxLength={60} value={value.name} disabled={nameLocked} onChange={(e) => set({ name: e.target.value })} placeholder="Pest Control" />
         {nameLocked && <small className="muted">Tasks already use this name, so it can’t be renamed. Add a new type instead.</small>}
         {nameErr && <div className="field-error">{nameErr}</div>}
       </div>
-      <div className="field"><label>Icon (emoji)</label><input value={value.icon || ''} onChange={(e) => set({ icon: e.target.value })} /></div>
+      <div className="field"><label>Icon (emoji)</label><input aria-label="Icon" maxLength={8} value={value.icon || ''} onChange={(e) => set({ icon: e.target.value })} /></div>
       <div className="field"><label>Who can create</label>
         <select aria-label="Who can create" value={value.creatorScope} onChange={(e) => set({ creatorScope: e.target.value })}>{SCOPES.map((o) => <option key={o}>{o}</option>)}</select>
       </div>
@@ -67,27 +67,35 @@ export default function TaskTypesPanel() {
   const usedBy = (t) => tickets.filter((x) => x.taskType === t.name).length;
   const editing = taskTypes.find((t) => t.id === editingId);
 
-  // only one type is the default for residents' own requests
+  // only one type is the default for residents' own requests: the new default is saved first, so a refused save never leaves residents with none
   async function saveWithDefault(rec) {
-    if (rec.residentDefault) for (const o of taskTypes) if (o.id !== rec.id && o.residentDefault) await save({ ...o, residentDefault: false });
-    return save(rec);
+    const out = await save(rec);
+    if (out && rec.residentDefault) for (const o of taskTypes) if (o.id !== rec.id && o.residentDefault) await save({ ...o, residentDefault: false });
+    return out;
   }
+  // the server's rules, checked here first so the message sits on the form
+  const typeError = (t) => {
+    const n = String(t.name || '').trim();
+    if (!n) return 'Name is required';
+    if (n.length < 2 || n.length > 60) return 'A name has 2 to 60 characters';
+    if (String(t.icon || '').length > 8) return 'The icon is one emoji (up to 8 characters)';
+    if (t.residentDefault && !t.residentVisible) return 'The type used for residents’ requests must be visible to residents - tick “Residents can see” too';
+    return '';
+  };
   const nameClash = (name, id) => taskTypes.some((t) => t.id !== id && t.name.trim().toLowerCase() === name.trim().toLowerCase());
 
   async function createType(e) {
     e.preventDefault();
-    if (!creating.name.trim()) return setNameErr('Name is required');
+    const bad = typeError(creating); if (bad) return setNameErr(bad);
     if (nameClash(creating.name, null)) return setNameErr('A task type with this name already exists');
     setNameErr('');
-    await saveWithDefault({ ...creating, name: creating.name.trim() });
-    setCreating(null);
+    if (await saveWithDefault({ ...creating, name: creating.name.trim() })) setCreating(null);
   }
   async function saveEdit() {
-    if (!draft.name.trim()) return setNameErr('Name is required');
+    const bad = typeError(draft); if (bad) return setNameErr(bad);
     if (nameClash(draft.name, draft.id)) return setNameErr('A task type with this name already exists');
     setNameErr('');
-    await saveWithDefault({ ...draft, name: draft.name.trim() });
-    setEditingId(null); setDraft(null);
+    if (await saveWithDefault({ ...draft, name: draft.name.trim() })) { setEditingId(null); setDraft(null); }
   }
   async function del() {
     const n = usedBy(editing);

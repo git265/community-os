@@ -1,6 +1,7 @@
 // AMC and service visits are kept on the asset (Assets → the asset, or the Site map): an entry in its condition history - "AMC visit · Otis" -
 // with what was done and the visit report, which moves the asset's last and next service dates. The vendor (Vendors) holds the AMC contract;
 // Audits keep the independent inspections and certificates. On the server: POST /assets/{id}/service-visits (AssetService.serviceVisit).
+import { todayLocal } from './locale.js';
 import { COLLECTIONS as C } from './storage/StorageAdapter.js';
 import { getDataSource } from './storage/dataSource.js';
 import { persistPending } from './files/attachments.js';
@@ -12,7 +13,7 @@ export function visitOf(entry) {
   const kind = VISIT_KINDS.find((k) => src === k || src.startsWith(`${k} · `));
   return kind ? { kind, vendor: src.slice(kind.length + 3) || '' } : null;
 }
-const today = () => new Date().toISOString().slice(0, 10);
+const today = todayLocal;
 
 /** Log a visit: v = { date, kind, vendor, condition, note, nextService }; pending: the report files picked. Returns the history entry. */
 export async function logServiceVisit(asset, v, pending = [], by = '') {

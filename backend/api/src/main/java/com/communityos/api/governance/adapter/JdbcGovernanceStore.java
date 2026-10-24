@@ -80,7 +80,7 @@ public final class JdbcGovernanceStore implements GovernanceStore {
         FROM property.unit u
         JOIN LATERAL (SELECT x.* FROM property.occupant x
                        WHERE x.community_id = u.community_id AND x.unit_id = u.id AND x.relation IN ('Owner', 'Co-owner')
-                         AND (x.to_date IS NULL OR x.to_date > current_date) AND (x.from_date IS NULL OR x.from_date <= current_date)
+                         AND (x.to_date IS NULL OR x.to_date > CAST(:today AS date)) AND (x.from_date IS NULL OR x.from_date <= CAST(:today AS date))
                        ORDER BY (x.id = u.evote_occupant_id) DESC NULLS LAST, x.is_primary DESC, x.full_name LIMIT 1) o ON true
         LEFT JOIN identity.person p ON p.id = o.person_id
         WHERE u.status = 'Active' ORDER BY u.unit_no""";
@@ -92,14 +92,14 @@ public final class JdbcGovernanceStore implements GovernanceStore {
         FROM property.unit u
         JOIN property.occupant o ON o.community_id = u.community_id AND o.unit_id = u.id
         LEFT JOIN identity.person p ON p.id = o.person_id
-        WHERE u.status = 'Active' AND o.relation IN ('Owner', 'Co-owner') AND (o.to_date IS NULL OR o.to_date > current_date) AND (o.from_date IS NULL OR o.from_date <= current_date)
+        WHERE u.status = 'Active' AND o.relation IN ('Owner', 'Co-owner') AND (o.to_date IS NULL OR o.to_date > CAST(:today AS date)) AND (o.from_date IS NULL OR o.from_date <= CAST(:today AS date))
         GROUP BY u.id, u.unit_no, u.evote_occupant_id ORDER BY u.unit_no""";
     /** Choose a unit's e-vote number: one of its current owners, or none (back to the primary owner). */
     static final String SET_VOTER = """
         UPDATE property.unit u SET evote_occupant_id = CAST(:occupant AS uuid), updated_at = now()
         WHERE u.id = CAST(:unit AS uuid) AND u.status = 'Active'
           AND (CAST(:occupant AS uuid) IS NULL OR EXISTS (SELECT 1 FROM property.occupant o WHERE o.community_id = u.community_id AND o.unit_id = u.id
-               AND o.id = CAST(:occupant AS uuid) AND o.relation IN ('Owner', 'Co-owner') AND (o.to_date IS NULL OR o.to_date > current_date)))
+               AND o.id = CAST(:occupant AS uuid) AND o.relation IN ('Owner', 'Co-owner') AND (o.to_date IS NULL OR o.to_date > CAST(:today AS date))))
         RETURNING u.unit_no""";
     static final String ELECTOR_INSERT = """
         INSERT INTO governance.ballot_elector (community_id, ballot_id, unit_id, unit_no, owners)
@@ -145,7 +145,11 @@ public final class JdbcGovernanceStore implements GovernanceStore {
         ORDER BY (o.to_date IS NULL) DESC, o.is_primary DESC LIMIT 1""";
 
     private final NamedParameterJdbcTemplate jdbc; private final ObjectMapper json;
-    public JdbcGovernanceStore(NamedParameterJdbcTemplate jdbc, ObjectMapper json) { this.jdbc = jdbc; this.json = json; }
+    /** clock: the community's calendar day decides who owns a unit today (the database's current_date is UTC's: before 05:30 in India, yesterday). */
+    private final java.time.Clock clock;
+    public JdbcGovernanceStore(NamedParameterJdbcTemplate jdbc, ObjectMapper json, java.time.Clock clock) { this.jdbc = jdbc; this.json = json; this.clock = clock; }
+    public JdbcGovernanceStore(NamedParameterJdbcTemplate jdbc, ObjectMapper json) { this(jdbc, json, java.time.Clock.systemDefaultZone()); }
+    private String today() { return java.time.LocalDate.now(clock).toString(); }
 
     // ---- meetings ------------------------------------------------------------------------------------------------------------------------------
     @Override public List<Governance.Meeting> meetings(MeetingFilter f) {
@@ -202,9 +206,9 @@ public final class JdbcGovernanceStore implements GovernanceStore {
         p.put("opensOn", s(b.opensOn)); p.put("closesOn", s(b.closesOn)); p.put("quorum", b.quorumPct); p.put("pass", b.passPct); p.put("meeting", s(b.meetingId));
         return p;
     }
-    @Override public List<Governance.Elector> currentOwners() { return jdbc.query(OWNERS_NOW, Map.of(), (rs, i) -> elector(rs)); }
+    @Override public List<Governance.Elector> currentOwners() { return jdbc.query(OWNERS_NOW, Map.of("today", today()), (rs, i) -> elector(rs)); }
     @Override public List<Voters> voters() {
-        return jdbc.query(VOTERS, Map.of(), (rs, i) -> {
+        return jdbc.query(VOTERS, Map.of("today", today()), (rs, i) -> {
             List<VoterOwner> owners = new java.util.ArrayList<>();
             try {
                 for (Map<String, Object> o : json.readValue(rs.getString("owners"), new com.fasterxml.jackson.core.type.TypeReference<List<Map<String, Object>>>() {}))
@@ -215,7 +219,7 @@ public final class JdbcGovernanceStore implements GovernanceStore {
         });
     }
     @Override public java.util.Optional<String> setVoter(UUID unit, UUID occupant) {
-        java.util.Map<String, Object> p = new java.util.HashMap<>(); p.put("unit", unit.toString()); p.put("occupant", occupant == null ? null : occupant.toString());
+        java.util.Map<String, Object> p = new java.util.HashMap<>(); p.put("unit", unit.toString()); p.put("occupant", occupant == null ? null : occupant.toString()); p.put("today", today());
         return jdbc.query(SET_VOTER, p, (rs, i) -> rs.getString("unit_no")).stream().findFirst();
     }
     @Override public boolean open(Governance.Ballot b, List<Governance.Elector> roll) {

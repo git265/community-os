@@ -63,7 +63,9 @@ public class ProblemHandler {
         return p;
     }
     @ExceptionHandler(MethodArgumentNotValidException.class) public ProblemDetail invalid(MethodArgumentNotValidException e) {
-        ProblemDetail p = problem(HttpStatus.BAD_REQUEST, "validation", "Some fields are not valid");
+        // the first refusal in words a person can act on ("Preferred time: at most 120 characters"); the list has them all
+        var first = e.getBindingResult().getFieldErrors().stream().findFirst().orElse(null);
+        ProblemDetail p = problem(HttpStatus.BAD_REQUEST, "validation", first == null ? "Some fields are not valid" : fieldLabel(first.getField()) + ": " + plain(first));
         p.setProperty("fields", e.getBindingResult().getFieldErrors().stream().map((f) -> java.util.Map.of("field", f.getField(), "message", String.valueOf(f.getDefaultMessage()))).toList());
         return p;
     }
@@ -113,6 +115,23 @@ public class ProblemHandler {
     }
 
     static String firstLine(String m) { if (m == null) return ""; int i = m.indexOf('\n'); return i < 0 ? m : m.substring(0, i); }
+    /** "preferredTime" -> "Preferred time"; "items[0].name" -> "Name". */
+    public static String fieldLabel(String path) {
+        String f = path.replaceAll("\\[\\d+\\]", ""); f = f.substring(f.lastIndexOf('.') + 1);
+        String words = f.replaceAll("([a-z0-9])([A-Z])", "$1 $2").toLowerCase(java.util.Locale.ROOT);
+        return words.isEmpty() ? "A field" : Character.toUpperCase(words.charAt(0)) + words.substring(1);
+    }
+    /** A field refusal in plain words: required, how long, or the rule's own message. */
+    static String plain(org.springframework.validation.FieldError f) {
+        String code = String.valueOf(f.getCode()); String msg = String.valueOf(f.getDefaultMessage());
+        if (code.startsWith("NotBlank") || code.startsWith("NotNull") || code.startsWith("NotEmpty")) return "is required";
+        if (code.startsWith("Size")) {
+            var m = java.util.regex.Pattern.compile("between (\\d+) and (\\d+)").matcher(msg);
+            String unit = f.getRejectedValue() instanceof java.util.Collection<?> ? " items" : " characters";
+            if (m.find()) return m.group(1).equals("0") ? "at most " + m.group(2) + unit : m.group(1) + " to " + m.group(2) + unit;
+        }
+        return msg;
+    }
     static ProblemDetail problem(HttpStatus status, String code, String detail) {
         ProblemDetail p = ProblemDetail.forStatusAndDetail(status, detail);
         p.setType(URI.create("https://communityos.app/problems/" + code));

@@ -75,9 +75,15 @@ export function LateFeeDialog({ onClose }) {
   const plan = useMemo(() => planLateFees(dues, settings), [dues, JSON.stringify(rules)]); // eslint-disable-line react-hooks/exhaustive-deps
   const total = plan.reduce((n, p) => n + p.amount, 0);
   const saveRule = async () => {
+    for (const r of settings.rules) {
+      const fixed = r.kind === 'Fixed per month';
+      if (!(r.value >= 0 && r.value <= (fixed ? 100000 : 100))) { setMsg(fixed ? 'A fixed late fee is 0 to 1,00,000 a month.' : 'A late fee is 0 to 100% a month.'); return; }
+      if (!(r.grace >= 0 && r.grace <= 365)) { setMsg('Grace days are 0 to 365.'); return; }
+      if (!(r.maxMonths >= 0 && r.maxMonths <= 120)) { setMsg('Late fee months are 0 to 120.'); return; }
+    }
     const def = settings.rules.find((r) => r.appliesTo === '*') || { kind: LATE_KINDS[0], value: 0, grace: 0, maxMonths: 0 };
-    await save({ ...(row || {}), lateFeeEnabled: !!enabled, lateFeeAuto: !!auto, lateFeeKind: def.kind, lateFeeValue: def.value, lateFeeGraceDays: def.grace, lateFeeMaxMonths: def.maxMonths, lateFeeRules: JSON.stringify(settings.rules) });
-    setMsg('Late-fee rules saved.');
+    const out = await save({ ...(row || {}), lateFeeEnabled: !!enabled, lateFeeAuto: !!auto, lateFeeKind: def.kind, lateFeeValue: def.value, lateFeeGraceDays: def.grace, lateFeeMaxMonths: def.maxMonths, lateFeeRules: JSON.stringify(settings.rules) });
+    setMsg(out ? 'Late-fee rules saved.' : 'Not saved.');
   };
   async function apply() {
     await saveRule();
@@ -217,6 +223,9 @@ export function RulesDialog({ onClose }) {
   async function go() {
     if (f.lockedUntil && f.lockedUntil > lockMax) { setMsg('The books can be closed up to yesterday at most.'); return; }
     if (row?.lockedUntil && (!f.lockedUntil || f.lockedUntil < row.lockedUntil) && roleId !== 'super_admin') { setMsg('Only the Super Admin can reopen closed books.'); return; }
+    if (!(Number(f.blockOverdueDays || 0) >= 0 && Number(f.blockOverdueDays || 0) <= 3650)) { setMsg('Overdue days are 0 to 3650.'); return; }
+    if (!(Number(f.blockOverdueAmount || 0) >= 0 && Number(f.blockOverdueAmount || 0) <= 100000000)) { setMsg('The overdue amount is 0 to 10,00,00,000.'); return; }
+    if (!(Number(f.approvalLimit || 0) >= 0 && Number(f.approvalLimit || 0) <= 1000000000)) { setMsg('The approval limit is 0 to 1,00,00,00,000.'); return; }
     const saved = await save({ ...(row || {}), blockDefaulters: !!f.blockDefaulters, blockOverdueDays: Number(f.blockOverdueDays) || 0, blockOverdueAmount: Number(f.blockOverdueAmount) || 0, lockedUntil: f.lockedUntil || '', approvalLimit: Number(f.approvalLimit) || 0 });
     setMsg(saved ? 'Rules saved.' : 'Not saved.');
   }

@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react';
+import { getDataSource } from '../lib/storage/dataSource.js';
+import { todayLocal } from '../lib/locale.js';
 import { maxLengthFor } from '../lib/fieldLimits.js';
 import { canEdit, canView } from '../lib/access/permissions.js';
 import RecordMeta from './RecordMeta.jsx';
@@ -24,7 +26,7 @@ import AdminDelete from './AdminDelete.jsx';
  * hardcoded per module - and why adding a Super-Admin custom attribute
  * makes it show up in every form/table for that section immediately.
  */
-const today = () => new Date().toISOString().slice(0, 10);
+const today = todayLocal;   // this device's calendar day, like the server's
 
 /** "This looks like something that already exists" - shown under a name field so duplicates get caught while typing. */
 function SimilarNotice({ text, rows, fieldKey, exclude, noun }) {
@@ -87,7 +89,7 @@ export default function DynamicForm({ schema, roleId, record, onSave, onCancel, 
   // nothing here this person may change: the form is for reading - no Save (the server would refuse it anyway)
   const viewOnly = readOnly || !fields.some((f) => canEdit(f, roleId) && !lockedField(f));
   // a field can be mandatory only in some cases, e.g. { requiredWhen: { key: 'access', equals: 'Villa owner / resident' } }
-  const isRequired = (f) => !!f.required || (!!f.requiredWhen && draft[f.requiredWhen.key] === f.requiredWhen.equals);
+  const isRequired = (f) => !!f.required || (!!f.requiredWhen && (f.requiredWhen.in ? f.requiredWhen.in.includes(draft[f.requiredWhen.key]) : draft[f.requiredWhen.key] === f.requiredWhen.equals));
 
   const lookupFields = fields.filter((f) => f.type === 'lookup' && f.lookup);
   useEffect(() => {
@@ -194,8 +196,11 @@ export default function DynamicForm({ schema, roleId, record, onSave, onCancel, 
     switch (field.type) {
       case 'phone':
         return <PhoneInput value={value} onChange={(v) => setValue(field.key, v)} label={field.label} invalid={!!errors[field.key]} testid={`phone-${field.key}`} />;
-      case 'lookup':
-        return <Combobox value={value} onChange={(v) => setValue(field.key, v)} options={lookups[field.key] || []} allowCustom={!!field.lookup?.allowCustom} placeholder={`Search ${field.label.toLowerCase()}…`} invalid={!!errors[field.key]} />;
+      case 'lookup': {
+        // a list the back end keeps fixed (e.g. property types: Villa, Apartment): with the back end only those, nothing typed in
+        const fixed = field.lookup?.serverOnly && getDataSource().mode === 'v2' ? field.lookup.serverOnly.map((v) => ({ value: v, label: v })) : null;
+        return <Combobox value={value} onChange={(v) => setValue(field.key, v)} options={fixed || lookups[field.key] || []} allowCustom={!fixed && !!field.lookup?.allowCustom} placeholder={`Search ${field.label.toLowerCase()}…`} invalid={!!errors[field.key]} />;
+      }
       case 'select':
         return (
           <select value={value} onChange={(e) => setValue(field.key, e.target.value)}>
@@ -261,10 +266,24 @@ export default function DynamicForm({ schema, roleId, record, onSave, onCancel, 
           if (!canEdit(f, roleId) || missing[f.key]) continue;
           if (f.type === 'phone' && String(draft[f.key] ?? '').trim()) { const v = validatePhone(draft[f.key]); if (!v.ok) missing[f.key] = v.error; }
           const val = draft[f.key];
-          if (f.type === 'number' && val !== '' && val != null && ((f.min != null && Number(val) < f.min) || (f.max != null && Number(val) > f.max))) missing[f.key] = `${f.label} is ${f.min ?? '…'} to ${f.max ?? '…'}`;
+          if (f.type === 'number' && val !== '' && val != null && ((f.min != null && Number(val) < f.min) || (f.max != null && Number(val) > f.max))) missing[f.key] = f.max == null && f.min === 0 ? `${f.label} cannot be negative` : `${f.label} is ${f.min ?? '…'} to ${f.max ?? '…'}`;
+          // a date that cannot come before another one on the form (warranty until ≥ installed on, next service ≥ last service)
+          if (f.type === 'date' && f.notBefore && /^\d{4}-\d{2}-\d{2}/.test(String(val || '')) && /^\d{4}-\d{2}-\d{2}/.test(String(draft[f.notBefore] || '')) && String(val).slice(0, 10) < String(draft[f.notBefore]).slice(0, 10)) missing[f.key] = `${f.label} cannot be before ${(schema.fields.find((x) => x.key === f.notBefore)?.label || f.notBefore).toLowerCase()}`;
+          // a time that must come after another (an end after its start, same day)
+          if (f.type === 'time' && f.after && /^\d{2}:\d{2}/.test(String(val || '')) && /^\d{2}:\d{2}/.test(String(draft[f.after] || '')) && String(val) <= String(draft[f.after])) missing[f.key] = `${f.label} must be after ${(schema.fields.find((x) => x.key === f.after)?.label || f.after).toLowerCase()}`;
+          // a fixed shape (last 4 of an ID, a phone of a helpline, a UPI id)
+          if (f.pattern && String(val ?? '').trim() && !new RegExp(f.pattern).test(String(val).trim())) missing[f.key] = f.patternMsg || `${f.label} is not in the right form`;
+          // a count that cannot be more than another field (faulty ≤ quantity)
+          if (f.type === 'number' && f.maxOf && val !== '' && val != null && draft[f.maxOf] !== '' && draft[f.maxOf] != null && Number(val) > Number(draft[f.maxOf])) missing[f.key] = `${f.label}: at most ${draft[f.maxOf]}`;
+          // the size the server holds the field to (typing stops at it; text pasted in or a rich-text body can still be longer)
+          if (typeof val === 'string' && ['text', 'textarea', 'richtext'].includes(f.type || 'text') && val.length > maxLengthFor(f)) missing[f.key] = `${f.label} is too long (up to ${maxLengthFor(f).toLocaleString()} characters${f.type === 'richtext' ? ', formatting included' : ''})`;
           if (f.minLength && String(val ?? '').trim() && String(val).trim().length < f.minLength) missing[f.key] = `${f.label} needs at least ${f.minLength} characters`;
           if (f.format === 'email' && String(val ?? '').trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(val).trim())) missing[f.key] = `${f.label} is not an e-mail address`;
-          if (f.type === 'people') { const pe = peopleErrors(Array.isArray(draft[f.key]) ? draft[f.key] : []); if (Object.keys(pe).length) missing[f.key] = pe; }
+          if (f.type === 'people') { const pe = peopleErrors(Array.isArray(draft[f.key]) ? draft[f.key] : [], [draft.ownerPhone, draft.tenantPhone].filter(Boolean)); if (Object.keys(pe).length) missing[f.key] = pe; }
+          // two numbers that must belong to different people (the tenant's is not the owner's)
+          if (f.type === 'phone' && f.differentFrom && String(val ?? '').trim() && String(draft[f.differentFrom] ?? '').trim() && validatePhone(val).e164 && validatePhone(val).e164 === validatePhone(draft[f.differentFrom]).e164) missing[f.key] = `${f.label}: the same number as ${(schema.fields.find((x) => x.key === f.differentFrom)?.label || f.differentFrom).toLowerCase()}`;
+          // a choice that needs another field filled (bills go to the tenant: there is a tenant)
+          if (f.needs && val === f.needs.when && !String(draft[f.needs.key] ?? '').trim()) missing[f.key] = f.needs.message;
         }
         const imp = impact ? impact(draft) : null;
         if (imp?.needsAck && !ack) missing.__ack = 'Please confirm you understand the access change';
@@ -274,6 +293,8 @@ export default function DynamicForm({ schema, roleId, record, onSave, onCancel, 
         // store newly added files now (the form is being saved), then save the record with their metadata
         setSaving(true);
         const out = { ...draft };
+        // a field the form no longer shows does not keep a stale value (e.g. "faulty" once the quantity is 1)
+        for (const f of schema.fields) if (f.clearWhenHidden && !showNow(f) && out[f.key] != null && out[f.key] !== '') out[f.key] = f.type === 'number' ? 0 : '';
         try {
           for (const f of fields.filter((x) => x.type === 'files')) {
             const list = pending[f.key] || [];

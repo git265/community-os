@@ -170,7 +170,7 @@ export function PayDueModal({ due, onClose }) {
         {!resident && (
           <>
             <div className={`field${fe.ref ? ' invalid' : ''}`}><label>{mode === 'Cheque' ? 'Cheque number' : 'Reference / transaction id'}{mode !== 'Cash' ? ' *' : ''}</label>
-              <input value={ref} onChange={(e) => setRef(e.target.value)} placeholder={mode === 'Cash' ? 'Optional' : ''} />
+              <input maxLength={100} value={ref} onChange={(e) => setRef(e.target.value)} placeholder={mode === 'Cash' ? 'Optional' : ''} />
               {fe.ref && <div className="field-error">{fe.ref}</div>}
             </div>
             <div className={`field${fe.paidOn ? ' invalid' : ''}`}><label>Received on *</label><input type="date" value={paidOn} min={addDaysIso(todayIso(), -90)} max={todayIso()} onChange={(e) => setPaidOn(e.target.value)} />{fe.paidOn && <div className="field-error">{fe.paidOn}</div>}</div>

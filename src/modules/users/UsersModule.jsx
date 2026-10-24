@@ -51,10 +51,13 @@ export default function UsersModule() {
     e.preventDefault();
     const er = {};
     if (!draft.name.trim()) er.name = 'Name is required';
+    else if (draft.name.trim().length > 120) er.name = 'A name has up to 120 characters';
+    if (1 + draft.extraRoleIds.filter((x) => x !== draft.roleId).length > 5) er.roleId = 'Up to 5 roles (the primary one and 4 more)';
     if (!draft.roleId) er.roleId = 'Primary role is required';
     // the phone is the sign-in key: check it whenever it is typed or changed (an old stored value is left alone until edited)
     const ph = String(draft.phone || '').trim();
-    if (ph && ph !== String(editing?.phone || '').trim()) { const v = validatePhone(ph); if (!v.ok) er.phone = v.error; }
+    if (!editing?.id && !ph) er.phone = 'Phone is required - it is how the person signs in';
+    else if (ph && ph !== String(editing?.phone || '').trim()) { const v = validatePhone(ph); if (!v.ok) er.phone = v.error; }
     const em = emailError(draft.email); if (em) er.email = em;
     if (needsVilla && draft.units.length === 0) er.units = 'Owners/residents need at least one villa/unit';
     setErrs(er);
@@ -109,8 +112,8 @@ export default function UsersModule() {
               </select>
               {draft.status === 'Inactive' && <small className="muted">Inactive users can't sign in.</small>}
             </div>
-            <div className={`field${errs.phone ? ' invalid' : ''}`}><label>Phone</label><input value={draft.phone} onChange={(e) => setDraft({ ...draft, phone: e.target.value })} placeholder="+91 98450 71234" />{errs.phone && <div className="field-error">{errs.phone}</div>}</div>
-            <div className={`field${errs.email ? ' invalid' : ''}`}><label>Email</label><input value={draft.email} onChange={(e) => setDraft({ ...draft, email: e.target.value })} />{errs.email && <div className="field-error">{errs.email}</div>}</div>
+            <div className={`field${errs.phone ? ' invalid' : ''}`}><label>Phone{editing.id ? '' : ' *'}</label><input value={draft.phone} maxLength={20} onChange={(e) => setDraft({ ...draft, phone: e.target.value })} placeholder="+91 98450 71234" />{errs.phone && <div className="field-error">{errs.phone}</div>}</div>
+            <div className={`field${errs.email ? ' invalid' : ''}`}><label>Email</label><input maxLength={200} value={draft.email} onChange={(e) => setDraft({ ...draft, email: e.target.value })} />{errs.email && <div className="field-error">{errs.email}</div>}</div>
 
             <div className={`field${errs.roleId ? ' invalid' : ''}`} style={{ gridColumn: '1 / -1' }}>
               <label>Primary role *</label>

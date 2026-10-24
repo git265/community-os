@@ -34,7 +34,7 @@ class AssetTest {
         Caller fm = fm();
         var plant = AssetResources.PLANT_LOGS.rules().validate(fm, new AssetResources.PlantLogFields(TODAY, new BigDecimal("100"), new BigDecimal("142.5"), new BigDecimal("999"), null, null, null,
             null, null, null, null, null, null, null, null), null);
-        assertEquals(new BigDecimal("42.5"), plant.bhKl(), "the difference, not what was typed");
+        assertEquals(0, new BigDecimal("425").compareTo(plant.bhKl()), "the difference on the 10 KL dial, not what was typed");
         assertEquals("meter-backwards", assertThrows(DomainException.RuleViolated.class, () -> AssetResources.PLANT_LOGS.rules().validate(fm, new AssetResources.PlantLogFields(TODAY,
             new BigDecimal("100"), new BigDecimal("90"), null, null, null, null, null, null, null, null, null, null, null, null), null)).code());
         var dg = AssetResources.DG_FUEL.rules().validate(fm, new AssetResources.DgFuelFields(TODAY, "DG 1", new BigDecimal("1520"), null, new BigDecimal("120"), new BigDecimal("94.5"), new BigDecimal("1"), null, null, null, null, null), null);
@@ -55,6 +55,7 @@ class AssetTest {
             null, null, null, null, null, null, null, null);
         assertEquals("name-fixed", assertThrows(DomainException.RuleViolated.class, () -> AssetResources.EQUIPMENT.rules().validate(fm, renamed, pump)).code());
         assertEquals("STP pump 1", AssetResources.EQUIPMENT.rules().validate(Fixtures.superAdmin(), renamed, pump).name());
+        assertEquals("bad-warranty", assertThrows(DomainException.RuleViolated.class, () -> AssetResources.EQUIPMENT.rules().validate(fm, new AssetResources.EquipmentFields("STP pump B", "STP", "Pump", null, null, null, 2, null, null, null, null, null, null, null, TODAY, TODAY.minusDays(1), null, null, null, null, null, null, 1, null, null, null, null, null, null, null, null), null)).code(), "a warranty that ends before the asset was installed");
         assertTrue(AssetResources.PLANT_LOGS.rules().mayWrite(reader())); assertFalse(AssetResources.INVENTORY.rules().mayWrite(reader()), "stock is the coordinators'");
         assertFalse(AssetResources.CONDITION_LOG.rules().mayWrite(fm), "the condition log is written through the service");
         assertFalse(AssetResources.MAP_VERSIONS.rules().deletable(null));

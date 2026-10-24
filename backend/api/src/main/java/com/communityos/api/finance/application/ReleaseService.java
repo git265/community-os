@@ -123,8 +123,16 @@ public final class ReleaseService {
             if (!FinancePolicy.raisesRelease(c, r.expenseId != null)) throw new AccessDenied("You cannot change releases");
             boolean rejected = "Rejected".equals(r.status);
             if (!rejected && (!"Waiting approval".equals(r.status) || r.plan.anyDecision())) throw new DomainException.RuleViolated("decided", "A release being approved or decided is not changed");
-            if (kind != null) r.kind = kind;
-            if (amount != null) r.amount = Books.r2(amount);
+            // the same checks as a new release (a change is never a way round them)
+            if (kind != null) {
+                if (!List.of("Release", "Against quotation", "Against invoice", "Advance", "Stage", "Final").contains(kind)) throw new DomainException.RuleViolated("bad-kind", "Release, Against quotation, Against invoice, Advance, Stage or Final");
+                r.kind = kind;
+            }
+            if (amount != null) {
+                if (amount.signum() <= 0) throw new DomainException.RuleViolated("amount-required", "Enter the amount to release");
+                r.amount = Books.r2(amount);
+            }
+            if (blank(vendor) == null) throw new DomainException.RuleViolated("payee-required", "Who is the money released to?");
             r.vendor = blank(vendor); r.note = blank(note);
             if (payMode != null) r.payMode = payMode(payMode);
             if (payTo != null) r.payTo = payTo(payTo);

@@ -23,4 +23,13 @@ class FieldLimitsTest {
         assertThrows(DomainException.RuleViolated.class, () -> FieldLimits.check(new Thing("n", null, null, null, null, new BigDecimal("1e13"))), "a number");
         assertThrows(DomainException.RuleViolated.class, () -> FieldLimits.check(new Thing("n", null, null, null, null, new BigDecimal("1.1234567"))), "too many decimals");
     }
+    @Test void requiredTextKeepsItsOwnSize() {
+        assertEquals(600, Checks.required("b".repeat(600), "Body").length(), "a required body is not cut at 500 (its own limit, or the floor, applies)");
+        assertEquals("required", assertThrows(DomainException.RuleViolated.class, () -> Checks.required("  ", "Body")).code());
+        assertEquals("too-long", assertThrows(DomainException.RuleViolated.class, () -> Checks.text(Checks.required("n".repeat(201), "Name"), "Name", 200)).code());
+    }
+    @Test void fieldErrorsInPlainWords() {
+        assertEquals("Preferred time", com.communityos.api.shared.web.ProblemHandler.fieldLabel("preferredTime"));
+        assertEquals("Name", com.communityos.api.shared.web.ProblemHandler.fieldLabel("people[2].name"));
+    }
 }

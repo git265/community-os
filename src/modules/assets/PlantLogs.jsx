@@ -129,7 +129,7 @@ function LogDialog({ rows, initial, onClose, onSaved, save, inventory = [] }) {
           </div>
           {stockWarnings(withKl(d)).length > 0 && <div className="notice warn" data-testid="plant-stock-warn" style={{ marginTop: 6 }}>{stockWarnings(withKl(d)).join(' ')} You can still save the log.</div>}
         </fieldset>
-        <div className="field"><label>Remarks</label><input aria-label="Remarks" value={d.remarks || ''} onChange={(e) => set('remarks', e.target.value)} placeholder="e.g. pump tripped, tanker delivery" /></div>
+        <div className="field"><label>Remarks</label><input aria-label="Remarks" maxLength={2000} value={d.remarks || ''} onChange={(e) => set('remarks', e.target.value)} placeholder="e.g. pump tripped, tanker delivery" /></div>
         <div className="form-actions"><button className="btn good" disabled={busy} data-testid="plant-save" onClick={go}>{busy ? 'Saving…' : 'Save log'}</button><button className="btn secondary" onClick={onClose}>Cancel</button></div>
       </div>
     </Modal>

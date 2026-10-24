@@ -59,6 +59,7 @@ export default function ForumPanel() {
   async function submitReply(e) {
     e.preventDefault();
     if (isEmptyHtml(replyBody)) return setReplyErr('Reply is required');
+    if (String(replyBody).length > 5000) return setReplyErr('Keep the reply to about 5,000 characters (formatting counts too)');
     setReplyErr('');
     await savePost({
       topicId: openTopicId,
@@ -93,6 +94,12 @@ export default function ForumPanel() {
   async function submitNewTopic(e) {
     e.preventDefault();
     if (!newTopic.title.trim()) return setErrs({ title: 'Topic title is required' });
+    if (newTopic.title.trim().length < 3 || newTopic.title.trim().length > 200) return setErrs({ title: 'A topic title has 3 to 200 characters' });
+    if (newTopic.kind === 'Poll') {
+      const opts = newTopic.pollOptionsText.split(',').map((x) => x.trim()).filter(Boolean);
+      if (opts.length && (opts.length < 2 || opts.length > 12)) return setErrs({ title: 'A poll has 2 to 12 answers, separated by commas' });
+      if (new Set(opts.map((x) => x.toLowerCase())).size !== opts.length) return setErrs({ title: 'Each poll answer is different' });
+    }
     setErrs({});
     const base = { author: currentUser?.name || '', title: newTopic.title, category: newTopic.category, kind: newTopic.kind, replies: 0, pinned: false, status: 'Open' };
     if (newTopic.kind === 'Poll') {

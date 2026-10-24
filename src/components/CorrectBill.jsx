@@ -45,7 +45,7 @@ export default function CorrectBill({ due, onClose }) {
             <div className="field"><label>Payable by *</label><input type="date" data-testid="cb-date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></div>
           </div>
         )}
-        <div className="field"><label>Reason *</label><input data-testid="cb-reason" value={reason} onChange={(e) => { setReason(e.target.value); setErr(''); }} placeholder="e.g. Billed to the wrong villa" /></div>
+        <div className="field"><label>Reason *</label><input data-testid="cb-reason" maxLength={500} value={reason} onChange={(e) => { setReason(e.target.value); setErr(''); }} placeholder="e.g. Billed to the wrong villa" /></div>
         {err && <div className="field-error" data-testid="cb-error">{err}</div>}
         <div className="form-actions"><button type="button" className="btn" data-testid="cb-go" disabled={busy || !reason.trim()} onClick={go}>{mode === 'reverse' ? 'Reverse payment' : mode === 'cancel' ? 'Cancel bill' : 'Issue corrected bill'}</button><button type="button" className="btn secondary" onClick={() => onClose(false)}>Close</button></div>
       </div>
