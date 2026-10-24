@@ -74,6 +74,21 @@ export function startLive({ onReconnect } = {}) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const supported = () => typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window && typeof Notification !== 'undefined';
+const isIos = () => typeof navigator !== 'undefined' && (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
+const isStandalone = () => (typeof window !== 'undefined' && window.matchMedia?.('(display-mode: standalone)').matches) || navigator.standalone === true;
+
+/**
+ * What this device still needs before it can get alerts with the app closed (v2 only):
+ *   'ask'          alerts can be turned on here - the person has not been asked yet
+ *   'home-screen'  an iPhone/iPad in a Safari tab: Web Push works only from the app added to the Home Screen (iOS 16.4+)
+ *   null           nothing to do (already on, blocked by the person, the browser demo, or a browser without Web Push)
+ */
+export function alertsSetup() {
+  if (getDataSource().mode !== 'v2') return null;
+  if (supported()) return Notification.permission === 'default' ? 'ask' : null;
+  return isIos() && !isStandalone() ? 'home-screen' : null;
+}
+
 const keyBytes = (b64) => { const s = atob(b64.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((b64.length + 3) % 4)); return Uint8Array.from(s, (c) => c.charCodeAt(0)); };
 
 /** Subscribes this browser to Web Push for the signed-in member (only once they have allowed notifications). Quietly does nothing elsewhere. */

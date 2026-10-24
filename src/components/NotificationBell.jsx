@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { listMine, markRead, markAllRead, NOTIFICATIONS } from '../lib/notifications.js';
 import { getDataSource } from '../lib/storage/dataSource.js';
 import { apiFetch } from '../lib/net/request.js';
-import { startLive, isLive, enablePush } from '../lib/push.js';
+import { startLive, isLive, enablePush, alertsSetup } from '../lib/push.js';
 import { ApprovalButtons } from './GateApproval.jsx';
 
 export const ICON = { gate: '🚪', gate_approval: '🚪', amenity: '🏊', assigned: '📌', status: '🔁', decision: '✅', bill: '🧾', announcement: '📣', ballot: '🗳', meeting: '📅', shift: '🕒', forum_topic: '💬', forum_reply: '💬', poll: '📊', ballot_result: '🗳', ballot_reminder: '🗳', ticket_chat: '💬', ticket_new: '🆕', payment_made: '💳' };
@@ -10,6 +11,11 @@ const ago = (iso) => {
   const m = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
   return m < 1 ? 'now' : m < 60 ? `${m}m ago` : m < 1440 ? `${Math.round(m / 60)}h ago` : new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
 };
+
+// "Not now" on the alerts card: asked again after 30 days, on this device only (a convenience - a private window just asks again)
+const ASK_KEY = 'communityos:alertsAsk';
+const askedLately = () => { try { return Date.now() - Number(localStorage.getItem(ASK_KEY) || 0) < 30 * 864e5; } catch { return false; } };
+const snooze = () => { try { localStorage.setItem(ASK_KEY, String(Date.now())); } catch { /* blocked storage: asked again next visit */ } };
 
 /**
  * Bell + panel + phone-style push banner. `onOpen(link)` navigates to the deep link (opens that exact ticket).
@@ -21,6 +27,7 @@ export default function NotificationBell({ onOpen, onViewAll }) {
   const [open, setOpen] = useState(false);
   const [banner, setBanner] = useState(null);
   const [perm, setPerm] = useState(typeof Notification === 'undefined' ? 'unsupported' : Notification.permission);
+  const [setup, setSetup] = useState(null);       // the one-time card: turn alerts on here, or (iPhone in Safari) add the app to the Home Screen
   const timer = useRef();
   const wrap = useRef(null);
   const itemsRef = useRef([]);
@@ -41,6 +48,12 @@ export default function NotificationBell({ onOpen, onViewAll }) {
     return () => { stop(); navigator.serviceWorker?.removeEventListener('message', fromWorker); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [load]);
+  useEffect(() => {
+    const s = alertsSetup();
+    if (!s || askedLately()) return undefined;
+    const t = setTimeout(() => setSetup(alertsSetup()), 3000);    // after the first screen has settled
+    return () => clearTimeout(t);
+  }, []);
   useEffect(() => {
     if (getDataSource().mode !== 'v2') return undefined;
     let on = true;
@@ -70,7 +83,7 @@ export default function NotificationBell({ onOpen, onViewAll }) {
       timer.current = setTimeout(() => setBanner(null), 7000);
       if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
         try {
-          const os = new Notification(n.title, { body: n.body, tag: n.id, data: { url: n.link } });
+          const os = new Notification(n.title, { body: n.body, tag: n.id, data: { url: n.link }, icon: '/icons/icon-192.png' });
           os.onclick = () => { window.focus(); go(n); };
         } catch { /* some mobile browsers only allow service-worker notifications */ }
       }
@@ -102,9 +115,12 @@ export default function NotificationBell({ onOpen, onViewAll }) {
   async function enable() {
     if (typeof Notification === 'undefined') return;
     const p = await Notification.requestPermission();
-    setPerm(p);
+    setPerm(p); setSetup(null);
     if (p === 'granted') enablePush();                 // and on this device when the app is closed (v2: Web Push)
+    else snooze();
   }
+  const later = () => { snooze(); setSetup(null); };
+  const homeScreen = alertsSetup() === 'home-screen';
 
   return (
     <>
@@ -120,7 +136,8 @@ export default function NotificationBell({ onOpen, onViewAll }) {
               {onViewAll && <button type="button" className="link-btn" data-testid="bell-all" onClick={() => { closePanel(); onViewAll(); }}>View all</button>}
             </div>
             {perm === 'default' && <div className="bell-perm">Get alerts outside this tab too. <button type="button" className="link-btn" onClick={enable}>Enable browser alerts</button></div>}
-            {perm === 'denied' && <div className="bell-perm muted">Browser alerts are blocked for this site.</div>}
+            {perm === 'denied' && <div className="bell-perm muted">Browser alerts are blocked for this site. Allow notifications in the browser's site settings to get them.</div>}
+            {homeScreen && <div className="bell-perm" data-testid="bell-home-screen">On iPhone, alerts come to the Home Screen app: in Safari tap Share, then Add to Home Screen, and open it from there.</div>}
             {items.length === 0 && <div className="empty" style={{ padding: 16 }}>Nothing yet. You are told when a task is assigned to you or your ticket changes status.</div>}
             <ul className="bell-list">
               {items.map((n) => (
@@ -136,6 +153,19 @@ export default function NotificationBell({ onOpen, onViewAll }) {
           </div>
         )}
       </div>
+      {setup && !banner && createPortal(
+        <div className="alerts-ask" role="dialog" aria-label="Alerts on this device" data-testid="alerts-ask">
+          <span className="alerts-ask-ico" aria-hidden="true">🔔</span>
+          <div className="alerts-ask-txt">
+            {setup === 'ask'
+              ? <><b>Get alerts on this device</b><small>Even when the app is closed: ticket updates, bills, guests at the gate.</small></>
+              : <><b>Get alerts on your iPhone</b><small>Add this app to your Home Screen: in Safari tap Share, then Add to Home Screen. Open it from there and turn alerts on.</small></>}
+          </div>
+          <div className="alerts-ask-btns">
+            {setup === 'ask' && <button type="button" className="btn sm" data-testid="alerts-on" onClick={enable}>Turn on</button>}
+            <button type="button" className="btn secondary sm" data-testid="alerts-later" onClick={later}>{setup === 'ask' ? 'Not now' : 'Got it'}</button>
+          </div>
+        </div>, document.body)}
       {banner && (
         <button type="button" className="push-banner" onClick={() => go(banner)} role="alert">
           <span className="push-app">⌂ CommunityOS · now</span>

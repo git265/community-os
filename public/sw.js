@@ -7,7 +7,10 @@ self.addEventListener('push', (e) => {
   let m = {};
   try { m = e.data ? e.data.json() : {}; } catch { m = { body: e.data ? e.data.text() : '' }; }
   // tag = the notification's id: the open app shows the same one with the same tag, so a person never sees it twice
-  e.waitUntil(self.registration.showNotification(m.title || 'CommunityOS', { body: m.body || '', tag: m.tag || undefined, data: { link: m.link || '' } }));
+  e.waitUntil(self.registration.showNotification(m.title || 'CommunityOS', {
+    body: m.body || '', tag: m.tag || undefined, data: { link: m.link || '' },
+    icon: '/icons/icon-192.png', badge: '/icons/badge-96.png',            // badge: the small white house in the Android status bar
+  }));
 });
 
 self.addEventListener('notificationclick', (e) => {
