@@ -6,6 +6,7 @@
 // Every notification carries a DEEP LINK (`#/ticket/TKT-1055`) - tapping it opens that exact ticket, which is exactly what a
 // native push payload would carry (`data: { url }`) once the Spring Boot + FCM/APNs backend replaces this simulation.
 import { storage } from './storage/index.js';
+import { getDataSource } from './storage/dataSource.js';
 import { getPrincipal } from './security/principal.js';
 import { notificationForMe } from './security/authz.js';
 import { uuid } from './uuid.js';
@@ -22,8 +23,10 @@ export function isForMe(n, p = getPrincipal()) {
 
 export async function listMine() {
   const p = getPrincipal();
-  const [rows, prefs] = await Promise.all([storage.list(NOTIFICATIONS), p?.name ? getMyPrefs(p.name).catch(() => null) : null]);
-  const muted = new Set(prefs?.muted || []);   // the kinds this person muted (news only: forum, polls, cultural, brochure, calendar)
+  // the kinds this person muted (news only): on the back end the server never sends them, so only the browser demo filters here
+  const local = getDataSource().mode !== 'v2';
+  const [rows, prefs] = await Promise.all([storage.list(NOTIFICATIONS), local && p?.name ? getMyPrefs(p.name).catch(() => null) : null]);
+  const muted = new Set(prefs?.muted || []);
   return rows.filter((n) => isForMe(n, p) && !muted.has(n.event)).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
 }
 
