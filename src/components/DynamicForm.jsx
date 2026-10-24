@@ -179,13 +179,16 @@ export default function DynamicForm({ schema, roleId, record, onSave, onCancel, 
     if (field.type === 'richtext') {
       return editable
         ? <RichTextEditor value={draft[field.key] || ''} onChange={(h) => setValue(field.key, h)} placeholder={field.placeholder || ''} minHeight={90} images={!field.noImages} />
-        : (draft[field.key] ? <RichText html={draft[field.key]} /> : <div className="ro-value">—</div>);
+        : <div className="ro-value ro-rich">{draft[field.key] ? <RichText html={draft[field.key]} /> : '—'}</div>;
     }
     if (!editable) {
+      // the same field as on the edit screen, shown in light grey: a tick box stays a tick box, a choice keeps its arrow
+      if (field.type === 'boolean') return <input type="checkbox" checked={!!value} disabled aria-label={field.label} />;
       const opt = field.type === 'lookup' ? (lookups[field.key] || []).find((o) => o.value === value) : null;
       const stampAt = field.type === 'date' && value ? record?.dateStamps?.[field.key] : '';
-      const shown = field.type === 'boolean' ? (value ? 'Yes' : 'No') : String(opt?.label || value || '—');
-      return <div className="ro-value" style={field.type === 'textarea' ? { whiteSpace: 'pre-wrap' } : undefined}>{shown}{stampAt ? <small className="muted" title="When this date was recorded"> · {new Date(stampAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small> : null}</div>;
+      const shown = String(opt?.label || value || '—');
+      const cls = `ro-value${['select', 'lookup'].includes(field.type) ? ' ro-select' : field.type === 'textarea' ? ' ro-text' : ''}`;
+      return <div className={cls} aria-readonly="true" style={field.type === 'textarea' ? { whiteSpace: 'pre-wrap', minHeight: 64 } : undefined}>{shown}{stampAt ? <small className="muted" title="When this date was recorded"> · {new Date(stampAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small> : null}</div>;
     }
 
     switch (field.type) {

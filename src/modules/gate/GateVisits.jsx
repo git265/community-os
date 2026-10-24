@@ -15,21 +15,13 @@ export function VisitDetail({ v, onClose, dock = false }) {
   const ap = approvals.find((a) => a.id === v.approvalId);
   return (
     <Modal dock={dock} title={v.name} subtitle={`${v.shortId || ''} · ${v.kind}`} onClose={onClose}>
-      <div className="gg-row" style={{ alignItems: 'flex-start' }}>
-        <Photo src={v.photo} name={v.name} size={120} />
-        <dl className="kv" style={{ margin: 0 }}>
-          <dt>State</dt><dd><StateTag state={v.state} /></dd>
-          <dt>Going to</dt><dd>{v.unit || '—'}</dd>
-          <dt>Gate</dt><dd>{v.gate}</dd>
-          <dt>In</dt><dd>{stamp(v.inAt)} · {v.method}</dd>
-          <dt>Out</dt><dd>{v.outAt ? `${stamp(v.outAt)}${v.outMethod ? ` · ${v.outMethod}` : ''} (${dur(mins(v.inAt, v.outAt))})` : '—'}</dd>
-          {v.company && <><dt>Company</dt><dd>{v.company}</dd></>}
-          {v.vehicle && <><dt>Vehicle</dt><dd>{v.vehicle}</dd></>}
-          {v.purpose && <><dt>Purpose</dt><dd>{v.purpose}</dd></>}
-          <dt>Recorded by</dt><dd>{v.verifiedBy || '—'}</dd>
-          {v.note && <><dt>Note</dt><dd>{v.note}</dd></>}
-          {ap && <><dt>Approval</dt><dd><StateTag state={ap.status} /> {ap.answeredBy ? `by ${ap.answeredBy}` : ''} {ap.answeredAt ? `· answered in ${Math.max(1, Math.round((new Date(ap.answeredAt) - new Date(ap.requestedAt)) / 1000))} s` : ''}</dd></>}
-        </dl>
+      <div className="gg-row" style={{ marginBottom: 12 }}><Photo src={v.photo} name={v.name} size={120} /><StateTag state={v.state} /></div>
+      <div className="form-grid">
+        {[['Going to', v.unit || '—'], ['Gate', v.gate], ['In', `${stamp(v.inAt)} · ${v.method}`],
+          ['Out', v.outAt ? `${stamp(v.outAt)}${v.outMethod ? ` · ${v.outMethod}` : ''} (${dur(mins(v.inAt, v.outAt))})` : '—'],
+          v.company && ['Company', v.company], v.vehicle && ['Vehicle', v.vehicle], v.purpose && ['Purpose', v.purpose], ['Recorded by', v.verifiedBy || '—'],
+          v.note && ['Note', v.note]].filter(Boolean).map(([k, x]) => <div className="field" key={k}><label>{k}</label><div className="ro-value">{x}</div></div>)}
+        {ap && <div className="field"><label>Approval</label><div className="ro-value"><StateTag state={ap.status} /> {ap.answeredBy ? `by ${ap.answeredBy}` : ''} {ap.answeredAt ? `· answered in ${Math.max(1, Math.round((new Date(ap.answeredAt) - new Date(ap.requestedAt)) / 1000))} s` : ''}</div></div>}
       </div>
     </Modal>
   );

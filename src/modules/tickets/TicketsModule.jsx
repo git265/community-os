@@ -1163,7 +1163,7 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
                 <label>Description</label>
                 {canEditDesc
                   ? <RichTextEditor value={draft.description || ''} onChange={(h) => setD('description', h)} minHeight={80} />
-                  : (selected.description ? <RichText html={selected.description} /> : <div className="ro-value">—</div>)}
+                  : <div className="ro-value ro-rich">{selected.description ? <RichText html={selected.description} /> : '—'}</div>}
                 {isMyTicket && open && !canManageTickets && <small className="muted">You can edit the description for 30 minutes after raising the ticket.</small>}
               </div>
               {selected.scope === 'Community' && (
@@ -1187,7 +1187,7 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
                   <select value={draft.priority} onChange={(e) => setD('priority', e.target.value)}>
                     {['Low', 'Medium', 'High', 'Critical'].map((p) => <option key={p}>{p}</option>)}
                   </select>
-                ) : <div className="ro-value">{selected.priority}</div>}
+                ) : <div className="ro-value ro-select">{selected.priority}</div>}
               </div>
               <div className="field"><label>Assigned to{selectedInternal ? ' *' : ''}{canManageTickets && open && <CoverageHint row={assignInfo.row} fallback={assignInfo.fallback} roles={roles} />}</label>
                 {canManageTickets && open ? (
@@ -1199,7 +1199,7 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
                     </select>
                   </>
                 ) : (
-                  <div className="ro-value">
+                  <div className="ro-value ro-select">
                     {selected.assignedTo || '—'}{' '}
                     {selected.assignedTo && <a className="call-btn" aria-label="Call" href={`tel:${(handymen.find((h) => h.name === selected.assignedTo) || {}).phone || ''}`} title="Call">📞</a>}
                   </div>

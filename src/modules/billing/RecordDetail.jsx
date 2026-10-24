@@ -20,9 +20,9 @@ export default function RecordDetail({ title, shortId, tag, tagTone = '', rows =
     <Modal title={title} subtitle={shortId ? `Record ${shortId}` : undefined} onClose={onClose}>
       <div data-testid="record-detail">
         {tag && <p><span className={`tag ${tagTone}`}>{tag}</span></p>}
-        <dl className="rd-grid">
-          {rows.filter(([, v]) => v !== undefined && v !== null && v !== '' && v !== '—').map(([k, v]) => <div key={k} className="rd-row"><dt>{k}</dt><dd>{v}</dd></div>)}
-        </dl>
+        <div className="form-grid">
+          {rows.filter(([, v]) => v !== undefined && v !== null && v !== '' && v !== '—').map(([k, v]) => <div key={k} className="field rd-row"><label>{k}</label><div className="ro-value">{v}</div></div>)}
+        </div>
         {steps.length > 0 && (
           <div className="rd-sec"><b>Approval</b>
             {steps.map((s, i) => <div key={i} className="rd-step"><span className={`tag ${s.state === 'approved' ? 'green' : s.state === 'rejected' ? 'red' : 'orange'}`}>{s.state === 'approved' ? '✓ ' : ''}{s.state === 'rejected' ? 'Rejected' : s.state === 'approved' ? 'Approved' : 'Pending'}</span> {s.name}{s.who ? <small className="muted"> · {s.who}{s.at ? ` · ${s.at}` : ''}</small> : null}</div>)}

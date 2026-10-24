@@ -493,7 +493,16 @@ input:not([type=checkbox]):not([type=radio]):not([type=file]):focus, select:focu
   background: #fff !important; outline: 2px solid var(--blue) !important; outline-offset: -2px;
 }
 .field.invalid input, .field.invalid select, .field.invalid textarea { background: #fee2e2 !important; outline: 2px solid #ef4444; outline-offset: -2px; }
-.ro-value { background: transparent !important; border: 0 !important; padding-left: 0; font-weight: 500; }
+/* a field that cannot be changed here: the same box as an input, lighter and quieter, so a view reads like the form it comes from */
+.ro-value { display: block; background-color: #f5f7fa !important; border: 1px solid #e3e8ef !important; border-radius: 10px; padding: 9px 12px !important; min-height: 40px; box-sizing: border-box;
+  color: #4b5563; font-weight: 400; cursor: default; overflow-wrap: anywhere; }
+.ro-value.ro-select { padding-right: 34px !important; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%23a0a9b6' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 12px center; }
+.ro-value.ro-rich { min-height: 0; }
+.ro-value.ro-rich > :first-child { margin-top: 0; } .ro-value.ro-rich > :last-child { margin-bottom: 0; }
+input:not([type=checkbox]):not([type=radio]):not([type=file]):disabled, input:not([type=checkbox]):not([type=radio]):not([type=file]):disabled:hover,
+select:disabled, select:disabled:hover, textarea:disabled, textarea:disabled:hover {
+  background: #f5f7fa !important; color: #6b7280 !important; outline: 1px solid #e3e8ef; outline-offset: -1px; cursor: not-allowed; opacity: 1; -webkit-text-fill-color: #6b7280; }
 .rte-bar { background: transparent; border-bottom: 0; padding: 6px 6px 0; }
 .rte-bar button { background: #fff; border: 0; border-radius: 6px; }
 .rte-body { background: transparent; }
@@ -2583,12 +2592,12 @@ html.comfortable .needs-you .nu-row { min-height: 58px; background: #fff; border
   html.compact .modal-body .field { margin-bottom: 0 !important; }
   html.compact .modal-body .field:has(> label:first-child + select:last-child),
   html.compact .modal-body .field:has(> label:first-child + input:not([type=checkbox]):not([type=radio]):not([type=file]):last-child),
-  html.compact .modal-body .field:has(> label:first-child + .ro-value:last-child) {
+  html.compact .modal-body .field:has(> label:first-child + .ro-value:not(.ro-rich):not(.ro-text):last-child) {
     display: grid !important; grid-template-columns: minmax(88px, 36%) minmax(0, 1fr); align-items: center; column-gap: 10px;
   }
   html.compact .modal-body .field:has(> label:first-child + select:last-child) > label,
   html.compact .modal-body .field:has(> label:first-child + input:not([type=checkbox]):not([type=radio]):not([type=file]):last-child) > label,
-  html.compact .modal-body .field:has(> label:first-child + .ro-value:last-child) > label { margin: 0 !important; font-size: 13px !important; color: #4b5563 !important; line-height: 1.25; }
+  html.compact .modal-body .field:has(> label:first-child + .ro-value:not(.ro-rich):not(.ro-text):last-child) > label { margin: 0 !important; font-size: 13px !important; color: #4b5563 !important; line-height: 1.25; }
   html.compact .modal-body .field > label { font-size: 12.5px !important; margin-bottom: 3px !important; }
   html.compact .modal-body .muted:not(.field-error) { font-size: 12.5px; }
   html.compact .modal-body .form-actions { padding: 8px 0 calc(8px + env(safe-area-inset-bottom)) !important; gap: 8px !important; }
