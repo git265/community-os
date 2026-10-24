@@ -1,0 +1,14 @@
+{
+  "name": "cos-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CommunityOS site bridge: talks to the gate's devices on the community network and connects out to CommunityOS",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "bin": { "cos-bridge": "bin/cos-bridge.js" },
+  "scripts": {
+    "start": "node bin/cos-bridge.js",
+    "sim": "node sim/ds-k1t344.js",
+    "test": "node --test test/*.test.js"
+  }
+}
