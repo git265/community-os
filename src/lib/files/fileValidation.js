@@ -2,7 +2,7 @@
 //
 // HONEST SCOPE: a browser cannot run a real antivirus engine. What this layer
 // does (all client-side, all bypassable):
-//   1. allow-list by extension AND MIME type            (pdf, xls/xlsx, txt/csv, images)
+//   1. allow-list by extension AND MIME type            (pdf, xls/xlsx, txt/csv, images, short videos)
 //   2. max size
 //   3. magic-byte check - the file's real signature must match its extension
 //      (a .exe renamed to .pdf is rejected)
@@ -30,30 +30,37 @@ export const ALLOWED_TYPES = [
   { ext: ['jpg', 'jpeg'], mime: ['image/jpeg'], label: 'JPEG image', magic: [[0xff, 0xd8, 0xff]] },
   { ext: ['webp'], mime: ['image/webp'], label: 'WebP image', magic: [[0x52, 0x49, 0x46, 0x46]] }, // RIFF
   { ext: ['gif'], mime: ['image/gif'], label: 'GIF image', magic: [[0x47, 0x49, 0x46, 0x38]] },
+  // phone clips: an MP4 / MOV / 3GP says "ftyp" from byte 4 (an older MOV starts with another box), a WebM starts with the EBML mark
+  { ext: ['mp4', 'm4v'], mime: ['video/mp4', 'video/x-m4v'], label: 'MP4 video', video: true, at: 4, magic: [[0x66, 0x74, 0x79, 0x70]] },
+  { ext: ['mov'], mime: ['video/quicktime'], label: 'QuickTime video', video: true, at: 4, magic: [[0x66, 0x74, 0x79, 0x70], [0x6d, 0x6f, 0x6f, 0x76], [0x6d, 0x64, 0x61, 0x74], [0x77, 0x69, 0x64, 0x65], [0x66, 0x72, 0x65, 0x65]] },
+  { ext: ['3gp'], mime: ['video/3gpp'], label: '3GP video', video: true, at: 4, magic: [[0x66, 0x74, 0x79, 0x70]] },
+  { ext: ['webm'], mime: ['video/webm'], label: 'WebM video', video: true, magic: [[0x1a, 0x45, 0xdf, 0xa3]] },
 ];
-export const ATTACHMENT_ACCEPT = '.pdf,.xls,.xlsx,.doc,.docx,.ppt,.pptx,.rtf,.txt,.csv,.png,.jpg,.jpeg,.gif,.webp,image/*';
-export const ATTACHMENT_HELP = 'Images, PDF, Word, Excel, PowerPoint, RTF, text/CSV';
+export const ATTACHMENT_ACCEPT = '.pdf,.xls,.xlsx,.doc,.docx,.ppt,.pptx,.rtf,.txt,.csv,.png,.jpg,.jpeg,.gif,.webp,image/*,.mp4,.m4v,.mov,.3gp,.webm,video/*';
+export const ATTACHMENT_HELP = 'Images, videos, PDF, Word, Excel, PowerPoint, RTF, text/CSV';
 export const DOCUMENT_ACCEPT = '.pdf,.xls,.xlsx,.doc,.docx,.ppt,.pptx,.rtf,.txt,.csv';
 export const MAX_BYTES = 10 * 1024 * 1024; // 10 MB per file (files are kept in IndexedDB in this demo); the backend limit is configurable
+export const MAX_VIDEO_BYTES = 10 * 1024 * 1024; // a video is kept to 10 MB (the server checks the same)
 
 const EICAR = 'X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*';
 const extOf = (name) => (name.split('.').pop() || '').toLowerCase();
-const startsWith = (bytes, sig) => sig.every((b, i) => bytes[i] === b);
+const startsWith = (bytes, sig, at = 0) => sig.every((b, i) => bytes[at + i] === b);
 const latin1 = (bytes) => { let s = ''; for (let i = 0; i < bytes.length; i += 8192) s += String.fromCharCode(...bytes.subarray(i, i + 8192)); return s; };
 
 /** Returns { ok, status, reason?, type? }. status: 'rejected' | 'checked-locally' | 'clean' (clean only via remote scanner). */
-export async function validateFile(file, { allowImages = false } = {}) {
+export async function validateFile(file, { allowImages = false, allowVideos = false } = {}) {
   const ext = extOf(file.name);
-  const type = ALLOWED_TYPES.find((t) => t.ext.includes(ext) && (allowImages || !t.label.includes('image')));
-  if (!type) return { ok: false, status: 'rejected', reason: `.${ext || '?'} files are not allowed. Allowed: PDF, XLS/XLSX, DOC/DOCX, TXT/CSV${allowImages ? ', PNG/JPG/GIF' : ''}.` };
+  const type = ALLOWED_TYPES.find((t) => t.ext.includes(ext) && (allowImages || !t.label.includes('image')) && (allowVideos || !t.video));
+  if (!type) return { ok: false, status: 'rejected', reason: `.${ext || '?'} files are not allowed. Allowed: PDF, XLS/XLSX, DOC/DOCX, TXT/CSV${allowImages ? ', PNG/JPG/GIF' : ''}${allowVideos ? ', videos (MP4, MOV, WebM, 3GP)' : ''}.` };
   if (file.size === 0) return { ok: false, status: 'rejected', reason: 'The file is empty.' };
+  if (type.video && file.size > MAX_VIDEO_BYTES) return { ok: false, status: 'rejected', reason: `The video is ${(file.size / 1024 / 1024).toFixed(1)} MB; a video may be up to ${MAX_VIDEO_BYTES / 1024 / 1024} MB. Record a shorter clip (about 20 seconds) or a lower quality.` };
   if (file.size > MAX_BYTES) return { ok: false, status: 'rejected', reason: `File is larger than ${MAX_BYTES / 1024 / 1024} MB.` };
   if (file.type && !type.mime.includes(file.type) && file.type !== 'application/octet-stream') {
     return { ok: false, status: 'rejected', reason: `File type "${file.type}" does not match .${ext}.` };
   }
 
   const buf = new Uint8Array(await file.arrayBuffer());
-  if (type.magic && !type.magic.some((sig) => startsWith(buf, sig))) {
+  if (type.magic && !type.magic.some((sig) => startsWith(buf, sig, type.at || 0))) {
     return { ok: false, status: 'rejected', reason: `The file content is not a real ${type.label} (signature mismatch).` };
   }
   if (type.text && buf.subarray(0, 4096).includes(0)) {

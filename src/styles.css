@@ -2885,3 +2885,7 @@ html, body, .main, .content { background: #f3f5f9 !important; }
 
 /* gate warning tags (coral): the later generic .tag rule was winning over .gg-tag-coral */
 .tag.gg-tag-coral { background: #ffe9ea; color: #c7364a; }
+
+/* video attachments: the first frame as the tile picture */
+.att-tile .att-open video { width: 100%; height: 84px; border-radius: 10px 10px 0 0; object-fit: cover; background: #0f172a; display: block; }
+.photo-btns:has(> :nth-child(3)) > :first-child { grid-column: 1 / -1; }

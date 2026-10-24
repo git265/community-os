@@ -44,6 +44,16 @@ class DocsTest {
         assertEquals("active-content", assertThrows(DomainException.RuleViolated.class, () -> FileRules.check("x.pdf", "%PDF-1.4 /OpenAction << /JS (app.alert(1)) >>".getBytes())).code());
         assertEquals("binary-in-text", assertThrows(DomainException.RuleViolated.class, () -> FileRules.check("x.csv", new byte[] {'a', 0, 'b'})).code());
         assertEquals("empty", assertThrows(DomainException.RuleViolated.class, () -> FileRules.check("x.txt", new byte[0])).code());
+        // videos: an MP4 / MOV says "ftyp" from byte 4, a WebM starts with the EBML mark; at most 10 MB
+        byte[] mp4 = new byte[64]; System.arraycopy("ftypisom".getBytes(java.nio.charset.StandardCharsets.ISO_8859_1), 0, mp4, 4, 8);
+        assertEquals("video/mp4", FileRules.check("clip.MP4", mp4).mime());
+        byte[] mov = mp4.clone(); System.arraycopy("qt  ".getBytes(java.nio.charset.StandardCharsets.ISO_8859_1), 0, mov, 8, 4);
+        assertEquals("video/quicktime", FileRules.check("IMG_0042.MOV", mov).mime(), "an iPhone clip");
+        assertEquals("video/webm", FileRules.check("rec.webm", new byte[] {0x1a, 0x45, (byte) 0xdf, (byte) 0xa3, 0, 0}).mime());
+        assertEquals("not-what-it-says", assertThrows(DomainException.RuleViolated.class, () -> FileRules.check("clip.mp4", PDF)).code(), "a PDF renamed .mp4");
+        byte[] big = new byte[(int) FileRules.MAX_VIDEO_BYTES + 1]; System.arraycopy(mp4, 0, big, 0, mp4.length);
+        assertEquals("too-large", assertThrows(DomainException.RuleViolated.class, () -> FileRules.check("long.mp4", big)).code(), "a video over 10 MB");
+        assertFalse(FileRules.check("clip.mp4", mp4).image());
         assertEquals("passwd.txt", FileRules.cleanName("../../etc/passwd.txt"), "only the last part of a path");
         assertEquals("a b.pdf", FileRules.cleanName("C:\\Users\\x\\a\u0000 b.pdf"));
         assertTrue(FileRules.cleanName("x".repeat(300) + ".pdf").endsWith(".pdf"));

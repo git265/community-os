@@ -37,7 +37,7 @@ export async function screenFiles(fileList) {
   const rejected = [];
   for (const raw of Array.from(fileList || [])) {
     const file = await shrinkImage(raw);
-    const validation = await validateFile(file, { allowImages: true });
+    const validation = await validateFile(file, { allowImages: true, allowVideos: true });
     if (validation.ok) accepted.push({ file, validation });
     else rejected.push({ name: raw.name, reason: validation.reason });
   }
@@ -102,3 +102,4 @@ export async function downloadAttachment(meta) {
 }
 
 export const isImageMeta = (m) => /^image\//.test(m?.mime || '');
+export const isVideoMeta = (m) => /^video\//.test(m?.mime || '') || /\.(mp4|m4v|mov|3gp|webm)$/i.test(m?.name || '');

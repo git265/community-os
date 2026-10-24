@@ -11,6 +11,7 @@ const extOf = (m) => String(m?.name || '').split('.').pop().toLowerCase();
 export function previewKind(m) {
   const ext = extOf(m); const mime = m?.mime || '';
   if (/^image\//.test(mime) || ['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext)) return 'image';
+  if (/^video\//.test(mime) || ['mp4', 'm4v', 'mov', '3gp', 'webm'].includes(ext)) return 'video';
   if (mime === 'application/pdf' || ext === 'pdf') return 'pdf';
   if (ext === 'docx') return 'docx';
   if (['xlsx', 'xls', 'csv'].includes(ext)) return 'sheet';
@@ -36,7 +37,7 @@ export default function FilePreview({ meta, onClose }) {
         }
         if (kind === 'image') return on && setState({ kind, src: dataUrl });
         const blob = await dataToBlob(dataUrl);
-        if (kind === 'pdf') { url = URL.createObjectURL(blob); return on && setState({ kind, src: url }); }
+        if (kind === 'pdf' || kind === 'video') { url = URL.createObjectURL(blob); return on && setState({ kind, src: url }); }
         if (kind === 'text') return on && setState({ kind, text: await blob.text() });
         if (kind === 'docx') {
           const mammoth = (await import('mammoth/mammoth.browser.js')).default || (await import('mammoth/mammoth.browser.js'));
@@ -64,6 +65,7 @@ export default function FilePreview({ meta, onClose }) {
         {state.loading && <div className="muted">Opening…</div>}
         {state.error && <div className="notice error">{state.error} You can still download it.</div>}
         {state.kind === 'image' && <img src={state.src} alt={meta.name} style={{ maxWidth: '100%', maxHeight: '70vh', display: 'block', margin: '0 auto', borderRadius: 8 }} />}
+        {state.kind === 'video' && <video src={state.src} controls playsInline preload="metadata" data-testid="video-player" style={{ width: '100%', maxHeight: '70vh', display: 'block', background: '#000', borderRadius: 8 }}>Your browser cannot play this video here. Use Download.</video>}
         {state.kind === 'pdf' && <iframe title={meta.name} src={state.src} style={{ width: '100%', height: '70vh', border: '1px solid var(--line)', borderRadius: 8 }} />}
         {state.kind === 'text' && <pre style={{ whiteSpace: 'pre-wrap', maxHeight: '70vh', overflow: 'auto' }}>{state.text}</pre>}
         {state.kind === 'docx' && <div className="doc-preview" style={{ maxHeight: '70vh', overflow: 'auto' }} dangerouslySetInnerHTML={{ __html: state.html }} />}

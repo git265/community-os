@@ -1,12 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { screenFiles, loadFileData, isImageMeta } from '../lib/files/attachments.js';
+import { screenFiles, loadFileData, isImageMeta, isVideoMeta } from '../lib/files/attachments.js';
 import FilePreview from './FilePreview.jsx';
 import { ATTACHMENT_ACCEPT, ATTACHMENT_HELP, MAX_BYTES } from '../lib/files/fileValidation.js';
 import { tell } from '../lib/net/activity.js';
 import { usePhone } from './Tabs.jsx';
 
 const kb = (n) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
-const icon = (m) => (isImageMeta(m) ? '🖼' : /pdf/.test(m.mime || m.name) ? '📕' : /sheet|excel|xls|csv/.test(m.mime || m.name) ? '📊' : /word|doc/.test(m.mime || m.name) ? '📘' : '📄');
+const icon = (m) => (isImageMeta(m) ? '🖼' : isVideoMeta(m) ? '🎬' : /pdf/.test(m.mime || m.name) ? '📕' : /sheet|excel|xls|csv/.test(m.mime || m.name) ? '📊' : /word|doc/.test(m.mime || m.name) ? '📘' : '📄');
 
 function Thumb({ meta }) {
   const [src, setSrc] = useState(null);
@@ -17,7 +17,10 @@ function Thumb({ meta }) {
 function PendingThumb({ file }) {
   const [src, setSrc] = useState(null);
   useEffect(() => { const u = URL.createObjectURL(file); setSrc(u); return () => URL.revokeObjectURL(u); }, [file]);
-  return src ? <img src={src} alt="" /> : <span className="att-icon">🖼</span>;
+  const video = /^video\//.test(file.type);
+  if (!src) return <span className="att-icon">{video ? '🎬' : '🖼'}</span>;
+  // a video shows its first frame (no sound, no controls: tap it after saving to play)
+  return video ? <video src={`${src}#t=0.1`} muted playsInline preload="metadata" aria-hidden="true" /> : <img src={src} alt="" />;
 }
 
 /** Already-stored files on a record. Click to preview in the app (download from the preview); optional remove (applies when the form is saved). */
@@ -27,9 +30,9 @@ export function AttachmentList({ items = [], onRemove }) {
   return (
     <div className="att-list">
       {items.map((m, i) => (
-        <div className={`att-item${isImageMeta(m) ? ' att-tile' : ''}`} key={m.fileId || i}>
+        <div className={`att-item${isImageMeta(m) || isVideoMeta(m) ? ' att-tile' : ''}`} key={m.fileId || i}>
           <button type="button" className="att-open" onClick={() => setViewing(m)} title="Preview" data-testid={isImageMeta(m) ? 'att-thumb' : undefined}>
-            {isImageMeta(m) ? <Thumb meta={m} /> : <span className="att-icon">{icon(m)}</span>}
+            {isImageMeta(m) ? <Thumb meta={m} /> : <span className="att-icon" data-testid={isVideoMeta(m) ? 'att-video' : undefined}>{icon(m)}</span>}
             <span className="att-name">{m.name}<small>{kb(m.size || 0)}</small></span>
           </button>
           {onRemove && <button type="button" className="att-x" onClick={() => onRemove(i)} aria-label={`Remove ${m.name}`}>✕</button>}
@@ -70,7 +73,7 @@ export function AttachmentPicker({ pending, onChange, label = 'Add files', compa
   function open(camera) {
     const el = ref.current;
     if (!el) return;
-    if (camera) { el.setAttribute('capture', 'environment'); el.accept = 'image/*'; } else { el.removeAttribute('capture'); el.accept = ATTACHMENT_ACCEPT; }
+    if (camera) { el.setAttribute('capture', 'environment'); el.accept = camera === 'video' ? 'video/*' : 'image/*'; } else { el.removeAttribute('capture'); el.accept = ATTACHMENT_ACCEPT; }
     el.click();
   }
 
@@ -79,18 +82,19 @@ export function AttachmentPicker({ pending, onChange, label = 'Add files', compa
       <input ref={ref} type="file" multiple accept={ATTACHMENT_ACCEPT} onChange={pick} aria-label={label} style={compact ? { display: 'none' } : undefined} />
       {compact && (
         <div className="photo-btns">
-          <button type="button" className="btn secondary" onClick={() => open(false)}>🖼 Choose photo</button>
+          <button type="button" className="btn secondary" onClick={() => open(false)}>🖼 Choose photo or video</button>
           <button type="button" className="btn secondary" onClick={() => open(true)}>📷 Camera</button>
+          <button type="button" className="btn secondary" data-testid="att-record" onClick={() => open('video')}>🎥 Video</button>
         </div>
       )}
-      <div className="muted file-help" style={{ fontSize: 12, marginTop: 4 }}>{compact ? `Photos, PDF or Word · max ${MAX_BYTES / 1024 / 1024} MB each · scanned before upload` : `${ATTACHMENT_HELP} · max ${MAX_BYTES / 1024 / 1024} MB each · checked for type, active content and viruses before upload`}</div>
+      <div className="muted file-help" style={{ fontSize: 12, marginTop: 4 }}>{compact ? `Photos, videos, PDF or Word · max ${MAX_BYTES / 1024 / 1024} MB each (a video about 20 seconds) · scanned before upload` : `${ATTACHMENT_HELP} · max ${MAX_BYTES / 1024 / 1024} MB each (a video about 20 seconds) · checked for type, active content and viruses before upload`}</div>
       {busy && <div className="notice">🔍 Checking files…</div>}
       {rejected.map((r, i) => <div key={i} className="notice error">🚫 {r.name}: {r.reason}</div>)}
       {pending.length > 0 && (
         <div className="att-list" style={{ marginTop: 8 }}>
           {pending.map((p, i) => (
-            <div className={`att-item pending${/^image\//.test(p.file.type) ? ' att-tile' : ''}`} key={i}>
-              <span className="att-open">{/^image\//.test(p.file.type) ? <PendingThumb file={p.file} /> : <span className="att-icon">{icon({ mime: p.file.type, name: p.file.name })}</span>}<span className="att-name">{p.file.name}<small>{kb(p.file.size)} · ready to upload on save</small></span></span>
+            <div className={`att-item pending${/^(image|video)\//.test(p.file.type) ? ' att-tile' : ''}`} key={i}>
+              <span className="att-open">{/^(image|video)\//.test(p.file.type) ? <PendingThumb file={p.file} /> : <span className="att-icon">{icon({ mime: p.file.type, name: p.file.name })}</span>}<span className="att-name">{p.file.name}<small>{kb(p.file.size)} · ready to upload on save</small></span></span>
               <button type="button" className="att-x" onClick={() => onChange(pending.filter((_, j) => j !== i))} aria-label={`Remove ${p.file.name}`}>✕</button>
             </div>
           ))}
