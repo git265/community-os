@@ -1,7 +1,7 @@
 import { COLLECTIONS } from '../storage/StorageAdapter.js';
 import { HANDYMAN_ROLE_IDS, DEFAULT_ROLES } from '../access/roles.js';
 import { KNOWN_MODES } from '../region/paymentModes.js';
-import { PERSON_CLASSES, PERSON_STATUS, VISIT_KINDS, VISIT_STATES, APPROVAL_STATES, FLAG_TYPES, FLAG_STATES, FLAG_RESOLUTIONS, PASS_TYPES, DELIVERY_MODES, DELIVERY_COMPANIES, VEHICLE_CLASSES, FALLBACKS, GOODS_KINDS } from '../gate/constants.js';
+import { PERSON_CLASSES, PERSON_STATUS, VISIT_KINDS, VISIT_STATES, APPROVAL_STATES, FLAG_TYPES, FLAG_STATES, FLAG_RESOLUTIONS, PASS_TYPES, DELIVERY_MODES, DELIVERY_COMPANIES, VEHICLE_CLASSES, FALLBACKS, GOODS_KINDS, PATROL_NFC } from '../gate/constants.js';
 
 const EC = ['super_admin', 'president', 'general_secretary', 'treasurer', 'committee_landscape', 'committee_electrical', 'committee_security', 'committee_cultural', 'committee_amenities'];
 const RESIDENTS = ['owner', 'resident'];
@@ -1566,6 +1566,7 @@ const RAW_SCHEMAS = [
       { key: 'kioskOn', label: 'A face kiosk opens the gate for approved visitors', type: 'boolean', viewableBy: ALL, editableBy: STAFF },
       { key: 'goodsExtraPeople', label: 'More people than the goods pass allows', type: 'select', options: ['Block until the guard confirms', 'Let in and flag'], viewableBy: ALL, editableBy: STAFF },
       { key: 'patrolMinSeconds', label: 'Least seconds between two checkpoint scans', type: 'number', viewableBy: ALL, editableBy: STAFF },
+      { key: 'patrolNfc', label: 'NFC tags on patrols', type: 'select', options: PATROL_NFC, viewableBy: ALL, editableBy: STAFF },
       { key: 'passMessage', label: 'Pass message (WhatsApp / SMS wording)', type: 'textarea', wide: true, viewableBy: ALL, editableBy: STAFF },
       { key: 'badgeSalt', label: 'Badge secret', type: 'text', hidden: true, viewableBy: OPS, editableBy: STAFF },
       { key: 'durations', label: 'Expected minutes by kind', type: 'text', hidden: true, viewableBy: ALL, editableBy: STAFF },
@@ -1606,6 +1607,7 @@ const RAW_SCHEMAS = [
       { key: 'lat', label: 'Latitude', type: 'number', hidden: true, viewableBy: OPS, editableBy: STAFF },
       { key: 'lng', label: 'Longitude', type: 'number', hidden: true, viewableBy: OPS, editableBy: STAFF },
       { key: 'radiusM', label: 'Counts as at the post within (m)', type: 'number', hidden: true, viewableBy: OPS, editableBy: STAFF },
+      { key: 'nfcTag', label: 'NFC tag', type: 'text', hidden: true, viewableBy: OPS, editableBy: STAFF },
     ],
   },
   {
@@ -1637,6 +1639,7 @@ const RAW_SCHEMAS = [
       { key: 'accM', label: 'GPS accuracy (m)', type: 'number', hidden: true, viewableBy: OPS, editableBy: FIELD_STAFF },
       { key: 'distM', label: 'From the post (m)', type: 'number', viewableBy: OPS, editableBy: FIELD_STAFF },
       { key: 'place', label: 'Where', type: 'text', viewableBy: OPS, editableBy: FIELD_STAFF, showInTable: true },
+      { key: 'method', label: 'By', type: 'text', viewableBy: OPS, editableBy: FIELD_STAFF },
     ],
   },
   {

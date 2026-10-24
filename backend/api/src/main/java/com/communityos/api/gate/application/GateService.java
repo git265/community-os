@@ -676,14 +676,31 @@ public final class GateService {
      * to 50 m) is "Away from the post" and a flag; location turned off is a flag (once per spell of it); two different posts scanned from the same
      * spot with a good signal is a flag. A weak signal or a post not pinned yet is noted, not flagged. The scan itself always counts.
      */
-    public ScanResult scan(Caller c, String text, String note, Position at) {
+    public ScanResult scan(Caller c, String text, String note, Position at) { return scan(c, text, null, note, at); }
+    /**
+     * A guard proves they were at a post: the printed QR code (text) or, where the community uses them, the post's NFC tag (its serial number
+     * as the phone read it). With "Tag where fitted", a post that has a tag takes only the tag.
+     */
+    public ScanResult scan(Caller c, String text, String tag, String note, Position at) {
         desk(c);
         if (c.membership() == null) throw new AccessDenied("Sign in as a guard");
+        boolean nfc = blank(tag) != null;
         java.util.regex.Matcher m = java.util.regex.Pattern.compile("^GGCP\\|([0-9a-fA-F-]{36})\\|(.+)$").matcher(text == null ? "" : text.strip());
-        if (!m.matches()) throw new DomainException.RuleViolated("not-checkpoint", "This is not a checkpoint code");
+        if (!nfc && !m.matches()) throw new DomainException.RuleViolated("not-checkpoint", "This is not a checkpoint code");
+        String serial = nfc ? Gate.tagSerial(tag) : null;
+        if (nfc && serial == null) throw new DomainException.RuleViolated("bad-tag", "The tag could not be read: hold the phone on it again");
         return tx.inTx(() -> {
-            GateDirectory.Checkpoint cp = dir.checkpoint(UUID.fromString(m.group(1))).filter((x) -> m.group(2).equals(x.code()))
-                .orElseThrow(() -> new DomainException.RuleViolated("unknown-checkpoint", "Unknown or out-of-date checkpoint code"));
+            String mode = dir.patrolNfc();
+            GateDirectory.Checkpoint cp;
+            if (nfc) {
+                if ("Off".equals(mode)) throw new DomainException.RuleViolated("nfc-off", "NFC tags are not used for patrols here: scan the QR code on the post");
+                cp = dir.checkpointByTag(Gate.tagHash(c.community().value(), serial))
+                    .orElseThrow(() -> new DomainException.RuleViolated("unknown-tag", "This tag is not fitted at any checkpoint"));
+            } else {
+                cp = dir.checkpoint(UUID.fromString(m.group(1))).filter((x) -> m.group(2).equals(x.code()))
+                    .orElseThrow(() -> new DomainException.RuleViolated("unknown-checkpoint", "Unknown or out-of-date checkpoint code"));
+                if ("Tag where fitted".equals(mode) && cp.hasTag()) throw new DomainException.RuleViolated("tap-tag", "Tap the NFC tag at " + cp.name() + ": its QR code is not accepted");
+            }
             if (!cp.active()) throw new DomainException.RuleViolated("inactive", cp.name() + " is not in use");
             ZonedDateTime now = now(); Gate.Settings s = dir.settings();
             UUID guard = c.membership().value();
@@ -706,7 +723,7 @@ public final class GateService {
             else if (dist == null) place = "Post not mapped";
             else place = dist <= (cp.radiusM() == null ? DEFAULT_RADIUS_M : cp.radiusM()) + Math.min(acc == null ? 0 : acc, 50) ? "At the post" : "Away from the post";
             store.insert(new GateStore.Scan(cp.id(), cp.name(), guard, c.displayName(), now.toInstant(), live == null ? null : live.id(), live == null ? null : live.name(), now.toLocalDate(), blank(note),
-                known ? at.lat() : null, known ? at.lng() : null, acc, dist, place));
+                known ? at.lat() : null, known ? at.lng() : null, acc, dist, place, nfc ? "NFC" : "QR"));
             dir.beat(guard, "patrol");
             UUID roundId = live == null ? null : live.id();
             String who = c.displayName(), when = now.toLocalTime().withSecond(0).withNano(0).toString();

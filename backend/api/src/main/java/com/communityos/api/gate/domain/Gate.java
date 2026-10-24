@@ -39,6 +39,19 @@ public final class Gate {
     /** Where a patrol scan was taken, from the phone's GPS. */
     public static final List<String> SCAN_PLACES = List.of("At the post", "Away from the post", "Weak signal", "No location", "Location off", "Post not mapped");
     public static final String PATROL_LOCATION = "Patrol location";
+    /** How a community uses NFC tags on patrols. */
+    public static final List<String> PATROL_NFC = List.of("Off", "Tag or QR", "Tag where fitted");
+    /** An NFC tag's serial number as the phone reads it ("04:a2:3f:..."), as plain upper-case hex; null when it is not one (4 to 16 bytes). */
+    public static String tagSerial(String s) {
+        if (s == null) return null;
+        String hex = s.replaceAll("[\\s:\\-]", "").toUpperCase();
+        return hex.matches("[0-9A-F]{8,32}") ? hex : null;
+    }
+    /** What is kept of a tag: a hash of the community and its serial, so the serial cannot be read back from the app. */
+    public static String tagHash(java.util.UUID community, String serial) {
+        try { return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest((community + ":" + serial).getBytes(java.nio.charset.StandardCharsets.UTF_8))); }
+        catch (java.security.NoSuchAlgorithmException e) { throw new IllegalStateException(e); }
+    }
     /** Days empty = every day; no times = any time; slack widens the window by minutes on each side. */
     public static boolean windowOpen(List<String> days, LocalTime from, LocalTime to, ZonedDateTime now, int slackMin) {
         if (days != null && !days.isEmpty() && !days.contains(dayOf(now.toLocalDate()))) return false;

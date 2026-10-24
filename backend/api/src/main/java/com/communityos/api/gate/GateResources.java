@@ -183,8 +183,11 @@ public final class GateResources {
             @Override public boolean deletable(WorkOrderFields f) { return false; }
             @Override public String label(WorkOrderFields f) { return f.title(); }
         });
-    /** lat/lng: where the post is (pinned once by standing at it); radiusM: how far from it a scan still counts as at the post (default 40 m). */
-    public record CheckpointFields(String name, String area, Integer order, boolean active, String code, BigDecimal lat, BigDecimal lng, Integer radiusM) {}
+    /**
+     * lat/lng: where the post is (pinned once by standing at it); radiusM: how far from it a scan still counts as at the post (default 40 m);
+     * nfcTag: written as the tag's serial number when one is fitted, kept (and read back) only as its hash; blank removes the tag.
+     */
+    public record CheckpointFields(String name, String area, Integer order, boolean active, String code, BigDecimal lat, BigDecimal lng, Integer radiusM, String nfcTag) {}
     public static final Resource<CheckpointFields> CHECKPOINTS = new Resource<>(
         new ResourceTable<>("gateCheckpoints", "gate/checkpoints", "gate.checkpoint", CheckpointFields.class, "r.order_value NULLS LAST, r.name", Map.of("order", "order_value")),
         new ResourceRules<>() {
@@ -197,7 +200,13 @@ public final class GateResources {
                 Checks.rule(f.lat() == null || (f.lat().abs().compareTo(BigDecimal.valueOf(90)) <= 0 && f.lng().abs().compareTo(BigDecimal.valueOf(180)) <= 0), "bad-place", "That is not a place on Earth");
                 Checks.rule(f.radiusM() == null || (f.radiusM() >= 10 && f.radiusM() <= 500), "bad-radius", "A post's radius is 10 to 500 metres");
                 java.util.function.Function<BigDecimal, BigDecimal> six = (x) -> x == null ? null : x.setScale(6, java.math.RoundingMode.HALF_UP);
-                return new CheckpointFields(Checks.required(f.name(), "Name"), f.area(), f.order(), f.active(), code, six.apply(f.lat()), six.apply(f.lng()), f.radiusM());
+                String tag = f.nfcTag() == null || f.nfcTag().isBlank() ? null : f.nfcTag().strip();
+                if (tag != null && !(old != null && tag.equals(old.nfcTag()))) {        // a newly fitted tag: its serial, kept only as a hash
+                    String serial = Gate.tagSerial(tag);
+                    Checks.rule(serial != null, "bad-tag", "That is not an NFC tag's serial number");
+                    tag = Gate.tagHash(c.community().value(), serial);
+                }
+                return new CheckpointFields(Checks.required(f.name(), "Name"), f.area(), f.order(), f.active(), code, six.apply(f.lat()), six.apply(f.lng()), f.radiusM(), tag);
             }
             @Override public String label(CheckpointFields f) { return f.name(); }
         });
@@ -239,7 +248,8 @@ public final class GateResources {
     // ---- settings ------------------------------------------------------------------------------------------------------------------------------
     public record SettingsFields(Integer waitSeconds, String fallback, Integer graceSeconds, BigDecimal overstayGraceMinutes, BigDecimal autoCloseHours, BigDecimal guardSilenceMinutes,
                                  LocalTime quietFrom, LocalTime quietTo, String quietFallback, BigDecimal photoRetentionDays, boolean kioskOn, String goodsExtraPeople,
-                                 BigDecimal patrolMinSeconds, String passMessage, Map<String, Integer> durations, List<String> approvedCompanies, Map<String, Object> events) {}
+                                 BigDecimal patrolMinSeconds, String passMessage, Map<String, Integer> durations, List<String> approvedCompanies, Map<String, Object> events,
+                                 String patrolNfc) {}
     public static final Resource<SettingsFields> SETTINGS = new Resource<>(
         new ResourceTable<>("gateSettings", "gate/settings", "gate.setting", SettingsFields.class, "r.created_at"),
         new ResourceRules<>() {
@@ -257,6 +267,11 @@ public final class GateResources {
                     Checks.rule(Gate.KINDS.contains(e.getKey()), "bad-kind", "Unknown kind of visit: " + e.getKey());
                     Checks.rule(e.getValue() != null && e.getValue() >= 0 && e.getValue() <= 1440, "bad-minutes", "A visit lasts 0 to 1440 minutes");
                 }
+                if (f.patrolNfc() == null)   // not sent: as it was
+                    return new SettingsFields(f.waitSeconds(), f.fallback(), f.graceSeconds(), f.overstayGraceMinutes(), f.autoCloseHours(), f.guardSilenceMinutes(), f.quietFrom(), f.quietTo(),
+                        f.quietFallback(), f.photoRetentionDays(), f.kioskOn(), f.goodsExtraPeople(), f.patrolMinSeconds(), f.passMessage(), f.durations(), f.approvedCompanies(), f.events(),
+                        old.patrolNfc() == null ? "Off" : old.patrolNfc());
+                Checks.oneOf(f.patrolNfc(), "NFC tags on patrols", Gate.PATROL_NFC);
                 return f;
             }
             @Override public boolean deletable(SettingsFields f) { return false; }

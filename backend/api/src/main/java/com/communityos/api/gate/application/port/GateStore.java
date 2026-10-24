@@ -11,9 +11,12 @@ import java.util.UUID;
 /** Port: the gate's records - passes, visits, approvals, flags, patrol scans - in the caller's community. */
 public interface GateStore {
     record VisitFilter(String state, UUID unit, LocalDate from, LocalDate to, boolean openOnly) {}
-    /** lat/lng/accM: the phone's GPS at the scan; distM: how far that is from the post; place: what that means (Gate.SCAN_PLACES). */
+    /**
+     * lat/lng/accM: the phone's GPS at the scan; distM: how far that is from the post; place: what that means (Gate.SCAN_PLACES);
+     * method: how the post was proved, QR (the printed code) or NFC (its tag tapped).
+     */
     record Scan(UUID checkpointId, String checkpointName, UUID guardId, String guard, Instant at, UUID roundId, String roundName, LocalDate day, String note,
-                Double lat, Double lng, Integer accM, Integer distM, String place) {}
+                Double lat, Double lng, Integer accM, Integer distM, String place, String method) {}
 
     // passes
     List<Gate.Pass> passes(Spec<Gate.Pass> scope, String status);

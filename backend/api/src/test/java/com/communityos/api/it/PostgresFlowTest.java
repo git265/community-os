@@ -642,12 +642,12 @@ class PostgresFlowTest {
             // patrols: the right code, not too soon, and where the phone was (the post is pinned; GPS comes with each scan)
             var cps = new com.communityos.api.shared.resource.JdbcResourceRepository<>(com.communityos.api.gate.GateResources.CHECKPOINTS.table(), app, json);
             var cp = as(admin, () -> kit.create(admin, com.communityos.api.gate.GateResources.CHECKPOINTS, cps, new com.communityos.api.gate.GateResources.CheckpointFields("Pump room", "North", 1, true, null,
-                new java.math.BigDecimal("12.9716"), new java.math.BigDecimal("77.5946"), 40)));
+                new java.math.BigDecimal("12.9716"), new java.math.BigDecimal("77.5946"), 40, null)));
             assertTrue(cp.data().code().matches("[A-Z0-9]{10}"), "the server makes the code");
             assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> kit.create(admin, com.communityos.api.gate.GateResources.CHECKPOINTS, cps,
-                new com.communityos.api.gate.GateResources.CheckpointFields("Half place", null, 2, true, null, new java.math.BigDecimal("12.9"), null, null))), "a place needs both coordinates");
+                new com.communityos.api.gate.GateResources.CheckpointFields("Half place", null, 2, true, null, new java.math.BigDecimal("12.9"), null, null, null))), "a place needs both coordinates");
             assertThrows(AccessDenied.class, () -> as(plumberC, () -> kit.create(plumberC, com.communityos.api.gate.GateResources.CHECKPOINTS, cps,
-                new com.communityos.api.gate.GateResources.CheckpointFields("Mine", null, 3, true, null, null, null, null))), "only the people who set patrols up");
+                new com.communityos.api.gate.GateResources.CheckpointFields("Mine", null, 3, true, null, null, null, null, null))), "only the people who set patrols up");
             java.util.function.BiFunction<Double, Double, com.communityos.api.gate.application.GateService.Position> gps = (la, lo) -> new com.communityos.api.gate.application.GateService.Position(la, lo, 10, null);
             String cpQr = "GGCP|" + cp.id() + "|" + cp.data().code();
             assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> gateSvc.scan(admin, "GGCP|" + cp.id() + "|WRONG", null, null)));
@@ -659,7 +659,7 @@ class PostgresFlowTest {
             var far = as(admin, () -> gateSvc.scan(admin, cpQr, null, gps.apply(12.9743, 77.5946)));
             assertEquals("Away from the post", far.place()); assertTrue(far.distM() > 250 && far.distM() < 350, "" + far.distM());
             assertEquals("1", locFlags.get(), "away from the post: a flag (the scan still counts)");
-            var cp2 = as(admin, () -> kit.create(admin, com.communityos.api.gate.GateResources.CHECKPOINTS, cps, new com.communityos.api.gate.GateResources.CheckpointFields("Tank room", "South", 2, true, null, null, null, null)));
+            var cp2 = as(admin, () -> kit.create(admin, com.communityos.api.gate.GateResources.CHECKPOINTS, cps, new com.communityos.api.gate.GateResources.CheckpointFields("Tank room", "South", 2, true, null, null, null, null, null)));
             var same = as(admin, () -> gateSvc.scan(admin, "GGCP|" + cp2.id() + "|" + cp2.data().code(), null, gps.apply(12.97431, 77.59461)));
             assertEquals("Post not mapped", same.place());
             assertEquals("2", locFlags.get(), "two posts scanned from the same spot");
@@ -671,6 +671,28 @@ class PostgresFlowTest {
             assertEquals("3", locFlags.get());
             var logged = as(admin, () -> gateSvc.scans(admin, null)).stream().filter((x) -> "Away from the post".equals(x.place())).findFirst().orElseThrow();
             assertTrue(Math.abs(logged.lat() - 12.9743) < 0.00001, "" + logged.lat()); assertEquals(10, logged.accM().intValue());
+            // NFC tags (optional, off by default): a fitted tag is kept only as a hash; "Tag or QR" takes either, "Tag where fitted" only the tag
+            String serial = "04:A2:3F:1B:6C:80:91";
+            var CPS = com.communityos.api.gate.GateResources.CHECKPOINTS;
+            var tagged = as(admin, () -> kit.replace(admin, CPS, cps, cp2.id(), cp2.version(), new com.communityos.api.gate.GateResources.CheckpointFields("Tank room", "South", 2, true, cp2.data().code(), null, null, null, serial)));
+            assertEquals(com.communityos.api.gate.domain.Gate.tagHash(cid, "04A23F1B6C8091"), tagged.data().nfcTag(), "only the hash of the serial is kept");
+            var resaved = as(admin, () -> kit.replace(admin, CPS, cps, tagged.id(), tagged.version(), new com.communityos.api.gate.GateResources.CheckpointFields("Tank room", "South", 2, true, tagged.data().code(), null, null, 30, tagged.data().nfcTag())));
+            assertEquals(tagged.data().nfcTag(), resaved.data().nfcTag(), "saving the post again keeps its tag");
+            assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> kit.replace(admin, CPS, cps, resaved.id(), resaved.version(), new com.communityos.api.gate.GateResources.CheckpointFields("Tank room", "South", 2, true, resaved.data().code(), null, null, 30, "not a tag"))));
+            var nfcOff = assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> gateSvc.scan(admin, null, serial, null, null)));
+            assertEquals("nfc-off", nfcOff.code(), "tags are off until the community turns them on");
+            owner.sql("UPDATE gate.setting SET patrol_nfc = 'Tag or QR' WHERE community_id = '" + cid + "' RETURNING 1");
+            assertEquals("Tank room", as(admin, () -> gateSvc.scan(admin, null, "04a23f1b6c8091", null, null)).checkpoint(), "the tag, however the phone writes its serial");
+            assertEquals("NFC", owner.sql("SELECT method FROM gate.scan WHERE community_id = '" + cid + "' ORDER BY at DESC LIMIT 1").get(0).get("method"));
+            assertEquals("unknown-tag", assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> gateSvc.scan(admin, null, "04:00:00:00:00:00:01", null, null))).code());
+            assertEquals("Tank room", as(admin, () -> gateSvc.scan(admin, "GGCP|" + cp2.id() + "|" + cp2.data().code(), null, null, null)).checkpoint(), "Tag or QR: the QR still counts");
+            owner.sql("UPDATE gate.setting SET patrol_nfc = 'Tag where fitted' WHERE community_id = '" + cid + "' RETURNING 1");
+            assertEquals("tap-tag", assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> gateSvc.scan(admin, "GGCP|" + cp2.id() + "|" + cp2.data().code(), null, null, null))).code());
+            assertEquals("Pump room", as(admin, () -> gateSvc.scan(admin, cpQr, null, null, null)).checkpoint(), "a post without a tag still takes its QR");
+            var untagged = as(admin, () -> kit.replace(admin, CPS, cps, resaved.id(), resaved.version(), new com.communityos.api.gate.GateResources.CheckpointFields("Tank room", "South", 2, true, resaved.data().code(), null, null, 30, null)));
+            assertNull(untagged.data().nfcTag(), "the tag taken off");
+            assertEquals("Tank room", as(admin, () -> gateSvc.scan(admin, "GGCP|" + cp2.id() + "|" + cp2.data().code(), null, null, null)).checkpoint());
+            owner.sql("UPDATE gate.setting SET patrol_nfc = 'Off' WHERE community_id = '" + cid + "' RETURNING 1");
             owner.sql("UPDATE gate.setting SET patrol_min_seconds = 20 WHERE community_id = '" + cid + "' RETURNING 1");
             // the sweep: a guard clocked in two hours ago with a quiet console, and a round that closed an hour ago unwalked, are flagged once
             UUID guardPerson = id(owner, "INSERT INTO identity.person (phone_e164, full_name) VALUES ('+9194" + String.format("%08d", Long.parseLong(tag) % 100_000_000L) + "', 'Shankar Guard') RETURNING id");
@@ -687,7 +709,7 @@ class PostgresFlowTest {
             if (roundToday) assertEquals("1", owner.sql("SELECT count(*)::text AS n FROM gate.flag WHERE type = 'Missed patrol' AND round_id = '" + round.id() + "'").get(0).get("n"), "an unwalked round, once");
             Caller guardC = callers.load(new PersonId(guardPerson), new CommunityId(cid), new MembershipId(guardMember)).orElseThrow();
             assertThrows(AccessDenied.class, () -> as(guardC, () -> kit.create(guardC, com.communityos.api.gate.GateResources.CHECKPOINTS, cps,
-                new com.communityos.api.gate.GateResources.CheckpointFields("Guard room", null, 9, true, null, new java.math.BigDecimal("12.9743"), new java.math.BigDecimal("77.5946"), null))), "a guard does not set up the posts they walk");
+                new com.communityos.api.gate.GateResources.CheckpointFields("Guard room", null, 9, true, null, new java.math.BigDecimal("12.9743"), new java.math.BigDecimal("77.5946"), null, null))), "a guard does not set up the posts they walk");
             assertEquals("At the post", as(guardC, () -> gateSvc.scan(guardC, cpQr, null, gps.apply(12.97161, 77.59461))).place(), "but walks them");
             owner.sql("UPDATE workforce.attendance_session SET clock_out = now(), hours = 2 WHERE member_id = '" + guardMember + "' AND clock_out IS NULL RETURNING 1");
             // ---- site devices: a bridge and a face terminal; consent puts people on it; the bridge's jobs; punches become visits and attendance -------

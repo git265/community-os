@@ -54,9 +54,9 @@ export async function reportPerson(person, { unit = '', reason, note = '', stopE
   } catch (e) { if ([403, 404, 422].includes(e.status)) return { ok: false, reason: e.message }; throw e; }
 }
 export async function resolveFlag(flag, resolution, note = '') { return gateFlagOf(await call(`/gate/flags/${flag.id}/resolve`, { resolution, note: note || null }, ifMatch(flag.version))); }
-export const scanCheckpoint = (text, { note = '', position = null } = {}) => soft(async () => {
+export const scanCheckpoint = (text, { note = '', position = null, tag = '' } = {}) => soft(async () => {
   const at = position && position.lat != null ? { lat: position.lat, lng: position.lng, accuracy: position.acc ?? null } : { geo: position?.code || null };
-  const r = await call('/gate/scans', { text, note: note || null, ...at });
+  const r = await call('/gate/scans', { text: text || null, tag: tag || null, note: note || null, ...at });
   return { ok: true, checkpoint: { name: r.checkpoint }, round: r.round ? { name: r.round } : null, progress: r.round ? { done: Array(r.done).fill(0), total: r.total, complete: r.complete } : null, place: r.place, distM: r.distM };
 });
 // staff badges: signed by the server with the community's key; the code is fetched once per 30-second window

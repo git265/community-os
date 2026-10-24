@@ -1,7 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useCollection } from '../../context/AppContext.jsx';
 import { COLLECTIONS } from '../../lib/storage/index.js';
-import { checkpointQr, roundProgress, roundsFor, scanCheckpoint } from '../../lib/gate/engine.js';
+import { checkpointQr, getSettings, roundProgress, roundsFor, scanCheckpoint } from '../../lib/gate/engine.js';
+import { nfcSupported, readTag, labelTag } from '../../lib/gate/nfc.js';
+import { getDataSource } from '../../lib/storage/dataSource.js';
 import { qrDataUrl } from '../../lib/payments.js';
 import { DAYS } from '../../lib/gate/constants.js';
 import { Chips, clock, useTick } from './gateUi.jsx';
@@ -24,6 +26,7 @@ function placeWords(place, dist) {
 const PLACE_TONE = { 'At the post': 'green', 'Away from the post': 'gg-tag-coral', 'Location off': 'gg-tag-coral' };
 
 const code = () => Math.random().toString(36).slice(2, 10);
+const demoSerial = () => `DE${Array.from({ length: 6 }, () => Math.floor(Math.random() * 256).toString(16).padStart(2, '0')).join('')}`.toUpperCase();
 const dayKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 async function printSheet(cps) {
@@ -46,14 +49,50 @@ export default function GatePatrol({ canEdit = false }) {
   const todays = roundsFor(rounds, now).sort((a, b) => a.start - b.start);
   const todayScans = scans.filter((s) => s.day === today || new Date(s.at) >= new Date(now.getTime() - 36 * 3600000));
   const nameOf = (id) => cps.find((c) => c.id === id)?.name || id;
-  async function onScan(text) {
+  async function onScan(text, tag = '') {
     setMsg({ ok: true, text: 'Getting the location…' });
     const position = await getPosition(10000);   // kept with the scan and checked against the post's pin
-    const r = await scanCheckpoint(text, { position });
+    const r = await scanCheckpoint(text, { position, tag });
     if (!r.ok) { setMsg({ ok: false, text: r.reason }); return; }
     const w = placeWords(r.place, r.distM);
-    setMsg({ ok: !w.warn, text: `${r.checkpoint.name} scanned${r.round ? ` · ${r.round.name}: ${r.progress.done.length} of ${r.progress.total}` : ' · outside a scheduled round'}${w.text ? ` · ${w.text}` : ''}.` });
+    setMsg({ ok: !w.warn, text: `${r.checkpoint.name} ${tag ? 'tag tapped' : 'scanned'}${r.round ? ` · ${r.round.name}: ${r.progress.done.length} of ${r.progress.total}` : ' · outside a scheduled round'}${w.text ? ` · ${w.text}` : ''}.` });
   }
+  // NFC tags (optional, the community's choice in the gate rules): tap the post's tag instead of scanning its QR
+  const [nfcMode, setNfcMode] = useState('Off');
+  useEffect(() => { getSettings().then((x) => setNfcMode(x?.patrolNfc || 'Off')).catch(() => {}); }, []);
+  const canNfc = nfcSupported(); const demo = getDataSource().mode !== 'v2' && !canNfc;   // the browser demo on a computer: a pretend tap
+  const listening = useRef(null); const [waiting, setWaiting] = useState('');
+  const stopListening = () => { listening.current?.abort(); listening.current = null; setWaiting(''); };
+  useEffect(() => stopListening, []);
+  async function tapTag() {
+    stopListening(); const ctl = new AbortController(); listening.current = ctl; setWaiting('scan');
+    setMsg({ ok: true, text: 'Hold the top of the phone on the tag at the post…' });
+    try { const t = await readTag({ signal: ctl.signal, onUnreadable: () => setMsg({ ok: false, text: 'The tag could not be read. Hold the phone still on it.' }) }); setWaiting(''); await onScan('', t.serial); }
+    catch (e) { setWaiting(''); if (e.message !== 'Stopped') setMsg({ ok: false, text: e.message }); }
+  }
+  const [tagMsg, setTagMsg] = useState(null);
+  async function fitTag(c) {
+    const put = async (serial) => {
+      if (cps.some((x) => x.id !== c.id && x.nfcTag && x.nfcTag === serial)) { setTagMsg({ ok: false, id: c.id, text: 'This tag is already fitted at another post.' }); return; }
+      const saved = await saveCp({ ...c, nfcTag: serial });
+      setTagMsg(saved ? { ok: true, id: c.id, text: `Tag fitted at ${c.name}. Guards now tap it on their rounds.` } : { ok: false, id: c.id, text: 'Not saved. Is this tag already fitted at another post?' });
+    };
+    if (demo) { await put(demoSerial()); return; }
+    stopListening(); const ctl = new AbortController(); listening.current = ctl; setWaiting(c.id);
+    setTagMsg({ ok: true, id: c.id, text: 'Hold the phone on the new tag…' });
+    try {
+      const t = await readTag({ signal: ctl.signal, onUnreadable: () => setTagMsg({ ok: false, id: c.id, prepare: true, text: 'This tag could not be read. A new tag may need preparing first.' }) });
+      setWaiting('');
+      if (!t.serial) { setTagMsg({ ok: false, id: c.id, text: 'This tag has no serial number the phone can read. Use another tag (an NTAG213 or NTAG215 sticker works).' }); return; }
+      await put(t.serial);
+    } catch (e) { setWaiting(''); if (e.message !== 'Stopped') setTagMsg({ ok: false, id: c.id, text: e.message }); }
+  }
+  async function prepareTag(c) {
+    stopListening(); setTagMsg({ ok: true, id: c.id, text: 'Hold the phone on the tag to prepare it…' });
+    try { await labelTag(`CommunityOS checkpoint: ${c.name}`); setTagMsg({ ok: true, id: c.id, text: 'Prepared. Now tap Fit tag and hold the phone on it again.' }); }
+    catch (e) { setTagMsg({ ok: false, id: c.id, text: e.message }); }
+  }
+  const tagged = cps.filter((c) => c.nfcTag && c.active !== false);
   // pin a post where the phone is now (the FM stands at the post)
   const [pinMsg, setPinMsg] = useState(null);
   async function pinHere(c) {
@@ -80,6 +119,21 @@ export default function GatePatrol({ canEdit = false }) {
       <div className="card" style={{ marginBottom: 14 }}>
         <h2 style={{ marginTop: 0 }}>Scan a checkpoint</h2>
         <ScanBox onText={onScan} placeholder="Scan the code on the post" testid="cp-scan" button="Scan" />
+        {nfcMode !== 'Off' && (canNfc ? (
+          <div className="gg-actions" style={{ marginTop: 8 }}>
+            {waiting === 'scan' ? <button type="button" className="btn secondary" onClick={stopListening}>Stop</button>
+              : <button type="button" className="btn" data-testid="cp-tap" onClick={tapTag}>📶 Tap NFC tag</button>}
+            <small className="muted">{nfcMode === 'Tag where fitted' ? 'Posts with a tag take only the tag.' : 'Tap the tag or scan the QR: either counts.'}</small>
+          </div>
+        ) : demo ? (
+          tagged.length > 0 && <div className="gg-actions" style={{ marginTop: 8, alignItems: 'center' }}>
+            <select aria-label="Tag to tap" data-testid="cp-demo-tag" defaultValue="" onChange={(e) => { const v = e.target.value; e.target.value = ''; if (v) onScan('', v); }} style={{ width: 'auto' }}>
+              <option value="">Demo: tap the tag at…</option>{tagged.map((c) => <option key={c.id} value={c.nfcTag}>{c.name}</option>)}</select>
+            <small className="muted">This computer has no NFC: the demo pretends the phone touched the tag.</small>
+          </div>
+        ) : nfcMode === 'Tag where fitted' && tagged.length > 0 && (
+          <div className="notice" style={{ marginTop: 8 }} data-testid="cp-no-nfc">This phone cannot read NFC tags. Posts with a tag ({tagged.map((c) => c.name).join(', ')}) need a phone that can: Android with Chrome, NFC on.</div>
+        ))}
         {msg && <div className={`notice${msg.ok ? '' : ' error'}`} data-testid="cp-msg" role="status" style={{ marginTop: 8 }}>{msg.text}</div>}
       </div>
       <div className="card" style={{ marginBottom: 14 }} data-testid="rounds-today">
@@ -99,6 +153,7 @@ export default function GatePatrol({ canEdit = false }) {
             <div className="gg-row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}><h2 style={{ margin: 0 }}>Checkpoints</h2>
               <div className="gg-actions"><button type="button" className="btn secondary" data-testid="cp-print" onClick={() => printSheet(sortedCps.filter((c) => c.active !== false))}>Print QR sheet</button><button type="button" className="btn" data-testid="cp-add" onClick={() => setCpForm({ name: '', area: '', order: (sortedCps.length || 0) + 1, active: true })}>+ Checkpoint</button></div></div>
             <p className="muted hide-sm">Stick each QR where a guard must walk: a post, a plant room, the far boundary. Then stand at each post and tap Pin here: every scan keeps the phone's GPS, and a scan away from its post, with the location off, or two posts scanned from one spot is flagged.</p>
+            {nfcMode !== 'Off' && <p className="muted hide-sm" data-testid="cp-nfc-help">NFC tags are on ({nfcMode}). Stick an NFC tag (an NTAG213 sticker) at a post, then tap Fit tag and hold an Android phone on it. Only a fingerprint of the tag is kept, so a copy of its QR or of what is written on it does not count.</p>}
             {cpForm && (
               <div className="form-grid" data-testid="cp-form" style={{ margin: '10px 0' }}>
                 <div className="field"><label>Name *</label><input data-testid="cp-name" value={cpForm.name} onChange={(e) => setCpForm({ ...cpForm, name: e.target.value })} /></div>
@@ -112,8 +167,13 @@ export default function GatePatrol({ canEdit = false }) {
               <div className="gg-check" key={c.id} data-testid="cp-row" style={{ flexWrap: 'wrap' }}>
                 <QrImage text={checkpointQr(c)} size={64} testid="cp-qr" />
                 <span style={{ flex: 1, minWidth: 140 }}><b>{c.name}</b> {c.active === false && <span className="tag">not in use</span>}<br /><small className="muted">{c.area}{c.area ? ' · ' : ''}{c.lat != null && c.lat !== '' ? <a href={mapLink(c.lat, c.lng)} target="_blank" rel="noreferrer" data-testid="cp-pinned">📍 pinned · {c.radiusM || 40} m</a> : <span data-testid="cp-unpinned">not pinned</span>}</small>
-                  {pinMsg?.id === c.id && <small className={pinMsg.ok ? 'muted' : 'field-error'} style={{ display: 'block' }} role="status">{pinMsg.text}</small>}</span>
+                  {nfcMode !== 'Off' && <small style={{ display: 'block' }}>{c.nfcTag ? <span className="tag green" data-testid="cp-tag">🏷 NFC tag fitted</span> : <span className="muted" data-testid="cp-no-tag">no NFC tag</span>}</small>}
+                  {pinMsg?.id === c.id && <small className={pinMsg.ok ? 'muted' : 'field-error'} style={{ display: 'block' }} role="status">{pinMsg.text}</small>}
+                  {tagMsg?.id === c.id && <small className={tagMsg.ok ? 'muted' : 'field-error'} style={{ display: 'block' }} role="status" data-testid="cp-tag-msg">{tagMsg.text}{tagMsg.prepare && <> <button type="button" className="link-btn" onClick={() => prepareTag(c)}>Prepare tag</button></>}</small>}</span>
                 <button type="button" className="link-btn" data-testid="cp-pin" title="Stand at the post: its place is taken from this phone's GPS" onClick={() => pinHere(c)}>Pin here</button>
+                {nfcMode !== 'Off' && (canNfc || demo) && (waiting === c.id ? <button type="button" className="link-btn" onClick={stopListening}>Stop</button>
+                  : <button type="button" className="link-btn" data-testid="cp-fit-tag" title="Hold the phone on the tag stuck at this post" onClick={() => fitTag(c)}>{c.nfcTag ? 'Replace tag' : demo ? 'Fit demo tag' : 'Fit tag'}</button>)}
+                {nfcMode !== 'Off' && c.nfcTag && <button type="button" className="link-btn" data-testid="cp-remove-tag" onClick={() => saveCp({ ...c, nfcTag: '' })}>Remove tag</button>}
                 <button type="button" className="link-btn" onClick={() => setCpForm(c)}>Edit</button>
                 <button type="button" className="link-btn" data-testid="cp-renew" title="Issue a new QR; the old printed one stops working" onClick={() => saveCp({ ...c, code: code() })}>New QR</button>
                 <button type="button" className="link-btn" onClick={() => saveCp({ ...c, active: c.active === false })}>{c.active === false ? 'Use' : 'Pause'}</button>
@@ -141,7 +201,7 @@ export default function GatePatrol({ canEdit = false }) {
         </>
       )}
       <div className="card" data-testid="scan-log"><h2 style={{ marginTop: 0 }}>Recent scans</h2>
-        {scans.length === 0 ? <div className="empty">No scans yet.</div> : [...scans].sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 12).map((s) => <div className="gg-check" key={s.id}><span style={{ flex: 1 }}><b>{s.checkpointName}</b> <small className="muted">{s.guard}{s.roundName ? ` · ${s.roundName}` : ''}</small>{s.place && <><br /><span className={`tag ${PLACE_TONE[s.place] || ''}`} data-testid="scan-place">{s.place}{s.distM != null && s.distM !== '' ? ` · ${s.distM} m` : ''}</span>{s.lat != null && s.lat !== '' && <> <a href={mapLink(s.lat, s.lng)} target="_blank" rel="noreferrer"><small>map</small></a></>}</>}</span><small className="muted">{clock(s.at)}</small></div>)}
+        {scans.length === 0 ? <div className="empty">No scans yet.</div> : [...scans].sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 12).map((s) => <div className="gg-check" key={s.id}><span style={{ flex: 1 }}><b>{s.checkpointName}</b> <small className="muted">{s.guard}{s.roundName ? ` · ${s.roundName}` : ''}</small>{s.method === 'NFC' && <> <span className="tag" data-testid="scan-nfc">NFC</span></>}{s.place && <><br /><span className={`tag ${PLACE_TONE[s.place] || ''}`} data-testid="scan-place">{s.place}{s.distM != null && s.distM !== '' ? ` · ${s.distM} m` : ''}</span>{s.lat != null && s.lat !== '' && <> <a href={mapLink(s.lat, s.lng)} target="_blank" rel="noreferrer"><small>map</small></a></>}</>}</span><small className="muted">{clock(s.at)}</small></div>)}
       </div>
     </div>
   );

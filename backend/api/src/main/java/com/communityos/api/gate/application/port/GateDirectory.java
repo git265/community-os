@@ -12,7 +12,8 @@ import java.util.UUID;
 /** Port: what the gate rules read from the registers (settings, villa rules, the vetted registry, household links, crews, checkpoints). */
 public interface GateDirectory {
     record UnitRef(UnitId id, String unitNo, BlockId block) {}
-    record Checkpoint(UUID id, String name, String code, boolean active, Double lat, Double lng, Integer radiusM) {}
+    /** hasTag: an NFC tag is fitted at the post. */
+    record Checkpoint(UUID id, String name, String code, boolean active, Double lat, Double lng, Integer radiusM, boolean hasTag) {}
     record Round(UUID id, String name, LocalTime time, int windowMin, List<UUID> checkpointIds, List<String> days, boolean active) {}
     /** A guard clocked in now, and when their console was last used (null: not since they clocked in). */
     record OnDuty(UUID memberId, String name, Instant clockIn, Instant lastBeat) {}
@@ -27,6 +28,10 @@ public interface GateDirectory {
     List<Gate.WorkOrder> activeWorkOrders();
     Optional<UnitRef> unit(UnitId unit);
     Optional<Checkpoint> checkpoint(UUID id);
+    /** The checkpoint whose NFC tag has this hash (Gate.tagHash). */
+    Optional<Checkpoint> checkpointByTag(String hash);
+    /** How this community uses NFC tags on patrols (Gate.PATROL_NFC). */
+    String patrolNfc();
     List<Round> rounds();
     /** The guard console's heartbeat (one row per guard). */
     void beat(UUID guardId, String kind);

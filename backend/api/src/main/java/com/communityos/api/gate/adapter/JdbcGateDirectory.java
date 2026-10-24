@@ -45,7 +45,9 @@ public final class JdbcGateDirectory implements GateDirectory {
         FROM gate.household_link l JOIN property.unit u ON u.community_id = l.community_id AND u.id = l.unit_id WHERE l.person_id = CAST(:person AS uuid)""";
     static final String WORK_ORDERS = "SELECT w.id, w.title, w.vendor, w.days, w.from_time::text AS from_time, w.to_time::text AS to_time, w.roster_ids, w.status FROM gate.work_order w WHERE w.status = 'Active'";
     static final String UNIT = "SELECT u.id, u.unit_no, u.block_id FROM property.unit u WHERE u.id = CAST(:id AS uuid)";
-    static final String CHECKPOINT = "SELECT c.id, c.name, c.code, c.active, c.lat, c.lng, c.radius_m FROM gate.checkpoint c WHERE c.id = CAST(:id AS uuid)";
+    static final String CHECKPOINT = "SELECT c.id, c.name, c.code, c.active, c.lat, c.lng, c.radius_m, c.nfc_tag IS NOT NULL AS has_tag FROM gate.checkpoint c WHERE c.id = CAST(:id AS uuid)";
+    static final String CHECKPOINT_BY_TAG = "SELECT c.id, c.name, c.code, c.active, c.lat, c.lng, c.radius_m, true AS has_tag FROM gate.checkpoint c WHERE c.nfc_tag = :hash";
+    static final String PATROL_NFC = "SELECT s.patrol_nfc FROM gate.setting s ORDER BY s.created_at LIMIT 1";
     static final String ROUNDS = "SELECT r.id, r.name, r.time::text AS time, r.window_min, r.checkpoint_ids, r.days, r.active FROM gate.round r";
     static final String BEAT = """
         INSERT INTO gate.console_pulse (community_id, guard_id, last_at, kind) VALUES (platform.current_community(), CAST(:guard AS uuid), now(), :kind)
@@ -109,10 +111,13 @@ public final class JdbcGateDirectory implements GateDirectory {
     @Override public Optional<UnitRef> unit(UnitId unit) {
         return jdbc.query(UNIT, Map.of("id", unit.toString()), (rs, i) -> { UUID b = Rows.uuid(rs, "block_id"); return new UnitRef(unit, rs.getString("unit_no"), b == null ? null : new BlockId(b)); }).stream().findFirst();
     }
-    @Override public Optional<Checkpoint> checkpoint(UUID id) {
-        return jdbc.query(CHECKPOINT, Map.of("id", id.toString()), (rs, i) -> new Checkpoint(Rows.uuid(rs, "id"), rs.getString("name"), rs.getString("code"), rs.getBoolean("active"),
-            d(rs, "lat"), d(rs, "lng"), rs.getBigDecimal("radius_m") == null ? null : rs.getBigDecimal("radius_m").intValue())).stream().findFirst();
+    @Override public Optional<Checkpoint> checkpoint(UUID id) { return jdbc.query(CHECKPOINT, Map.of("id", id.toString()), (rs, i) -> checkpoint(rs)).stream().findFirst(); }
+    @Override public Optional<Checkpoint> checkpointByTag(String hash) { return jdbc.query(CHECKPOINT_BY_TAG, Map.of("hash", hash), (rs, i) -> checkpoint(rs)).stream().findFirst(); }
+    static Checkpoint checkpoint(java.sql.ResultSet rs) throws java.sql.SQLException {
+        return new Checkpoint(Rows.uuid(rs, "id"), rs.getString("name"), rs.getString("code"), rs.getBoolean("active"), d(rs, "lat"), d(rs, "lng"),
+            rs.getBigDecimal("radius_m") == null ? null : rs.getBigDecimal("radius_m").intValue(), rs.getBoolean("has_tag"));
     }
+    @Override public String patrolNfc() { return jdbc.query(PATROL_NFC, Map.of(), (rs, i) -> rs.getString("patrol_nfc")).stream().findFirst().orElse("Off"); }
     @Override public List<Round> rounds() {
         return jdbc.query(ROUNDS, Map.of(), (rs, i) -> new Round(Rows.uuid(rs, "id"), rs.getString("name"), t(rs, "time"), n(rs, "window_min", 60),
             Rows.list(rs, "checkpoint_ids", (o) -> o instanceof UUID u ? u : UUID.fromString(o.toString())), Rows.list(rs, "days", String::valueOf), rs.getBoolean("active")));

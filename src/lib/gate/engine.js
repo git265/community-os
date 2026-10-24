@@ -692,12 +692,24 @@ export function scanPlace(cp, position) {
   else place = dist <= (Number(cp.radiusM) || PATROL_GPS.radiusM) + Math.min(acc ?? 0, 50) ? 'At the post' : 'Away from the post';
   return { known, acc, dist, place };
 }
-async function scanCheckpointLocal(text, { note = '', position = null } = {}) {
+/** A post is proved by its printed QR (text) or, where the community uses them, by tapping its NFC tag (`tag`: the tag's serial number). */
+async function scanCheckpointLocal(text, { note = '', position = null, tag = '' } = {}) {
+  const serial = String(tag || '').replace(/[^0-9a-f]/gi, '').toUpperCase();
   const m = /^GGCP\|([^|]+)\|(.+)$/.exec(String(text || '').trim());
-  if (!m) return { ok: false, reason: 'This is not a checkpoint code' };
+  if (!tag && !m) return { ok: false, reason: 'This is not a checkpoint code' };
+  if (tag && !/^[0-9A-F]{8,32}$/.test(serial)) return { ok: false, reason: 'The tag could not be read: hold the phone on it again' };
   const [cps, scans, rounds, s] = await Promise.all([list(C.GATE_CHECKPOINTS), list(C.GATE_SCANS), list(C.GATE_ROUNDS), getSettings()]);
-  const cp = cps.find((c) => c.id === m[1]);
-  if (!cp || cp.code !== m[2]) return { ok: false, reason: 'Unknown or out-of-date checkpoint code' };
+  const mode = s.patrolNfc || 'Off';
+  let cp;
+  if (tag) {
+    if (mode === 'Off') return { ok: false, reason: 'NFC tags are not used for patrols here: scan the QR code on the post' };
+    cp = cps.find((c) => c.nfcTag && c.nfcTag === serial);
+    if (!cp) return { ok: false, reason: 'This tag is not fitted at any checkpoint' };
+  } else {
+    cp = cps.find((c) => c.id === m[1]);
+    if (!cp || cp.code !== m[2]) return { ok: false, reason: 'Unknown or out-of-date checkpoint code' };
+    if (mode === 'Tag where fitted' && cp.nfcTag) return { ok: false, reason: `Tap the NFC tag at ${cp.name}: its QR code is not accepted` };
+  }
   if (cp.active === false) return { ok: false, reason: `${cp.name} is not in use` };
   const guard = me(); const now = new Date();
   const mine = scans.filter((x) => x.guard === guard).sort((a, b) => String(b.at).localeCompare(String(a.at)))[0];
@@ -706,7 +718,7 @@ async function scanCheckpointLocal(text, { note = '', position = null } = {}) {
   const live = roundsFor(rounds, now).find((r) => now >= r.start && now <= r.end && (r.checkpointIds || []).includes(cp.id));
   const w = scanPlace(cp, position);
   const row = await put(C.GATE_SCANS, { checkpointId: cp.id, checkpointName: cp.name, guard, at: iso(now), roundId: live?.id || '', roundName: live?.name || '', day: todayStr(now), note,
-    lat: w.known ? position.lat : null, lng: w.known ? position.lng : null, accM: w.acc, distM: w.dist, place: w.place });
+    lat: w.known ? position.lat : null, lng: w.known ? position.lng : null, accM: w.acc, distM: w.dist, place: w.place, method: tag ? 'NFC' : 'QR' });
   guardBeat('patrol', true);
   // the place checks: away from the post, location turned off (once per spell), two posts scanned from the same spot
   const when = hm(now); const flag = (detail) => raiseFlag({ type: 'Patrol location', gate: '', personName: guard, roundId: live?.id || '', day: todayStr(now), detail });

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { GATE_EVENTS, DELIVERY_COMPANIES, FALLBACKS, DEFAULT_DURATIONS, DEFAULT_SETTINGS } from '../../lib/gate/constants.js';
+import { GATE_EVENTS, DELIVERY_COMPANIES, FALLBACKS, DEFAULT_DURATIONS, DEFAULT_SETTINGS, PATROL_NFC } from '../../lib/gate/constants.js';
 import { getSettings, saveSettings } from '../../lib/gate/engine.js';
 import { Chips } from './gateUi.jsx';
 
@@ -35,6 +35,9 @@ export default function GateRules({ canEdit = false }) {
           <label className="gg-row" style={{ gridColumn: '1 / -1' }}><input type="checkbox" data-testid="set-kioskOn" disabled={!canEdit} checked={!!s.kioskOn} onChange={(e) => set('kioskOn', e.target.checked)} style={{ width: 'auto' }} /> A face kiosk opens the gate for approved visitors (the guard then opens by hand only with a reason, and it is flagged)</label>
           <div className="field"><label>More people than a goods pass allows</label><select disabled={!canEdit} data-testid="set-goodsExtra" value={s.goodsExtraPeople} onChange={(e) => set('goodsExtraPeople', e.target.value)}><option>Block until the guard confirms</option><option>Let in and flag</option></select></div>
           {num('patrolMinSeconds', 'Least seconds between two checkpoint scans', 'Stops one person scanning every post from a photo at the same spot.')}
+          <div className="field"><label>NFC tags on patrol posts (optional)</label>
+            <select disabled={!canEdit} data-testid="set-patrolNfc" value={s.patrolNfc || 'Off'} onChange={(e) => set('patrolNfc', e.target.value)}>{PATROL_NFC.map((o) => <option key={o}>{o}</option>)}</select>
+            <small className="muted">{{ Off: 'Posts are proved by their printed QR code.', 'Tag or QR': 'A guard taps the post\'s NFC tag or scans its QR code; either counts.', 'Tag where fitted': 'A post with a tag takes only the tag (a photo of its QR does not count). Guards need Android phones with NFC.' }[s.patrolNfc || 'Off']}</small></div>
           <div className="field" style={{ gridColumn: '1 / -1' }}><label>Pass message (WhatsApp / SMS)</label><textarea rows={4} disabled={!canEdit} data-testid="set-passMessage" value={s.passMessage || DEFAULT_SETTINGS.passMessage} onChange={(e) => set('passMessage', e.target.value)} /><small className="muted">Fields: {'{guest} {host} {unit} {community} {pin} {date} {time} {vehicle} {gate} {qr}'} - {'{qr}'} is a link that opens the QR; it is added at the end when the message does not place it</small></div>
         </div>
       </div>

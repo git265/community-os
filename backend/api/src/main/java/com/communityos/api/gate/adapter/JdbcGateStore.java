@@ -106,13 +106,13 @@ public final class JdbcGateStore implements GateStore {
     static final String FLAG_UPDATE = """
         UPDATE gate.flag SET state = :state, resolution = :resolution, resolution_note = :note, resolved_by_id = CAST(:resolvedBy AS uuid), resolved_at = CAST(:resolvedAt AS timestamptz)
         WHERE id = CAST(:id AS uuid) AND version = :version RETURNING version""";
-    static final String LAST_SCAN = "SELECT s.checkpoint_id, s.checkpoint_name, s.guard_id, s.guard, s.at, s.round_id, s.round_name, s.day, s.note, s.lat, s.lng, s.acc_m, s.dist_m, s.place FROM gate.scan s WHERE s.guard_id = CAST(:guard AS uuid) ORDER BY s.at DESC LIMIT 1";
-    static final String SCANS = "SELECT s.checkpoint_id, s.checkpoint_name, s.guard_id, s.guard, s.at, s.round_id, s.round_name, s.day, s.note, s.lat, s.lng, s.acc_m, s.dist_m, s.place FROM gate.scan s WHERE s.round_id = CAST(:round AS uuid) AND s.day = CAST(:day AS date)";
-    static final String SCANS_SINCE = "SELECT s.checkpoint_id, s.checkpoint_name, s.guard_id, s.guard, s.at, s.round_id, s.round_name, s.day, s.note, s.lat, s.lng, s.acc_m, s.dist_m, s.place FROM gate.scan s WHERE s.day >= CAST(:day AS date) ORDER BY s.at DESC LIMIT 2000";
+    static final String LAST_SCAN = "SELECT s.checkpoint_id, s.checkpoint_name, s.guard_id, s.guard, s.at, s.round_id, s.round_name, s.day, s.note, s.lat, s.lng, s.acc_m, s.dist_m, s.place, s.method FROM gate.scan s WHERE s.guard_id = CAST(:guard AS uuid) ORDER BY s.at DESC LIMIT 1";
+    static final String SCANS = "SELECT s.checkpoint_id, s.checkpoint_name, s.guard_id, s.guard, s.at, s.round_id, s.round_name, s.day, s.note, s.lat, s.lng, s.acc_m, s.dist_m, s.place, s.method FROM gate.scan s WHERE s.round_id = CAST(:round AS uuid) AND s.day = CAST(:day AS date)";
+    static final String SCANS_SINCE = "SELECT s.checkpoint_id, s.checkpoint_name, s.guard_id, s.guard, s.at, s.round_id, s.round_name, s.day, s.note, s.lat, s.lng, s.acc_m, s.dist_m, s.place, s.method FROM gate.scan s WHERE s.day >= CAST(:day AS date) ORDER BY s.at DESC LIMIT 2000";
     static final String SCAN_INSERT = """
-        INSERT INTO gate.scan (community_id, checkpoint_id, checkpoint_name, guard_id, guard, at, round_id, round_name, day, note, lat, lng, acc_m, dist_m, place)
+        INSERT INTO gate.scan (community_id, checkpoint_id, checkpoint_name, guard_id, guard, at, round_id, round_name, day, note, lat, lng, acc_m, dist_m, place, method)
         VALUES (platform.current_community(), CAST(:cp AS uuid), :cpName, CAST(:guard AS uuid), :guardName, CAST(:at AS timestamptz), CAST(:round AS uuid), :roundName, CAST(:day AS date), :note,
-                CAST(:lat AS numeric), CAST(:lng AS numeric), CAST(:acc AS integer), CAST(:dist AS integer), :place)""";
+                CAST(:lat AS numeric), CAST(:lng AS numeric), CAST(:acc AS integer), CAST(:dist AS integer), :place, coalesce(:method, 'QR'))""";
 
     // ---- staff badges ------------------------------------------------------------------------------------------------------------------------
     static final String BADGE_KEY_MAKE = "INSERT INTO gate.badge_key (community_id) VALUES (platform.current_community()) ON CONFLICT (community_id) DO NOTHING";
@@ -222,7 +222,7 @@ public final class JdbcGateStore implements GateStore {
         Map<String, Object> p = new HashMap<>();
         p.put("cp", s(x.checkpointId())); p.put("cpName", x.checkpointName()); p.put("guard", s(x.guardId())); p.put("guardName", x.guard()); p.put("at", Rows.ts(x.at()));
         p.put("round", s(x.roundId())); p.put("roundName", x.roundName()); p.put("day", Rows.sqlDate(x.day())); p.put("note", x.note());
-        p.put("lat", x.lat()); p.put("lng", x.lng()); p.put("acc", x.accM()); p.put("dist", x.distM()); p.put("place", x.place());
+        p.put("lat", x.lat()); p.put("lng", x.lng()); p.put("acc", x.accM()); p.put("dist", x.distM()); p.put("place", x.place()); p.put("method", x.method());
         jdbc.update(SCAN_INSERT, p);
     }
 
@@ -274,7 +274,7 @@ public final class JdbcGateStore implements GateStore {
     }
     static Scan scan(ResultSet rs) throws SQLException {
         return new Scan(Rows.uuid(rs, "checkpoint_id"), rs.getString("checkpoint_name"), Rows.uuid(rs, "guard_id"), rs.getString("guard"), Rows.instant(rs, "at"), Rows.uuid(rs, "round_id"),
-            rs.getString("round_name"), Rows.date(rs, "day"), rs.getString("note"), dbl(rs, "lat"), dbl(rs, "lng"), i(rs, "acc_m"), i(rs, "dist_m"), rs.getString("place"));
+            rs.getString("round_name"), Rows.date(rs, "day"), rs.getString("note"), dbl(rs, "lat"), dbl(rs, "lng"), i(rs, "acc_m"), i(rs, "dist_m"), rs.getString("place"), rs.getString("method"));
     }
     static UnitId unit(ResultSet rs, String c) throws SQLException { UUID u = Rows.uuid(rs, c); return u == null ? null : new UnitId(u); }
     static Double dbl(ResultSet rs, String c) throws SQLException { BigDecimal b = rs.getBigDecimal(c); return b == null ? null : b.doubleValue(); }

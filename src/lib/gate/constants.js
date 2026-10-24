@@ -13,6 +13,8 @@ export const FLAG_TYPES = ['Unrecorded entry', 'Tailgate', 'Override entry', 'Id
 /** Where a patrol scan was taken, from the phone's GPS (the same words as the server's). */
 export const SCAN_PLACES = ['At the post', 'Away from the post', 'Weak signal', 'No location', 'Location off', 'Post not mapped'];
 export const PATROL_GPS = { weakM: 100, sameSpotM: 10, radiusM: 40 };
+/** NFC tags on patrols (optional): not used, either a tag or the QR counts, or a post that has a tag takes only the tag. */
+export const PATROL_NFC = ['Off', 'Tag or QR', 'Tag where fitted'];
 /** Why a villa reports someone who works for it to security. */
 export const REPORT_REASONS = ['No longer works for us', 'Suspected theft', 'Misbehaviour', 'Other'];
 export const FLAG_STATES = ['Watching', 'Open', 'Closed'];
@@ -43,7 +45,7 @@ export const GATE_EVENTS = [
 export const DEFAULT_SETTINGS = {
   id: 'default',
   passMessage: 'Hi {guest}, {host} ({unit}) has made you a pass for {community}.\nCode: {pin}\nValid: {date}{time}\n{vehicle}Show the QR or tell the guard the code at the gate.',
-  kioskOn: false, goodsExtraPeople: 'Block until the guard confirms', patrolMinSeconds: 20,
+  kioskOn: false, goodsExtraPeople: 'Block until the guard confirms', patrolMinSeconds: 20, patrolNfc: 'Off',
   waitSeconds: 60, fallback: 'Hold at gate', graceSeconds: 30, overstayGraceMinutes: 10, guardSilenceMinutes: 45, autoCloseHours: 2,
   quietFrom: '22:00', quietTo: '06:00', quietFallback: 'Hold at gate', photoRetentionDays: 90,
   durations: DEFAULT_DURATIONS,
