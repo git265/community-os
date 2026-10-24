@@ -8,6 +8,7 @@ import BudgetDashboard, { CreditDialog } from './BudgetDashboard.jsx';
 import { actualOf, savingOf, toCredit, creditedOf } from '../../lib/culturalBudget.js';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useApp, useCollection } from '../../context/AppContext.jsx';
+import { useUnitRoster } from '../../lib/unitRoster.js';
 import { COLLECTIONS as C } from '../../lib/storage/index.js';
 import Modal from '../../components/Modal.jsx';
 import DynamicForm from '../../components/DynamicForm.jsx';
@@ -166,7 +167,7 @@ export default function CulturalModule() {
   }, []);
   const [flash, setFlash] = useState('');
   const [modal, setModal] = useState(null); // {kind, record}
-  const { records: properties } = useCollection(C.PROPERTIES, 'Properties', { enabled: modal?.kind === 'donation' });   // the unit list of the donation form only
+  const { records: properties } = useUnitRoster({ enabled: modal?.kind === 'donation' });   // the unit list of the donation form only
   const [receipt, setReceipt] = useState(null);
   const [payFor, setPayFor] = useState(null); // {donation} | {event:true}
   const [agenda, setAgenda] = useState(false);

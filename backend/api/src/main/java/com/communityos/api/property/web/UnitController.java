@@ -67,6 +67,9 @@ public class UnitController {
     /** Every unit's number and block, in one answer (the app names the units other records point at from it - one call, however many units). */
     @GetMapping("/index")
     public List<UnitRepository.Entry> index() { return units.index(CallerHolder.require()); }
+    /** Every active unit this person may see, slim: number, block, type, occupancy and who to call (pickers, counts and audiences read this, not the full list). */
+    @GetMapping("/roster")
+    public List<UnitRepository.RosterEntry> roster() { return units.roster(CallerHolder.require()); }
     /** The directory's block list: every block with its homes and how they are lived in (the units in no block last, with no block id). */
     @GetMapping("/by-block")
     public List<UnitRepository.BlockCount> byBlock() { return units.countByBlock(CallerHolder.require()); }

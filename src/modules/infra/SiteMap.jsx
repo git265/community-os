@@ -1,5 +1,6 @@
 import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { useApp, useCollection } from '../../context/AppContext.jsx';
+import { useUnitRoster } from '../../lib/unitRoster.js';
 import { COLLECTIONS } from '../../lib/storage/index.js';
 import { canWriteCollection } from '../../lib/security/authz.js';
 import { getPrincipal } from '../../lib/security/principal.js';
@@ -87,7 +88,7 @@ function MapTab({ areaFilter, setAreaFilter, startCalibrate, onSetup, onNavigate
   const [view, setView] = useState('plan'); // plan | street | satellite | custom
   const { roleId } = useApp();
   const isAdmin = roleId === 'super_admin';
-  const { records: properties } = useCollection(COLLECTIONS.PROPERTIES, 'Properties & Residents');
+  const { records: properties } = useUnitRoster();   // number, block, type, occupancy, who to call: one small read
   const [narrow, setNarrow] = useState(() => typeof window !== 'undefined' && !!window.matchMedia?.('(max-width: 900px)').matches);
   useEffect(() => { const m = window.matchMedia?.('(max-width: 900px)'); if (!m) return undefined; const f = () => setNarrow(m.matches); m.addEventListener?.('change', f); return () => m.removeEventListener?.('change', f); }, []);
   const [filtersOpen, setFiltersOpen] = useState(false);

@@ -38,6 +38,8 @@ public final class UnitService {
     }
     /** Every unit's number and block (the units this caller may see), in one answer. */
     public List<UnitRepository.Entry> index(Caller c) { return units.index(policy.readScope(c)); }
+    /** The units this person may see, slim (a resident: their own homes). */
+    public List<UnitRepository.RosterEntry> roster(Caller c) { return units.roster(policy.readScope(c)); }
     public Unit get(Caller c, UnitId id) { return units.findById(id, policy.readScope(c)).orElseThrow(AccessDenied.NotVisible::new); }
 
     public Unit change(Caller c, UnitId id, long expectedVersion, Unit.Changes changes, Map<String, Object> custom) { return change(c, id, expectedVersion, null, changes, custom); }

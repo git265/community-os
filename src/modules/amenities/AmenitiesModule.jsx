@@ -2,6 +2,7 @@ import { takeHint } from '../../lib/openHint.js';
 import { communityTaxId } from '../../lib/locale.js';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp, useCollection } from '../../context/AppContext.jsx';
+import { useUnitRoster } from '../../lib/unitRoster.js';
 import { COLLECTIONS } from '../../lib/storage/index.js';
 import RichText from '../../components/RichText.jsx';
 import CustomFields from '../../components/CustomFields.jsx';
@@ -40,7 +41,7 @@ export default function AmenitiesModule() {
   const { records: settingsRows } = useCollection(COLLECTIONS.AMENITY_SETTINGS, 'Amenity Settings');
   const { records: credits } = useCollection(COLLECTIONS.UNIT_CREDITS, 'Unit Credits');
   const { records: allItems } = useCollection(COLLECTIONS.AMENITY_ITEMS, 'Amenity add-on items');
-  const { records: properties } = useCollection(COLLECTIONS.PROPERTIES, 'Properties');
+  const { records: properties } = useUnitRoster();   // number, block, type, occupancy, who to call: one small read
   const { roles: appRoles = [] } = useApp();
   const subcommittees = useMemo(() => appRoles.filter((r) => r.id.startsWith('committee_')).map((r) => ({ name: r.name.replace(/ Committee$/, '') })), [appRoles]);
   const settings = settingsRows[0] || {};

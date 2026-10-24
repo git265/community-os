@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useApp, useCollection } from '../../context/AppContext.jsx';
+import { useUnitRoster } from '../../lib/unitRoster.js';
 import { COLLECTIONS } from '../../lib/storage/index.js';
 import { canWriteCollection } from '../../lib/security/authz.js';
 import { getPrincipal } from '../../lib/security/principal.js';
@@ -332,9 +333,10 @@ function UnitJump({ onOpen }) {
 export default function PropertiesModule({ onNavigate }) {
   const { roleId, role, currentUser, schemaFor, tabAllowed } = useApp();
   const isResident = role?.category === 'Resident';
-  // A resident's own home is read from their (small) list; staff never read the whole register - every list below is one server page.
-  const homes = useCollection(COLLECTIONS.PROPERTIES, 'Properties & Residents', { enabled: isResident });
-  const { save } = homes;
+  // Saves only: no list is read here. A resident's own home is found in their roster (their own homes, one small read) and read in full;
+  // staff never read the whole register - every list below is one server page.
+  const { save } = useCollection(COLLECTIONS.PROPERTIES, 'Properties & Residents', { enabled: false });
+  const mine = useUnitRoster({ enabled: isResident });
   const [selectedId, setSelectedId] = useState(null);
   const [editing, setEditing] = useState(null); // null | {} | record
   const [viewRaw, setView] = useState('units');
@@ -346,7 +348,9 @@ export default function PropertiesModule({ onNavigate }) {
 
   const schema = schemaFor(COLLECTIONS.PROPERTIES);
   const canCreate = canWriteCollection(COLLECTIONS.PROPERTIES, getPrincipal());
-  const myProperty = isResident ? (homes.records.find((p) => p.unit === currentUser?.unit && !p.directoryOnly) ?? homes.records.find((p) => p.unit === currentUser?.unit) ?? null) : null;
+  const myId = isResident ? mine.records.find((p) => p.unit === currentUser?.unit)?.id || null : null;
+  const myProperty = useUnit(myId);
+  const homeLoading = isResident && (mine.loading || (!!myId && !myProperty));
   const selected = useUnit(isResident ? null : selectedId);
   const phoneView = usePhone();
   const docked = !!selected && !phoneView;   // a computer: the unit opens beside the list
@@ -387,7 +391,7 @@ export default function PropertiesModule({ onNavigate }) {
             <div className="card" style={{ marginBottom: 16 }}>
               <UnitDetail unit={myProperty} canSeePrivate canEdit={false} />
             </div>
-          ) : (
+          ) : homeLoading ? null : (
             <div className="notice">No home is linked to this login.</div>
           )}
           <div className="card">

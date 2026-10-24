@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { useCollection } from '../../context/AppContext.jsx';
+import { useUnitRoster } from '../../lib/unitRoster.js';
 import { COLLECTIONS } from '../../lib/storage/index.js';
 import Modal from '../../components/Modal.jsx';
 import RecordModal from '../billing/RecordModal.jsx';
@@ -28,7 +29,7 @@ export const expiring = (p) => p.policeExpiry && p.policeExpiry >= today() && p.
 
 function Links({ person, canEdit }) {
   const { records: links, save } = useCollection(COLLECTIONS.GATE_LINKS, 'Gate');
-  const { records: props } = useCollection(COLLECTIONS.PROPERTIES, 'Units');
+  const { records: props } = useUnitRoster();   // the unit numbers for the picker: one small read
   const mine = links.filter((l) => l.personId === person.id);
   const [f, setF] = useState({ unit: '', days: DAYS.slice(0, 6), fromTime: '07:00', toTime: '13:00' }); const [err, setErr] = useState('');
   async function add() { if (!f.unit.trim()) { setErr('Choose the villa'); return; } setErr(''); await save({ personId: person.id, personName: person.name, ...f, unit: f.unit.trim(), status: 'Active' }); setF((s) => ({ ...s, unit: '' })); }

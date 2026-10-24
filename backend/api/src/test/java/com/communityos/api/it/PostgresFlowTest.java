@@ -269,6 +269,11 @@ class PostgresFlowTest {
             assertEquals("Vacant", changed.occupancy()); assertEquals(u.version() + 1, changed.version(), "version stamped by the database");
             assertThrows(DomainException.Conflict.class, () -> as(admin, () -> units.change(admin, new UnitId(unitA), u.version(), new Unit.Changes(null, "Vacant", null, null, null), null)), "stale version");
             assertEquals(1, as(ownerC, () -> units.list(ownerC, new UnitRepository.Filter(null, null, null, false), PageQuery.of(50, 0))).total());
+            // the slim roster: a resident gets their own homes only; staff every active unit, with who to call there
+            assertEquals(List.of(unitA), as(ownerC, () -> units.roster(ownerC)).stream().map(UnitRepository.RosterEntry::id).toList());
+            var roster = as(admin, () -> units.roster(admin));
+            assertEquals(as(admin, () -> units.list(admin, new UnitRepository.Filter(null, null, null, false), PageQuery.of(1, 0))).total(), roster.size(), "every active unit");
+            assertTrue(roster.stream().anyMatch((e) -> e.id().equals(unitA)), "the unit is in it");
             var added = as(admin, () -> memberService.add(admin, new MemberService.AddMember("+9196" + String.format("%08d", Long.parseLong(tag) % 100_000_000L), "New Tenant", null, "resident", new UnitId(unitB), "Tenant")));
             assertEquals("resident", added.roles().get(0).code());
             assertEquals(1, as(ownerC, () -> memberService.list(ownerC, new MemberRepository.Filter(null, null, null), PageQuery.of(50, 0))).total(), "a resident sees only themselves");

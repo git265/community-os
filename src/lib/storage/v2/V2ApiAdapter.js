@@ -27,7 +27,7 @@
 import { apiFetch } from '../../net/request.js';
 import { AuthzError, ConflictError, PartialSaveError } from '../../security/errors.js';
 import { SessionStorageAdapter } from '../SessionStorageAdapter.js';
-import { propertyOf, directoryOf, unitPatch, unitContactsOf, unitPeopleBody, contactsChanged, userOf, dueOf, raiseBody, roleOf, ticketOf, ticketPatch, raiseTicketBody, commentOf, fieldStaffOf, quotationOf, addDocumentBody,
+import { propertyOf, rosterOf, directoryOf, unitPatch, unitContactsOf, unitPeopleBody, contactsChanged, userOf, dueOf, raiseBody, roleOf, ticketOf, ticketPatch, raiseTicketBody, commentOf, fieldStaffOf, quotationOf, addDocumentBody,
   quotationCommands, RESOURCES, resourceOf, resourceBody, isUuid, bookingOf, busyOf, bookBody, bookingCommand, gatePassOf, gateVisitOf, gateApprovalOf, gateFlagOf, gateScanOf,
   passBody, ledgerOf, ledgerBody, bookedByServer, releaseOf, releaseCommands, payRequestOf, bankTxnOf, donationOf, donationBody, expenseOf, expenseBody, expenseCommands, fileMeta, fileRowOf, dataUrlBytes, bytesDataUrl, documentOf, documentBody, notificationOf, broadcastOf, broadcastDraft, broadcastCommands, pollVoteRows, topicOf, postOf, meetingOf, meetingBody, ballotOf, ballotBody, voteMarksOf, boxRowOf, voteUnit, contactOf, contactBody, reviewOf, attendanceOf, teamOf, auditOf, auditFilterOf, blockOf, blockBody, newUnitBody } from './v2map.js';
 import { key as nameKey } from '../../unitNaming.js';
@@ -107,15 +107,26 @@ function allUnits() {
   unitsP = all('/units').catch((e) => { unitsP = null; throw e; });
   return unitsP;
 }
-function dropUnits() { unitsP = null; indexP = null; }
+function dropUnits() { unitsP = null; indexP = null; rosterP = null; }
+// Kept answers belong to the person signed in: another person (a sign-out, a switch) reads their own.
+const whoKey = () => { const u = getAuthUser(); return u ? String(u.membershipId || u.id || u.personId || u.name || '') : ''; };
 // The names of the units (number, block) for the records that point at them: one call to /units/index, however many units (an older
 // server without it: the whole list, a page at a time).
-let indexAt = 0; let indexP = null;
+let indexAt = 0; let indexP = null; let indexFor = '';
 function unitNames() {
-  if (indexP && Date.now() - indexAt < UNIT_TTL) return indexP;
-  indexAt = Date.now();
+  if (indexP && indexFor === whoKey() && Date.now() - indexAt < UNIT_TTL) return indexP;
+  indexAt = Date.now(); indexFor = whoKey();
   indexP = call('/units/index').then((r) => (Array.isArray(r) ? r : allUnits())).catch((e) => { indexP = null; throw e; });
   return indexP;
+}
+// The units as pickers, counts and audiences need them (GET /units/roster: number, block, type, occupancy, who to call; a resident gets their
+// own homes). One call and one slim row a unit instead of the whole register a page at a time; shared for UNIT_TTL like the index.
+let rosterAt = 0; let rosterP = null; let rosterFor = '';
+export function unitRosterV2() {
+  if (rosterP && rosterFor === whoKey() && Date.now() - rosterAt < UNIT_TTL) return rosterP;
+  rosterAt = Date.now(); rosterFor = whoKey();
+  rosterP = call('/units/roster').then((r) => (r || []).map(rosterOf)).catch((e) => { rosterP = null; throw e; });
+  return rosterP;
 }
 if (typeof window !== 'undefined') window.addEventListener?.('communityos:changed', (e) => { if (e?.detail?.collection === 'properties') dropUnits(); });
 /** A lookup by name that ignores case and spacing ("villa  12" finds "Villa 12"), keeping the names' own spelling as its keys. */
@@ -123,16 +134,18 @@ export function byName(entries) {
   const exact = Object.fromEntries(entries); const loose = new Map(entries.map(([k, v]) => [nameKey(k), v]));
   return new Proxy(exact, { get: (t, k) => (typeof k === 'string' && !(k in t) ? loose.get(nameKey(k)) : t[k]) });
 }
+// the lookups are built once per index read (a phone need not rebuild two maps of every unit on each call)
+let indexMaps = null;
 async function unitIndex() {
   const units = await unitNames();
-  return { noById: Object.fromEntries(units.map((u) => [u.id, u.unitNo])), idByNo: byName(units.map((u) => [u.unitNo, u.id])) };
+  if (indexMaps?.from !== units) indexMaps = { from: units, noById: Object.fromEntries(units.map((u) => [u.id, u.unitNo])), idByNo: byName(units.map((u) => [u.unitNo, u.id])) };
+  return { noById: indexMaps.noById, idByNo: indexMaps.idByNo };
 }
 
 const readers = {
   properties: {
     list: async () => {
-      dropUnits();
-      const own = (await allUnits()).map(propertyOf);
+      const own = (await all('/units')).map(propertyOf);   // read fresh and not held: the index and the roster stay as they are
       if (getAuthUser()?.category !== 'Resident') return own;
       // a resident's unit list is their own homes; the rest of the community comes from the contact directory (who to call, nothing more)
       const dir = (await all('/units/directory')).map(directoryOf);

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useCollection } from '../../context/AppContext.jsx';
+import { useUnitRoster } from '../../lib/unitRoster.js';
 import { COLLECTIONS } from '../../lib/storage/index.js';
 import { admitPerson, barrierCycle, cameraSees, exitPerson, kioskOpen, plateEvent, scanCheckpoint, checkpointQr } from '../../lib/gate/engine.js';
 import { GATE_NAMES } from '../../lib/gate/constants.js';
@@ -9,7 +10,7 @@ import { Photo } from './gateUi.jsx';
 export default function GateSimulator() {
   const { records: people } = useCollection(COLLECTIONS.GATE_PEOPLE, 'Gate');
   const { records: vehicles } = useCollection(COLLECTIONS.GATE_VEHICLES, 'Gate');
-  const { records: props } = useCollection(COLLECTIONS.PROPERTIES, 'Units');
+  const { records: props } = useUnitRoster();   // the unit numbers for the picker: one small read
   const [log, setLog] = useState([]); const [gate, setGate] = useState(GATE_NAMES[0]);
   const [pid, setPid] = useState(''); const [dir, setDir] = useState('In'); const [villa, setVilla] = useState('');
   const [plate, setPlate] = useState(''); const [plateDir, setPlateDir] = useState('In'); const [count, setCount] = useState(2); const [cam, setCam] = useState('unknown');

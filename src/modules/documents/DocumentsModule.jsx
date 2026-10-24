@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApp, useCollection } from '../../context/AppContext.jsx';
+import { useUnitRoster } from '../../lib/unitRoster.js';
 import ServerTable from '../../components/ServerTable.jsx';
 import { usePhone } from '../../components/Tabs.jsx';
 import Modal from '../../components/Modal.jsx';
@@ -28,7 +29,7 @@ function UploadModal({ schema, onClose, folders = [], folderId = '' }) {
   const { save: saveDoc } = useCollection(COLLECTIONS.DOCUMENTS, 'Documents');
   const { save: saveFile } = useCollection(COLLECTIONS.FILES, 'Document files');
   const [picked, setPicked] = useState(null);
-  const { records: properties } = useCollection(COLLECTIONS.PROPERTIES, 'Properties');
+  const { records: properties } = useUnitRoster();   // number, block, type, occupancy, who to call: one small read
   const [form, setForm] = useState({ title: '', category: 'Association', version: 'v1.0', access: 'Everyone', unit: '', folderId: folderId && folderId !== NONE ? folderId : '' });
   const field = (k) => schema.fields.find((f) => f.key === k);
   const villaOptions = properties.map((p) => ({ value: p.unit, label: [p.unit, p.owner].filter(Boolean).join(' · ') }));

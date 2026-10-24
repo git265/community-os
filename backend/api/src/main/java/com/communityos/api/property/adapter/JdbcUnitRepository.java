@@ -55,6 +55,12 @@ public final class JdbcUnitRepository implements UnitRepository {
         SELECT u.id, u.unit_no, u.block_id, b.name AS block_name FROM property.unit u LEFT JOIN property.block b ON b.community_id = u.community_id AND b.id = u.block_id
         WHERE %s ORDER BY length(u.unit_no), u.unit_no LIMIT 100000""";
     public static String indexSql(String scopeSql) { return INDEX.formatted(scopeSql); }
+    /** The active units with their block, type, occupancy and who to call there (`JOINS`), in unit order. */
+    static final String ROSTER = """
+        SELECT u.id, u.unit_no, u.block_id, b.name AS block_name, u.unit_type, u.occupancy, o.full_name AS contact_name, o.relation AS contact_relation
+        FROM property.unit u
+        """;
+    public static String rosterSql(String scopeSql) { return ROSTER + JOINS + "\nWHERE u.status = 'Active' AND " + scopeSql + "\nORDER BY length(u.unit_no), u.unit_no LIMIT 100000"; }
     /** One page: the page's units are picked (and counted) first, through the indexes; only those rows then read their block and contact. */
     public static String listSql(String scopeSql) {
         return "WITH page AS (SELECT u.id, count(*) OVER () AS total FROM property.unit u\n" + FILTER + "\n  AND " + scopeSql
@@ -87,6 +93,10 @@ public final class JdbcUnitRepository implements UnitRepository {
     }
     @Override public List<Entry> index(Spec<Unit> scope) {
         return jdbc.query(indexSql(scope.sql()), new HashMap<>(scope.params()), (rs, i) -> new Entry(Rows.uuid(rs, "id"), rs.getString("unit_no"), Rows.uuid(rs, "block_id"), rs.getString("block_name")));
+    }
+    @Override public List<RosterEntry> roster(Spec<Unit> scope) {
+        return jdbc.query(rosterSql(scope.sql()), new HashMap<>(scope.params()), (rs, i) -> new RosterEntry(Rows.uuid(rs, "id"), rs.getString("unit_no"), Rows.uuid(rs, "block_id"),
+            rs.getString("block_name"), rs.getString("unit_type"), rs.getString("occupancy"), rs.getString("contact_name"), rs.getString("contact_relation")));
     }
     @Override public List<BlockCount> countByBlock(Spec<Unit> scope) {
         return jdbc.query(byBlockSql(scope.sql()), new HashMap<>(scope.params()), (rs, i) -> new BlockCount(Rows.uuid(rs, "block_id"), rs.getString("block_name"),

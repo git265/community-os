@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useApp, useCollection } from '../../context/AppContext.jsx';
+import { unitRoster } from '../../lib/unitRoster.js';
 import { COLLECTIONS } from '../../lib/storage/index.js';
 import { CATEGORIES } from '../../lib/access/roles.js';
 import ServerTable from '../../components/ServerTable.jsx';
@@ -32,7 +33,7 @@ export default function UsersModule() {
   const [vq, setVq] = useState('');
   const [loadErr, setLoadErr] = useState('');
   useEffect(() => { secureStorage.list(COLLECTIONS.BLOCKS).then((r) => setBlockNames(r.map((b) => b.name).sort())).catch((e) => setLoadErr(`Blocks could not be read (${e?.message || 'error'}).`)); }, []);
-  useEffect(() => { secureStorage.list(COLLECTIONS.PROPERTIES).then((r) => setVillas(r.map((p) => p.unit).sort())).catch((e) => setLoadErr(`Units could not be read (${e?.message || 'error'}).`)); }, []);
+  useEffect(() => { unitRoster().then((r) => setVillas(r.map((p) => p.unit).sort())).catch((e) => setLoadErr(`Units could not be read (${e?.message || 'error'}).`)); }, []);
 
   const grouped = useMemo(() => CATEGORIES.map((c) => ({ category: c, roles: roles.filter((r) => r.category === c) })), [roles]);
   const catOf = (id) => roleFor(id)?.category;

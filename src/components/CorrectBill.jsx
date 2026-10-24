@@ -1,12 +1,13 @@
 import React, { useMemo, useState } from 'react';
 import Modal from './Modal.jsx';
 import { useApp, useCollection } from '../context/AppContext.jsx';
+import { useUnitRoster } from '../lib/unitRoster.js';
 import { COLLECTIONS } from '../lib/storage/index.js';
 import { cancelBill, reissueBill, reverseBillPayment } from '../lib/finance/correct.js';
 
 /** "Something is wrong with this bill": cancel it, replace it with a corrected one, or reverse a payment recorded by mistake. History is kept. */
 export default function CorrectBill({ due, onClose }) {
-  const { records: props } = useCollection(COLLECTIONS.PROPERTIES, 'Units');
+  const { records: props } = useUnitRoster();
   const paid = due.status === 'Paid';
   const [mode, setMode] = useState(paid ? 'reverse' : 'reissue');
   const [reason, setReason] = useState(''); const [unit, setUnit] = useState(due.unit || ''); const [amount, setAmount] = useState(String(due.amount ?? '')); const [dueDate, setDueDate] = useState(due.dueDate || '');

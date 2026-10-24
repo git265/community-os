@@ -36,6 +36,14 @@ export function propertyOf(u) {
     billTo: u.billTo || 'Owner', version: u.version, updatedAt: u.updatedAt,
   };
 }
+/** A unit as pickers, counts and audiences need it (GET /units/roster): number, block, type, occupancy and who to call - not the full record. */
+export function rosterOf(r) {
+  return {
+    id: r.id, unit: r.unitNo, zone: r.blockName || '', blockId: r.blockId || null, type: r.unitType || '', occupancy: r.occupancy || '',
+    ...(r.contactName && r.contactRelation !== 'Tenant' ? { owner: r.contactName } : {}),
+    ...(r.contactName && r.contactRelation === 'Tenant' ? { tenant: r.contactName } : {}),
+  };
+}
 /** A home in the contact directory (GET /units/directory): the unit and who to call there - all a resident sees of other homes. */
 export function directoryOf(d) {
   return { id: d.unitId, unit: d.unitNo, zone: d.blockName || '', type: d.unitType || '', owner: d.name || '', ownerPhone: d.phone || '', contactRelation: d.relation || '', directoryOnly: true };

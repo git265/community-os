@@ -4,6 +4,7 @@ import { notify, notifyMany } from '../../lib/notify.js';
 import React, { useState } from 'react';
 import { takeHint } from '../../lib/openHint.js';
 import { useApp, useCollection } from '../../context/AppContext.jsx';
+import { useUnitRoster } from '../../lib/unitRoster.js';
 import { COLLECTIONS } from '../../lib/storage/index.js';
 import { canEdit } from '../../lib/access/permissions.js';
 import ForumPanel from './ForumPanel.jsx';
@@ -70,7 +71,7 @@ function renderTemplate(body, values) {
 export default function CommunicationsModule() {
   const { roleId, currentUser, schemaFor, tabAllowed, roles } = useApp();
   const { records: broadcasts, save: saveBroadcast } = useCollection(COLLECTIONS.BROADCASTS, 'Communications');
-  const { records: properties } = useCollection(COLLECTIONS.PROPERTIES, 'Properties');
+  const { records: properties } = useUnitRoster();   // number, block, type, occupancy, who to call: one small read
   const { records: blocksList } = useCollection(COLLECTIONS.BLOCKS, 'Blocks & Towers');
   const { records: templates } = useCollection(COLLECTIONS.NOTICE_TEMPLATES, 'Notice Templates');
   const { records: mergeFields } = useCollection(COLLECTIONS.MERGE_FIELDS, 'Merge Field Library');

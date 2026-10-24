@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useApp, useCollection } from '../../context/AppContext.jsx';
+import { useUnitRoster } from '../../lib/unitRoster.js';
 import { COLLECTIONS } from '../../lib/storage/index.js';
 import { admitApproved, admitPass, admitPerson, answerApproval, closeVisit, deliveryDecision, findPasses, overrideEntry, passProblem, refuseVisit, requestApproval, retryApproval, sweep, guardBeat, admitGoods, exitGoods, getSettings, verifyBadge, badgeEntry, vehicleAtGate } from '../../lib/gate/engine.js';
 import { avatar } from '../../lib/gate/photo.js';
@@ -18,7 +19,7 @@ export default function GateConsole() {
   const { records: links } = useCollection(COLLECTIONS.GATE_LINKS, 'Gate');
   const { records: flags } = useCollection(COLLECTIONS.GATE_FLAGS, 'Gate');
   const { records: approvals } = useCollection(COLLECTIONS.GATE_APPROVALS, 'Gate');
-  const { records: props } = useCollection(COLLECTIONS.PROPERTIES, 'Units');
+  const { records: props } = useUnitRoster();   // the unit numbers for the picker: one small read
   const [gate, setGate] = useState(GATE_NAMES[0]);
   const [mode, setMode] = useState('pass');
   const [msg, setMsg] = useState(null);

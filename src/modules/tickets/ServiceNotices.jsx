@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Modal from '../../components/Modal.jsx';
 import { useApp, useCollection } from '../../context/AppContext.jsx';
+import { useUnitRoster, unitRoster } from '../../lib/unitRoster.js';
+import { blockCounts } from '../properties/BlockNavigator.jsx';
 import { COLLECTIONS as C } from '../../lib/storage/index.js';
 import { KINDS, KIND_NAMES, iconOf, isActive, covers, suggest, fmtWhen, defaultMessage, aboutKind } from '../../lib/serviceNotices.js';
 import { notify, notifyMany } from '../../lib/notify.js';
@@ -8,7 +10,7 @@ import { notify, notifyMany } from '../../lib/notify.js';
 /** The block a unit sits in (properties.zone), for notices that cover only some blocks. */
 export function useMyBlock() {
   const { currentUser } = useApp();
-  const { records } = useCollection(C.PROPERTIES, 'Properties & Residents');
+  const { records } = useUnitRoster({ enabled: !!currentUser?.unit });   // a resident's own homes (staff have no unit: nothing is read)
   return records.find((p) => p.unit === currentUser?.unit)?.zone || '';
 }
 
@@ -19,18 +21,18 @@ export function useMyBlock() {
 export default function ServiceNotices({ tickets = [], canPost, postAsk = 0 }) {
   const { currentUser } = useApp();
   const { records: notices, save } = useCollection(C.SERVICE_NOTICES, 'Service Notices');
-  const { records: props } = useCollection(C.PROPERTIES, 'Properties & Residents');
   const block = useMyBlock();
   const [dlg, setDlg] = useState(null);
   const asked = useRef(postAsk);   // "Service notice" in the page header asks for the dialog; a remount does not ask again
   useEffect(() => { if (postAsk !== asked.current) { asked.current = postAsk; if (canPost) setDlg({}); } }, [postAsk, canPost]);
   const mine = notices.filter((n) => isActive(n) && (canPost || covers(n, block)));
   const hints = useMemo(() => (canPost ? suggest(tickets, notices) : []), [canPost, tickets, notices]);
-  const blocks = useMemo(() => [...new Set(props.map((p) => p.zone).filter(Boolean))].sort(), [props]);
+  const [blocks, setBlocks] = useState([]);   // the block names, read when the dialog opens (the server counts them; no unit list)
+  useEffect(() => { if (dlg) blockCounts().then((r) => setBlocks(r.map((b) => b.name).filter(Boolean))).catch(() => setBlocks([])); }, [!!dlg]);
 
   async function resolve(n) {
     const out = await save({ ...n, status: 'Resolved', resolvedAt: new Date().toISOString() });
-    if (out) await tell(n, `${iconOf(n.kind)} ${n.kind} restored`, `${n.kind} is back${n.scope === 'Selected blocks' ? ` in ${(n.blocks || []).join(', ')}` : ''}. Thank you for your patience. If something in your villa is still not working, please raise a request.`, props, currentUser).catch(() => {});
+    if (out) await tell(n, `${iconOf(n.kind)} ${n.kind} restored`, `${n.kind} is back${n.scope === 'Selected blocks' ? ` in ${(n.blocks || []).join(', ')}` : ''}. Thank you for your patience. If something in your villa is still not working, please raise a request.`, currentUser).catch(() => {});
   }
   if (!mine.length && !hints.length && !dlg) return null;   // nothing in force: nothing above the tickets
   return (
@@ -55,7 +57,7 @@ export default function ServiceNotices({ tickets = [], canPost, postAsk = 0 }) {
       ))}
       {dlg && <PostDialog start={dlg} blocks={blocks} onClose={() => setDlg(null)} onPost={async (n) => {
         const out = await save({ ...n, status: 'Active', startedAt: new Date().toISOString(), postedBy: currentUser?.name || '' });
-        if (out) await tell(out, `${iconOf(n.kind)} ${n.kind}${n.scope === 'Selected blocks' ? ` · ${n.blocks.join(', ')}` : ''}`, `${n.message}${n.expectedBy ? ` Expected back ${fmtWhen(n.expectedBy)}.` : ''}`, props, currentUser).catch(() => {});
+        if (out) await tell(out, `${iconOf(n.kind)} ${n.kind}${n.scope === 'Selected blocks' ? ` · ${n.blocks.join(', ')}` : ''}`, `${n.message}${n.expectedBy ? ` Expected back ${fmtWhen(n.expectedBy)}.` : ''}`, currentUser).catch(() => {});
         setDlg(null);
       }} />}
     </div>
@@ -63,10 +65,10 @@ export default function ServiceNotices({ tickets = [], canPost, postAsk = 0 }) {
 }
 
 /** Tell owners and residents (everyone, or only the units in the chosen blocks) on the channels set for "Service notice". */
-async function tell(n, title, body, props, me) {
+async function tell(n, title, body, me) {
   const base = { event: 'service_notice', title, body, link: '#/maintenance', by: me?.name || '' };
   if (n.scope === 'Selected blocks') {
-    const units = [...new Set(props.filter((p) => (n.blocks || []).includes(p.zone)).map((p) => p.unit))];
+    const units = [...new Set((await unitRoster()).filter((p) => (n.blocks || []).includes(p.zone)).map((p) => p.unit))];
     return notifyMany(units.map((u) => ({ ...base, toUnit: u })));
   }
   return notify({ ...base, toRoleIds: ['owner', 'resident'] });

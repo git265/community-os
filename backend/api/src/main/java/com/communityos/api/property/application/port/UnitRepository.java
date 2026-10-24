@@ -20,6 +20,9 @@ public interface UnitRepository {
     /** A unit's number and block, for every unit (archived too) - what the app needs to name the units other records point at. */
     record Entry(java.util.UUID id, String unitNo, java.util.UUID blockId, String blockName) {}
     default java.util.List<Entry> index(Spec<Unit> scope) { return java.util.List.of(); }
+    /** What pickers, counts and audiences need of each active unit (number, block, type, how lived in, who to call) - one row each, not the full record. */
+    record RosterEntry(java.util.UUID id, String unitNo, java.util.UUID blockId, String blockName, String unitType, String occupancy, String contactName, String contactRelation) {}
+    default java.util.List<RosterEntry> roster(Spec<Unit> scope) { return java.util.List.of(); }
     Page<Unit> find(Spec<Unit> scope, Filter filter, PageQuery page);
     Optional<Unit> findById(UnitId id, Spec<Unit> scope);
     /** false when the version no longer matches. */
