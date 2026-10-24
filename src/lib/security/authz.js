@@ -387,7 +387,7 @@ function pickMeta(r) {
 /** Drop every field the role may not view (schema viewableBy). Meta + unknown keys pass. */
 // Collections whose access is granted by a permission (so any role can be given it in Roles & Permissions),
 // not by listing role ids in the schema. Holders see every field of these.
-const PERMISSION_GATED = { [C.EVENT_WORK]: (p) => !isResident(p), [C.REPORT_SCHEDULES]: canReports, [C.REPORT_RUNS]: canReports, ...Object.fromEntries(ASSET_COLLECTIONS.map((c) => [c, canAssetsRead])), [C.VILLA_IMPORT_RULES]: canAssetsRead, [C.READINGS]: canManageReadings, [C.INVENTORY]: (p) => !isResident(p), [C.INVENTORY_RULES]: (p) => !isResident(p), [C.VENDOR_COMMENTS]: (p) => isQuoteRole(p) || has(p, 'MANAGE_VENDORS') };
+const PERMISSION_GATED = { [C.EVENT_WORK]: (p) => !isResident(p), [C.ATTENDANCE]: (p) => !isResident(p), [C.SHIFTS]: (p) => !isResident(p), [C.REPORT_SCHEDULES]: canReports, [C.REPORT_RUNS]: canReports, ...Object.fromEntries(ASSET_COLLECTIONS.map((c) => [c, canAssetsRead])), [C.VILLA_IMPORT_RULES]: canAssetsRead, [C.READINGS]: canManageReadings, [C.INVENTORY]: (p) => !isResident(p), [C.INVENTORY_RULES]: (p) => !isResident(p), [C.VENDOR_COMMENTS]: (p) => isQuoteRole(p) || has(p, 'MANAGE_VENDORS') };
 
 export function maskRecord(record, schema, roleId, p) {
   if (!schema || !record) return record;

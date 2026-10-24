@@ -24,15 +24,17 @@ export default function GateModule() {
   const manage = roleId === 'super_admin' || hasPermission('MANAGE_SECURITY');
   const committee = roleId === 'super_admin' || role?.category === 'EC';
   const ok = (id) => (tabAllowed ? tabAllowed(id) : true);
+  // the gate desk is the security team's (the server refuses its actions to anyone else); a badge is a staff member's own
+  const desk = roleId === 'super_admin' || hasPermission('MANAGE_SECURITY') || ['committee_security', 'handyman_security'].includes(roleId);
   const tabs = [
-    { key: 'console', label: 'Gate console', hidden: !ok('gate.console') },
+    { key: 'console', label: 'Gate console', hidden: !ok('gate.console') || !desk },
     { key: 'visits', label: 'Visits', hidden: !ok('gate.visits') },
     { key: 'flags', label: 'Ghost flags', count: flags.filter((f) => f.state !== 'Closed').length, hidden: !ok('gate.flags') },
     { key: 'registry', label: 'Registry', count: people.filter((p) => ['Documents pending', 'Under review'].includes(p.status)).length, hidden: !ok('gate.registry') },
     { key: 'crews', label: 'Crews', hidden: !ok('gate.crews') },
     { key: 'vehicles', label: 'Vehicles', hidden: !ok('gate.vehicles') },
     { key: 'patrol', label: 'Patrol', hidden: !ok('gate.patrol') },
-    { key: 'badge', label: 'My badge', hidden: !ok('gate.badge') },
+    { key: 'badge', label: 'My badge', hidden: !ok('gate.badge') || role?.category !== 'Staff' },
     { key: 'incidents', label: 'Incidents', hidden: !ok('gate.incidents') },
     { key: 'rules', label: 'Rules & alerts', hidden: !ok('gate.rules') },
     { key: 'reports', label: 'Reports', hidden: !ok('gate.reports') },
