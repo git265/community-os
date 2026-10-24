@@ -165,10 +165,11 @@ export default function EVoting() {
   const { records: ballots, save: saveBallot, refresh } = useCollection(COLLECTIONS.BALLOTS, 'E-voting Ballots');
   const { records: roll } = useCollection(COLLECTIONS.VOTE_ROLL, 'Voter Roll Marks');
   const { records: box } = useCollection(COLLECTIONS.BALLOT_BOX, 'Ballot Box');
-  const { records: properties } = useCollection(COLLECTIONS.PROPERTIES, 'Properties');
   const { currentUser } = useApp();
   const principal = getPrincipal();
   const canManage = canWriteCollection(COLLECTIONS.BALLOTS, principal);
+  // the voter roll is built from every unit's owners: only the people who run ballots read them (a voter's roll entry is on the ballot)
+  const { records: properties } = useCollection(COLLECTIONS.PROPERTIES, 'Properties', { enabled: canManage });
   const [editing, setEditing] = useState(null);
   const [voting, setVoting] = useState(null);
   const [opening, setOpening] = useState(null);

@@ -2,6 +2,8 @@
 
 Measured on 24 Oct 2026 against the v2 server (`/api/v1`). Use this document to decide what to fix first.
 
+**Update, 24 Oct:** changes 1 and 2 are done. Pickers, counts and audiences read a slim unit roster in one call, and the Super Admin's pages fell from 614 calls to 305 (section 6). Sections 2–5 describe the app before that change.
+
 ## 1. How it was measured
 * **What was measured**
   * The production build (`vite build`, served by `vite preview` with the `/api` proxy) against the dev server on `cos_dev`. The dev build was not used, because React StrictMode doubles every read there.
@@ -219,9 +221,9 @@ Fixes are listed by how much they save.
 
 | # | Change | Kind | Saves (Super Admin, cold) |
 |---|---|---|---|
-| 1 | Pages that need only names or counts use `/units/index` or `/units/by-block` instead of the whole register (see below). | Flow | 52 calls and 4–6 MB on each of 10 pages, about 470 calls |
-| 2 | A slim **unit roster** for the pages that need more than names. | Schema / endpoint | the remaining register reads become 1 call |
-| 3 | Cache the index and the roster with a version (ETag / `If-None-Match`); keep a copy in IndexedDB. | Endpoint + flow | 1.3 MB on each cold page becomes a 304 of a few bytes |
+| 1 | **Done 24 Oct.** Pages that need only names or counts no longer read the whole register (see below). | Flow | 52 calls and 4–6 MB on each of 10 pages, about 470 calls |
+| 2 | **Done 24 Oct for pickers and counts** (`GET /units/roster`). Billing defaulters, the meter-reading sheet, Data health, E-voting and the imports still read the whole register. | Schema / endpoint | the remaining register reads become 1 call |
+| 3 | Version the index and the roster (ETag / `If-None-Match`). Nothing is kept on the device: phones keep only the 60 s in-memory copy. | Endpoint + flow | 1.3 MB on each cold page becomes a 304 of a few bytes |
 | 4 | `GET /approvals/waiting`: the server lists what waits for the caller. | Endpoint | 10 calls at every staff sign-in and 10 on Billing; no whole ticket list |
 | 5 | `GET /summary/finance` and `GET /dues/defaulters`: the dashboard totals and defaulters by unit are summed in SQL. | Endpoint | Billing dashboard 15 calls to about 3; bank lines (1.3 MB) no longer read whole |
 | 6 | One shared load per page, and a short dedupe window (2–3 s) for identical GETs. | Flow | Payments 24 to about 18 (13 with change 7); gate console 6; Meetings, Documents, Vendors and Attendance 1 each |
@@ -234,34 +236,41 @@ Fixes are listed by how much they save.
 | 13 | Back off when the live stream reconnects (1 s, 2 s, 4 s … 60 s); reload the bell only when events were missed (`Last-Event-ID`). | Flow | prevents the once-a-second reload |
 | 14 | Land the guard on the gate console and the plumber on "My tasks" (`tickets?mine&active`), not Maintenance. | Flow | sign-in 80 calls to about 25 |
 
-### Change 1 in detail: where the register is not needed
+### Changes 1 and 2: where the register is not needed, and what each page reads now
 
-| Page | Needs | Use instead |
+| Page | Needs | Reads now (24 Oct) |
 |---|---|---|
-| Maintenance (`ServiceNotices`) | the person's own block and the block list | `/me` or `/units/:id` for the person's own home; `/blocks` for the list |
-| Communications | how many homes each audience reaches | `/units/by-block`, extended with a split by type (villa, apartment …) |
-| Amenities | the type of the booking's unit | `/units/:id` for the chosen unit, or the type in the roster |
-| Users, Documents, Roles & Permissions | unit numbers | `/units/index` |
-| Gate console, registry, simulator | a unit picker | `/units/index`, or a search box over `/units?q=` (the server already filters) |
-| Site map (`impactOf`) | units of a block | `/units/index` (it already carries the block) |
-| Community setup import, MyGate import | clash checks and matching flats | the import endpoint checks on the server and returns the rows it could not match |
-| Owner: Unit Directory, Maintenance, Amenities, Communications | the person's own home; the directory paged | the paged directory (already exists: `PAGED.directory` in `V2ApiAdapter.js`) and `/units/:id` |
+| Maintenance (`ServiceNotices`) | the person's own block; the block list when posting | a resident: their own homes from the roster. Staff: nothing until they post (block names from `/units/by-block`; the units of the chosen blocks from the roster when the notice is sent) |
+| Communications | homes per audience, the villa / apartment picker | the roster |
+| Amenities | the booking unit's type, the unit picker | the roster |
+| Users, Documents, bill correction, donation form | unit numbers, with the owner's name in the label | the roster |
+| Gate console, registry, simulator | a unit picker | the roster |
+| Site map (`impactOf`) | units of a block | the roster |
+| Owner: Unit Directory | their own home | the roster (their own homes), then that one unit in full |
+| Community setup import, MyGate import | clash checks, matching flats | still the whole register. Next: the import endpoint checks on the server |
+| Billing defaulters, meter-reading sheet, Data health, E-voting | every unit, with owners and phones | still the whole register: changes 5 and 10 |
 
-### Change 2 in detail: the unit roster
-* **What stays whole.** Billing defaulters, the meter-reading sheet and Data health really do need every unit, but only a few columns of each.
-* **The endpoint.** Change `/units/index` into the roster:
+### The unit roster (built 24 Oct)
+* **Endpoint:** `GET /units/roster` returns every active unit the caller may see, one slim row each: `id, unitNo, blockId, blockName, unitType, occupancy, contactName, contactRelation`. The contact is the primary owner, else a co-owner, else the tenant (the unit list's own rule). A resident gets their own homes only.
+* **SQL:** one statement (`JdbcUnitRepository.ROSTER`) under the unit list's read rules, checked with the other adapter SQL. The flow test covers a resident and the Super Admin.
+* **App:** `src/lib/unitRoster.js` (`unitRoster()`, `useUnitRoster()`). On the server it is one call, shared for 60 s; in the browser demo it is the demo's own list.
+* **Phones:** the roster lives only in memory, for 60 s, as one shared copy, and is never written to the device (no localStorage, IndexedDB or HTTP cache). The whole unit list is no longer held for 60 s after a page reads it. The index lookups are built once per read instead of on every call. Cached unit answers belong to the person signed in, so a sign-out and sign-in as someone else never sees the earlier person's units.
+* **Size at 10,216 units:** 2.3 MB uncompressed in one call, against 4.5–6 MB in 52 calls. The production server compresses JSON (`server.compression` in `application.yml`). At La Paloma's size it is about 50 KB.
+* **Not done yet:**
+  * A short per-community unit number (`unit.seq`) in place of the UUID would make the index and the roster about 10× smaller.
+  * Versioning (`property.unit_version`, `304 Not Modified`) would make a repeat read nearly free. It is not worth a copy on the device: the 60 s in-memory copy is enough, and a phone keeps nothing.
 
-  `GET /units/index?fields=type,occupancy,contact`
+### Measured after changes 1 and 2 (24 Oct, cold)
 
-  Each row would have: `id, unit_no, block_id, type, occupancy, contact name`. The contact is the bill-to person, or else the owner.
-* **The work is in one SQL statement.** It joins `property.unit` to the current `property.occupant` where `primary` and `to_date IS NULL`, using the existing `INDEX` query with these columns added.
-* **Size.**
-  * The UUID is most of the size: 285 KB gzipped for 10,216 rows, against about 28 KB for number and block alone.
-  * Optional schema change: a short per-community number `unit.seq` (an int). The roster would carry `seq` instead of the UUID, and records would keep the UUID. That makes the roster about 10× smaller.
-* **Versioning.**
-  * A version on the community, `property.unit_version`, bumped by the trigger that already stamps unit rows.
-  * The roster then answers `304 Not Modified` until a unit or a block changes.
-  * The browser keeps it in IndexedDB across sign-ins, instead of the 30 s and 60 s windows.
+| Person | Start-up | All pages | Size of all pages |
+|---|---|---|---|
+| Super Admin | 24 → 24 | 614 → 305 | 57 MB → 40 MB |
+| Owner | 14 → 14 | 282 → 76 | 6.8 MB → 0.1 MB |
+| Guard | 79 → 27 (6.2 MB → 1.8 MB) | 142 → 39 | 14.3 MB → 8.8 MB |
+
+* **Pages:** Maintenance 73 → 20, Site map 60 → 9, Amenities 57 → 7, Security & Visitors 67 → 14, Communications 57 → 6 and Users 55 → 4. For the owner: Maintenance 68 → 16, Amenities 60 → 8, Unit Directory 63 → 13 and Communications 58 → 6.
+* **E-voting:** the tab now reads the register itself for the people who run ballots (55 calls), because the Communications page no longer reads it first. Voters read nothing: their roll entry is on the ballot.
+* **Size:** what is left on the lighter pages is mostly `units/index` (1.3 MB) plus the roster (2.3 MB) at 10,216 units. Changes 3 and `unit.seq` cut that.
 
 ### Expected result
 These figures apply changes 1, 2, 6, 7, 8 and 9 to the recorded calls, and change 4 to the start-up. Changes 5 and 10 cut Billing and Reports further.
