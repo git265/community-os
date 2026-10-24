@@ -4,6 +4,7 @@ import { COLLECTIONS } from '../../lib/storage/index.js';
 import { badgeText } from '../../lib/gate/engine.js';
 import { Photo } from './gateUi.jsx';
 import { QrImage } from './QrImage.jsx';
+import MyFace from '../onsite/MyFace.jsx';
 
 /** My staff badge: a QR that changes every 30 seconds. The guard scans it; a screenshot of it stops working almost at once. */
 export default function GateBadge() {
@@ -19,7 +20,7 @@ export default function GateBadge() {
     return () => { live = false; clearInterval(id); };
   }, [me?.id]);
   if (!me) return <div className="empty" data-testid="badge-none">Your sign-in is not linked to a staff record, so there is no badge to show. Ask the office.</div>;
-  return (
+  return (<>
     <div className="card" style={{ textAlign: 'center', maxWidth: 360, margin: '0 auto' }} data-testid="my-badge">
       <Photo src="" name={me.name} size={64} round />
       <h2 style={{ margin: '8px 0 0' }}>{me.name}</h2>
@@ -28,5 +29,6 @@ export default function GateBadge() {
       <div className="muted" data-testid="badge-timer">New code in {left} s</div>
       <small className="muted">Show this to the guard. Do not send it to anyone.</small>
     </div>
-  );
+    <MyFace me={me} />
+  </>);
 }

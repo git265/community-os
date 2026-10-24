@@ -62,7 +62,7 @@ The settings can also go in a JSON file named by `COS_BRIDGE_CONFIG`. Settings i
 | `COS_BRIDGE_TOKEN` | (none) | The bridge's token from step 2. |
 | `COS_STATE_DIR` | `./state` | Where punches waiting to be sent, and each device's read position, are kept. |
 | `COS_EVENT_PHOTOS` | `refused` | Which punches carry the terminal's snapshot: `refused` (refusals and unknown people), `all` or `none`. |
-| `COS_DEVICE_TLS_STRICT` | `false` | Set to `true` to require a valid certificate from a terminal on https. |
+| `COS_DEVICE_TLS_STRICT` | `false` | For a terminal on https. By default, its own (self-signed) certificate is pinned the first time the bridge connects. Set to `true` to require a certificate that a certificate authority vouches for. |
 | `COS_PASS_MINORS`, `COS_FAIL_MINORS` | (none) | Extra event codes for firmware that reports other codes (see below). |
 | `COS_LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. |
 
@@ -109,6 +109,9 @@ another code, add it with `COS_PASS_MINORS` or `COS_FAIL_MINORS`. When installin
 
 - **Revoking.** Revoking a bridge in CommunityOS stops its token at once. The bridge keeps reading the devices and holds the
   punches until it gets a new token.
+- **Certificates.** If a pinned terminal's certificate changes, the bridge sends nothing to it and reports why. That happens
+  after a reset or a replacement, or when another machine answers at its address. If the change is expected, stop the bridge,
+  delete that device's line from `pins.json` in the state folder, and start the bridge again.
 - **Factory reset.** After a terminal is factory reset, its event numbers start again from 1. Add it in CommunityOS as a new
   device, and pause the old entry, which keeps its history. If it stayed the same device, new punches carrying event numbers
   CommunityOS has already seen would be taken as repeats.

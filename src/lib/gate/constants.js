@@ -9,7 +9,7 @@ export const GOODS_KINDS = ['Move in', 'Move out', 'Goods delivery', 'Contractor
 export const MANUAL_REASONS = ['Face did not match', 'Kiosk offline', 'Poor light or camera', 'Visitor cannot use the kiosk', 'Other'];
 export const VISIT_STATES = ['Awaiting approval', 'Approved', 'Denied', 'No answer', 'Inside', 'Exited', 'Auto-closed', 'Left at gate', 'Refused'];
 export const APPROVAL_STATES = ['Pending', 'Approved', 'Denied', 'No answer'];
-export const FLAG_TYPES = ['Unrecorded entry', 'Tailgate', 'Override entry', 'Identity mismatch', 'Wrong destination', 'Overstay', 'Blocked person attempt', 'Guard silence', 'Headcount mismatch', 'Manual open', 'Missed patrol', 'Reported person', 'Patrol location'];
+export const FLAG_TYPES = ['Unrecorded entry', 'Tailgate', 'Override entry', 'Identity mismatch', 'Wrong destination', 'Overstay', 'Blocked person attempt', 'Guard silence', 'Headcount mismatch', 'Manual open', 'Missed patrol', 'Reported person', 'Patrol location', 'Device entry'];
 /** Where a patrol scan was taken, from the phone's GPS (the same words as the server's). */
 export const SCAN_PLACES = ['At the post', 'Away from the post', 'Weak signal', 'No location', 'Location off', 'Post not mapped'];
 export const PATROL_GPS = { weakM: 100, sameSpotM: 10, radiusM: 40 };

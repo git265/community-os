@@ -10,7 +10,7 @@ import { createSimulator } from '../sim/ds-k1t344.js';
 import { Bridge } from '../src/bridge.js';
 import { Cloud } from '../src/cloud.js';
 import { Store } from '../src/store.js';
-import { parseChallenge } from '../src/drivers/hikvision/digest.js';
+import { parseChallenge, DigestClient } from '../src/drivers/hikvision/digest.js';
 import { setLevel } from '../src/log.js';
 
 setLevel(process.env.COS_LOG_LEVEL || 'error');
@@ -164,4 +164,22 @@ test('reads a Digest challenge among several WWW-Authenticate headers', () => {
   const ch = parseChallenge(['Basic realm="x"', 'Digest qop="auth", realm="DS-K1T344", nonce="abc123", stale="FALSE", opaque="o"']);
   assert.deepEqual(ch, { realm: 'DS-K1T344', nonce: 'abc123', qop: 'auth', opaque: 'o', algorithm: undefined, stale: false });
   assert.equal(parseChallenge('Basic realm="x"'), null);
+});
+
+test('pins an https device\'s own certificate the first time and sends nothing to a changed one', async () => {
+  const cert = (n) => ({ key: readFileSync(new URL(`./certs/${n}.key`, import.meta.url)), cert: readFileSync(new URL(`./certs/${n}.crt`, import.meta.url)) });
+  let sim = await createSimulator({ tls: cert('a') });
+  const port = sim.port; let pinned = null;
+  const c1 = new DigestClient({ host: '127.0.0.1', port, tls: true, username: 'admin', password: 'Passw0rd!', onPin: (fp) => { pinned = fp; } });
+  try {
+    assert.equal((await c1.request('GET', '/ISAPI/System/deviceInfo')).status, 200);
+    assert.match(pinned, /^[0-9A-F]{2}(:[0-9A-F]{2}){31}$/);
+    assert.equal((await c1.request('GET', '/ISAPI/System/deviceInfo')).status, 200, 'the same certificate again');
+  } finally { c1.close(); await sim.close(); }
+  sim = await createSimulator({ tls: cert('b'), port });                  // another device answers at the same address
+  const c2 = new DigestClient({ host: '127.0.0.1', port, tls: true, username: 'admin', password: 'Passw0rd!', pin: pinned });
+  try {
+    await assert.rejects(c2.request('GET', '/ISAPI/System/deviceInfo'), /certificate has changed/);
+    assert.equal(sim.raw.requests.length, 0); assert.equal(sim.state().logins.refused + sim.state().logins.ok, 0, 'not even a login was tried');
+  } finally { c2.close(); await sim.close(); }
 });

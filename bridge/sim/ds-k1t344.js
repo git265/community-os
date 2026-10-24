@@ -4,12 +4,13 @@
 // card through /sim/present (no login), and the stand-in decides as the device would.
 //   node sim/ds-k1t344.js [--port 8091] [--user admin] [--password Passw0rd!] [--drift 45]
 import http from 'node:http';
+import https from 'node:https';
 import { createHash, randomBytes } from 'node:crypto';
 
 const md5 = (s) => createHash('md5').update(s).digest('hex');
 const OFFSET = '+05:30', OFFSET_MIN = 330;
 
-export function createSimulator({ port = 0, username = 'admin', password = 'Passw0rd!', driftSeconds = 0, serial = 'DS-K1T344MBWX-QRE1-SIM0001' } = {}) {
+export function createSimulator({ port = 0, username = 'admin', password = 'Passw0rd!', driftSeconds = 0, serial = 'DS-K1T344MBWX-QRE1-SIM0001', tls = null } = {}) {
   const s = {
     users: new Map(), cards: new Map(), faces: new Map(), events: [], opens: [], nextSerial: 1, clockMs: driftSeconds * 1000, timeMode: 'NTP',
     refused: 0, lockedUntil: 0, logins: { ok: 0, refused: 0 }, requests: [], nonces: new Set(),
@@ -48,7 +49,7 @@ export function createSimulator({ port = 0, username = 'admin', password = 'Pass
 
   function record(minor, extra) {
     const e = { major: 5, minor, time: local(now()), serialNo: s.nextSerial++, currentVerifyMode: 'cardOrFace', pictureURL: null, ...extra };
-    e.pictureURL = `http://${server.address().address === '::' ? '127.0.0.1' : server.address().address}:${server.address().port}/LOCALS/pic/acsLinkCap/${e.serialNo}.jpeg@WEB`;
+    e.pictureURL = `${tls ? 'https' : 'http'}://${server.address().address === '::' ? '127.0.0.1' : server.address().address}:${server.address().port}/LOCALS/pic/acsLinkCap/${e.serialNo}.jpeg@WEB`;
     s.events.push(e);
     return e;
   }
@@ -82,7 +83,7 @@ export function createSimulator({ port = 0, username = 'admin', password = 'Pass
     return out;
   }
 
-  const server = http.createServer(async (req, res) => {
+  const handler = async (req, res) => {
     const url = new URL(req.url, 'http://x'); const path = url.pathname;
     try {
       if (path.startsWith('/sim/')) {           // the test's hands: no login
@@ -159,13 +160,14 @@ export function createSimulator({ port = 0, username = 'admin', password = 'Pass
       if (path.startsWith('/LOCALS/pic/')) { res.writeHead(200, { 'Content-Type': 'image/jpeg' }); return res.end(Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 16, 0x4a, 0x46, 0x49, 0x46, 0, 1, 0xff, 0xd9])); }
       return json(res, 404, { statusCode: 4, statusString: 'Invalid Operation', subStatusCode: 'notSupport' });
     } catch (e) { return bad(res, 'badJsonContent', e.message); }
-  });
+  };
+  const server = tls ? https.createServer(tls, handler) : http.createServer(handler);
   function state() {
     return { users: [...s.users.values()], cards: Object.fromEntries(s.cards), faces: [...s.faces.keys()], opens: s.opens, events: s.events.length, clockDriftS: Math.round(s.clockMs / 1000),
       timeMode: s.timeMode, logins: s.logins, locked: Date.now() < s.lockedUntil };
   }
   return new Promise((resolve) => server.listen(port, '127.0.0.1', () => resolve({
-    port: server.address().port, url: `http://127.0.0.1:${server.address().port}`, state, present, raw: s,
+    port: server.address().port, url: `${tls ? 'https' : 'http'}://127.0.0.1:${server.address().port}`, state, present, raw: s,
     close: () => new Promise((r) => { server.closeAllConnections?.(); server.close(() => r()); }),
   })));
 }

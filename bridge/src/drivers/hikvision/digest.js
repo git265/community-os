@@ -1,6 +1,7 @@
 // HTTP to a device on the community network, with Digest login (what Hikvision ISAPI asks for).
 // One request at a time per device. A refused login is never retried in a loop: these devices lock the admin user for 30 minutes
 // after about five failures, so after two refusals (or when the device says few tries are left) the device is left alone for 30 minutes.
+// On https a device's own (self-signed) certificate is pinned the first time: if it ever changes, nothing is sent to it.
 import http from 'node:http';
 import https from 'node:https';
 import { createHash, randomBytes } from 'node:crypto';
@@ -14,8 +15,9 @@ const PAUSE_MS = 30 * 60 * 1000;
 const md5 = (s) => createHash('md5').update(s).digest('hex');
 
 export class DigestClient {
-  constructor({ host, port, tls = false, username, password, strictTls = false, timeoutMs = 15_000 }) {
+  constructor({ host, port, tls = false, username, password, strictTls = false, timeoutMs = 15_000, pin = null, onPin = () => {} }) {
     this.base = { host, port: port || (tls ? 443 : 80), tls };
+    this.strictTls = strictTls; this.pin = pin; this.onPin = onPin;
     this.username = username || 'admin'; this.password = password || '';
     this.timeoutMs = timeoutMs;
     this.agent = tls ? new https.Agent({ keepAlive: true, maxSockets: 1, rejectUnauthorized: strictTls }) : new http.Agent({ keepAlive: true, maxSockets: 1 });
@@ -91,10 +93,22 @@ export class DigestClient {
         res.on('error', (e) => reject(new DeviceNetError(`The device's answer broke off (${e.message})`)));
       });
       req.setTimeout(timeoutMs || this.timeoutMs, () => req.destroy(new Error('timed out')));
-      req.on('error', (e) => reject(new DeviceNetError(`The device at ${this.base.host}:${this.base.port} is not reachable (${e.code || e.message})`)));
-      if (data) req.write(data);
-      req.end();
+      req.on('error', (e) => reject(e instanceof DeviceNetError ? e : new DeviceNetError(`The device at ${this.base.host}:${this.base.port} is not reachable (${e.code || e.message})`)));
+      const send = () => { if (data) req.write(data); req.end(); };
+      if (!this.base.tls || this.strictTls) return send();
+      // our own check of the device's certificate, before anything is written to it
+      req.on('socket', (sock) => {
+        const go = () => { const bad = this.checkPin(sock); if (bad) req.destroy(bad); else send(); };
+        const cert = typeof sock.getPeerCertificate === 'function' ? sock.getPeerCertificate() : null;
+        if (cert && Object.keys(cert).length) go(); else sock.once('secureConnect', go);
+      });
     });
+  }
+  checkPin(sock) {
+    const fp = sock.getPeerCertificate()?.fingerprint256;
+    if (!fp) return new DeviceNetError('The device sent no certificate');
+    if (!this.pin) { this.pin = fp; this.onPin(fp); return null; }
+    return fp === this.pin ? null : new DeviceNetError(`The device's certificate has changed (it was ${this.pin.slice(0, 23)}…): nothing was sent. If the device was replaced or reset, forget its certificate on the bridge (see README).`);
   }
   close() { this.agent.destroy(); }
 }

@@ -9,6 +9,7 @@ export const TAB_CATALOG = [
   { page: 'Audits', tabs: [['audits.overview', 'By area'], ['audits.timeline', 'Timeline'], ['audits.history', 'All audits']] },
   { page: 'Cultural', tabs: [['cultural.events', 'Events'], ['cultural.budget', 'Budget vs actual'], ['cultural.overview', 'Event: Overview'], ['cultural.offerings', 'Event: Offerings'], ['cultural.programme', 'Event: Programme'], ['cultural.brochure', 'Event: Brochure'], ['cultural.seva', 'Event: Volunteer seva'], ['cultural.donations', 'Event: Donations'], ['cultural.expenses', 'Event: Expenses'], ['cultural.photos', 'Event: Photos']] },
   { page: 'Workforce', tabs: [['workforce.attendance', 'Attendance'], ['workforce.shifts', 'Shift planner'], ['workforce.site', 'Site & GPS rules']] },
+  { page: 'On site', tabs: [['onsite.live', 'Live'], ['onsite.attendance', 'Attendance'], ['onsite.devices', 'Devices']] },
   { page: 'Security & Visitors', tabs: [['gate.console', 'Gate console'], ['gate.visits', 'Visits'], ['gate.flags', 'Ghost flags'], ['gate.registry', 'Registry'], ['gate.crews', 'Crews'], ['gate.vehicles', 'Vehicles'], ['gate.patrol', 'Patrol'], ['gate.badge', 'My badge'], ['gate.incidents', 'Incidents'], ['gate.rules', 'Rules & alerts'], ['gate.reports', 'Reports'], ['gate.mygate', 'Import from MyGate'], ['gate.sim', 'Gate simulator']] },
   { page: 'Audit Trail', tabs: [['audit.log', 'Trail'], ['audit.coverage', 'Coverage']] },
   { page: 'Accounts & budget', tabs: [['bank.summary', 'Accounts & deposits'], ['bank.budget', 'Budget'], ['bank.fixed', 'Fixed expenses'], ['bank.statements', 'Bank statements']] },
@@ -33,7 +34,7 @@ export function tabOpen(role, id) {
   return !(role.hiddenTabs || []).includes(id);
 }
 
-const PAGE_OF_PREFIX = { gate: 'security', billing: 'billing', pay: 'billing', bank: 'billing', tickets: 'tickets', properties: 'properties', comms: 'communications', amenities: 'amenities', assets: 'assets', sitemap: 'sitemap', util: 'utilities', audits: 'audits', reports: 'reports', cultural: 'cultural', workforce: 'shifts', audit: 'audit', setup: 'setup', notif: 'notifications' };
+const PAGE_OF_PREFIX = { onsite: 'onsite', gate: 'security', billing: 'billing', pay: 'billing', bank: 'billing', tickets: 'tickets', properties: 'properties', comms: 'communications', amenities: 'amenities', assets: 'assets', sitemap: 'sitemap', util: 'utilities', audits: 'audits', reports: 'reports', cultural: 'cultural', workforce: 'shifts', audit: 'audit', setup: 'setup', notif: 'notifications' };
 /** The left-menu page a tab id lives under ('billing.utility' moved to Utilities). */
 export function tabPage(id) {
   if (id === 'billing.utility') return 'utilities';
@@ -43,7 +44,7 @@ export function tabPage(id) {
 /** Whole pages (left menu) a Super Admin can switch off per role. Like tabs, switching a page ON never grants access the permissions don't give. */
 export const PAGE_CATALOG = [
   ['dashboard', 'Command Center'], ['properties', 'Unit Directory'], ['tickets', 'Maintenance'], ['billing', 'Billing & Finance'], ['utilities', 'Utilities & Assets: meters & bills'],
-  ['assets', 'Utilities & Assets: plant & inventory'], ['sitemap', 'Site map'], ['amenities', 'Amenities'], ['security', 'Security & Visitors'], ['mygate', 'My Gate'], ['shifts', 'Workforce'], ['calendar', 'Calendar'], ['notifications', 'Notifications'], ['cultural', 'Cultural'], ['vendors', 'Vendors'], ['communications', 'Communications'],
+  ['assets', 'Utilities & Assets: plant & inventory'], ['sitemap', 'Site map'], ['amenities', 'Amenities'], ['onsite', 'On site'], ['security', 'Security & Visitors'], ['mygate', 'My Gate'], ['shifts', 'Workforce'], ['calendar', 'Calendar'], ['notifications', 'Notifications'], ['cultural', 'Cultural'], ['vendors', 'Vendors'], ['communications', 'Communications'],
   ['audits', 'Audits'], ['reports', 'Reports'], ['setup', 'Community setup'], ['directory', 'Service directory'], ['governance', 'Governance'], ['documents', 'Documents'], ['users', 'Users'], ['audit', 'Audit Trail'],
 ];
 /** Super Admin always sees every page (Roles & Permissions and the Studio can never be hidden from them). */

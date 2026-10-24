@@ -20,7 +20,7 @@ export function loadConfig(env = process.env) {
     healthEveryMs: num('COS_HEALTH_EVERY_MS', 60_000),
     // which punches carry the device's snapshot: "refused" (refusals and people the platform does not know), "all", or "none"
     eventPhotos: String(pick('COS_EVENT_PHOTOS', 'refused')),
-    // a device on https with its own (self-signed) certificate: allowed on the local network unless turned off
+    // a device on https: its own (self-signed) certificate is pinned the first time; true = only a certificate a CA vouches for
     deviceTlsStrict: String(pick('COS_DEVICE_TLS_STRICT', 'false')) === 'true',
     // event codes of the device's firmware, if they differ (comma separated minor codes)
     passMinors: list(pick('COS_PASS_MINORS', '')),

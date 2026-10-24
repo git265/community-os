@@ -45,6 +45,7 @@ const CalendarModule = lazyPage(() => import('./modules/calendar/CalendarModule.
 const NotificationsModule = lazyPage(() => import('./modules/notifications/NotificationsModule.jsx'));
 const CulturalModule = lazyPage(() => import('./modules/cultural/CulturalModule.jsx'));
 const SecurityModule = lazyPage(() => import('./modules/gate/GateModule.jsx'));
+const OnSiteModule = lazyPage(() => import('./modules/onsite/OnSiteModule.jsx'));
 const MyGate = lazyPage(() => import('./modules/gate/MyGate.jsx'));
 const VendorsModule = lazyPage(() => import('./modules/vendors/VendorsModule.jsx'));
 const CommunicationsModule = lazyPage(() => import('./modules/communications/CommunicationsModule.jsx'));
@@ -82,6 +83,7 @@ const NAV_GROUPS = [
       { id: 'reports', label: 'Reports', icon: '📊', Component: ReportsModule, visible: (role, has) => role.category === 'EC' || role.id === 'facility_manager' || has('MANAGE_NOTIFICATIONS') },
       { id: 'audits', label: 'Audits', icon: '✔', Component: AuditsModule, visible: (role) => !isHandyman(role) },
       { id: 'amenities', label: 'Amenities', icon: '▣', Component: AmenitiesModule, visible: (role) => !isHandyman(role) },
+      { id: 'onsite', label: 'On site', icon: '◎', Component: OnSiteModule, visible: (role, has) => role.category !== 'Resident' && (has('MANAGE_SECURITY') || role.category === 'EC' || role.id === 'facility_manager') },
       { id: 'security', label: 'Security & Visitors', icon: '◇', Component: SecurityModule, visible: (role, has) => role.category !== 'Resident' && (has('MANAGE_SECURITY') || role.category === 'EC' || role.id === 'facility_manager') },
       { id: 'mygate', label: 'My Gate', icon: '🚪', Component: MyGate, visible: (role, has, me) => role.category === 'Resident' || !!me?.unit },   // an owner on the committee has a gate too
       { id: 'shifts', label: 'Workforce', icon: '🕒', Component: WorkforceModule, visible: (role) => role.category !== 'Resident' },

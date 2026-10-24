@@ -56,7 +56,7 @@ export class Bridge {
       seen.add(d.id);
       this.store.serverCursor(d.id, d.lastEventNo || 0);
       if (this.devices.has(d.id)) this.devices.get(d.id).update(d);
-      else { this.devices.set(d.id, new Driver(d, this.cfg)); log.info(`looking after ${d.name} at ${d.host}${d.port ? ':' + d.port : ''} (${d.gate}, counts ${d.direction})`); }
+      else { this.devices.set(d.id, new Driver(d, { ...this.cfg, pins: this.store })); log.info(`looking after ${d.name} at ${d.host}${d.port ? ':' + d.port : ''} (${d.gate}, counts ${d.direction})`); }
     }
     for (const [id, drv] of this.devices) if (!seen.has(id)) { log.info(`${drv.device.name} is no longer on this bridge`); drv.close(); this.devices.delete(id); }
     if (!this.helloOk) { this.helloOk = true; log.info(`signed in as "${h.name}": ${this.devices.size} device(s)`); }

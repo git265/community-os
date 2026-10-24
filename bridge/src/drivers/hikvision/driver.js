@@ -11,7 +11,8 @@ const OURS = /^[0-9a-f]{32}$/;
 export class HikvisionDriver {
   constructor(device, cfg = {}) {
     this.cfg = cfg;
-    this.client = new DigestClient({ host: device.host, port: device.port, tls: device.useTls, username: device.username, password: device.password, strictTls: !!cfg.deviceTlsStrict });
+    this.client = new DigestClient({ host: device.host, port: device.port, tls: device.useTls, username: device.username, password: device.password, strictTls: !!cfg.deviceTlsStrict,
+      pin: cfg.pins?.pin(device.id) || null, onPin: (fp) => cfg.pins?.setPin(device.id, fp) });
     this.isapi = new Isapi(this.client);
     this.device = device; this.offset = null; this.timeZone = null; this.catchUpFrom = null;
   }

@@ -13,6 +13,7 @@ export class Store {
     mkdirSync(dir, { recursive: true });
     this.outbox = this.read('outbox.json', []);
     this.cursors = this.read('cursors.json', {});
+    this.pins = this.read('pins.json', {});
     this.dirty = false;
   }
   read(name, empty) {
@@ -62,6 +63,9 @@ export class Store {
     this.outbox = this.outbox.filter((x) => !(x.deviceId === deviceId && done.has(x.punch.eventNo)));
     this.dirty = true;
   }
+  /** A device's certificate fingerprint, pinned the first time it is seen (https devices). */
+  pin(deviceId) { return this.pins[deviceId] || null; }
+  setPin(deviceId, fp) { this.pins[deviceId] = fp; this.write('pins.json', this.pins); }
   save() {
     if (!this.dirty) return;
     this.write('outbox.json', this.outbox); this.write('cursors.json', this.cursors);
