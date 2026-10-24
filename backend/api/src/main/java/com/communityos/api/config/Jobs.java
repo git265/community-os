@@ -30,6 +30,7 @@ public class Jobs {
     private final com.communityos.api.docs.application.FileService files;
     private final java.util.Optional<com.communityos.api.comms.adapter.PushDelivery> pushes;
     private final com.communityos.api.site.application.SiteService site;
+    private final com.communityos.api.maintenance.application.TicketService tickets;
 
     public Jobs(OutboxRelay outbox, WebhookDeliveryWorker webhooks, PaymentService payments, @Qualifier("platform") NamedParameterJdbcTemplate platformJdbc,
                 com.communityos.api.gate.application.GateService gate, com.communityos.api.comms.application.BroadcastService notices,
@@ -39,8 +40,8 @@ public class Jobs {
                 java.util.Optional<com.communityos.api.billing.application.RefundService> refunds, com.communityos.api.comms.adapter.LiveHub live,
                 java.util.Optional<com.communityos.api.comms.adapter.PushDelivery> pushes, com.communityos.api.billing.application.PaymentReconciler recon,
                 com.communityos.api.billing.application.LateFeeService lateFees, com.communityos.api.docs.application.FileService files,
-                com.communityos.api.site.application.SiteService site) {
-        this.recon = recon; this.lateFees = lateFees; this.files = files; this.site = site;
+                com.communityos.api.site.application.SiteService site, com.communityos.api.maintenance.application.TicketService tickets) {
+        this.recon = recon; this.lateFees = lateFees; this.files = files; this.site = site; this.tickets = tickets;
         this.channels = channels; this.simulatedBank = simulatedBank; this.refunds = refunds; this.live = live; this.pushes = pushes;
         this.outbox = outbox; this.webhooks = webhooks; this.payments = payments; this.platformJdbc = platformJdbc; this.gate = gate; this.notices = notices; this.attendance = attendance; this.reports = reports;
     }
@@ -76,6 +77,16 @@ public class Jobs {
     @Scheduled(fixedDelayString = "${cos.jobs.site-delay:600000}", initialDelay = 100000)
     public void syncDevices() {
         perCommunity("site devices", SITE_DUE, "device sync", (system) -> site.sync(system));
+    }
+
+    /** Communities with a ticket past its SLA date that nobody was told about yet (today in each community's own zone, checked by the service). */
+    static final String SLA_DUE = """
+        SELECT DISTINCT community_id FROM maintenance.ticket
+        WHERE status IN ('Open', 'Assigned', 'In Progress', 'On Hold') AND sla_due_at < current_date + 1
+          AND NOT EXISTS (SELECT 1 FROM maintenance.ticket_sla_alert a WHERE a.community_id = ticket.community_id AND a.ticket_id = ticket.id AND a.due_on = ticket.sla_due_at)""";
+    @Scheduled(fixedDelayString = "${cos.jobs.sla-delay:900000}", initialDelay = 110000)
+    public void alertOverdueTickets() {
+        perCommunity("ticket SLA", SLA_DUE, "ticket SLA alerts", (system) -> tickets.alertOverdue(system));
     }
 
     /** Communities with an active report schedule (each one is checked against its own time and day). */

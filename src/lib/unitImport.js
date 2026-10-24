@@ -2,6 +2,7 @@
 // community (thousands of units) in one go: columns are recognised by their heading, every row is checked, and the whole file is
 // written in a single operation. The same checks as the Add-property form apply (owner, valid phone, tenant when tenant occupied).
 import { validatePhone } from './phone.js';
+import { emailError } from './validate.js';
 import { normalize as tidyUnit, key as unitKey, unitProblem, ruleFor } from './unitNaming.js';
 
 export const UNIT_FIELDS = [
@@ -60,7 +61,10 @@ export function buildUnitRows(grid, headerRow, map, { existing = [], defaultType
   const byUnit = new Map(existing.map((p) => [unitKey(p.unit), p]));   // the same unit whatever its case or spacing
   const get = (r, f) => (map[f] >= 0 ? String(r[map[f]] ?? '').trim() : '');
   const rows = []; const errors = []; const seenUnit = new Set(); const phoneOwner = new Map();
-  existing.forEach((p) => { const v = p.ownerPhone && validatePhone(p.ownerPhone); if (v?.ok) phoneOwner.set(v.e164, `${p.owner}|${p.unit}`); });
+  existing.forEach((p) => {
+    const v = p.ownerPhone && validatePhone(p.ownerPhone); if (v?.ok) phoneOwner.set(v.e164, `${p.owner}|${p.unit}`);
+    const t = p.tenant && p.tenantPhone && validatePhone(p.tenantPhone); if (t?.ok && !phoneOwner.has(t.e164)) phoneOwner.set(t.e164, `${p.tenant}|${p.unit}`);
+  });
   for (let i = headerRow + 1; i < grid.length; i += 1) {
     const r = grid[i]; if (!r || r.every((c) => String(c ?? '').trim() === '')) continue;
     const line = i + 1; const unit = tidyUnit(get(r, 'unit'));
@@ -83,14 +87,26 @@ export function buildUnitRows(grid, headerRow, map, { existing = [], defaultType
       const tp = validatePhone(get(r, 'tenantPhone')); if (!tp.ok) { fail(`Tenant phone: ${tp.error}`); continue; }
       tenantPhone = tp.e164;
     }
-    const clash = phoneOwner.get(ph.e164);
-    if (clash && clash.split('|')[1].toLowerCase() !== unit.toLowerCase() && clash.split('|')[0].toLowerCase() !== owner.toLowerCase()) { fail(`Phone already belongs to ${clash.split('|')[0]} (${clash.split('|')[1]})`); continue; }
-    phoneOwner.set(ph.e164, `${owner}|${unit}`);
+    // one number is one person across the community (owners and tenants alike)
+    const clashOf = (e164, name) => { const c = phoneOwner.get(e164); return c && c.split('|')[1].toLowerCase() !== unit.toLowerCase() && c.split('|')[0].toLowerCase() !== name.toLowerCase() ? c : null; };
+    const clash = clashOf(ph.e164, owner);
+    if (clash) { fail(`Phone already belongs to ${clash.split('|')[0]} (${clash.split('|')[1]})`); continue; }
+    const tClash = tenantPhone ? clashOf(tenantPhone, tenant) : null;
+    if (tClash) { fail(`Tenant phone already belongs to ${tClash.split('|')[0]} (${tClash.split('|')[1]})`); continue; }
+    if (tenantPhone && tenantPhone === ph.e164 && tenant.toLowerCase() !== owner.toLowerCase()) { fail('The owner and the tenant have the same phone number'); continue; }
+    const email = get(r, 'ownerEmail');
+    if (emailError(email)) { fail(`Owner e-mail: ${emailError(email)}`); continue; }
     const num = (f) => { const v = get(r, f); return v === '' || Number.isNaN(Number(v)) ? undefined : Number(v); };
+    if (get(r, 'areaSqft') !== '' && !(num('areaSqft') >= 1 && num('areaSqft') <= 100000)) { fail('Area is 1 to 100,000 sq ft (leave it empty if not known)'); continue; }
+    const badCount = ['bedrooms', 'parking'].find((f) => get(r, f) !== '' && !(Number.isInteger(num(f)) && num(f) >= 0 && num(f) <= 50));
+    if (badCount) { fail(`${badCount === 'bedrooms' ? 'Bedrooms' : 'Parking'} is a whole number from 0 to 50`); continue; }
+    phoneOwner.set(ph.e164, `${owner}|${unit}`);
+    if (tenantPhone) phoneOwner.set(tenantPhone, `${tenant}|${unit}`);
     const old = byUnit.get(unitKey(unit));
     const record = {
       ...(old ? { id: old.id } : {}), unit: old?.unit || unit, type: get(r, 'type') || old?.type || defaultType, zone: get(r, 'zone') || old?.zone || '', owner, ownerPhone: ph.e164,
-      ownerEmail: get(r, 'ownerEmail') || old?.ownerEmail || '', occupancy: occ, tenant: occ === 'Tenant occupied' ? tenant : '', tenantPhone,
+      ownerEmail: (email || old?.ownerEmail || '').toLowerCase(), occupancy: occ, tenant: occ === 'Tenant occupied' ? tenant : '', tenantPhone,
+      ...(old?.billTo === 'Tenant' && occ !== 'Tenant occupied' ? { billTo: 'Owner' } : {}),   // no tenant any more: the bills go back to the owner
       ...(num('areaSqft') !== undefined ? { areaSqft: num('areaSqft') } : {}), ...(num('bedrooms') !== undefined ? { bedrooms: num('bedrooms') } : {}), ...(num('parking') !== undefined ? { parking: num('parking') } : {}),
       people: old?.people || [],
     };

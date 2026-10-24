@@ -2,6 +2,7 @@ import React from 'react';
 import { validatePhone } from '../lib/phone.js';
 import { RELATIONS } from '../lib/people.js';
 import { uuid } from '../lib/uuid.js';
+import { emailError } from '../lib/validate.js';
 
 /** A phone input that checks the number as you type: needs a country code, and a real number for that country. */
 export function PhoneInput({ value, onChange, label, invalid, testid }) {
@@ -36,7 +37,8 @@ export function PeopleEditor({ list, onChange, errors = {} }) {
               {errors[x.id]?.phone && validatePhone(x.phone).error && !x.phone && <div className="field-error">{errors[x.id].phone}</div>}
             </div>
             <div><small className="muted">E-mail (optional)</small>
-              <input type="text" aria-label="Person e-mail" value={x.email || ''} onChange={(e) => set(i, { email: e.target.value })} />
+              <input type="email" inputMode="email" aria-label="Person e-mail" value={x.email || ''} onChange={(e) => set(i, { email: e.target.value })} aria-invalid={!!errors[x.id]?.email || undefined} />
+              {errors[x.id]?.email && <div className="field-error">{errors[x.id].email}</div>}
             </div>
           </div>
           <button type="button" className="btn secondary sm" aria-label="Remove person" onClick={() => onChange(list.filter((_, j) => j !== i))}>Remove</button>
@@ -50,7 +52,7 @@ export function PeopleEditor({ list, onChange, errors = {} }) {
   );
 }
 
-/** Checks the people rows; returns { [id]: {name?, phone?} } (empty when all fine). */
+/** Checks the people rows; returns { [id]: {name?, phone?, email?} } (empty when all fine). */
 export function peopleErrors(list) {
   const out = {}; const seen = new Set();
   for (const x of list) {
@@ -60,6 +62,8 @@ export function peopleErrors(list) {
     if (!v.ok) e.phone = v.error;
     else if (seen.has(v.e164)) e.phone = 'Same number is entered twice';
     else seen.add(v.e164);
+    const em = emailError(x.email);
+    if (em) e.email = em;
     if (Object.keys(e).length) out[x.id] = e;
   }
   return out;

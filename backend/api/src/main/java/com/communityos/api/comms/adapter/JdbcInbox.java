@@ -14,7 +14,7 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 
 /**
  * The inbox on the tenant connection. One statement fans a message out: the people it reaches (members by id, people with portal access to
- * the units, holders of the roles + the roles the community added for this event), minus the person doing it; one inbox row each; then a
+ * the units, holders of the roles ("@ec": every committee role) + the roles the community added for this event), minus the person doing it; one inbox row each; then a
  * queued channel message for each extra channel the person chose and the community offers for the event (Skipped when there is no address).
  * Also the Facts port: a notification's few words about the ticket, booking or visit it is about.
  */
@@ -30,7 +30,9 @@ public final class JdbcInbox implements Inbox, Facts {
               OR EXISTS (SELECT 1 FROM property.occupant o WHERE o.community_id = m.community_id AND o.person_id = m.person_id AND o.portal_access
                            AND (o.to_date IS NULL OR o.to_date >= current_date) AND o.unit_id = ANY (CAST(:units AS uuid[])))
               OR EXISTS (SELECT 1 FROM identity.membership_role mr JOIN identity.role r ON r.community_id = mr.community_id AND r.id = mr.role_id
-                          WHERE mr.community_id = m.community_id AND mr.membership_id = m.id AND (r.code = ANY (CAST(:roles AS text[])) OR r.code IN (SELECT code FROM also))))),
+                          WHERE mr.community_id = m.community_id AND mr.membership_id = m.id AND (r.code = ANY (CAST(:roles AS text[])) OR r.code IN (SELECT code FROM also)
+                            OR ('@ec' = ANY (CAST(:roles AS text[])) AND EXISTS (SELECT 1 FROM identity.role_group g
+                                 WHERE g.community_id = r.community_id AND g.id = r.group_id AND g.category = 'EC')))))),
         sent AS (
           INSERT INTO comms.notification (community_id, id, created_at, to_membership_id, event, kind, title, body, link, sender_id, ref_id)
           SELECT platform.current_community(), gen_random_uuid(), now(), who.id, CAST(:event AS text), CAST(:kind AS text), CAST(:title AS text), CAST(:body AS text),
@@ -83,6 +85,20 @@ public final class JdbcInbox implements Inbox, Facts {
         SELECT x.short_id AS number, x.person_name AS title, x.unit_id, u.unit_no, NULL AS owner, NULL AS other, x.detail AS extra
         FROM gate.flag x LEFT JOIN property.unit u ON u.community_id = x.community_id AND u.id = x.unit_id WHERE x.id = CAST(:id AS uuid)""";
 
+    /** Which of the switchable gate events a unit hears: the community's event list (on unless switched off) and the unit's own switches
+     *  (guest exit and maid / driver in-out off, deliveries on, unless the unit set them). */
+    static final String GATE_RULE = """
+        WITH s AS (SELECT coalesce((SELECT x.events FROM gate.setting x ORDER BY x.created_at LIMIT 1), '{}'::jsonb) AS ev),
+        r AS (SELECT u.tell_guest_exit, u.tell_staff, u.tell_delivery FROM gate.unit_rule u WHERE u.unit_id = CAST(:id AS uuid))
+        SELECT NULL AS number, NULL AS title, CAST(:id AS uuid) AS unit_id, NULL AS unit_no, NULL AS owner, NULL AS other,
+               concat_ws(',',
+                 CASE WHEN coalesce(s.ev -> 'guest_arrived' ->> 'on', 'true') <> 'false' THEN 'guest_arrived' END,
+                 CASE WHEN coalesce(s.ev -> 'guest_exit' ->> 'on', 'true') <> 'false' AND coalesce((SELECT r.tell_guest_exit FROM r), false) THEN 'guest_exit' END,
+                 CASE WHEN coalesce(s.ev -> 'delivery' ->> 'on', 'true') <> 'false' AND coalesce((SELECT r.tell_delivery FROM r), true) THEN 'delivery' END,
+                 CASE WHEN coalesce(s.ev -> 'staff_inout' ->> 'on', 'true') <> 'false' AND coalesce((SELECT r.tell_staff FROM r), false) THEN 'staff_inout' END,
+                 CASE WHEN coalesce(s.ev -> 'crew_inout' ->> 'on', 'true') <> 'false' THEN 'crew_inout' END) AS extra
+        FROM s""";
+
     private final NamedParameterJdbcTemplate jdbc;
     public JdbcInbox(NamedParameterJdbcTemplate jdbc) { this.jdbc = jdbc; }
 
@@ -107,7 +123,7 @@ public final class JdbcInbox implements Inbox, Facts {
     }
 
     @Override public Optional<Fact> of(Kind kind, UUID id) {
-        String sql = switch (kind) { case TICKET -> TICKET; case BOOKING -> BOOKING; case GATE_APPROVAL -> GATE_APPROVAL; case GATE_VISIT -> GATE_VISIT; case GATE_FLAG -> GATE_FLAG; };
+        String sql = switch (kind) { case TICKET -> TICKET; case BOOKING -> BOOKING; case GATE_APPROVAL -> GATE_APPROVAL; case GATE_VISIT -> GATE_VISIT; case GATE_FLAG -> GATE_FLAG; case GATE_RULE -> GATE_RULE; };
         return jdbc.query(sql, Map.of("id", id.toString()), (rs, i) -> new Fact(rs.getString("number"), rs.getString("title"), Rows.uuid(rs, "unit_id"), rs.getString("unit_no"),
             Rows.uuid(rs, "owner"), Rows.uuid(rs, "other"), rs.getString("extra"))).stream().findFirst();
     }

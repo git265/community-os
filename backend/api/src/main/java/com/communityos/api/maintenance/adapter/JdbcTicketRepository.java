@@ -67,6 +67,18 @@ public final class JdbcTicketRepository implements TicketRepository {
                 :priority, :status, CAST(:assignee AS uuid), CAST(:assignedAt AS timestamptz), CAST(:sla AS date), :preferredTime, CAST(:raisedBy AS uuid),
                 (SELECT ro.id FROM identity.role ro WHERE ro.code = CAST(:raisedByRole AS text)), CAST(:custom AS jsonb), CAST(:asset AS uuid))
         RETURNING short_id, version""";
+    static final String CLAIM_OVERDUE = """
+        WITH late AS (
+          SELECT x.id, x.assignee_id, x.sla_due_at, x.status FROM maintenance.ticket x
+          WHERE x.status IN ('Open', 'Assigned', 'In Progress', 'On Hold') AND x.sla_due_at < CAST(:today AS date)
+            AND NOT EXISTS (SELECT 1 FROM maintenance.ticket_sla_alert a WHERE a.community_id = x.community_id AND a.ticket_id = x.id AND a.due_on = x.sla_due_at)
+          ORDER BY x.sla_due_at LIMIT :limit),
+        told AS (
+          INSERT INTO maintenance.ticket_sla_alert (community_id, ticket_id, due_on)
+          SELECT platform.current_community(), late.id, late.sla_due_at FROM late
+          ON CONFLICT DO NOTHING RETURNING ticket_id, due_on)
+        SELECT late.id, late.assignee_id, late.sla_due_at, late.status FROM late JOIN told ON told.ticket_id = late.id AND told.due_on = late.sla_due_at""";
+
     static final String UPDATE = """
         UPDATE maintenance.ticket SET title = :title, description = :description, location = :location, category = :category, sub_category = :subCategory,
                priority = :priority, status = :status, assignee_id = CAST(:assignee AS uuid), assigned_at = CAST(:assignedAt AS timestamptz), sla_due_at = CAST(:sla AS date),
@@ -190,4 +202,9 @@ public final class JdbcTicketRepository implements TicketRepository {
         return new Ticket(s);
     }
     private String write(Object o) { try { return json.writeValueAsString(o); } catch (Exception e) { throw new IllegalStateException(e); } }
+
+    @Override public List<Overdue> claimOverdue(java.time.LocalDate today, int limit) {
+        return jdbc.query(CLAIM_OVERDUE, Map.of("today", today.toString(), "limit", limit), (rs, i) -> new Overdue(Rows.uuid(rs, "id"),
+            Rows.uuid(rs, "assignee_id") == null ? null : new MembershipId(Rows.uuid(rs, "assignee_id")), Rows.date(rs, "sla_due_at"), rs.getString("status")));
+    }
 }

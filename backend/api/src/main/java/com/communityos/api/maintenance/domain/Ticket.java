@@ -73,13 +73,15 @@ public final class Ticket extends AggregateRoot {
         if (s.status.finished() || s.status == TicketStatus.COMPLETED) throw new DomainException.RuleViolated("ticket-finished", "This ticket is " + s.status.label());
         if (who == null) {
             if (s.status != TicketStatus.ASSIGNED && s.status != TicketStatus.OPEN) throw new DomainException.RuleViolated("work-started", "Work has started: reassign instead of unassigning");
-            s.assignee = null; s.assigneeName = null; s.assignedAt = null; move(TicketStatus.OPEN, now);
+            move(TicketStatus.OPEN, now);                      // first, so the one it is taken from hears it is open again
+            s.assignee = null; s.assigneeName = null; s.assignedAt = null;
             return;
         }
         if (who.equals(s.assignee)) return;
+        MembershipId was = s.assignee;
         s.assignee = who; s.assigneeName = name; s.assignedAt = now;
         if (s.status == TicketStatus.OPEN) move(TicketStatus.ASSIGNED, now);
-        raise(new TicketAssigned(s.id, s.community, who, s.category, now));
+        raise(new TicketAssigned(s.id, s.community, who, was, s.category, now));
     }
 
     /** A status move; side effects (times, reason, reopen count) follow from it. */
@@ -104,7 +106,8 @@ public final class Ticket extends AggregateRoot {
         if (!s.status.canMoveTo(to)) throw new DomainException.RuleViolated("bad-move", "A ticket that is " + s.status.label() + " cannot become " + to.label());
         TicketStatus from = s.status;
         s.status = to;
-        raise(new TicketStatusChanged(s.id, s.community, from.label(), to.label(), now));
+        raise(new TicketStatusChanged(s.id, s.community, from.label(), to.label(), s.assignee,
+            "Community".equals(s.scope) ? s.affectedUnits.stream().map(UnitId::value).toList() : List.of(), now));
     }
 
     /** "Me too" on a community request: add or remove one unit. */
@@ -124,12 +127,13 @@ public final class Ticket extends AggregateRoot {
     public record Changes(String title, String description, String category, String subCategory, String priority, String location, String preferredTime,
                           LocalDate slaDueAt, Boolean awaitingParts, Money materialsCost, Boolean financial, LocalDate workDone) {}
 
-    public void edit(Changes c) {
+    public void edit(Changes c, Instant now) {
         if (s.status.finished()) throw new DomainException.RuleViolated("ticket-finished", "This ticket is " + s.status.label() + " - reopen it first");
         if (c.title() != null) { if (c.title().strip().length() < 3 || c.title().length() > 200) throw new DomainException.RuleViolated("bad-title", "Give a short title (3-200 characters)"); s.title = c.title().strip(); }
         if (c.description() != null) { if (c.description().length() > 10_000) throw new DomainException.RuleViolated("too-long", "The description is too long"); s.description = c.description(); }
         if (c.category() != null) { String k = Names.pick(CATEGORIES, c.category()); if (k == null) throw new DomainException.RuleViolated("bad-category", "Pick a category from the list"); s.category = k; }
         if (c.subCategory() != null) s.subCategory = c.subCategory().isBlank() ? null : c.subCategory().strip();
+        String priorityWas = s.priority; LocalDate dueWas = s.slaDueAt;
         if (c.priority() != null) { String k = Names.pick(PRIORITIES, c.priority()); if (k == null) throw new DomainException.RuleViolated("bad-priority", "Pick a priority from the list"); s.priority = k; }
         if (c.location() != null) {
             if ("Community".equals(s.scope) && c.location().isBlank()) throw new DomainException.RuleViolated("location-required", "Say where in the community the problem is");
@@ -141,6 +145,8 @@ public final class Ticket extends AggregateRoot {
         if (c.materialsCost() != null) { if (c.materialsCost().isNegative()) throw new DomainException.RuleViolated("bad-amount", "The cost cannot be negative"); s.materialsCost = c.materialsCost(); }
         if (c.financial() != null) s.financial = c.financial();
         if (c.workDone() != null) s.workDone = c.workDone();
+        boolean p = !java.util.Objects.equals(priorityWas, s.priority), d = !java.util.Objects.equals(dueWas, s.slaDueAt);
+        if (p || d) raise(new TicketEvents.TicketTermsChanged(s.id, s.community, s.assignee, p ? priorityWas : null, p ? s.priority : null, d ? dueWas : null, d ? s.slaDueAt : null, now));
     }
 
     public State state() { return s; }

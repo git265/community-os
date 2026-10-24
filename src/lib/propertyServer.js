@@ -21,6 +21,7 @@ import { validatePhone, phoneKey } from './phone.js';
 import { peopleOf, isOwnerRelation } from './people.js';
 import { getCommunity, communityUrl } from './community.js';
 import { normalize as tidyUnit, key as unitKey, unitProblem, ruleFor } from './unitNaming.js';
+import { emailError } from './validate.js';
 const lowerEmail = (e) => String(e || '').trim().toLowerCase();
 /** The owner of a unit added in bulk before its owner is known (filled in later, or by the Excel import). */
 export const OWNER_LATER = 'To be updated';
@@ -69,9 +70,20 @@ export async function propertyPreWrite({ record, old, isNew }) {
   r.people = r.people.map((x) => ({ ...x, id: x.id || uuid(), name: String(x.name || '').trim(), email: lowerEmail(x.email) }));
 
   if (!String(r.owner || '').trim()) return { error: 'The primary owner (on the lease / title) is required' };
-  if (!r.occupancy) return { error: 'Say who occupies the property: owner, tenant or vacant' };
+  if (!['Owner occupied', 'Tenant occupied', 'Vacant'].includes(r.occupancy)) return { error: 'Say who occupies the property: owner, tenant or vacant' };
   if (r.occupancy === 'Tenant occupied' && !String(r.tenant || '').trim()) return { error: 'A tenant name is required when the property is tenant occupied' };
-  if (r.occupancy !== 'Tenant occupied' && !String(r.tenant || '').trim()) { r.tenant = ''; r.tenantPhone = ''; r.tenantEmail = ''; }
+  // a tenant on a unit that is not let would keep their portal access and could keep getting the bills: clear the tenant first
+  if (r.occupancy !== 'Tenant occupied' && String(r.tenant || '').trim()) return { error: `The unit is ${r.occupancy.toLowerCase()} but still names ${String(r.tenant).trim()} as tenant: clear the tenant (they lose portal access), or set Occupied by to Tenant occupied` };
+  if (r.occupancy !== 'Tenant occupied') { r.tenant = ''; r.tenantPhone = ''; r.tenantEmail = ''; }
+  if (r.billTo === 'Tenant' && r.occupancy !== 'Tenant occupied') return { error: 'Bills go to the tenant, but the unit has no tenant: set Bills go to Owner' };
+  for (const [k, label] of [['ownerEmail', 'Primary owner e-mail'], ['tenantEmail', 'Tenant e-mail']]) { const e = emailError(r[k]); if (e) return { error: `${label}: ${e}` }; }
+  for (const x of r.people) { const e = emailError(x.email); if (e) return { error: `${x.name || 'Additional person'}: ${e}` }; }
+  // the numbers billing and the directory use: the same ranges as the back end
+  const num = (k) => (r[k] === '' || r[k] == null ? null : Number(r[k]));
+  if (num('areaSqft') != null && !(num('areaSqft') >= 1 && num('areaSqft') <= 100000)) return { error: 'Area is 1 to 100,000 sq ft (leave it empty if not known)' };
+  for (const [k, label, max] of [['bedrooms', 'Bedrooms', 50], ['parking', 'Parking slots', 50], ['residentsCount', 'Residents', 100], ['vehiclesCount', 'Vehicles', 50], ['domesticStaffCount', 'Domestic staff', 50]]) {
+    if (num(k) != null && !(Number.isInteger(num(k)) && num(k) >= 0 && num(k) <= max)) return { error: `${label} is a whole number from 0 to ${max}` };
+  }
 
   const seen = new Map(); // e164 -> name
   const check = (label, name, phone, required) => {

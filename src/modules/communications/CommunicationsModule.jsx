@@ -34,6 +34,11 @@ const unitsFor = (audience, units, blocks, props) => (audience === 'Selected vil
     : audience === 'All villas' ? props.filter((x) => x.type === 'Villa').map((x) => x.unit)
       : audience === 'All apartments' ? props.filter((x) => x.type === 'Apartment').map((x) => x.unit) : null);
 
+/** The roles a non-unit audience addresses: owners; the committee; the staff; otherwise everyone who lives here (owners and residents). */
+const rolesFor = (audience, roles = []) => (audience === 'Owners' ? ['owner']
+  : audience === 'EC members' ? roles.filter((r) => r.category === 'EC').map((r) => r.id)
+    : audience === 'Staff' ? roles.filter((r) => r.category === 'Staff').map((r) => r.id) : ['owner', 'resident']);
+
 function reachFor(draft, properties) {
   const occupied = (p) => p.occupancy !== 'Vacant';
   switch (draft.audience) {
@@ -63,7 +68,7 @@ function renderTemplate(body, values) {
 }
 
 export default function CommunicationsModule() {
-  const { roleId, currentUser, schemaFor, tabAllowed } = useApp();
+  const { roleId, currentUser, schemaFor, tabAllowed, roles } = useApp();
   const { records: broadcasts, save: saveBroadcast } = useCollection(COLLECTIONS.BROADCASTS, 'Communications');
   const { records: properties } = useCollection(COLLECTIONS.PROPERTIES, 'Properties');
   const { records: blocksList } = useCollection(COLLECTIONS.BLOCKS, 'Blocks & Towers');
@@ -99,7 +104,7 @@ export default function CommunicationsModule() {
       const msg = { event: 'announcement', title: `RESCHEDULED - ${b.subject} (${whenText(resch)})`, body: 'The maintenance time has changed. Please note the new schedule.', link: '#/communications', by: currentUser?.name || '' };
       const units = unitsFor(b.audience, b.audienceUnits, b.audienceBlocks, properties);
       if (units) await notifyMany(units.map((u) => ({ ...msg, toUnit: u })));
-      else await notify({ ...msg, toRoleIds: b.audience === 'Owners' ? ['owner'] : ['owner', 'resident'] });
+      else await notify({ ...msg, toRoleIds: rolesFor(b.audience, roles) });
     }
     setResch(null);
   }
@@ -152,7 +157,7 @@ export default function CommunicationsModule() {
       const units = unitsFor(draft.audience, draft.audienceUnits, draft.audienceBlocks, properties);
       const msg = { event: isPoll ? 'poll' : 'announcement', title: `${isPoll ? 'Poll' : draft.type}: ${draft.subject.trim()}${isMaint ? ` (${whenText(draft)})` : ''}`, body: isPoll ? 'A new poll is open — your vote counts.' : 'A new message has been posted for you in Communications.', link: '#/communications', by: currentUser?.name || '' };
       if (units) await notifyMany(units.map((u) => ({ ...msg, toUnit: u })));
-      else await notify({ ...msg, toRoleIds: draft.audience === 'Owners' ? ['owner'] : ['owner', 'resident'] });
+      else await notify({ ...msg, toRoleIds: rolesFor(draft.audience, roles) });
     }
     setDraft(BLANK);
     setTemplateId('');

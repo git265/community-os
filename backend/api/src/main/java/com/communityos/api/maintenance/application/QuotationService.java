@@ -37,6 +37,11 @@ import java.util.UUID;
 public final class QuotationService {
     public record AddDocument(String kind, String vendor, BigDecimal amount, String gstMode, BigDecimal gstRate, LocalDate quoteDate, String note) {}
     public record Changed(String topic, UUID aggregateId, CommunityId communityId, UUID ticketId, String kind, String status, Instant occurredAt) implements DomainEvent {}
+    /** A selected quotation or an invoice now waits at a step: the approvers of that step are told (roles by code, members by id, ecMembers = any committee member). */
+    public record ApprovalWaiting(String topic, UUID aggregateId, CommunityId communityId, UUID ticketId, String kind, String step, List<String> roles, List<UUID> members,
+                                  boolean ecMembers, Instant occurredAt) implements DomainEvent {
+        public ApprovalWaiting { roles = List.copyOf(roles); members = List.copyOf(members); }
+    }
     static final Money TOLERANCE = Money.of("0.50");
 
     private final TicketRepository tickets; private final QuotationRepository docs; private final TaskMoney money; private final ApprovalSettings approvals;
@@ -101,6 +106,7 @@ public final class QuotationService {
             docs.insert(q);
             mirror(t, q);
             done(c, t, q, AuditWriter.Action.Create, "added", "Added " + q.state().kind.toLowerCase() + " " + q.shortId() + " (" + q.amount().amount().toPlainString() + ") on " + t.shortId());
+            tellApprovers(c, t, q, null);
             return q;
         });
     }
@@ -114,6 +120,7 @@ public final class QuotationService {
             Ticket t = ticket(c, q.ticketId());
             if (t.status().finished()) throw new DomainException.RuleViolated("ticket-finished", "This task is finished");
             if (q.selected()) return q;
+            String waitingBefore = waitingKey(q);
             UUID was = t.approval().selectedQuotationId();
             if (was != null && t.approval().quotationApproved()) {
                 TaskMoney.Position m = money.position(t.id());
@@ -125,6 +132,7 @@ public final class QuotationService {
             if (!docs.save(q)) throw new DomainException.Conflict("Quotation " + q.shortId());
             mirror(t, q);
             done(c, t, q, AuditWriter.Action.Update, "selected", "Selected quotation " + q.shortId() + " for " + t.shortId());
+            tellApprovers(c, t, q, waitingBefore);
             return q;
         });
     }
@@ -142,6 +150,7 @@ public final class QuotationService {
             Plan plan = q.plan() == null ? Policy.build(approvals.policies(), new Policy.Context(q.invoice() ? "Maintenance invoice" : "Maintenance quotation", q.amount().amount(), t.category(),
                 t.taskType() == null ? null : t.taskType().name(), q.state().overBudget ? List.of("overBudget") : List.of()), clock.instant()) : q.plan();
             boolean wasApproved = q.approved();
+            String waitingBefore = waitingKey(q);
             Plan next;
             try {
                 if ("Pending".equals(value)) next = plan.undo(c.membership().toString());
@@ -159,6 +168,7 @@ public final class QuotationService {
             if (!docs.save(q)) throw new DomainException.Conflict((q.invoice() ? "Invoice " : "Quotation ") + q.shortId());
             mirror(t, q);
             done(c, t, q, AuditWriter.Action.Update, "decided", ("Pending".equals(value) ? "Undid a decision on " : value + " ") + q.state().kind.toLowerCase() + " " + q.shortId() + " of " + t.shortId());
+            tellApprovers(c, t, q, waitingBefore);
             return q;
         });
     }
@@ -176,6 +186,7 @@ public final class QuotationService {
             if (!docs.save(q)) throw new DomainException.Conflict("Invoice " + q.shortId());
             mirror(t, q);
             done(c, t, q, AuditWriter.Action.Update, "sent-back", "Sent invoice " + q.shortId() + " back for correction: " + q.state().correctionNote);
+            tellApprovers(c, t, q, null);
             return q;
         });
     }
@@ -232,6 +243,30 @@ public final class QuotationService {
     private void done(Caller c, Ticket t, Quotation q, AuditWriter.Action a, String verb, String summary) {
         events.publish(List.of(new Changed("maintenance.quotation." + verb, q.id(), c.community(), t.id(), q.state().kind, q.status(), clock.instant())));
         audit.write(c, a, "maintenance.quotation", q.id(), q.shortId(), t.unit() == null ? null : t.unit().value(), summary, List.of());
+    }
+    /** The step a selected document waits at ("index:step id"), or null when nothing waits. */
+    static String waitingKey(Quotation q) {
+        if (!q.selected() || q.plan() == null) return null;
+        Plan.Position p = q.plan().position();
+        return p.state() == Plan.State.PENDING && p.step() != null ? p.index() + ":" + p.step().id() : null;
+    }
+    /** When the document has moved to a new waiting step, tell that step's approvers (and only them). */
+    private void tellApprovers(Caller c, Ticket t, Quotation q, String before) {
+        String now = waitingKey(q);
+        if (now == null || now.equals(before)) return;
+        Plan.Step step = q.plan().position().step();
+        java.util.Set<String> roles = new java.util.LinkedHashSet<>(); java.util.Set<UUID> members = new java.util.LinkedHashSet<>(); boolean ec = false;
+        for (Plan.Approver a : step.approvers()) switch (a.kind()) {
+            case "role" -> roles.add(a.value());
+            case "user" -> { try { members.add(UUID.fromString(a.value())); } catch (IllegalArgumentException ignored) { /* not a member id */ } }
+            case "group" -> {
+                if (Plan.Group.EC_MEMBERS.label.equals(a.value())) ec = true;
+                else if (Plan.Group.FINAL_APPROVERS.label.equals(a.value())) roles.addAll(approvals.settings().approvers().finalRoles());
+            }
+            default -> { }
+        }
+        events.publish(List.of(new ApprovalWaiting("maintenance.quotation.waiting", q.id(), c.community(), t.id(), q.state().kind, step.name(), List.copyOf(roles), List.copyOf(members), ec,
+            clock.instant())));
     }
     private static String blank(String s) { return s == null || s.isBlank() ? null : s.strip(); }
 }

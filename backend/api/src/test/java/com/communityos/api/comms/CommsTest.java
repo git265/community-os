@@ -36,6 +36,7 @@ class CommsTest {
         case GATE_APPROVAL -> Optional.of(new Facts.Fact("GAP-1", "Ravi", Fixtures.UNIT_A.value(), "Villa 101", null, null, "Main gate"));
         case GATE_VISIT -> Optional.of(new Facts.Fact("VIS-1", "Lakshmi", Fixtures.UNIT_A.value(), "Villa 101", null, null, null));
         case GATE_FLAG -> Optional.of(new Facts.Fact("FLG-1", "Thief", null, null, null, null, "at Main gate"));
+        case GATE_RULE -> Optional.of(new Facts.Fact(null, null, id, null, null, null, "guest_arrived,delivery"));
         case BOOKING -> Optional.of(new Facts.Fact("BKG-1", "Clubhouse", Fixtures.UNIT_A.value(), "Villa 101", null, null, "Evening"));
     };
 
@@ -47,7 +48,29 @@ class CommsTest {
         var assigned = Recipes.of(new TicketEvents.TicketAssigned(TICKET, Fixtures.COMMUNITY, new MembershipId(PLUMBER), "Plumbing", NOW), FACTS).get(0);
         assertEquals(Set.of(PLUMBER), assigned.to().members());
         var status = Recipes.of(new TicketEvents.TicketStatusChanged(TICKET, Fixtures.COMMUNITY, "Open", "Resolved", NOW), FACTS).get(0);
-        assertEquals("TKT-1001 is now Resolved", status.title()); assertEquals(Set.of(RAISER), status.to().members(), "the person who raised it");
+        assertEquals("TKT-1001 is now Resolved", status.title()); assertEquals(Set.of(RAISER, PLUMBER), status.to().members(), "the person who raised it and the assignee");
+        // concerned people only: a new assignment is not repeated as "now Assigned" to the assignee; the one it was taken from hears so
+        var nowAssigned = Recipes.of(new TicketEvents.TicketStatusChanged(TICKET, Fixtures.COMMUNITY, "Open", "Assigned", new MembershipId(PLUMBER), List.of(), NOW), FACTS);
+        assertEquals(1, nowAssigned.size()); assertEquals(Set.of(RAISER), nowAssigned.get(0).to().members());
+        UUID ELECTRICIAN = UUID.randomUUID();
+        var moved = Recipes.of(new TicketEvents.TicketAssigned(TICKET, Fixtures.COMMUNITY, new MembershipId(PLUMBER), new MembershipId(ELECTRICIAN), "Plumbing", NOW), FACTS);
+        assertEquals(2, moved.size()); assertEquals(Set.of(ELECTRICIAN), moved.get(1).to().members()); assertEquals("TKT-1001 is no longer yours", moved.get(1).title());
+        // a community request that is done tells the units that said "me too" (not the raiser's own unit twice); a reopen tells the dispatch team
+        UUID JOINED = UUID.randomUUID();
+        var done = Recipes.of(new TicketEvents.TicketStatusChanged(TICKET, Fixtures.COMMUNITY, "In Progress", "Completed", new MembershipId(PLUMBER), List.of(JOINED, Fixtures.UNIT_A.value()), NOW), FACTS);
+        assertEquals(2, done.size()); assertEquals(Set.of(JOINED), done.get(1).to().units());
+        var reopened = Recipes.of(new TicketEvents.TicketStatusChanged(TICKET, Fixtures.COMMUNITY, "Closed", "Open", new MembershipId(PLUMBER), List.of(), NOW), FACTS);
+        assertEquals(Set.of(RAISER, PLUMBER), reopened.get(0).to().members(), "the assignee it had hears too, though a reopen clears it");
+        assertEquals(Set.of("facility_manager", "helpdesk"), reopened.get(1).to().roles());
+        // priority to the assignee, the SLA date to the assignee and the raiser; past the SLA date: the assignee and the dispatch team
+        var terms = Recipes.of(new TicketEvents.TicketTermsChanged(TICKET, Fixtures.COMMUNITY, new MembershipId(PLUMBER), "Medium", "High", null, LocalDate.of(2026, 10, 25), NOW), FACTS);
+        assertEquals(2, terms.size()); assertEquals(Set.of(PLUMBER), terms.get(0).to().members()); assertEquals(Set.of(PLUMBER, RAISER), terms.get(1).to().members());
+        var late = Recipes.of(new TicketEvents.TicketOverdue(TICKET, Fixtures.COMMUNITY, new MembershipId(PLUMBER), LocalDate.of(2026, 10, 19), "In Progress", NOW), FACTS).get(0);
+        assertEquals("ticket_overdue", late.event()); assertEquals(Set.of(PLUMBER), late.to().members()); assertEquals(Set.of("facility_manager", "helpdesk"), late.to().roles());
+        // a quotation waiting at the EC step: every committee member (any of them may decide), not the residents
+        var ask = Recipes.of(new com.communityos.api.maintenance.application.QuotationService.ApprovalWaiting("maintenance.quotation.waiting", UUID.randomUUID(), Fixtures.COMMUNITY, TICKET,
+            "Quotation", "EC approval", List.of(), List.of(), true, NOW), FACTS).get(0);
+        assertEquals("approval", ask.event()); assertEquals(Set.of(Comms.To.EC_MEMBERS), ask.to().roles());
         var internal = Recipes.of(new TicketEvents.CommentAdded(TICKET, UUID.randomUUID(), Fixtures.COMMUNITY, "Internal", NOW), FACTS).get(0);
         assertEquals(Set.of(PLUMBER), internal.to().members(), "an internal note is not shown to the resident");
         var bill = Recipes.of(new BillingEvents.DueRaised(new DueId(UUID.randomUUID()), Fixtures.COMMUNITY, Fixtures.UNIT_A, UUID.randomUUID(), UUID.randomUUID(), Money.of("3000"),
@@ -55,10 +78,15 @@ class CommsTest {
         assertEquals("New bill · ₹3,540", bill.title()); assertEquals(Set.of(Fixtures.UNIT_A.value()), bill.to().units());
         assertTrue(bill.body().contains("Oct 2026") && bill.body().contains("2026-10-15"), bill.body());
         // the gate
-        var ask = Recipes.of(new GateEvent("gate.approval.requested", UUID.randomUUID(), Fixtures.COMMUNITY, Fixtures.UNIT_A.value(), "Guest", "Pending", NOW), FACTS).get(0);
-        assertEquals("gate_approval", ask.event()); assertEquals("At the gate: Ravi", ask.title()); assertEquals(Set.of(Fixtures.UNIT_A.value()), ask.to().units());
+        var gateAsk = Recipes.of(new GateEvent("gate.approval.requested", UUID.randomUUID(), Fixtures.COMMUNITY, Fixtures.UNIT_A.value(), "Guest", "Pending", NOW), FACTS).get(0);
+        assertEquals("gate_approval", gateAsk.event()); assertEquals("At the gate: Ravi", gateAsk.title()); assertEquals(Set.of(Fixtures.UNIT_A.value()), gateAsk.to().units());
         assertTrue(Recipes.of(new GateEvent("gate.visit.exited", UUID.randomUUID(), Fixtures.COMMUNITY, Fixtures.UNIT_A.value(), "Delivery", "Exited", NOW), FACTS).isEmpty(),
             "only a guest leaving is worth telling");
+        assertTrue(Recipes.of(new GateEvent("gate.visit.exited", UUID.randomUUID(), Fixtures.COMMUNITY, Fixtures.UNIT_A.value(), "Guest", "Exited", NOW), FACTS).isEmpty(),
+            "a guest leaving only when the unit asked for it");
+        assertTrue(Recipes.of(new GateEvent("gate.staff.arrived", UUID.randomUUID(), Fixtures.COMMUNITY, Fixtures.UNIT_A.value(), "Maid / cook", "Inside", NOW), FACTS).isEmpty(),
+            "the maid arriving only when the unit asked for it");
+        assertEquals(1, Recipes.of(new GateEvent("gate.delivery.arrived", UUID.randomUUID(), Fixtures.COMMUNITY, Fixtures.UNIT_A.value(), "Delivery", "Inside", NOW), FACTS).size());
         var flag = Recipes.of(new GateEvent("gate.flag.raised", UUID.randomUUID(), Fixtures.COMMUNITY, null, "Blocked person attempt", "Open", NOW), FACTS).get(0);
         assertEquals("gate_blocked", flag.event()); assertEquals(Set.of("committee_security", "facility_manager"), flag.to().roles());
         assertEquals("gate_overstay", Recipes.of(new GateEvent("gate.flag.raised", UUID.randomUUID(), Fixtures.COMMUNITY, null, "Overstay", "Open", NOW), FACTS).get(0).event());

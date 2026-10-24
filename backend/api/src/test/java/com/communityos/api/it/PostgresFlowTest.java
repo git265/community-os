@@ -295,13 +295,23 @@ class PostgresFlowTest {
             var leak = as(ownerC, () -> ticketSvc.raise(ownerC, new com.communityos.api.maintenance.application.TicketService.RaiseTicket(null, "Leak in kitchen", "Under the sink", null, "Unit", null, "Plumbing", null, "High", null, null)));
             assertEquals("TKT-1051", leak.shortId()); assertEquals("Assigned", leak.status().label(), "the one clocked-in plumber got it");
             assertEquals(new MembershipId(plumberMember), leak.assignee());
+            // past its SLA date: the job tells the assignee (and the dispatch team) once per SLA date
+            owner.sql("UPDATE maintenance.ticket SET sla_due_at = current_date - 2 WHERE id = '" + leak.id() + "' RETURNING 1");
+            var slaJob = com.communityos.api.shared.security.SystemCaller.of(new CommunityId(cid), "ticket SLA alerts");
+            long leakBefore = as(admin, () -> ticketSvc.get(admin, leak.id())).version();
+            assertTrue(as(slaJob, () -> ticketSvc.alertOverdue(slaJob)) >= 1);
+            assertEquals(0, (int) as(slaJob, () -> ticketSvc.alertOverdue(slaJob)), "once per SLA date");
+            assertThrows(AccessDenied.class, () -> as(admin, () -> ticketSvc.alertOverdue(admin)), "the server's job only");
+            assertTrue(as(plumberC, () -> inbox.mine(plumberMember, false, 50)).stream().anyMatch((n) -> n.event().equals("ticket_overdue") && n.title().equals("Past its SLA · TKT-1051")));
+            long leakV = as(admin, () -> ticketSvc.get(admin, leak.id())).version();
+            assertEquals(leakBefore, leakV, "the job leaves the ticket's version alone");
             var street = as(admin, () -> ticketSvc.raise(admin, new com.communityos.api.maintenance.application.TicketService.RaiseTicket(null, "Street light out", null, null, "Community", "Gate 2", "Electrical", null, null, null, null)));
             as(plumberC, () -> ticketSvc.comment(plumberC, leak.id(), "Washer needed, coming at 4", "Public"));
             as(plumberC, () -> ticketSvc.comment(plumberC, leak.id(), "Charge the washer to stock", "Internal"));
             assertEquals(1, as(ownerC, () -> ticketSvc.comments(ownerC, leak.id())).size(), "no internal notes for the resident");
             assertEquals(2, as(admin, () -> ticketSvc.comments(admin, leak.id())).size());
             assertEquals(1, as(ownerC, () -> ticketSvc.recentComments(ownerC, 100)).size());
-            var working = as(plumberC, () -> ticketSvc.changeStatus(plumberC, leak.id(), leak.version(), com.communityos.api.maintenance.domain.TicketStatus.IN_PROGRESS, null));
+            var working = as(plumberC, () -> ticketSvc.changeStatus(plumberC, leak.id(), leakV, com.communityos.api.maintenance.domain.TicketStatus.IN_PROGRESS, null));
             var done = as(plumberC, () -> ticketSvc.changeStatus(plumberC, leak.id(), working.version(), com.communityos.api.maintenance.domain.TicketStatus.COMPLETED, null));
             assertThrows(AccessDenied.class, () -> as(plumberC, () -> ticketSvc.changeStatus(plumberC, leak.id(), done.version(), com.communityos.api.maintenance.domain.TicketStatus.CLOSED, null)));
             var closed = as(ownerC, () -> ticketSvc.changeStatus(ownerC, leak.id(), done.version(), com.communityos.api.maintenance.domain.TicketStatus.CLOSED, null));
@@ -328,6 +338,9 @@ class PostgresFlowTest {
             assertThrows(AccessDenied.class, () -> as(ownerC, () -> docsSvc.ofTicket(ownerC, pump.id())), "residents do not see the money side");
             var sel = as(admin, () -> docsSvc.select(admin, quote.id(), quote.version()));
             assertTrue(sel.selected());
+            assertTrue(as(treasurer, () -> inbox.mine(members[1], true, 50)).stream().anyMatch((n) -> n.event().equals("approval") && n.title().equals("Quotation to approve · " + pump.shortId())),
+                "the EC step's approvers (any committee member) are told");
+            assertTrue(as(ownerC, () -> inbox.mine(ownerC.membership().value(), false, 200)).stream().noneMatch((n) -> n.event().equals("approval")), "not the residents");
             var ec = as(treasurer, () -> docsSvc.decide(treasurer, quote.id(), sel.version(), "Approved", "OK", false));
             assertEquals("Approved", ec.state().ecApproval); assertTrue(ec.state().finalRequired); assertEquals("pending-final", ec.approvalKey());
             owner.sql("UPDATE finance.finance_setting SET approval_separate = true WHERE community_id = '" + cid + "' RETURNING 1");
@@ -859,6 +872,7 @@ class PostgresFlowTest {
             assertTrue(titles.stream().noneMatch((t) -> t.equals("Payment received · RCP-0001") || t.startsWith("Booked")), "nobody is told about what they did themselves: " + titles);
             assertTrue(titles.stream().anyMatch((t) -> t.startsWith("Payment received · RCP-") && !t.endsWith("RCP-0001")), "but a payment the bank's webhook settled is news to them: " + titles);
             assertTrue(as(plumberC, () -> inboxSvc.mine(plumberC, false, 50)).stream().anyMatch((n) -> n.event().equals("ticket_assigned")), "the assignee hears of the task");
+            assertTrue(as(plumberC, () -> inboxSvc.mine(plumberC, false, 50)).stream().anyMatch((n) -> n.title().equals("TKT-1051 is now Closed")), "the assignee hears the owner closed it");
             assertTrue(as(treasurer, () -> inboxSvc.mine(treasurer, false, 200)).stream().noneMatch((n) -> n.title().startsWith("New bill")), "not the treasurer's unit (and they raised it)");
             int unread = as(ownerC, () -> inboxSvc.unread(ownerC));
             assertTrue(unread >= 3);

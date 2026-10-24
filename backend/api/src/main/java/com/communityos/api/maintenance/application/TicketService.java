@@ -7,6 +7,7 @@ import com.communityos.api.maintenance.application.port.TicketRepository;
 import com.communityos.api.maintenance.domain.Comment;
 import com.communityos.api.maintenance.domain.TaskType;
 import com.communityos.api.maintenance.domain.Ticket;
+import com.communityos.api.maintenance.domain.TicketEvents;
 import com.communityos.api.maintenance.domain.TicketEvents.CommentAdded;
 import com.communityos.api.maintenance.domain.TicketStatus;
 import com.communityos.api.shared.audit.AuditWriter;
@@ -117,7 +118,7 @@ public final class TicketService {
             boolean window = Duration.between(t.createdAt(), clock.instant()).compareTo(EDIT_WINDOW) < 0;
             TicketRules.checkEdit(c, t, ch, window);
             if (ch.slaDueAt() != null && ch.slaDueAt().isBefore(LocalDate.now(clock))) throw new DomainException.RuleViolated("bad-sla", "SLA due must be today or a future date");
-            t.edit(ch);
+            t.edit(ch, clock.instant());
         });
     }
 
@@ -137,6 +138,17 @@ public final class TicketService {
             TicketRules.checkStatus(c, t, to, directory.finalApproverRoles());
             if (t.financial() && (to == TicketStatus.CLOSED || to == TicketStatus.CANCELLED)) moneyAllows(t, to);
             t.changeStatus(to, reason, clock.instant());
+        });
+    }
+
+    /** The job: tickets not done by their SLA date tell the assignee and the dispatch team, once per SLA date. Returns how many. */
+    public int alertOverdue(Caller system) {
+        if (system.category() != Caller.Category.System) throw new AccessDenied("The server's job only");
+        return tx.inTx(() -> {
+            List<TicketRepository.Overdue> late = tickets.claimOverdue(LocalDate.now(clock), 500);
+            events.publish(late.stream().map((o) -> (com.communityos.api.shared.domain.DomainEvent) new TicketEvents.TicketOverdue(o.id(), system.community(), o.assignee(), o.due(), o.status(),
+                clock.instant())).toList());
+            return late.size();
         });
     }
 

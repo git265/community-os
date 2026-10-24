@@ -92,3 +92,22 @@ export async function runBallotReminders(now = new Date()) {
   }
   return n;
 }
+
+/** Tickets past their SLA date and not done: tell the assignee and the dispatch team (Facility Manager, Helpdesk), once per SLA date. */
+export async function runSlaAlerts(now = new Date()) {
+  const today = now.toISOString().slice(0, 10);
+  const late = (await storage.list(C.TICKETS)).filter((t) => t.slaDueAt && t.slaDueAt < today && !['Completed', 'Closed', 'Cancelled'].includes(t.status));
+  if (!late.length) return 0;
+  const sent = new Set((await storage.list('notifications')).filter((x) => x.kind === 'ticket_overdue').map((x) => `${x.ticketId}|${x.slaDueAt}`));
+  const dispatch = (await storage.list(C.ROLES)).filter((r) => ['facility_manager', 'helpdesk'].includes(r.id)).map((r) => r.id);
+  let n = 0;
+  for (const t of late) {
+    if (sent.has(`${t.id}|${t.slaDueAt}`)) continue;
+    const days = Math.round((new Date(`${today}T00:00:00Z`) - new Date(`${t.slaDueAt}T00:00:00Z`)) / 86400000);
+    const msg = { event: 'ticket_overdue', kind: 'ticket_overdue', title: `Past its SLA · ${t.ticketNumber}`, body: `${clip(t.title, 80)} was due ${t.slaDueAt} (${days} day${days === 1 ? '' : 's'} late) and is ${t.status}${t.assignedTo ? ` with ${t.assignedTo}` : ', with nobody assigned'}.`,
+      link: `#/ticket/${t.ticketNumber}`, by: 'System', extra: { ticketId: t.id, ticketNumber: t.ticketNumber, ticketTitle: t.title, slaDueAt: t.slaDueAt } };
+    await notify({ ...msg, ...(t.assignedTo ? { toName: t.assignedTo } : {}), toRoleIds: dispatch });
+    n += 1;
+  }
+  return n;
+}

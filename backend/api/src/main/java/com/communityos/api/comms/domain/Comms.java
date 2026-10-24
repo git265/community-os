@@ -26,18 +26,21 @@ public final class Comms {
     public static final List<String> FORUM_CATEGORIES = List.of("General", "Amenities", "Security", "Cultural Committee", "Maintenance");
     /** The kinds of notification a person and the community choose channels for (the same ids as the app's channel settings). */
     public static final List<String> EVENTS = List.of("ticket_assigned", "ticket_status", "ticket_decision", "approval", "bill", "payment_reminder", "announcement", "ticket_new",
-        "ticket_chat", "payment_made", "ballot", "ballot_result", "poll", "forum_topic", "forum_reply", "calendar", "cultural", "brochure", "service_notice", "meeting", "shift",
+        "ticket_chat", "ticket_overdue", "payment_made", "ballot", "ballot_result", "poll", "forum_topic", "forum_reply", "calendar", "cultural", "brochure", "service_notice", "meeting", "shift",
         "event_work", "report", "gate_approval", "gate_guest_arrived", "gate_guest_exit", "gate_delivery", "gate_staff_inout", "gate_crew_inout", "gate_overstay", "gate_ghost",
         "gate_override", "gate_blocked", "gate_vetting", "amenity_booking", "stock_low", "money_check");
 
     // ---- the inbox -------------------------------------------------------------------------------------------------------------------------------
-    /** Who a notification is for: members by id, everyone with portal access to some units, and holders of some roles (by code). */
+    /** Who a notification is for: members by id, everyone with portal access to some units, and holders of some roles (by code; EC_MEMBERS = every committee role). */
     public record To(Set<UUID> members, Set<UUID> units, Set<String> roles) {
         public To { members = Set.copyOf(members); units = Set.copyOf(units); roles = Set.copyOf(roles); }
         public static To member(UUID m) { return m == null ? nobody() : new To(Set.of(m), Set.of(), Set.of()); }
         public static To unit(UUID u) { return u == null ? nobody() : new To(Set.of(), Set.of(u), Set.of()); }
         public static To roles(String... codes) { return new To(Set.of(), Set.of(), Set.of(codes)); }
         public static To nobody() { return new To(Set.of(), Set.of(), Set.of()); }
+        public static To units(java.util.Collection<UUID> us) { return new To(Set.of(), Set.copyOf(us), Set.of()); }
+        /** Holders of any committee (EC) role - an approval step for "EC members". */
+        public static final String EC_MEMBERS = "@ec";
         public To and(To o) {
             Set<UUID> m = new LinkedHashSet<>(members); m.addAll(o.members); Set<UUID> u = new LinkedHashSet<>(units); u.addAll(o.units);
             Set<String> r = new LinkedHashSet<>(roles); r.addAll(o.roles);

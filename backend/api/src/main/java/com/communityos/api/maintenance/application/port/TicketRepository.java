@@ -27,4 +27,8 @@ public interface TicketRepository {
     boolean save(Ticket t);
     /** The committee's sign-off on a task that moves no money (value Approved / Rejected / Pending, by whom - null for Pending). false when the version no longer matches. */
     default boolean signOff(UUID id, long version, String value, UUID by) { throw new UnsupportedOperationException("sign-off"); }
+    /** A ticket past its SLA date, not yet told about for that date. */
+    record Overdue(UUID id, MembershipId assignee, java.time.LocalDate due, String status) {}
+    /** Claims up to `limit` tickets not done by `today` and not yet told about for their SLA date (recorded as told in the same statement, beside the ticket). */
+    default List<Overdue> claimOverdue(java.time.LocalDate today, int limit) { return List.of(); }
 }

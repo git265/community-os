@@ -37,10 +37,28 @@ public final class Recipes {
             case TicketEvents.TicketRaised r -> ticket(facts, r.ticketId()).ifPresent((f) -> out.add(new Message("ticket_new", "community", "New request · " + f.number(),
                 f.title() + " — " + (f.unitNo() == null ? "common area" : f.unitNo()), ticketLink(f), r.ticketId(),
                 "Community".equals(r.scope()) ? To.roles("facility_manager", "helpdesk", "handyman_mep") : To.roles(HELPDESK))));
-            case TicketEvents.TicketAssigned a -> ticket(facts, a.ticketId()).ifPresent((f) -> out.add(new Message("ticket_assigned", "assigned", "New task assigned · " + f.number(),
-                f.title() + " was assigned to you.", ticketLink(f), a.ticketId(), To.member(a.assigneeId() == null ? null : a.assigneeId().value()))));
-            case TicketEvents.TicketStatusChanged s -> ticket(facts, s.ticketId()).ifPresent((f) -> out.add(new Message("ticket_status", "status", f.number() + " is now " + s.to(),
-                f.title() + ": " + s.from() + " → " + s.to() + ".", ticketLink(f), s.ticketId(), To.member(f.owner()))));
+            case TicketEvents.TicketAssigned a -> ticket(facts, a.ticketId()).ifPresent((f) -> {
+                out.add(new Message("ticket_assigned", "assigned", "New task assigned · " + f.number(), f.title() + " was assigned to you.", ticketLink(f), a.ticketId(),
+                    To.member(a.assigneeId() == null ? null : a.assigneeId().value())));
+                if (a.previousId() != null && !a.previousId().equals(a.assigneeId()))
+                    out.add(new Message("ticket_assigned", "assigned", f.number() + " is no longer yours", f.title() + " was given to someone else.", ticketLink(f), a.ticketId(),
+                        To.member(a.previousId().value())));
+            });
+            case TicketEvents.TicketStatusChanged s -> ticket(facts, s.ticketId()).ifPresent((f) -> ticketStatus(s, f, out));
+            case TicketEvents.TicketTermsChanged x -> ticket(facts, x.ticketId()).ifPresent((f) -> {
+                UUID assignee = x.assigneeId() == null ? null : x.assigneeId().value();
+                if (x.priorityTo() != null) out.add(new Message("ticket_status", "status", f.number() + ": priority " + x.priorityTo(),
+                    f.title() + ": priority " + nz(x.priorityFrom(), "-") + " → " + x.priorityTo() + ".", ticketLink(f), x.ticketId(), To.member(assignee)));
+                if (x.dueTo() != null) out.add(new Message("ticket_status", "status", f.number() + ": due " + x.dueTo(), f.title() + ": the SLA date is now " + x.dueTo() + ".",
+                    ticketLink(f), x.ticketId(), To.member(assignee).and(To.member(f.owner()))));
+            });
+            case TicketEvents.TicketOverdue o -> ticket(facts, o.ticketId()).ifPresent((f) -> out.add(new Message("ticket_overdue", "status", "Past its SLA · " + f.number(),
+                f.title() + " was due " + o.dueOn() + " and is " + o.status() + (o.assigneeId() == null ? ", with nobody assigned" : "") + ".", ticketLink(f), o.ticketId(),
+                To.member(o.assigneeId() == null ? null : o.assigneeId().value()).and(To.roles(HELPDESK)))));
+            case QuotationService.ApprovalWaiting w -> ticket(facts, w.ticketId()).ifPresent((f) -> out.add(new Message("approval", "approval",
+                (w.kind() == null ? "Approval" : w.kind()) + " to approve · " + f.number(), "The " + nz(w.kind(), "document").toLowerCase(Locale.ROOT) + " on " + f.title()
+                    + " waits for your approval (" + nz(w.step(), "next step") + "). Open the task → Money.", ticketLink(f), w.ticketId(),
+                new To(java.util.Set.copyOf(w.members()), java.util.Set.of(), w.ecMembers() ? union(w.roles(), To.EC_MEMBERS) : java.util.Set.copyOf(w.roles())))));
             case TicketEvents.CommentAdded c -> ticket(facts, c.ticketId()).ifPresent((f) -> out.add(new Message("ticket_chat", "chat", "New message · " + f.number(),
                 "There is a new message on " + f.title() + ".", ticketLink(f), c.ticketId(),
                 "Internal".equals(c.visibility()) ? To.member(f.other()) : To.member(f.owner()).and(To.member(f.other())))));
@@ -95,6 +113,26 @@ public final class Recipes {
         return out;
     }
 
+    static final List<String> DONE = List.of("Completed", "Closed", "Cancelled");
+    /** A status move: the person who raised it and the assignee (not on "Assigned": they were told of the assignment); the units that said
+     *  "me too" when a community request is done; the dispatch team when a finished ticket is reopened (it needs someone again). */
+    static void ticketStatus(TicketEvents.TicketStatusChanged s, Fact f, List<Message> out) {
+        String title = f.number() + " is now " + s.to();
+        UUID assignee = s.assigneeId() != null ? s.assigneeId().value() : f.other();
+        out.add(new Message("ticket_status", "status", title, f.title() + ": " + s.from() + " → " + s.to() + ".", ticketLink(f), s.ticketId(),
+            To.member(f.owner()).and("Assigned".equals(s.to()) ? To.nobody() : To.member(assignee))));
+        if (DONE.contains(s.to())) {
+            java.util.Set<UUID> joined = new java.util.LinkedHashSet<>(s.joinedUnits());
+            if (f.unitId() != null) joined.remove(f.unitId());
+            if (!joined.isEmpty()) out.add(new Message("ticket_status", "status", title, f.title() + " — the request your unit joined is now " + s.to() + ".", ticketLink(f), s.ticketId(),
+                To.units(joined)));
+        }
+        if (DONE.contains(s.from()) && !DONE.contains(s.to()))
+            out.add(new Message("ticket_new", "community", f.number() + " reopened", f.title() + " was " + s.from().toLowerCase(Locale.ROOT) + " and is " + s.to() + " again.", ticketLink(f),
+                s.ticketId(), To.roles(HELPDESK)));
+    }
+    static java.util.Set<String> union(List<String> xs, String x) { java.util.Set<String> out = new java.util.LinkedHashSet<>(xs); out.add(x); return out; }
+
     static Optional<Message> gate(GateEvent g, Facts facts) {
         UUID unit = g.unitId();
         String topic = g.topic();
@@ -109,6 +147,11 @@ public final class Recipes {
                     case "gate.delivery.arrived", "gate.delivery.left" -> "gate_delivery"; case "gate.visit.exited" -> "gate_guest_exit"; default -> "gate_guest_arrived";
                 };
                 if ("gate.visit.exited".equals(topic) && !"Guest".equals(g.kind())) yield Optional.empty();
+                String sw = switch (topic) {
+                    case "gate.staff.arrived" -> "staff_inout"; case "gate.crew.arrived" -> "crew_inout"; case "gate.delivery.arrived", "gate.delivery.left" -> "delivery";
+                    case "gate.visit.exited" -> "guest_exit"; default -> "guest_arrived";
+                };
+                if (unit != null && !hears(facts, unit, sw)) yield Optional.empty();      // the unit (or the community) switched this one off
                 yield facts.of(Facts.Kind.GATE_VISIT, g.aggregateId()).map((f) -> new Message(event, "gate",
                     switch (topic) { case "gate.delivery.left" -> "Delivery left at the gate: " + f.title(); case "gate.visit.exited" -> f.title() + " has left"; default -> f.title() + " has arrived"; },
                     kindOf(g) + (f.extra() == null ? "" : " · " + f.extra()), "#/mygate", g.aggregateId(), To.unit(unit)));
@@ -119,6 +162,10 @@ public final class Recipes {
                 "The gate was opened by hand" + (f.extra() == null ? "" : " · " + f.extra()) + ".", "#/security", g.aggregateId(), To.roles("committee_security")));
             default -> Optional.empty();
         };
+    }
+    /** Does the unit hear this switchable gate event? (No answer from the facts: yes.) */
+    static boolean hears(Facts facts, UUID unit, String event) {
+        return facts.of(Facts.Kind.GATE_RULE, unit).map((f) -> f.extra() != null && java.util.Arrays.asList(f.extra().split(",")).contains(event)).orElse(true);
     }
     static Optional<Message> expense(com.communityos.api.cultural.application.ExpenseService.ExpenseEvent x) {
         String what = rupees(x.amount()) + " for " + x.item();

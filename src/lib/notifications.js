@@ -54,16 +54,24 @@ export async function markAllRead() {
   window.dispatchEvent(new CustomEvent('communityos:changed', { detail: { collection: NOTIFICATIONS } }));
 }
 
+/** The team that hands out work: told about new requests and about a finished request that came back. */
+const DISPATCH = ['facility_manager', 'helpdesk'];
+const DONE = ['Completed', 'Closed', 'Cancelled'];
+
 /**
  * Called after a ticket is saved. `old` is the previous row (null on create), `next` the saved one, `actor` the principal.
- *  - assignment (new or changed assignee)  -> the assignee
- *  - status change                         -> the ticket owner
+ * Only the people concerned with the ticket hear about it, each by name:
+ *  - assignment                 -> the new assignee; the one it was taken from
+ *  - status change              -> the person who raised it and the assignee; on a community request that is done, the villas that said
+ *                                  "me too"; on a reopen, the dispatch team (it needs someone again)
+ *  - priority / SLA date change -> the assignee (the SLA date also the person who raised it)
  * The person who made the change is never notified about it.
  */
 export async function notifyTicketChange({ old, next, actor, users = [], roles = [] }) {
   const out = [];
   const base = { ticketId: next.id, ticketNumber: next.ticketNumber, ticketTitle: next.title, link: ticketLink(next.ticketNumber), read: false, createdAt: new Date().toISOString(), by: actor?.name || '' };
-  const mine = (row) => row.toName === actor?.name || (row.toRoleIds || []).includes(actor?.roleId) || (row.toUnit && row.toUnit === actor?.unit);
+  const mine = (row) => (row.toName ? row.toName === actor?.name : (row.toRoleIds || []).includes(actor?.roleId) || (!!row.toUnit && row.toUnit === actor?.unit));
+  const by = actor?.name ? ` (${actor.name})` : '';
 
   if (!old && next.scope === 'Community') {
     const ids = roles.filter((r) => ['facility_manager', 'handyman_mep', 'helpdesk'].includes(r.id)).map((r) => r.id);
@@ -79,19 +87,39 @@ export async function notifyTicketChange({ old, next, actor, users = [], roles =
       title: `${next.ticketNumber}: ${(next.affectedUnits || []).length} villas affected`, body: `${next.title} — ${next.location || 'common area'}: another resident said “me too”.`,
     });
   }
+  // the assignee by name only (not everyone in their trade), and told even when the person assigning has the same role
   if (next.assignedTo && next.assignedTo !== old?.assignedTo) {
-    const u = users.find((x) => x.name === next.assignedTo);
     out.push({
-      ...base, kind: 'assigned', event: 'ticket_assigned', toName: next.assignedTo, toRoleIds: u ? [u.roleId, ...(Array.isArray(u.extraRoleIds) ? u.extraRoleIds : [])] : [],
+      ...base, kind: 'assigned', event: 'ticket_assigned', toName: next.assignedTo,
       title: `New task assigned · ${next.ticketNumber}`, body: `${next.title} was assigned to you${actor?.name ? ` by ${actor.name}` : ''}.`,
     });
   }
-  if (old && next.status !== old.status) {
-    const resident = !!next.unit && roles.find((r) => r.id === next.createdByRole)?.category === 'Resident';
+  if (old?.assignedTo && old.assignedTo !== next.assignedTo) {
     out.push({
-      ...base, kind: 'status', event: 'ticket_status', toName: next.createdBy || '', ...(resident ? { toUnit: next.unit } : { toRoleIds: next.createdByRole ? [next.createdByRole] : [] }),
-      title: `${next.ticketNumber} is now ${next.status}`, body: `${next.title}: ${old.status} → ${next.status}${actor?.name ? ` (${actor.name})` : ''}.`,
+      ...base, kind: 'assigned', event: 'ticket_assigned', toName: old.assignedTo,
+      title: `${next.ticketNumber} is no longer yours`, body: `${next.title} was ${next.assignedTo ? `given to ${next.assignedTo}` : 'taken off you'}${by}.`,
     });
+  }
+  if (old && next.status !== old.status) {
+    const msg = { ...base, kind: 'status', event: 'ticket_status', title: `${next.ticketNumber} is now ${next.status}`, body: `${next.title}: ${old.status} → ${next.status}${by}.` };
+    // the assignee, unless this same save gave them the ticket (they were just told of the assignment)
+    const people = [...new Set([next.createdBy, next.assignedTo === old.assignedTo ? next.assignedTo : ''].filter(Boolean))];
+    people.forEach((nm) => out.push({ ...msg, toName: nm }));
+    if (next.scope === 'Community' && DONE.includes(next.status)) {
+      const raiserUnit = next.unit;
+      [...new Set(next.affectedUnits || [])].filter((u) => u && u !== raiserUnit).forEach((u) => out.push({ ...msg, toUnit: u, body: `${next.title} — the request your villa joined is now ${next.status}.` }));
+    }
+    if (DONE.includes(old.status) && !DONE.includes(next.status)) {
+      const ids = roles.filter((r) => DISPATCH.includes(r.id)).map((r) => r.id);
+      if (ids.length) out.push({ ...msg, kind: 'community', event: 'ticket_new', toRoleIds: ids, title: `${next.ticketNumber} reopened`, body: `${next.title} was ${old.status.toLowerCase()} and is ${next.status} again${by}.` });
+    }
+  }
+  if (old && next.assignedTo && next.assignedTo === old.assignedTo && !DONE.includes(next.status)) {
+    if ((next.priority || '') !== (old.priority || '')) out.push({ ...base, kind: 'status', event: 'ticket_status', toName: next.assignedTo, title: `${next.ticketNumber}: priority ${next.priority || 'cleared'}`, body: `${next.title}: priority ${old.priority || '—'} → ${next.priority || '—'}${by}.` });
+  }
+  if (old && (next.slaDueAt || '') !== (old.slaDueAt || '') && !DONE.includes(next.status)) {
+    const when = next.slaDueAt ? new Date(`${next.slaDueAt}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : 'no date';
+    [...new Set([next.assignedTo, next.createdBy].filter(Boolean))].forEach((nm) => out.push({ ...base, kind: 'status', event: 'ticket_status', toName: nm, title: `${next.ticketNumber}: due ${when}`, body: `${next.title}: the SLA date is now ${when}${by}.` }));
   }
   // quotation / invoice decisions: the person who raised or is doing the task hears about them
   for (const [field, who] of [['ecApproval', 'EC'], ['treasurerApproval', 'Final']]) {
