@@ -64,6 +64,15 @@ public final class FileKinds {
                 || ("Published".equals(r.get("status")) && c.units() != null && c.units().stream().anyMatch((u) -> u.value().equals(r.get("unit"))))).isPresent(),
             (c, id) -> com.communityos.api.billing.UtilityResources.writers(c) && row.apply(id).filter((r) -> !"Published".equals(r.get("status"))).isPresent()));
     }
+    /** a planned-works round  read: staff and the committee · attach (its photos): the same, while the round is not finished */
+    public static void registerPlanned(FileService files, org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate jdbc) {
+        java.util.function.Function<java.util.UUID, java.util.Optional<String>> status = (id) -> jdbc.query("SELECT status FROM maintenance.checklist_round WHERE id = CAST(:id AS uuid)",
+            java.util.Map.of("id", id.toString()), (rs, i) -> rs.getString("status")).stream().findFirst();
+        java.util.function.Predicate<com.communityos.api.shared.security.Caller> team = (c) -> c.isSuperAdmin() || c.category() == com.communityos.api.shared.security.Caller.Category.EC
+            || c.category() == com.communityos.api.shared.security.Caller.Category.Staff;
+        files.register(new OwnerKind("maintenance.checklist_round", (c, id) -> team.test(c) && status.apply(id).isPresent(),
+            (c, id) -> team.test(c) && status.apply(id).filter((s) -> !"Done".equals(s)).isPresent()));
+    }
     /** equipment, stock, DG and electricity bills, custom log entries  read: the asset readers (not residents) · attach: the asset writers
      *  audit reports  read: as the audit (residents a published one) · attach: the coordinators */
     public static void registerAssets(FileService files, org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate jdbc) {

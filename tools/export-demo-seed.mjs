@@ -49,7 +49,7 @@ const REFS = {
   readings: { dueId: 'dues' }, gateLinks: { personId: 'gatePeople' },
   gateVisits: { personId: 'gatePeople', passId: 'gatePasses', workOrderId: 'gateWorkOrders', approvalId: 'gateApprovals' }, gateApprovals: { visitId: 'gateVisits' },
   gateFlags: { visitId: 'gateVisits', personId: 'gatePeople' }, gateWorkOrders: { rosterIds: 'gatePeople' }, gateRounds: { checkpointIds: 'gateCheckpoints' },
-  shifts: { staffId: 'handymen' }, equipment: { planId: 'infraPlans' },
+  shifts: { staffId: 'handymen' }, equipment: { planId: 'infraPlans' }, checklistRounds: { checklistId: 'checklists' },
 };
 // a field the server keeps as an id but the browser as text: never tokenise it (equipment.planId is the map's name, not a row)
 const ids = Object.fromEntries(Object.entries(seed).map(([c, rows]) => [c, new Set(rows.map((r) => r.id))]));

@@ -99,6 +99,9 @@ const READ_RULES = {
   // a unit's history of who lived there: its managers and the committee (residents see who lives with them now, not who did before)
   [C.UNIT_CHANGES]: (p) => !isResident(p) && (isEC(p) || anyPerm(p, ['MANAGE_UNITS'])),
   [C.EVENT_WORK]: (p) => !isResident(p),
+  // planned works: the staff and the committee (residents and vendors do not see the plant rounds)
+  [C.CHECKLISTS]: (p) => !isResident(p) && p?.role?.category !== 'Vendor',
+  [C.CHECKLIST_ROUNDS]: (p) => !isResident(p) && p?.role?.category !== 'Vendor',
   [C.REPORT_SCHEDULES]: canReports,
   [C.REPORT_RUNS]: canReports,
   [C.LEDGER_SKIPS]: (p) => isEC(p) || p?.roleId === 'facility_manager' || anyPerm(p, ['MANAGE_LEDGER']),
@@ -389,7 +392,7 @@ function pickMeta(r) {
 /** Drop every field the role may not view (schema viewableBy). Meta + unknown keys pass. */
 // Collections whose access is granted by a permission (so any role can be given it in Roles & Permissions),
 // not by listing role ids in the schema. Holders see every field of these.
-const PERMISSION_GATED = { [C.EVENT_WORK]: (p) => !isResident(p), [C.ATTENDANCE]: (p) => !isResident(p), [C.SHIFTS]: (p) => !isResident(p), [C.REPORT_SCHEDULES]: canReports, [C.REPORT_RUNS]: canReports, ...Object.fromEntries(ASSET_COLLECTIONS.map((c) => [c, canAssetsRead])), [C.VILLA_IMPORT_RULES]: canAssetsRead, [C.READINGS]: canManageReadings, [C.INVENTORY]: (p) => !isResident(p), [C.INVENTORY_RULES]: (p) => !isResident(p), [C.VENDOR_COMMENTS]: (p) => isQuoteRole(p) || has(p, 'MANAGE_VENDORS') };
+const PERMISSION_GATED = { [C.EVENT_WORK]: (p) => !isResident(p), [C.CHECKLISTS]: (p) => !isResident(p), [C.CHECKLIST_ROUNDS]: (p) => !isResident(p), [C.ATTENDANCE]: (p) => !isResident(p), [C.SHIFTS]: (p) => !isResident(p), [C.REPORT_SCHEDULES]: canReports, [C.REPORT_RUNS]: canReports, ...Object.fromEntries(ASSET_COLLECTIONS.map((c) => [c, canAssetsRead])), [C.VILLA_IMPORT_RULES]: canAssetsRead, [C.READINGS]: canManageReadings, [C.INVENTORY]: (p) => !isResident(p), [C.INVENTORY_RULES]: (p) => !isResident(p), [C.VENDOR_COMMENTS]: (p) => isQuoteRole(p) || has(p, 'MANAGE_VENDORS') };
 
 export function maskRecord(record, schema, roleId, p) {
   if (!schema || !record) return record;
@@ -1012,6 +1015,10 @@ const CUSTOM = {
   },
 
   [C.EVENT_WORK]: ({ p }) => (canEventWork(p) ? OK : deny('Only the EC, Facility Manager, MEP or the event organisers can change event work')),
+  // planned works: the EC, Facility Manager and MEP plan the checklists; the staff fill in the rounds; a finished round is the record of the work
+  [C.CHECKLISTS]: ({ p, op }) => (op === 'delete' ? deny('Switch a checklist off instead: its rounds are the history') : isQuoteRole(p) ? OK : deny('Only the EC, Facility Manager or MEP plan the checklists')),
+  [C.CHECKLIST_ROUNDS]: ({ p, op, old }) => (isResident(p) || p?.role?.category === 'Vendor' ? deny('Only the staff and the committee fill in planned works')
+    : op === 'delete' && old?.status === 'Done' ? deny('A finished round is the record of the work') : OK),
   [C.REPORT_SCHEDULES]: ({ p }) => (canReports(p) ? OK : deny('Only the EC, Facility Manager or notification managers can set up reports')),
   // Supplies: EC, Facility Manager and MEP maintain stock; other staff can look.
   [C.INVENTORY]: ({ p }) => (isQuoteRole(p) ? OK : deny('Only the EC, Facility Manager or MEP can update inventory')),
@@ -1221,7 +1228,7 @@ function fieldCheck({ p, schema, old, next, op, skipSchema }) {
 }
 
 /** For UI: may this principal write to the collection at all (create)? */
-const UI_WRITE = { [C.AUDITS]: isQuoteRole, [C.EVENT_WORK]: canEventWork, [C.REPORT_SCHEDULES]: canReports, [C.VILLA_IMPORT_RULES]: isAdmin, ...Object.fromEntries(ASSET_COLLECTIONS.map((c) => [c, canAssetsWrite])), [C.APPROVER_SETTINGS]: (p) => SETTINGS_EDITORS.includes(p.roleId), [C.READINGS]: canManageReadings, [C.INVENTORY]: (p) => isQuoteRole(p), [C.INVENTORY_RULES]: (p) => isQuoteRole(p), [C.COMMUNITY_CONFIG]: isAdmin, [C.VENDOR_COMMENTS]: (p) => isQuoteRole(p) || has(p, 'MANAGE_VENDORS') };
+const UI_WRITE = { [C.AUDITS]: isQuoteRole, [C.EVENT_WORK]: canEventWork, [C.CHECKLISTS]: isQuoteRole, [C.CHECKLIST_ROUNDS]: (p) => !isResident(p) && p?.role?.category !== 'Vendor', [C.REPORT_SCHEDULES]: canReports, [C.VILLA_IMPORT_RULES]: isAdmin, ...Object.fromEntries(ASSET_COLLECTIONS.map((c) => [c, canAssetsWrite])), [C.APPROVER_SETTINGS]: (p) => SETTINGS_EDITORS.includes(p.roleId), [C.READINGS]: canManageReadings, [C.INVENTORY]: (p) => isQuoteRole(p), [C.INVENTORY_RULES]: (p) => isQuoteRole(p), [C.COMMUNITY_CONFIG]: isAdmin, [C.VENDOR_COMMENTS]: (p) => isQuoteRole(p) || has(p, 'MANAGE_VENDORS') };
 export function canWriteCollection(collection, p) {
   if (!p) return false;
   if (isAdmin(p)) return true;

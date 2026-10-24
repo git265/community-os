@@ -2,7 +2,7 @@ import { openSession, clockIn, clockOut } from '../../lib/attendance.js';
 import FilePreview from '../../components/FilePreview.jsx';
 import AdminDelete from '../../components/AdminDelete.jsx';
 import { useDeleteVerdict, DeleteBlockedNote } from '../../components/DeleteGuard.jsx';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getDataSource } from '../../lib/storage/dataSource.js';
 import { useApp, useCollection } from '../../context/AppContext.jsx';
 import { COLLECTIONS } from '../../lib/storage/index.js';
@@ -25,6 +25,7 @@ import Modal from '../../components/Modal.jsx';
 import { SegTabs, Segmented, StatTiles, MoneyTiles } from '../../components/ui.jsx';
 import CommentThread from './CommentThread.jsx';
 import TaskTypesPanel from './TaskTypesPanel.jsx';
+import PlannedWorks from './PlannedWorks.jsx';
 import Wishlist from './Wishlist.jsx';
 import AssetBackDialog from '../infra/AssetBackDialog.jsx';
 import AssetField from './AssetField.jsx';
@@ -206,7 +207,8 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
   const { records: handymen, save: saveHandyman } = useCollection(COLLECTIONS.HANDYMEN, 'Field Staff');
   const { records: quickPhrases } = useCollection(COLLECTIONS.QUICK_PHRASES, 'Ticket Quick Phrases');
 
-  const [tabRaw, setTab] = useState('tickets');
+  // a planned works reminder opens its tab (App sets communityos:openTab)
+  const [tabRaw, setTab] = useState(() => { try { if (sessionStorage.getItem('communityos:openTab') === 'planned') { sessionStorage.removeItem('communityos:openTab'); return 'planned'; } } catch { /* ignore */ } return 'tickets'; });
   const [selectedId, setSelectedId] = useState(null);
   const phoneView = usePhone();
   // Jumped here from another screen (e.g. a financial task in the Payments Cross-check): open that task's details.
@@ -260,8 +262,9 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
   const myCreatableTypes = useMemo(() => (isResident ? [] : creatableTaskTypes(taskTypes, role)), [taskTypes, role, isResident]);
   const showTabs = !isResident && (!isHandymanRole || roleId === 'handyman_mep');
   const showWishTab = isEC || roleId === 'super_admin'; // the wishlist is the committee's: ideas it weighs, estimates and decides
+  const showPlanned = !isResident && role?.category !== 'Vendor';   // planned works: the technicians fill the rounds, the FM / MEP plan them
   // a role whose Tickets tab was switched off lands on the first tab it may open
-  const firstTab = ['tickets', 'wishlist', 'coverage', 'approvers', 'types'].find((t) => tabAllowed(`tickets.${t}`)) || 'tickets';
+  const firstTab = ['tickets', 'planned', 'wishlist', 'coverage', 'approvers', 'types'].find((t) => tabAllowed(`tickets.${t}`)) || 'tickets';
   const tab = showTabs && !tabAllowed(`tickets.${tabRaw}`) ? firstTab : tabRaw;
 
   const visibleTickets = useMemo(() => visibleTicketsFor(tickets, taskTypes, { role, currentUser }), [tickets, taskTypes, role, currentUser]);
@@ -380,10 +383,24 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
     });
     } catch (err) { setRaiseErrors((x) => ({ ...x, form: `Could not submit: ${err?.message || 'storage error'}` })); } finally { setSubmitting(false); }
     if (!saved) return;
+    const then = raiseThen.current; raiseThen.current = null;
     setRaiseForm(blankRaiseForm());
     setRaisePending([]);
     setRaiseErrors({});
     setRaising(null);
+    then?.(saved);
+  }
+  // a task raised from elsewhere on the page (a planned works task marked Not OK): the task form, filled in; `then` gets the saved task
+  const raiseThen = useRef(null);
+  function raiseFrom(prefill, then) {
+    const first = myCreatableTypes[0];
+    const category = allCategories.includes(prefill.category) ? prefill.category : '';
+    // the sub-category the area names (WTP -> "Water treatment plant (WTP)"), when the category has one
+    const area = String(prefill.location || '').trim().toLowerCase(); const subs = coverage.find((c) => c.category === category)?.subCategories || [];
+    const subCategory = (area && (subs.find((x) => String(x).toLowerCase().includes(`(${area})`)) || subs.find((x) => String(x).toLowerCase().includes(area)))) || '';
+    setRaiseForm({ ...blankRaiseForm(), taskType: first?.name || '', financial: first?.quotationStage === 'Yes', title: prefill.title || '', description: prefill.description || '',
+      category, subCategory, unit: prefill.location || '', slaDueAt: defaultSla('Medium') });
+    setRaisePending([]); setRaiseErrors({}); raiseThen.current = then || null; setRaising('task');
   }
 
   async function toggleClock(h) {
@@ -849,9 +866,10 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
         </PageActions>
       </div>
 
-      {(showWishTab || showTabs) && (
+      {(showWishTab || showTabs || showPlanned) && (
         <Tabs>
           {(!showTabs || tabAllowed('tickets.tickets')) && <button className={tab === 'tickets' ? 'active' : ''} onClick={() => setTab('tickets')}>Tickets</button>}
+          {showPlanned && tabAllowed('tickets.planned') && <button data-testid="tab-planned" className={tab === 'planned' ? 'active' : ''} onClick={() => setTab('planned')}>Planned works</button>}
           {showWishTab && (!showTabs || tabAllowed('tickets.wishlist')) && <button data-testid="tab-wishlist" className={tab === 'wishlist' ? 'active' : ''} onClick={() => setTab('wishlist')}>Wishlist</button>}
           {showTabs && tabAllowed('tickets.coverage') && <button className={tab === 'coverage' ? 'active' : ''} onClick={() => setTab('coverage')}>Category coverage</button>}
           {showTabs && canEditApprovers && tabAllowed('tickets.approvers') && <button className={tab === 'approvers' ? 'active' : ''} onClick={() => setTab('approvers')}>Final approvers</button>}
@@ -859,7 +877,9 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
         </Tabs>
       )}
 
-      {tab === 'wishlist' && showWishTab ? (
+      {tab === 'planned' && showPlanned && tabAllowed('tickets.planned') ? (
+        <PlannedWorks onRaise={myCreatableTypes.length ? raiseFrom : null} categories={allCategories} />
+      ) : tab === 'wishlist' && showWishTab ? (
         <Wishlist />
       ) : tab === 'approvers' && showTabs && canEditApprovers ? (
         <><ApproversPanel /><ApprovalRules /></>
@@ -974,7 +994,7 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
         <Modal
           title={raiseCommunity ? 'Raise a community request' : raiseOwnerForm ? 'Raise a maintenance request' : 'Create a task'}
           subtitle={raiseCommunity ? 'Report a problem in a shared area (lift, road, garden, clubhouse, lights…) to the HOA. Other residents can add “Me too” so the team sees how many are affected.' : raiseOwnerForm ? 'Tell the facilities team what needs fixing. You can follow progress and chat with the team on the ticket afterwards.' : 'Create work for the facilities team or a vendor. Pick a category to see who can take it; mark it financial if money will be spent.'}
-          onClose={() => setRaising(null)}>
+          onClose={() => { raiseThen.current = null; setRaising(null); }}>
           <form className="form-grid" onSubmit={submitRaise} noValidate>
             {raiseOwnerForm && quickPhrases.length > 0 && (
               <QuickIssues phrases={quickPhrases} emoji={EMOJI} onPick={(qp) => setRaiseForm((f) => ({ ...f, title: qp.phrase, category: qp.category, subCategory: '' }))} />

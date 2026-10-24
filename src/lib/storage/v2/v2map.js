@@ -297,6 +297,8 @@ export const RESOURCES = {
   wishes: { path: 'maintenance/wishes', unit: true },
   serviceNotices: { path: 'maintenance/service-notices' },
   eventWork: { path: 'maintenance/event-work' },
+  checklists: { path: 'maintenance/checklists' },
+  checklistRounds: { path: 'maintenance/checklist-rounds' },
   tradeAvailability: { path: 'maintenance/trade-availability' },
   approvalPolicies: { path: 'finance/approval-policies', jsonText: ['steps'] },
   amenityTypes: { path: 'amenities/types' },

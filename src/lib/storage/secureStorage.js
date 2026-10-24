@@ -39,7 +39,7 @@ const PREFIX = {
   tradeAvailability: 'TRD', meetings: 'MTG', funds: 'FND',
   properties: 'UNIT', tickets: 'TKT', ticketComments: 'CMT', taskTypes: 'TTY', dues: 'DUE', funds: 'FND', ledger: 'LED',
   utilityTypes: 'UTY', amenities: 'BKG', amenityTypes: 'AMT', amenitySettings: 'AMS', notificationTemplates: 'NTM', notificationOutbox: 'OUT', unitCredits: 'UCR', portalInvites: 'PIV', visitors: 'VIS', incidents: 'INC', vendors: 'VEN', broadcasts: 'BRD',
-  noticeTemplates: 'NTP', mergeFields: 'MRG', forum: 'TPC', forumPosts: 'PST', wishes: 'WSH', infraPlans: 'PLN', infraLayers: 'LYR', infraLog: 'ILG', eventWork: 'EWK', reportSchedules: 'RPS', reportRuns: 'RPR', meetings: 'MTG', documents: 'DOC',
+  noticeTemplates: 'NTP', mergeFields: 'MRG', forum: 'TPC', forumPosts: 'PST', wishes: 'WSH', infraPlans: 'PLN', infraLayers: 'LYR', infraLog: 'ILG', eventWork: 'EWK', checklists: 'PMC', checklistRounds: 'PMR', reportSchedules: 'RPS', reportRuns: 'RPR', meetings: 'MTG', documents: 'DOC',
   handymen: 'HMN', shifts: 'SHF', attendance: 'ATT', attendanceSettings: 'ATS', siteCalendar: 'CAL', siteServices: 'SVC', siteHolidays: 'HOL', docFolders: 'FLD', culturalEvents: 'EVT', culturalPrograms: 'PRG', culturalSevas: 'SEV', culturalDonations: 'DON', culturalOfferings: 'OFR', culturalExpenses: 'EXP', quickPhrases: 'QPH', billingTemplates: 'BTP', workforce: 'WRK', villaImportRules: 'VIR', ballots: 'BAL', voteRoll: 'VRL', ballotBox: 'BBX', pollVotes: 'PLV', users: 'USR', roles: 'ROL', vendorComments: 'VCM', inventory: 'INV', readings: 'RDG',
 };
 export { ConflictError };

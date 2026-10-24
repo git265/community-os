@@ -71,6 +71,9 @@ public class ModulesConfig {
     @Bean JdbcApprovalSettings approvalSettings(NamedParameterJdbcTemplate jdbc, ObjectMapper json) { return new JdbcApprovalSettings(jdbc, json); }
     @Bean JdbcTicketRepository ticketRepository(NamedParameterJdbcTemplate jdbc, ObjectMapper json) { return new JdbcTicketRepository(jdbc, json); }
     @Bean JdbcQuotationRepository quotationRepository(NamedParameterJdbcTemplate jdbc, PlanCodec plans) { return new JdbcQuotationRepository(jdbc, plans); }
+    @Bean com.communityos.api.maintenance.application.PlannedWorksService plannedWorksService(NamedParameterJdbcTemplate jdbc, DomainEvents events, Tx tx, Clock clock) {
+        return new com.communityos.api.maintenance.application.PlannedWorksService(new com.communityos.api.maintenance.adapter.JdbcPlannedWorkStore(jdbc), events, tx, clock);
+    }
     @Bean TicketService ticketService(JdbcTicketRepository repo, JdbcMaintenanceDirectory dir, JdbcQuotationRepository money, DomainEvents events, AuditWriter audit, Tx tx, Clock clock) {
         return new TicketService(repo, dir, dir, money, events, audit, tx, clock);
     }
@@ -132,6 +135,7 @@ public class ModulesConfig {
         FileKinds.registerGovernance(files, meetings);
         FileKinds.registerVendors(files, jdbc);
         FileKinds.registerAssets(files, jdbc);
+        FileKinds.registerPlanned(files, jdbc);
         FileKinds.registerUtilities(files, jdbc);
         return new Docs(files, documents);
     }

@@ -2926,3 +2926,32 @@ html, body, .main, .content { background: #f3f5f9 !important; }
 .tk-loc-line { margin: 2px 0 4px; }
 .money-tile.clickable { cursor: pointer; text-align: left; font: inherit; color: inherit; }
 .money-tile.clickable:hover, .money-tile.clickable.on { border-color: var(--navy); box-shadow: 0 0 0 1px var(--navy) inset; }
+/* Maintenance → Planned works */
+.pw-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+.pw-filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0; }
+.pw-filters select { width: auto; }
+.pw-areas { display: flex; flex-wrap: wrap; gap: 6px; }
+.pw-list { display: flex; flex-direction: column; gap: 8px; }
+.pw-row { display: flex; gap: 12px; align-items: center; justify-content: space-between; width: 100%; padding: 10px 12px; background: #fff; border: 1px solid var(--line, #dde3ea); border-radius: 10px; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+.pw-row:hover { border-color: var(--blue); }
+.pw-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.pw-side { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; white-space: nowrap; }
+.pw-items { display: flex; flex-direction: column; gap: 8px; }
+.pw-item { padding: 8px 10px; border: 1px solid var(--line, #dde3ea); border-radius: 8px; }
+.pw-item.bad { border-color: #f0b4bd; background: #fff6f7; }
+.pw-item-text { font-weight: 600; margin-bottom: 6px; }
+.pw-item-acts .segmented button.on.pw-ok { background: #dcfce7; color: #166534; }
+.pw-item-acts .segmented button.on.pw-bad { background: #ffe9ea; color: #c7364a; }
+.pw-item-acts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.pw-item-acts .pw-remark { flex: 1; min-width: 160px; padding: 7px 9px; }
+.pw-actions { flex-wrap: wrap; align-items: center; margin-top: 12px; }
+.pw-count { margin-right: auto; }
+.pw-import-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--line, #dde3ea); }
+.pw-import-row input:not([type=checkbox]) { flex: 1; min-width: 180px; }
+.pw-import-row select { width: auto; }
+@media (max-width: 700px) {
+  .pw-row { align-items: flex-start; }
+  .pw-item-acts .segmented { width: 100%; }
+  .pw-item-acts .segmented button { flex: 1; }
+  .pw-item-acts .pw-remark { min-width: 100%; }
+}

@@ -99,6 +99,14 @@ public final class Recipes {
                     + r.status().toLowerCase(Locale.ROOT) + ".", "#/billing", r.aggregateId(), To.member(r.raisedBy())));
             case com.communityos.api.finance.application.ReleaseService.ReleaseEvent r when r.topic().endsWith(".paid") ->
                 out.add(new Message("payment_made", "release", "Release paid · " + rupees(r.amount()), "The release of " + rupees(r.amount()) + " was paid.", "#/billing", r.aggregateId(), To.member(r.raisedBy())));
+            case com.communityos.api.maintenance.domain.Planned.RoundDue d -> {
+                String what = d.name() + (d.area() == null || d.area().isBlank() || d.name().toLowerCase(Locale.ROOT).contains(d.area().toLowerCase(Locale.ROOT)) ? "" : " (" + d.area() + ")");
+                To who = (d.assigneeRole() == null || d.assigneeRole().isBlank() ? To.nobody() : To.roles(d.assigneeRole())).and(To.member(d.assigneeId()));
+                if ("due".equals(d.kind())) out.add(new Message("planned_work", "planned", "Due today · " + d.name(), what + " is due today. Open Maintenance → Planned works.", "#/planned",
+                    d.checklistId(), who.equals(To.nobody()) ? To.roles("facility_manager") : who));
+                else out.add(new Message("planned_work", "planned", "Not done · " + d.name(), what + " was due " + d.dueOn() + " and is not done yet.", "#/planned", d.checklistId(),
+                    who.and(To.roles("facility_manager"))));
+            }
             case com.communityos.api.assets.application.AssetService.StockEvent x ->
                 out.add(new Message("stock_low", "stock", "Low stock \u00b7 " + x.item(), x.balance().stripTrailingZeros().toPlainString() + " " + x.uom() + " left (minimum "
                     + (x.minStock() == null ? "-" : x.minStock().stripTrailingZeros().toPlainString()) + ").", "#/assets", x.aggregateId(), To.roles("facility_manager", "handyman_mep")));

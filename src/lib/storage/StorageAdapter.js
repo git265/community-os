@@ -102,6 +102,8 @@ export const COLLECTIONS = Object.freeze({
   MAP_VERSIONS: 'mapVersions', // every change to where an asset sits or how the plan is set up, with what it was before (undo / restore)
   INFRA_LOG: 'infraLog', // condition history per asset: who found what, when, and which task fixed it
   EVENT_WORK: 'eventWork', // work to do for an event (before / during / after), staff needed and when, owned by the Facility Manager or MEP
+  CHECKLISTS: 'checklists', // planned works: a recurring checklist (STP weekly works, DG monthly checks ...), how often, due by when, by whom, its tasks
+  CHECKLIST_ROUNDS: 'checklistRounds', // one period's round of a checklist: each task Done / Not OK / N/A with a remark, who finished it and when
   REPORT_SCHEDULES: 'reportSchedules', // scheduled reports: which report, format, how often, how delivered, to whom
   REPORT_RUNS: 'reportRuns', // every report that was produced (system-written): summary, table and who it went to
   MEETINGS: 'meetings',

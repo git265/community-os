@@ -187,6 +187,90 @@ public final class MaintenanceResources {
             @Override public String label(TradeFields f) { return f.trade(); }
         });
 
-    public static List<Resource<?>> all() { return List.of(TASK_TYPES, CATEGORIES, PHRASES, APPROVERS, WISHES, SERVICE_NOTICES, EVENT_WORK, TRADES); }
+    // ---- planned works: recurring checklists and their rounds ------------------------------------------------------------------------------------
+    static final com.fasterxml.jackson.databind.ObjectMapper JSON = new com.fasterxml.jackson.databind.ObjectMapper();
+    /** A JSON array of objects (the tasks of a checklist, the items of a round), up to `max` of them. */
+    static com.fasterxml.jackson.databind.JsonNode array(String text, String what, int max) {
+        try {
+            var n = JSON.readTree(text == null || text.isBlank() ? "[]" : text);
+            Checks.rule(n.isArray() && n.size() <= max, "bad-" + what.toLowerCase(java.util.Locale.ROOT), what + ": a list of up to " + max);
+            for (var x : n) Checks.rule(x.isObject(), "bad-" + what.toLowerCase(java.util.Locale.ROOT), what + ": a list of entries");
+            return n;
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) { throw new DomainException.RuleViolated("bad-" + what.toLowerCase(java.util.Locale.ROOT), what + " is not valid JSON"); }
+    }
+    static boolean plans(Caller c) { return committee(c) || TicketRules.coordinator(c); }
+
+    public record ChecklistFields(String name, String area, String category, String frequency, Integer dueDay, Integer dueMonth, LocalDate startsOn, String assigneeRole,
+                                  UUID assigneeId, String tasks, Boolean active, String notes) {}
+    public static final Resource<ChecklistFields> CHECKLISTS = new Resource<>(
+        new ResourceTable<>("checklists", "maintenance/checklists", "maintenance.checklist", ChecklistFields.class, "lower(r.name)")
+            .computed("assigneeName", Kind.TEXT, "(SELECT m.display_name FROM identity.membership m WHERE m.community_id = r.community_id AND m.id = r.assignee_id)"),
+        new ResourceRules<>() {
+            @Override public Spec<ChecklistFields> readScope(Caller c) { return ResourceRules.only(ResourceRules::staffOrCommittee, c); }
+            @Override public boolean mayWrite(Caller c) { return plans(c); }
+            @Override public ChecklistFields validate(Caller c, ChecklistFields f, ChecklistFields old) {
+                String name = Checks.required(f.name(), "Name");
+                Checks.rule(name.length() >= 2 && name.length() <= 120, "bad-name", "A name has 2 to 120 characters");
+                String freq = Checks.requiredOneOf(f.frequency(), "How often", com.communityos.api.maintenance.domain.Planned.FREQUENCIES);
+                Integer day = f.dueDay(), month = f.dueMonth();
+                if ("Daily".equals(freq)) { day = null; month = null; }
+                if (day != null) Checks.rule("Weekly".equals(freq) ? day >= 1 && day <= 7 : day >= 1 && day <= 31, "bad-day", "Weekly".equals(freq) ? "Due day: 1 (Monday) to 7 (Sunday)" : "Due day: 1 to 31");
+                int months = switch (freq) { case "Quarterly" -> 3; case "Half-yearly" -> 6; case "Yearly" -> 12; default -> 0; };
+                if (months == 0) month = null; else if (month != null) Checks.rule(month >= 1 && month <= months, "bad-month", "Due month: 1 to " + months + " of the period");
+                var tasks = array(f.tasks(), "Tasks", 100);
+                Checks.rule(tasks.size() > 0, "tasks-required", "Add at least one task");
+                java.util.Set<String> ids = new java.util.HashSet<>();
+                for (var t : tasks) {
+                    String text = t.path("text").asText("").strip();
+                    Checks.rule(!text.isEmpty() && text.length() <= 300, "bad-task", "Each task has a text of up to 300 characters");
+                    Checks.rule(ids.add(t.path("id").asText("")) && !t.path("id").asText("").isEmpty(), "bad-task", "Each task has its own id");
+                }
+                return new ChecklistFields(name, Checks.text(f.area(), "Area", 80), Checks.text(f.category(), "Category", 60), freq, day, month,
+                    f.startsOn() != null ? f.startsOn() : old != null && old.startsOn() != null ? old.startsOn() : LocalDate.now(), Checks.text(f.assigneeRole(), "Done by (role)", 60),
+                    f.assigneeId(), tasks.toString(), f.active() == null ? Boolean.TRUE : f.active(), Checks.text(f.notes(), "Notes", 2000));
+            }
+            @Override public boolean deletable(ChecklistFields f) { return false; }   // its rounds are the history: switch it off instead
+            @Override public String label(ChecklistFields f) { return f.name(); }
+        });
+
+    public record RoundFields(UUID checklistId, String period, LocalDate dueOn, String status, String items, String notes, java.time.Instant completedAt) {}
+    static final java.util.regex.Pattern PERIOD = java.util.regex.Pattern.compile("^(D:\\d{4}-\\d{2}-\\d{2}|W:\\d{4}-W\\d{2}|M:\\d{4}-\\d{2}|Q:\\d{4}-Q[1-4]|H:\\d{4}-H[12]|Y:\\d{4})$");
+    public static final Resource<RoundFields> CHECKLIST_ROUNDS = new Resource<>(
+        new ResourceTable<>("checklistRounds", "maintenance/checklist-rounds", "maintenance.checklist_round", RoundFields.class, "r.due_on DESC").filterBy("checklistId")
+            .who("doneBy", "updated_by", false),
+        new ResourceRules<>() {
+            @Override public Spec<RoundFields> readScope(Caller c) { return ResourceRules.only(ResourceRules::staffOrCommittee, c); }
+            @Override public boolean mayWrite(Caller c) { return ResourceRules.staffOrCommittee(c); }   // the technicians fill them in
+            @Override public RoundFields validate(Caller c, RoundFields f, RoundFields old) {
+                Checks.rule(f.checklistId() != null, "checklist-required", "Which checklist?");
+                Checks.rule(f.period() != null && PERIOD.matcher(f.period()).matches(), "bad-period", "Which period?");
+                Checks.rule(f.dueOn() != null, "due-required", "Due by which day?");
+                Checks.rule(old == null || (old.checklistId().equals(f.checklistId()) && old.period().equals(f.period())), "fixed", "A round stays with its checklist and period");
+                String status = f.status() == null ? "In progress" : Checks.oneOf(f.status(), "Status", List.of("In progress", "Done"));
+                var items = array(f.items(), "Items", 200);
+                boolean all = items.size() > 0;
+                for (var x : items) {
+                    String r = x.path("result").asText("");
+                    Checks.rule(com.communityos.api.maintenance.domain.Planned.RESULTS.contains(r), "bad-result", "A task is Done, Not OK or N/A");
+                    Checks.rule(x.path("remark").asText("").length() <= 1000, "bad-remark", "A remark is up to 1000 characters");
+                    if (r.isEmpty()) all = false;
+                }
+                Checks.rule(!"Done".equals(status) || all, "not-finished", "Mark every task Done, Not OK or N/A before finishing the round");
+                java.time.Instant at = "Done".equals(status) ? (old != null && old.completedAt() != null ? old.completedAt() : java.time.Instant.now()) : null;
+                return new RoundFields(f.checklistId(), f.period(), f.dueOn(), status, items.toString(), Checks.text(f.notes(), "Notes", 4000), at);
+            }
+            /** The round's period is one of its checklist's (a weekly checklist has W: rounds ...). */
+            @Override public void verify(Caller c, RoundFields f, RoundFields old, Facts db) {
+                if (!db.exists("""
+                        SELECT 1 FROM maintenance.checklist k WHERE k.id = CAST(:id AS uuid)
+                          AND left(CAST(:p AS text), 1) = CASE k.frequency WHEN 'Daily' THEN 'D' WHEN 'Weekly' THEN 'W' WHEN 'Monthly' THEN 'M' WHEN 'Quarterly' THEN 'Q' WHEN 'Half-yearly' THEN 'H' ELSE 'Y' END""",
+                        Map.of("id", f.checklistId().toString(), "p", f.period())))
+                    throw new DomainException.RuleViolated("bad-period", "That period is not one of the checklist's");
+            }
+            @Override public boolean deletable(RoundFields f) { return !"Done".equals(f.status()); }   // a finished round is the record of the work
+            @Override public String label(RoundFields f) { return f.period(); }
+        });
+
+    public static List<Resource<?>> all() { return List.of(TASK_TYPES, CATEGORIES, PHRASES, APPROVERS, WISHES, SERVICE_NOTICES, EVENT_WORK, TRADES, CHECKLISTS, CHECKLIST_ROUNDS); }
     static Map<String, Object> none() { return Map.of(); }
 }

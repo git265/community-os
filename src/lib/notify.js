@@ -24,6 +24,7 @@ export const EVENTS = [
   { id: 'ticket_new', label: 'New request raised by a resident', group: 'Maintenance' },
   { id: 'ticket_chat', label: 'New message in a task chat', group: 'Maintenance' },
   { id: 'ticket_overdue', label: 'Task past its SLA date (assignee, Facility Manager, Helpdesk)', group: 'Maintenance' },
+  { id: 'planned_work', label: 'Planned works due today, or not done by their day (the team or person, Facility Manager)', group: 'Maintenance' },
   { id: 'payment_made', label: 'Release approved, ready to pay, or paid', group: 'Billing' },
   { id: 'ballot', label: 'E-voting opened / closing soon', group: 'Communications' },
   { id: 'ballot_result', label: 'E-voting closed: result ready', group: 'Communications' },

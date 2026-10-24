@@ -310,6 +310,38 @@ class PostgresFlowTest {
             assertEquals(0, (int) as(slaJob, () -> ticketSvc.alertOverdue(slaJob)), "once per SLA date");
             assertThrows(AccessDenied.class, () -> as(admin, () -> ticketSvc.alertOverdue(admin)), "the server's job only");
             assertTrue(as(plumberC, () -> inbox.mine(plumberMember, false, 50)).stream().anyMatch((n) -> n.event().equals("ticket_overdue") && n.title().equals("Past its SLA · TKT-1051")));
+            // ---- planned works: a checklist the coordinators plan, its round filled in by the technician, the reminders once per period ----
+            {
+                var pkit = new com.communityos.api.shared.resource.ResourceService(events, audit, app, clock);
+                var CK = com.communityos.api.maintenance.MaintenanceResources.CHECKLISTS; var RD = com.communityos.api.maintenance.MaintenanceResources.CHECKLIST_ROUNDS;
+                var ckRepo = new com.communityos.api.shared.resource.JdbcResourceRepository<>(CK.table(), app, json);
+                var rdRepo = new com.communityos.api.shared.resource.JdbcResourceRepository<>(RD.table(), app, json);
+                String tasks = "[{\"id\":\"t1\",\"text\":\"Clean diffusers and strainers\"},{\"id\":\"t2\",\"text\":\"Check blower air pressure\"}]";
+                java.util.function.Function<String, com.communityos.api.maintenance.MaintenanceResources.ChecklistFields> ckf = (t) -> new com.communityos.api.maintenance.MaintenanceResources.ChecklistFields(
+                    "WTP weekly works", "WTP", "Plumbing", "Weekly", 7, null, today.minusDays(30), "handyman_plumber", plumberMember, t, null, null);
+                assertThrows(AccessDenied.class, () -> as(plumberC, () -> pkit.create(plumberC, CK, ckRepo, ckf.apply(tasks))), "planned by the coordinators");
+                assertEquals("tasks-required", assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> pkit.create(admin, CK, ckRepo, ckf.apply("[]")))).code());
+                var ck = as(admin, () -> pkit.create(admin, CK, ckRepo, ckf.apply(tasks)));
+                assertTrue(as(ownerC, () -> pkit.list(ownerC, CK, ckRepo)).isEmpty(), "residents do not see planned works");
+                var period = com.communityos.api.maintenance.domain.Planned.of("Weekly", 7, null, today);
+                assertEquals(java.time.DayOfWeek.SUNDAY, period.dueOn().getDayOfWeek());
+                String items = "[{\"taskId\":\"t1\",\"text\":\"Clean diffusers and strainers\",\"result\":\"Done\",\"remark\":\"\"},{\"taskId\":\"t2\",\"text\":\"Check blower air pressure\",\"result\":\"\",\"remark\":\"\"}]";
+                java.util.function.BiFunction<String, String, com.communityos.api.maintenance.MaintenanceResources.RoundFields> rf = (st, it) ->
+                    new com.communityos.api.maintenance.MaintenanceResources.RoundFields(ck.id(), period.key(), period.dueOn(), st, it, null, null);
+                var round = as(plumberC, () -> pkit.create(plumberC, RD, rdRepo, rf.apply("In progress", items)));
+                assertEquals("not-finished", assertThrows(DomainException.RuleViolated.class, () -> as(plumberC, () -> pkit.replace(plumberC, RD, rdRepo, round.id(), round.version(), rf.apply("Done", items)))).code());
+                assertEquals("bad-period", assertThrows(DomainException.RuleViolated.class, () -> as(plumberC, () -> pkit.create(plumberC, RD, rdRepo,
+                    new com.communityos.api.maintenance.MaintenanceResources.RoundFields(ck.id(), "M:2026-10", period.dueOn(), "In progress", items, null, null)))).code(), "a weekly checklist has weekly rounds");
+                // last week's round was never done: overdue, to the person and the facility manager, once
+                var plannedSvc = new com.communityos.api.maintenance.application.PlannedWorksService(new com.communityos.api.maintenance.adapter.JdbcPlannedWorkStore(app), events, app, clock);
+                var pjob = com.communityos.api.shared.security.SystemCaller.of(new CommunityId(cid), "planned works reminders");
+                assertTrue(as(pjob, () -> plannedSvc.remind(pjob)) >= 1, "last week's round was never done");
+                assertEquals(0, (int) as(pjob, () -> plannedSvc.remind(pjob)), "once per period");
+                assertThrows(AccessDenied.class, () -> as(admin, () -> plannedSvc.remind(admin)), "the server's job only");
+                assertTrue(as(plumberC, () -> inbox.mine(plumberMember, false, 50)).stream().anyMatch((n) -> n.event().equals("planned_work") && n.title().equals("Not done · WTP weekly works")));
+                var done = as(plumberC, () -> pkit.replace(plumberC, RD, rdRepo, round.id(), round.version(), rf.apply("Done", items.replace("\"result\":\"\"", "\"result\":\"N/A\""))));
+                assertNotNull(done.data().completedAt(), "a finished round has its time"); assertEquals("Done", done.data().status());
+            }
             long leakV = as(admin, () -> ticketSvc.get(admin, leak.id())).version();
             assertEquals(leakBefore, leakV, "the job leaves the ticket's version alone");
             var street = as(admin, () -> ticketSvc.raise(admin, new com.communityos.api.maintenance.application.TicketService.RaiseTicket(null, "Street light out", null, null, "Community", "Gate 2", "Electrical", null, null, null, null)));
@@ -1078,6 +1110,17 @@ class PostgresFlowTest {
             assertThrows(AccessDenied.class, () -> as(ownerC, () -> fileSvc.attach(ownerC, photo.id(), "amenity.booking", booked.id())), "deposit photos are the amenities staff's");
             as(ownerC, () -> fileSvc.attach(ownerC, photo.id(), "maintenance.ticket", leak.id()));
             assertTrue(java.util.Arrays.equals(png, as(treasurer, () -> fileSvc.content(treasurer, photo.id())).bytes()), "now whoever sees the ticket opens it");
+            // a planned works round's photo (an owner type with an underscore: maintenance.checklist_round); none once the round is finished
+            com.communityos.api.config.FileKinds.registerPlanned(fileSvc, app);
+            UUID roundId = UUID.fromString((String) owner.sql("SELECT id FROM maintenance.checklist_round WHERE community_id = '" + cid + "' ORDER BY created_at LIMIT 1").get(0).get("id"));
+            owner.sql("UPDATE maintenance.checklist_round SET status = 'In progress', completed_at = NULL WHERE id = '" + roundId + "' RETURNING 1");
+            var rphoto = as(plumberC, () -> fileSvc.upload(plumberC, new com.communityos.api.docs.application.FileService.Upload("blower.png", png, null)));
+            as(plumberC, () -> fileSvc.attach(plumberC, rphoto.id(), "maintenance.checklist_round", roundId));
+            assertEquals(1, as(admin, () -> fileSvc.list(admin, "maintenance.checklist_round", roundId)).size());
+            assertThrows(AccessDenied.class, () -> as(ownerC, () -> fileSvc.content(ownerC, rphoto.id())), "residents do not see planned works");
+            owner.sql("UPDATE maintenance.checklist_round SET status = 'Done', completed_at = now() WHERE id = '" + roundId + "' RETURNING 1");
+            var latePhoto = as(plumberC, () -> fileSvc.upload(plumberC, new com.communityos.api.docs.application.FileService.Upload("late.png", png, null)));
+            assertThrows(AccessDenied.class, () -> as(plumberC, () -> fileSvc.attach(plumberC, latePhoto.id(), "maintenance.checklist_round", roundId)), "a finished round takes no more photos");
             assertEquals(1, as(admin, () -> fileSvc.list(admin, "maintenance.ticket", leak.id())).size());
             assertEquals(List.of(photo.id()), as(ownerC, () -> fileSvc.list(ownerC, "maintenance.ticket", null)).stream().map((f) -> f.id()).toList());
             assertThrows(DomainException.RuleViolated.class, () -> as(ownerC, () -> fileSvc.upload(ownerC, new com.communityos.api.docs.application.FileService.Upload("x.txt",

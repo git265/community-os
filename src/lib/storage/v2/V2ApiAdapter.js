@@ -280,6 +280,7 @@ readers.readings = withFiles(readers.readings, 'billing.reading', 'photos');
 const ASSET_FILES = { equipment: ['assets.equipment', 'files'], inventory: ['assets.inventory', 'attachments'], dgFuelLogs: ['assets.dg_fuel', 'bill'],
   electricityBills: ['assets.electricity_bill', 'billFile'], audits: ['assets.audit', 'report'], logEntries: ['assets.log_entry', 'attachments'] };
 for (const [c, [owner, field]] of Object.entries(ASSET_FILES)) readers[c] = withFiles(readers[c], owner, field);
+readers.checklistRounds = withFiles(readers.checklistRounds, 'maintenance.checklist_round', 'photos');   // a planned works round's photos
 // report schedules: units and people by id on the server, by unit number and name in the app
 async function peopleIndex() { const ms = await all('/members'); return { idByName: Object.fromEntries(ms.map((m) => [m.displayName, m.id])), nameById: Object.fromEntries(ms.map((m) => [m.id, m.displayName])) }; }
 const scheduleReader = readers.reportSchedules;
@@ -972,6 +973,7 @@ for (const c of Object.keys(RESOURCES)) if (!WRITERS[c]) WRITERS[c] = (rec) => p
 WRITERS.vendors = attaching(WRITERS.vendors, 'vendor.vendor', 'attachments');
 WRITERS.readings = attaching(WRITERS.readings, 'billing.reading', 'photos');
 for (const [c, [owner, field]] of Object.entries(ASSET_FILES)) WRITERS[c] = attaching(WRITERS[c], owner, field);
+WRITERS.checklistRounds = attaching(WRITERS.checklistRounds, 'maintenance.checklist_round', 'photos');
 const warned = new Set();
 const notYet = (c) => { if (!warned.has(c)) { warned.add(c); console.info(`[v2] "${c}" is not on the v2 back end yet; showing it empty.`); } };
 

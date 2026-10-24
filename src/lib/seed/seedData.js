@@ -12,6 +12,7 @@ import { totalsOf } from '../culturalServer.js';
 import { CULTURAL_HISTORY } from './culturalHistory.js';
 import PLANT_LOG_ROWS from './plantLogs.json';
 import { quote, tiersOf, startAtOf, defaultTemplates, priceLabel } from '../amenityEngine.js';
+import { STARTERS, checklistRow, periodOf, previousPeriod, freshItems, isoDay } from '../plannedWorks.js';
 
 const cd = (id, eventId, donor, unit, amount, towards, status, o = {}) => ({ id, eventId, donor, unit, kind: 'Donation', towards, amount, date: '2026-09-05', mode: 'UPI', reference: status === 'Received' ? `UPI${id}8841` : '', status, receiptNo: o.receiptNo || '', anonymous: false, note: '', ...o });
 const CULT_DON = [
@@ -118,6 +119,40 @@ const INFRA_SHAPES = {
   eq1: PT(90, 1450), eq2: PT(130, 1450), eq3: PT(170, 1450), eq4: PT(2930, 2470), eq5: PT(3000, 2470), eq6: PT(2760, 2500), eq7: PT(3040, 2300), eq8: PT(2440, 2700),
   eq11: LN([2528, 320], [2528, 2240], [2448, 2660]), eq12: LN([1290, 1450], [3480, 1450]),
 };
+
+// Planned works: the starter checklists, running since about six months ago, with their recent rounds - most done, one with a task Not OK,
+// a weekly and a monthly round in progress, and two that were missed (the DG run test last week, the pumps last month).
+function plannedSeed() {
+  const startsOn = plusDays(-180);
+  const lists = STARTERS.map((st, i) => ({ id: `pmc${i + 1}`, ...checklistRow(st, startsOn) }));
+  const rounds = []; let n = 0;
+  const at = (day, hh) => new Date(`${day}T${hh}:00`).toISOString();
+  const round = (c, p, status, mark = () => 'Done', doneBy = 'Ramesh K') => {
+    const items = freshItems(c).map((x, i) => ({ ...x, ...mark(x, i) }));
+    const done = status === 'Done';
+    const day = p.dueOn > isoDay(new Date()) ? isoDay(new Date()) : p.dueOn;
+    rounds.push({ id: `pmr${++n}`, checklistId: c.id, period: p.key, dueOn: p.dueOn, status, items: JSON.stringify(items), notes: '', completedAt: done ? at(day, '11:20') : null, doneBy });
+  };
+  const ok = () => ({ result: 'Done', remark: '' });
+  const L = Object.fromEntries(lists.map((c) => [c.name, c]));
+  // WTP weekly: the last four weeks done (one with the blower pressure low), this week half done
+  const w = L['WTP weekly works']; let p = periodOf(w);
+  round(w, p, 'In progress', (x, i) => (i < 3 ? ok() : { result: '' }));
+  for (let k = 0; k < 4; k++) { p = previousPeriod(w, p); round(w, p, 'Done', (x, i) => (k === 1 && i === 1 ? { result: 'Not OK', remark: 'Blower 2 pressure low (0.3 bar) - belt slipping' } : i === 4 && k === 2 ? { result: 'N/A', remark: 'Standby blower under repair' } : ok())); }
+  // DG weekly: the week before last done, last week missed
+  const dg = L['DG set weekly run test']; round(dg, previousPeriod(dg, previousPeriod(dg, periodOf(dg))), 'Done', ok, 'Suresh M');
+  // monthly: last month done (the pumps missed it); STP this month in progress
+  for (const name of ['WTP monthly works', 'STP monthly works', 'DG set monthly checks', 'Electrical panels monthly checks']) {
+    const c = L[name]; round(c, previousPeriod(c, periodOf(c)), 'Done', ok, /DG|Electrical/.test(name) ? 'Suresh M' : 'Ramesh K');
+  }
+  const stp = L['STP monthly works']; round(stp, periodOf(stp), 'In progress', (x, i) => (i < 4 ? ok() : { result: '' }));
+  // the pool yesterday; the tanks' first half-year
+  const pool = L['Swimming pool daily checks']; round(pool, previousPeriod(pool, periodOf(pool)), 'Done', (x, i) => (i === 0 ? { result: 'Done', remark: 'Cl 1.8 ppm, pH 7.4' } : ok()), 'Anil P');
+  const tanks = L['Water tanks half-yearly cleaning']; const h1 = previousPeriod(tanks, periodOf(tanks));
+  if (h1.dueOn >= startsOn) round(tanks, h1, 'Done', ok, 'Anil P');
+  return { lists, rounds };
+}
+const PLANNED = plannedSeed();
 
 const SEED = {
   [COLLECTIONS.COMMUNITY_CONFIG]: [{ id: 'cfg1', region: 'IN', legalName: 'La Paloma Residents’ Welfare Association', address: 'La Paloma Villas, Outer Ring Road, Hyderabad 500081', registrationNo: 'REG/HYD/2019/0412', taxRegistered: 'Yes', taxId: '36AABCL1234F1ZZ', panNo: 'AABCL1234F', website: 'lapaloma.example', receiptThanks: 'Received with thanks', payInstructions: 'Pay by UPI: lapaloma@bank\nOr bank transfer to La Paloma RWA, A/c 0000 0000 0000, IFSC DEMO0000001.\nOffice: 9 am – 6 pm, Mon–Sat.', statementNote: 'Please report any mismatch to the office within 7 days.', contactPhone: '+91 98200 00000', contactEmail: 'office@lapaloma.example', signatory: 'Treasurer', receiptFooter: 'This is a computer-generated receipt and does not require a signature.', propertyTypes: ['Villa', 'Apartment'] }],
@@ -345,6 +380,8 @@ const SEED = {
     { id: 'ew5', shortId: 'EWK-0005', eventKind: 'Cultural event', eventId: 'ce2', eventName: 'Diwali Cultural Evening 2026', eventDate: plusDays(27), title: 'Clear stage, collect waste, sweep the lawn', details: '', phase: 'After the event', neededOn: plusDays(28), startTime: '07:00', endTime: '11:00', staffType: 'Housekeeping', staffRequested: 5, staffConfirmed: 0, ownerRole: 'Facility Manager', ownerName: '', status: 'Not started', notes: '' },
     { id: 'ew6', shortId: 'EWK-0006', eventKind: 'Cultural event', eventId: 'ce2', eventName: 'Diwali Cultural Evening 2026', eventDate: plusDays(27), title: 'Take down lights and return sound equipment', details: '', phase: 'After the event', neededOn: plusDays(28), startTime: '09:00', endTime: '13:00', staffType: 'Sound / lights', staffRequested: 2, staffConfirmed: 0, ownerRole: 'MEP', ownerName: '', status: 'Not started', notes: '' },
   ],
+  [COLLECTIONS.CHECKLISTS]: PLANNED.lists,
+  [COLLECTIONS.CHECKLIST_ROUNDS]: PLANNED.rounds,
   [COLLECTIONS.REPORT_SCHEDULES]: [
     { id: 'rs1', shortId: 'RPS-0001', name: 'Daily bookings', reportType: 'bookings', period: 'today_tomorrow', format: 'Detailed', frequency: 'Daily', time: '07:30', weekday: 'Monday', monthDay: 1, channels: ['In-app', 'Email'], audience: 'Roles', roleIds: ['facility_manager', 'committee_amenities'], units: [], people: [], extra: '', skipEmpty: false, active: true, lastRunKey: '' },
     { id: 'rs2', shortId: 'RPS-0002', name: 'Weekly dues to the committee', reportType: 'dues', period: 'asof', format: 'Summary', frequency: 'Weekly', time: '09:00', weekday: 'Monday', monthDay: 1, channels: ['In-app', 'Email'], audience: 'Roles', roleIds: ['treasurer'], units: [], people: [], extra: '', skipEmpty: false, active: true, lastRunKey: '' },
@@ -728,7 +765,7 @@ const SEED = {
 // schemas and records. A real (non-demo) community is never reset this way.
 mergeReferenceData(SEED, COLLECTIONS);
 
-export const DATA_VERSION = '2026-10-24-a';
+export const DATA_VERSION = '2026-10-24-b';
 const versionKey = (slug) => `communityos:${slug}:dataVersion`;
 
 export function resetDemoData(slug = getCommunity()) {
@@ -793,6 +830,7 @@ async function seedCommunityOnce(store, source) {
     [COLLECTIONS.FORUM_POSTS]: { topicId: COLLECTIONS.FORUM, parentId: COLLECTIONS.FORUM_POSTS },
     [COLLECTIONS.VENDOR_COMMENTS]: { vendorId: COLLECTIONS.VENDORS },
     [COLLECTIONS.EVENT_WORK]: { eventId: COLLECTIONS.CULTURAL_EVENTS },
+    [COLLECTIONS.CHECKLIST_ROUNDS]: { checklistId: COLLECTIONS.CHECKLISTS },
     [COLLECTIONS.CULTURAL_PROGRAMS]: { eventId: COLLECTIONS.CULTURAL_EVENTS },
     [COLLECTIONS.CULTURAL_SEVAS]: { eventId: COLLECTIONS.CULTURAL_EVENTS },
     [COLLECTIONS.CULTURAL_DONATIONS]: { eventId: COLLECTIONS.CULTURAL_EVENTS, offeringId: COLLECTIONS.CULTURAL_OFFERINGS },

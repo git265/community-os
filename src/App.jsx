@@ -6,6 +6,7 @@ import { runDueReminders } from './lib/dueReminders.js';
 import { runAutoItc } from './lib/finance/itc.js';
 import { startInlineErrors } from './lib/inlineErrors.js';
 import { runBallotReminders, runSlaAlerts } from './lib/notifyExtra.js';
+import { runPlannedReminders } from './lib/plannedWorks.js';
 import { runReportSchedules } from './lib/reports/run.js';
 import { runRecurringBills, runAutoLateFees } from './lib/finance/rules.js';
 import { pageOpen } from './lib/access/tabs.js';
@@ -270,6 +271,7 @@ function Shell() {
     if (cu) { set('communityos:culturalOpen', JSON.stringify({ kind: cu[1], id: decodeURIComponent(cu[2]) })); setActive('cultural'); setNavKey((k) => k + 1); return; }
     const mp = /^#?\/map\b(\?.*)?$/.exec(link || '');
     if (mp) { set('communityos:mapLink', mp[1] || ''); setActive('sitemap'); setNavKey((k) => k + 1); return; }
+    if (/^#?\/planned\b/.test(link || '')) { set('communityos:openTab', 'planned'); setActive('tickets'); setNavKey((k) => k + 1); return; }   // Maintenance → Planned works
     if (/^#?\/onsite\b/.test(link || '')) { set('communityos:openTab', 'live'); setActive('shifts'); setNavKey((k) => k + 1); return; }   // On site is part of Workforce now
     const pg = /^#?\/(governance|billing|communications|cultural|shifts|calendar|notifications|inventory|utilities|documents|audits|directory|security|mygate)\b/.exec(link || '');
     if (pg) { if (pg[1] === 'inventory') set('communityos:openSection', 'stores'); setActive(pg[1] === 'inventory' ? 'utilities' : pg[1]); setNavKey((k) => k + 1); return; }
@@ -292,7 +294,7 @@ function Shell() {
     ensureUtilityTypes().catch(() => {});
     const run = () => (jobsRunning ||= runJobsOnce().finally(() => { jobsRunning = null; }));
     // in order (bills before late fees before reminders), but each job on its own: one failing job does not skip the rest
-    const JOBS = [['amenities', runAmenityScheduler], ['recurring bills', runRecurringBills], ['late fees', runAutoLateFees], ['due reminders', runDueReminders], ['ballot reminders', runBallotReminders], ['ticket SLA alerts', runSlaAlerts], ['input credit', runAutoItc], ['report schedules', runReportSchedules]];
+    const JOBS = [['amenities', runAmenityScheduler], ['recurring bills', runRecurringBills], ['late fees', runAutoLateFees], ['due reminders', runDueReminders], ['ballot reminders', runBallotReminders], ['ticket SLA alerts', runSlaAlerts], ['input credit', runAutoItc], ['report schedules', runReportSchedules], ['planned works', runPlannedReminders]];
     const runJobsOnce = async () => {
       for (const [name, job] of JOBS) {
         try { await job(); } catch (e) { console.warn(`Background job "${name}" failed:`, e?.name || 'Error', e?.status || e?.code || ''); } // no message: it can carry names or units

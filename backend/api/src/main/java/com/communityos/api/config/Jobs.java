@@ -31,6 +31,7 @@ public class Jobs {
     private final java.util.Optional<com.communityos.api.comms.adapter.PushDelivery> pushes;
     private final com.communityos.api.site.application.SiteService site;
     private final com.communityos.api.maintenance.application.TicketService tickets;
+    private final com.communityos.api.maintenance.application.PlannedWorksService planned;
 
     public Jobs(OutboxRelay outbox, WebhookDeliveryWorker webhooks, PaymentService payments, @Qualifier("platform") NamedParameterJdbcTemplate platformJdbc,
                 com.communityos.api.gate.application.GateService gate, com.communityos.api.comms.application.BroadcastService notices,
@@ -40,8 +41,9 @@ public class Jobs {
                 java.util.Optional<com.communityos.api.billing.application.RefundService> refunds, com.communityos.api.comms.adapter.LiveHub live,
                 java.util.Optional<com.communityos.api.comms.adapter.PushDelivery> pushes, com.communityos.api.billing.application.PaymentReconciler recon,
                 com.communityos.api.billing.application.LateFeeService lateFees, com.communityos.api.docs.application.FileService files,
-                com.communityos.api.site.application.SiteService site, com.communityos.api.maintenance.application.TicketService tickets) {
-        this.recon = recon; this.lateFees = lateFees; this.files = files; this.site = site; this.tickets = tickets;
+                com.communityos.api.site.application.SiteService site, com.communityos.api.maintenance.application.TicketService tickets,
+                com.communityos.api.maintenance.application.PlannedWorksService planned) {
+        this.planned = planned; this.recon = recon; this.lateFees = lateFees; this.files = files; this.site = site; this.tickets = tickets;
         this.channels = channels; this.simulatedBank = simulatedBank; this.refunds = refunds; this.live = live; this.pushes = pushes;
         this.outbox = outbox; this.webhooks = webhooks; this.payments = payments; this.platformJdbc = platformJdbc; this.gate = gate; this.notices = notices; this.attendance = attendance; this.reports = reports;
     }
@@ -87,6 +89,13 @@ public class Jobs {
     @Scheduled(fixedDelayString = "${cos.jobs.sla-delay:900000}", initialDelay = 110000)
     public void alertOverdueTickets() {
         perCommunity("ticket SLA", SLA_DUE, "ticket SLA alerts", (system) -> tickets.alertOverdue(system));
+    }
+
+    /** Communities with an active planned-works checklist (each is checked against its own period and due day by the service). */
+    static final String PLANNED_DUE = "SELECT DISTINCT community_id FROM maintenance.checklist WHERE active";
+    @Scheduled(fixedDelayString = "${cos.jobs.planned-delay:1800000}", initialDelay = 130000)
+    public void remindPlannedWorks() {
+        perCommunity("planned works", PLANNED_DUE, "planned works reminders", (system) -> planned.remind(system));
     }
 
     /** Communities with an active report schedule (each one is checked against its own time and day). */
