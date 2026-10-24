@@ -878,7 +878,7 @@ const CUSTOM = {
         if (next.createdByRole && next.createdByRole !== p.roleId) return deny('Ticket creator mismatch');
         return residentTicketCreate(p, next, schema);
       }
-      const base = onlyKeys(old, next, ['description', 'attachments', 'photos', 'hasPhotos', 'preferredTime', 'residentRating', 'status', 'cancelledAt', 'cancelledBy', 'affectedUnits', 'location'], 'Residents');
+      const base = onlyKeys(old, next, ['description', 'attachments', 'photos', 'hasPhotos', 'preferredTime', 'residentRating', 'status', 'cancelledAt', 'cancelledBy', 'cancelReason', 'affectedUnits', 'location'], 'Residents');
       if (!base.ok) return base;
       if (next.status !== old.status) {
         // the owner confirms finished work: Completed -> Closed

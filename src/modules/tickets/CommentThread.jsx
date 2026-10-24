@@ -87,9 +87,11 @@ export default function CommentThread({ comments, ticketId, author, authorRoleId
       {canPost && (
         <form onSubmit={submit} className="composer">
           <RichTextEditor value={body} onChange={setBody} placeholder={internal ? 'Add an internal note…' : 'Message the team…'} minHeight={44} maxHeight={160} onEnter={(html) => submit(null, html)} />
+          <button type="button" className={`btn secondary chat-attach${attachOpen || pending.length ? ' on' : ''}`} data-testid="chat-attach" aria-label="Attach files" title="Attach files" onClick={() => setAttachOpen((x) => !x)}>📎{pending.length ? ` ${pending.length}` : ''}</button>
           <button type="submit" className="btn send" disabled={busy}>{busy ? 'Posting…' : 'Post'}</button>
         </form>
       )}
+      {canPost && (attachOpen || pending.length > 0) && <div className="chat-files-pick"><AttachmentPicker pending={pending} onChange={setPending} /></div>}
     </div>
   );
 }

@@ -11,7 +11,7 @@ import { tell } from '../../lib/net/activity.js';
 import { isEmptyHtml } from '../../lib/richtext/sanitize.js';
 import { TICKET_CATEGORIES } from '../../lib/schema/registry.js';
 import { uuid } from '../../lib/uuid.js';
-import { assigneesForCategory, isInternalType, pickAssignee, todayIso } from './ticketEngine.js';
+import { assigneesForCategory, isInternalType, todayIso } from './ticketEngine.js';
 
 const OPEN = ['Submitted', 'Under review'];
 const STATUSES = ['Submitted', 'Under review', 'Planned', 'Done', 'Declined'];
@@ -249,8 +249,7 @@ function ConvertDialog({ wish: w, cfg, save, onClose, onDone }) {
     if (!sla || sla < todayIso()) { setErr('SLA due must be today or a future date'); return; }
     setBusy(true);
     let status = 'Open'; let who = '';
-    if (needsPick) { status = 'Assigned'; who = assignedTo; }
-    else { const a = pickAssignee(handymen, tickets, category); if (a) { status = 'Assigned'; who = a.name; } }
+    if (needsPick) { status = 'Assigned'; who = assignedTo; }   // otherwise it joins the category's queue (the next free technician takes it)
     const votes = (w.votes || []).length;
     const ticket = await saveTicket({
       taskType: typeName, title: w.title, unit: w.unit || 'Common area', category, subCategory: '', priority, status, assignedTo: who, slaDueAt: sla,

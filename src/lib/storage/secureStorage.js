@@ -12,7 +12,7 @@ import { runQuery } from './queryEngine.js';
 import { getPrincipal, getSchema } from '../security/principal.js';
 import { lockError, setLock } from '../finance/lock.js';
 import { authorizeWrite, setSecondStepRoles, setFinalCanDecideEC, canReadCollection, maskRecord, hiddenFieldKeys, rowScope, blockWriteOk, AuthzError, META_KEYS, prepareWrite, staysInScope, shapeForReader, isAdmin, isResident } from '../security/authz.js';
-import { pickAssignee } from '../../modules/tickets/ticketEngine.js';
+import { dispatchCategory, isQueueType } from '../ticketQueue.js';
 import { diffRecords, snapshotRecord, logChange } from '../audit/auditLog.js';
 import { notifyAfterWrite } from '../notifyExtra.js';
 import { notifyTicketChange, notifyApprovalNeeded, notifyInvoiceChange } from '../notifications.js';
@@ -152,8 +152,8 @@ async function residentTicketStart(record) {
   const types = await storage.list(COLLECTIONS.TASK_TYPES);
   const tt = types.find((t) => t.name === record.taskType);
   if (!tt || !(tt.creatorScope === 'Resident' || tt.residentDefault)) return { error: 'Raise this request with a resident request type' };
-  const who = pickAssignee(await storage.list(COLLECTIONS.HANDYMEN), [], record.category);
-  return { record: { ...record, status: who ? 'Assigned' : 'Open', assignedTo: who ? who.name : '', paymentStatus: 'Not Paid', awaitingParts: false, materialsCost: 0, residentRating: 0 } };
+  // it joins its category's queue; the next free technician is given it after it is saved (dispatchCategory)
+  return { record: { ...record, status: 'Open', assignedTo: '', paymentStatus: 'Not Paid', awaitingParts: false, materialsCost: 0, residentRating: 0 } };
 }
 // Bulk writes skip the per-record server steps (prices, votes, ticket rules, money): these collections are saved one record at a time.
 const NO_BULK = new Set([COLLECTIONS.AMENITIES, COLLECTIONS.BALLOTS, COLLECTIONS.VOTE_ROLL, COLLECTIONS.BALLOT_BOX, COLLECTIONS.POLL_VOTES, COLLECTIONS.MEETINGS,
@@ -280,7 +280,10 @@ const localSecure = {
         const coordIds = new Set((coverage.find((c) => c.category === (record.category ?? old?.category))?.coordinator || []));
         const inEcGroup = (r) => coordIds.has('group:EC') && allRoles.find((x) => x.id === r)?.category === 'EC';
         const coordinators = users.filter((u) => u.status !== 'Inactive' && [u.roleId, ...(u.extraRoleIds || [])].some((r) => coordIds.has(r) || inEcGroup(r))).map((u) => u.name);
-        const pool = new Set([...ec.map((r) => r.personName || r.roleTitle), ...coordinators]);
+        // ...and anyone signed in through an EC role (an EC member asking for a payment is given the task themselves)
+        const ecRoleIds = new Set(allRoles.filter((x) => x.category === 'EC').map((x) => x.id));
+        const ecUsers = users.filter((u) => u.status !== 'Inactive' && [u.roleId, ...(u.extraRoleIds || [])].some((r) => ecRoleIds.has(r))).map((u) => u.name);
+        const pool = new Set([...ec.map((r) => r.personName || r.roleTitle), ...coordinators, ...ecUsers, ...(p && ecRoleIds.has(p.roleId) && record.assignedTo === p.name ? [p.name] : [])]);
         if (!pool.has(record.assignedTo)) await denied(collection, isNew ? 'Create' : 'Update', record, 'Internal tasks can only be assigned to EC members or the coordinators of the task\'s category - not vendors, owners or residents');
       }
     }
@@ -356,8 +359,22 @@ const localSecure = {
       try { await syncDuePayment(stamped, { nextShortId }); } catch (e) { console.warn('ledger sync failed', e); }
     }
     if (collection === COLLECTIONS.FINANCE_SETTINGS) setLock(stamped.lockedUntil);
+    // maintenance tickets: a new one, or one that freed its technician (done, on hold, cancelled, handed back), moves its category's queue;
+    // a technician coming on shift takes the oldest waiting ticket of their trade
+    let fresh = saved;
+    try {
+      if (collection === COLLECTIONS.TICKETS && (isNew || old.status !== stamped.status || old.assignedTo !== stamped.assignedTo || old.category !== stamped.category)) {
+        const tt = (await storage.list(COLLECTIONS.TASK_TYPES)).find((t) => t.name === stamped.taskType);
+        if (isQueueType(tt)) {
+          await dispatchCategory(stamped.category);
+          if (old && old.category !== stamped.category) await dispatchCategory(old.category);
+          fresh = (await storage.get(collection, id)) || saved;
+        }
+      }
+      if (collection === COLLECTIONS.HANDYMEN && stamped.clockedIn && !old?.clockedIn) await dispatchCategory(stamped.trade);
+    } catch (e) { console.warn('dispatch failed', e); }
     notify(collection);
-    return shape(saved);
+    return shape(fresh);
   },
 
   /** Bulk create (statement import): authorised once, written in one go, one audit line for the whole batch. */

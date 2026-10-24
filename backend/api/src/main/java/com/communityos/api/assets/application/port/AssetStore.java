@@ -25,4 +25,6 @@ public interface AssetStore {
     /** The entry, and the asset's condition and last inspection when this is its latest news. */
     ConditionEntry recordCondition(Asset a, LocalDate date, String condition, String source, String note, UUID ticketId, boolean latest);
     boolean ticketExists(UUID ticketId);
+    /** A service visit done on `day`: the last service date moves to it; the next one to `next` (or is cleared when it is now before the visit). */
+    void serviced(UUID assetId, LocalDate day, LocalDate next);
 }

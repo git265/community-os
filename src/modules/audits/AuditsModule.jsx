@@ -213,7 +213,7 @@ export default function AuditsModule() {
   const tab = ATABS.some((t) => t.key === tabRaw) ? tabRaw : ATABS[0]?.key;
   return (
     <div data-testid="audits-page">
-      <div className="page-head"><div><h1>Audits</h1><p>{resident ? 'Results of the periodic audits the committee has published.' : 'Periodic audits of the STP, WTP, pool, fire safety and more - every result is kept so you can see how things change.'}</p></div>
+      <div className="page-head"><div><h1>Audits</h1><p>{resident ? 'Results of the periodic audits the committee has published.' : 'Independent inspections and certificates of the STP, WTP, pool, fire safety and more - every result is kept so you can see how things change. AMC and service visits are logged on the asset itself (Utilities & Assets), and the AMC contract on the vendor.'}</p></div>
         {canWrite && <button className="btn" data-testid="record-audit" onClick={() => setForm({ record: null })}>+ Record audit</button>}</div>
       {!resident && <MoneyTiles items={[
         { label: 'Areas audited', value: byArea.length }, { label: 'Overdue', value: overdue, tone: overdue ? 'red' : '' }, { label: 'Due in 30 days', value: soon, tone: soon ? 'orange' : '' }, { label: 'Last audit failed', value: fails, tone: fails ? 'red' : '' },

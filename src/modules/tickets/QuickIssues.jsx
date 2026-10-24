@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 
 /**
- * "Common issues" for a resident request: one line until opened, then a wrapping grid (no sideways scrolling - works on a phone).
+ * "Common issues" for a resident request: one line until opened (or open from the start: defaultOpen), then a wrapping grid (no sideways
+ * scrolling - works on a phone).
  * Picking one fills the form and folds the list again.
  */
-export default function QuickIssues({ phrases, emoji = {}, onPick }) {
-  const [open, setOpen] = useState(false);
+export default function QuickIssues({ phrases, emoji = {}, onPick, defaultOpen = false }) {
+  const [open, setOpen] = useState(defaultOpen);
   const [picked, setPicked] = useState('');
   return (
     <div className="field" style={{ gridColumn: '1 / -1' }} data-testid="quick-issues">

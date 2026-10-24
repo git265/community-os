@@ -13,16 +13,7 @@ export function tradeFromRoleName(name) {
 
 // Ticket numbers (TKT-1058) are issued by secureStorage on create - see nextShortId there.
 
-/**
- * Auto-assign only when exactly one person is allocated to the category (and is clocked in).
- * With several people in a category nobody is picked for them: the ticket stays Open and one of them assigns it explicitly
- * (to themselves or a colleague); see canTakeOver for the later hand-over rule.
- */
-export function pickAssignee(handymen, tickets, category) {
-  const team = handymen.filter((h) => h.trade === category);
-  if (team.length !== 1) return null;
-  return team[0].clockedIn ? team[0] : null;
-}
+// Who a new maintenance ticket goes to (the next free technician of its category, or the queue): src/lib/ticketQueue.js and the server.
 
 /** Staff allocated to a category (the team that shares its queue). */
 export const teamFor = (handymen, category) => handymen.filter((h) => h.trade === category);

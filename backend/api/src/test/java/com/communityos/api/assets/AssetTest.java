@@ -108,5 +108,6 @@ class AssetTest {
             return new ConditionEntry(UUID.randomUUID(), "ILG-1", a.id(), a.name(), date, condition, source, note, ticketId, null, null);
         }
         @Override public boolean ticketExists(UUID ticketId) { return true; }
+        @Override public void serviced(UUID assetId, java.time.LocalDate day, java.time.LocalDate next) { }
     }
 }

@@ -30,7 +30,35 @@ import java.util.UUID;
  */
 public final class ReleaseService {
     public record ReleaseEvent(String topic, UUID aggregateId, CommunityId communityId, UUID ticketId, UUID expenseId, UUID raisedBy, BigDecimal amount, String status, Instant occurredAt) implements DomainEvent {}
-    public record NewRelease(UUID ticketId, UUID expenseId, String kind, BigDecimal amount, String vendor, String note) {}
+    /** payMode / payTo: how the payee is to be paid (UPI, Bank transfer, Cash, Cheque) and their UPI id or account details. */
+    public record NewRelease(UUID ticketId, UUID expenseId, String kind, BigDecimal amount, String vendor, String note, String payMode, String payTo) {
+        public NewRelease(UUID ticketId, UUID expenseId, String kind, BigDecimal amount, String vendor, String note) { this(ticketId, expenseId, kind, amount, vendor, note, null, null); }
+    }
+    static final List<String> PAY_MODES = List.of("UPI", "Bank transfer", "Cash", "Cheque");
+    static String payMode(String m) {
+        String v = blank(m);
+        if (v != null && !PAY_MODES.contains(v)) throw new DomainException.RuleViolated("bad-pay-mode", "Pay by UPI, Bank transfer, Cash or Cheque");
+        return v;
+    }
+    static String payTo(String t) {
+        String v = blank(t);
+        if (v != null && v.length() > 300) throw new DomainException.RuleViolated("bad-pay-to", "The UPI id or account details: up to 300 characters");
+        return v;
+    }
+    /** An EC member (or the Super Admin) asking: they speak for the EC. */
+    static boolean ecMember(Caller c) { return c.isSuperAdmin() || c.category() == Caller.Category.EC; }
+    /**
+     * An EC member asking for a release on a task gives the EC's say with it: when the step waiting is the EC's, their request is recorded as
+     * that approval, and the release goes straight on to the next step (the Treasurer or the other final approvers).
+     */
+    private com.communityos.api.approval.domain.Plan ecAsks(Caller c, com.communityos.api.approval.domain.Plan plan) {
+        if (plan == null || c.membership() == null || c.isSuperAdmin() || c.category() != Caller.Category.EC) return plan;   // a committee member, not the platform's admin
+        var p = plan.position();
+        if (p.state() != com.communityos.api.approval.domain.Plan.State.PENDING) return plan;
+        if (p.step().approvers().stream().noneMatch((a) -> "group".equals(a.kind()) && "EC members".equals(a.value()))) return plan;
+        if (approvals.settings().approvers().whyNot(plan, c, null) != null) return plan;
+        return plan.decide(c.membership().toString(), c.displayName(), clock.instant(), "Approved", "Asked for by " + c.displayName() + " - counts as the EC approval", false);
+    }
     static final BigDecimal TOLERANCE = new BigDecimal("0.50");
 
     private final FinanceStore store; private final TaskMoney money; private final ApprovalSettings approvals; private final CashBookService cash; private final DomainEvents events;
@@ -55,10 +83,11 @@ public final class ReleaseService {
         return tx.inTx(() -> {
             Books.Release r = new Books.Release();
             r.ticketId = n.ticketId(); r.expenseId = n.expenseId(); r.kind = n.kind() == null ? "Release" : n.kind(); r.amount = Books.r2(n.amount()); r.vendor = blank(n.vendor()); r.note = blank(n.note());
-            r.raisedById = c.membership() == null ? null : c.membership().value(); r.raisedBy = c.displayName();
+            r.raisedById = c.membership() == null ? null : c.membership().value(); r.raisedBy = c.displayName(); r.payMode = payMode(n.payMode()); r.payTo = payTo(n.payTo());
             if (!List.of("Release", "Against quotation", "Against invoice", "Advance", "Stage", "Final").contains(r.kind)) throw new DomainException.RuleViolated("bad-kind", "Release, Against quotation, Against invoice, Advance, Stage or Final");
-            within(r, null);
+            within(c, r, null);
             r.plan = Policy.build(approvals.policies(), new Policy.Context(cultural ? "Cultural release" : "Maintenance release", r.amount, null, null, List.of()), clock.instant());
+            if (!cultural) r.plan = ecAsks(c, r.plan);
             r.mirror();
             store.insert(r);
             done(c, r, "finance.release.raised", AuditWriter.Action.Create, "Release of " + r.amount.toPlainString() + " raised");
@@ -87,7 +116,8 @@ public final class ReleaseService {
         });
     }
     /** Change a rejected release (or one nobody has decided on yet) - it is sent for approval again. */
-    public Books.Release change(Caller c, UUID id, long version, String kind, BigDecimal amount, String vendor, String note) {
+    public Books.Release change(Caller c, UUID id, long version, String kind, BigDecimal amount, String vendor, String note) { return change(c, id, version, kind, amount, vendor, note, null, null); }
+    public Books.Release change(Caller c, UUID id, long version, String kind, BigDecimal amount, String vendor, String note, String payMode, String payTo) {
         return tx.inTx(() -> {
             Books.Release r = current(id, version);
             if (!FinancePolicy.raisesRelease(c, r.expenseId != null)) throw new AccessDenied("You cannot change releases");
@@ -96,9 +126,13 @@ public final class ReleaseService {
             if (kind != null) r.kind = kind;
             if (amount != null) r.amount = Books.r2(amount);
             r.vendor = blank(vendor); r.note = blank(note);
-            within(r, r.id);
+            if (payMode != null) r.payMode = payMode(payMode);
+            if (payTo != null) r.payTo = payTo(payTo);
+            within(c, r, r.id);
             r.status = "Waiting approval";
             r.plan = Policy.build(approvals.policies(), new Policy.Context(r.expenseId != null ? "Cultural release" : "Maintenance release", r.amount, null, null, List.of()), clock.instant());
+            if (r.expenseId == null) r.plan = ecAsks(c, r.plan);
+            r.mirror();
             if (!store.update(r)) throw new DomainException.Conflict("Release " + r.shortId);
             done(c, r, rejected ? "finance.release.resubmitted" : "finance.release.changed", AuditWriter.Action.Update, "Release " + r.shortId + " changed");
             return store.release(id).orElseThrow();
@@ -138,11 +172,15 @@ public final class ReleaseService {
     }
 
     /** What may still be released: on a task, what is open on its approved quotation / invoice; on an event expense, its amount less live releases. */
-    private void within(Books.Release r, UUID self) {
+    private void within(Caller c, Books.Release r, UUID self) {
         BigDecimal mine = self == null ? BigDecimal.ZERO : store.release(self).filter((x) -> !List.of("Rejected", "Cancelled").contains(x.status)).map((x) -> x.amount).orElse(BigDecimal.ZERO);
         if (r.ticketId != null) {
             TaskMoney.Position p = money.position(r.ticketId);
-            if (p.cap().amount().signum() <= 0) throw new DomainException.RuleViolated("not-approved", "Nothing is approved on this task yet - its quotation or invoice needs approval first");
+            if (p.cap().amount().signum() <= 0) {
+                // nothing approved yet: an EC member may still ask (their request is the EC's approval, the next step decides); others wait for the quotation or invoice
+                if (ecMember(c)) return;
+                throw new DomainException.RuleViolated("not-approved", "Nothing is approved on this task yet - its quotation or invoice needs approval first");
+            }
             BigDecimal open = p.remaining() == null ? BigDecimal.ZERO : p.remaining().amount().add(mine);
             if (r.amount.compareTo(open.add(TOLERANCE)) > 0) throw new DomainException.RuleViolated("over-approved", "Only " + open.toPlainString() + " is still open on the approved amount");
         } else {

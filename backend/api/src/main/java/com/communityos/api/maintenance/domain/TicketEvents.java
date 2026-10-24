@@ -35,6 +35,11 @@ public final class TicketEvents {
     public record TicketOverdue(UUID ticketId, CommunityId communityId, MembershipId assigneeId, LocalDate dueOn, String status, Instant occurredAt) implements DomainEvent {
         @Override public String topic() { return "maintenance.ticket.overdue"; } @Override public UUID aggregateId() { return ticketId; }
     }
+    /** A reminder: work not started in time (kind start) or taking too long (kind fix); stage 1 to the technician, stage 2 also to the facility manager. */
+    public record TicketNudged(UUID ticketId, CommunityId communityId, MembershipId assigneeId, String shortId, String title, String category, String assigneeName, String kind, int stage,
+                               long minutes, Instant occurredAt) implements DomainEvent {
+        @Override public String topic() { return "maintenance.ticket.nudged"; } @Override public UUID aggregateId() { return ticketId; }
+    }
     public record CommentAdded(UUID ticketId, UUID commentId, CommunityId communityId, String visibility, Instant occurredAt) implements DomainEvent {
         @Override public String topic() { return "maintenance.ticket.commented"; } @Override public UUID aggregateId() { return ticketId; }
     }

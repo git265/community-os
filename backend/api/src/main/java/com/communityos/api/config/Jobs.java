@@ -92,6 +92,13 @@ public class Jobs {
     }
 
     /** Communities with an active planned-works checklist (each is checked against its own period and due day by the service). */
+    /** maintenance tickets to dispatch or remind about: a queue waiting, or work given out (assigned / in progress) */
+    static final String DISPATCH_DUE = "SELECT DISTINCT community_id FROM maintenance.ticket WHERE status IN ('Open', 'Assigned', 'In Progress')";
+    @Scheduled(fixedDelayString = "${cos.jobs.dispatch-delay:60000}", initialDelay = 50000)
+    public void dispatchTickets() {
+        perCommunity("ticket dispatch", DISPATCH_DUE, "ticket dispatch", (system) -> tickets.dispatchAll(system));
+    }
+
     static final String PLANNED_DUE = "SELECT DISTINCT community_id FROM maintenance.checklist WHERE active";
     @Scheduled(fixedDelayString = "${cos.jobs.planned-delay:1800000}", initialDelay = 130000)
     public void remindPlannedWorks() {

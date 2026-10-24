@@ -7,6 +7,8 @@ import { SegTabs, MoneyTiles } from '../../components/ui.jsx';
 import Modal from '../../components/Modal.jsx';
 import Combobox from '../../components/Combobox.jsx';
 import { AREAS, MODES, areaOf, routingMap, recordPayment, suggestMatches, applyMatch, undoMatch, gstCheck, GST_NOW } from '../../lib/paymentEngine.js';
+import { PayeeView } from '../approval/Payee.jsx';
+import PaymentRequest from '../approval/PaymentRequest.jsx';
 import { invoiceApproval } from '../tickets/ticketEngine.js';
 import { liveDebits, taskMoney, grossOf } from '../../lib/approval/moneyGuard.js';
 import SectionPage from '../../components/SectionPage.jsx';
@@ -102,7 +104,8 @@ export function PayDialog({ initial = {}, accounts, routing, onClose, onDone }) 
   function pickLink(v) {
     setAck(false);
     const o = options.find((x) => x.value === v);
-    setF((x) => ({ ...x, link: v, ...(o ? { amount: (o.taskRef && o.type !== 'release' && tm0(o) != null ? Math.min(Number(o.amount) || tm0(o), tm0(o)) : o.amount) || x.amount, vendor: o.vendor || x.vendor, description: x.description || o.label, ...(o.gst ? { gstMode: o.gst.mode, gstRate: o.gst.rate } : {}) } : {}) }));
+    const payBy = o?.release?.payMode && MODES.includes(o.release.payMode) ? { mode: o.release.payMode } : {};   // how the asker said the payee is paid
+    setF((x) => ({ ...x, link: v, ...payBy, ...(o ? { amount: (o.taskRef && o.type !== 'release' && tm0(o) != null ? Math.min(Number(o.amount) || tm0(o), tm0(o)) : o.amount) || x.amount, vendor: o.vendor || x.vendor, description: x.description || o.label, ...(o.gst ? { gstMode: o.gst.mode, gstRate: o.gst.rate } : {}) } : {}) }));
   }
   const vendorRec = vendorRows.find((v) => v.name === f.vendor);
   const gst = gstCheck({ amount: f.amount, mode: f.gstMode, rate: f.gstRate, date: f.date, area: f.area, text: `${f.description} ${picked?.label || ''} ${picked?.text || ''} ${f.vendor}`, gstin: vendorRec?.gstin, vendor: f.vendor ? vendorRec?.name || f.vendor : undefined, billedGst: picked?.gst?.billed || undefined });
@@ -195,6 +198,7 @@ export function PayDialog({ initial = {}, accounts, routing, onClose, onDone }) 
               {picked.expense?.status && <span>Status: {picked.expense.status}</span>}
               {tm && tm.cap > 0 && picked.type !== 'release' && <span data-testid="pay-limit">Still payable: <b>{inr(Math.max(0, tm.remaining))}</b> of {inr(tm.cap)} ({tm.basis.toLowerCase()} · {inr(tm.committed)} already released or paid)</span>}
             </div>
+            <PayeeView release={picked.release} />
           </div>
         )}
         <div className="field"><label>Amount (₹) *</label><input type="number" aria-label="Amount" min="0" value={f.amount} onChange={(e) => set('amount', e.target.value)} /></div>
@@ -313,7 +317,7 @@ function Pay({ accounts, routing, ledger, onPaid, onOpenTask, onNavigate }) {
   const { records: abs } = useCollection(C.ASSOC_BILLS, 'Association Utility Bills');
   const { records: dgf } = useCollection(C.DG_FUEL_LOGS, 'DG Fuel Log');
   const assocN = [...ecs.filter((b) => b.status !== 'Paid').map((b) => `elec:${b.id}`), ...abs.map((b) => `assoc:${b.id}`), ...dgf.map((b) => `dgfuel:${b.id}`)].filter((k) => !paidIds.has(k) && !skips.some((s) => s.sourceId === k)).length;
-  const { tabAllowed } = useApp();
+  const { tabAllowed, role } = useApp();
   const okSec = (k) => tabAllowed(`pay.s.${k}`);
   const firstSec = (culturalN && okSec('cultural') ? 'cultural' : maintN && okSec('maintenance') ? 'maintenance' : ['cultural', 'maintenance', 'assoc', 'collections', 'all'].find(okSec)) || 'all';
   const sec = pick && okSec(pick) ? pick : firstSec;
@@ -324,6 +328,7 @@ function Pay({ accounts, routing, ledger, onPaid, onOpenTask, onNavigate }) {
           <h3 style={{ margin: 0, flex: 1 }}>Payments</h3>
           {canPay && <button className="btn secondary" data-testid="recurring-open" onClick={() => setAux('recurring')}>🔁 Recurring bills</button>}
           {canPay && <button className="btn secondary" data-testid="income-open" onClick={() => setAux('income')}>＋ Other income</button>}
+          {role?.category === 'EC' && <button className="btn secondary" data-testid="payreq-open" onClick={() => setAux('request')}>＋ Payment request</button>}
           <button className="btn" data-testid="new-payment" onClick={() => setDlg({})}>+ New payment</button>
         </div>
         <p className="muted" style={{ marginBottom: 0 }}>Approved items wait below, by area, for you to pay. Each payment stays linked to its record and GST.</p>
@@ -361,6 +366,7 @@ function Pay({ accounts, routing, ledger, onPaid, onOpenTask, onNavigate }) {
       </div>
       {aux === 'recurring' && <RecurringDialog onClose={() => setAux('')} />}
       {aux === 'income' && <IncomeDialog accounts={accounts} onClose={() => setAux('')} onDone={() => { setAux(''); onPaid(); }} />}
+      {aux === 'request' && <PaymentRequest onClose={() => setAux('')} onDone={() => { setAux(''); setPick('maintenance'); onPaid(); }} />}
       {dlg && <PayDialog initial={dlg} accounts={accounts} routing={routing} onClose={() => setDlg(null)} onDone={() => { setDlg(null); onPaid(); }} />}
     </div>
   );

@@ -9,6 +9,7 @@ import { liveDebits, grossOf, paymentBlock } from '../../lib/approval/moneyGuard
 import { reversePayment } from '../../lib/paymentEngine.js';
 import { money } from '../../lib/locale.js';
 import Tabs from '../../components/Tabs.jsx';
+import { PayeeView } from '../approval/Payee.jsx';
 
 const inr = (n) => money(n, { round: false });
 const tone = (v) => (v === 'Approved' ? 'green' : v === 'Rejected' ? 'red' : 'orange');
@@ -122,6 +123,7 @@ export default function FinancialTasks({ onOpenTask, onPay }) {
                     <>
                       <small className="muted">Release {r.rel.shortId} · {r.rel.vendor} · {inr(r.rel.amount)}{r.rel.note ? ` · ${r.rel.note}` : ''} · </small>
                       <span className={`tag ${st.tone}`}>{st.label}</span>{' '}
+                      {r.bucket === 'todo' && <span onClick={(e) => e.stopPropagation()}><PayeeView release={r.rel} /></span>}
                     </>
                   ) : inv ? (
                     <>

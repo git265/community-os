@@ -96,6 +96,8 @@ public final class Books {
         public UUID id; public String shortId; public UUID ticketId; public String ticketShortId; public UUID expenseId; public String kind = "Release"; public BigDecimal amount; public String vendor;
         public String note; public String status = "Waiting approval"; public String cancelReason; public UUID cancelledById; public Instant cancelledAt; public UUID raisedById; public String raisedBy;
         public Plan plan; public Instant paidAt; public UUID paidEntryId; public Instant createdAt; public long version;
+        /** how the payee is to be paid: UPI / Bank transfer / Cash / Cheque, and their UPI id or account details (a QR code is a file on the release) */
+        public String payMode; public String payTo;
         public void mirror() { if (plan != null && "Waiting approval".equals(status)) status = plan.rejected() ? "Rejected" : plan.approved() ? "Approved" : "Waiting approval"; }
     }
     public static final class PayRequest {

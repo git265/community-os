@@ -8,7 +8,7 @@ import { useApp, useCollection } from '../../context/AppContext.jsx';
 import { COLLECTIONS } from '../../lib/storage/index.js';
 import { TICKET_CATEGORIES } from '../../lib/schema/registry.js';
 import { uuid } from '../../lib/uuid.js';
-import { assigneesForCategory, creatableTaskTypes, isInternalType, pickAssignee, todayIso } from '../tickets/ticketEngine.js';
+import { assigneesForCategory, creatableTaskTypes, isInternalType, todayIso } from '../tickets/ticketEngine.js';
 import { isEmptyHtml } from '../../lib/richtext/sanitize.js';
 
 const plainDays = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
@@ -59,8 +59,7 @@ export default function AssetTaskDialog({ asset, source = '', onClose, onDone, i
     setBusy(true);
     try {
       let status = 'Open'; let who = '';
-      if (needsPick) { status = 'Assigned'; who = assignedTo; }
-      else { const a = pickAssignee(handymen, tickets, category); if (a) { status = 'Assigned'; who = a.name; } }
+      if (needsPick) { status = 'Assigned'; who = assignedTo; }   // otherwise it joins the category's queue (the next free technician takes it)
       const id = uuid();
       const metas = pending.length ? await persistPending(pending, { ownerType: 'ticket', ownerId: id }) : [];
       if (!metas) { setBusy(false); return; }

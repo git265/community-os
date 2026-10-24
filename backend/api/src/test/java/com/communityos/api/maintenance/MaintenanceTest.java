@@ -99,7 +99,26 @@ class MaintenanceTest {
         public Position position(UUID ticketId) { return money[0]; }
         public com.communityos.api.shared.domain.Money paidOn(UUID documentId) { return com.communityos.api.shared.domain.Money.ZERO; }
     };
-    TicketService svc() { return new TicketService(repo, comments, dir, taskMoney, Fixtures.events(List.of(), outbox), new Fixtures.Audit(), Tx.direct(), clock); }
+    /** dispatch over the rows: Ravi (on shift when plumberClockedIn) and Sam (off) are the plumbers; busy = holding an Assigned / In Progress ticket */
+    boolean samClockedIn = false;
+    final com.communityos.api.maintenance.application.port.DispatchStore dispatch = new com.communityos.api.maintenance.application.port.DispatchStore() {
+        int busy(MembershipId m) { return (int) rows.values().stream().filter((t) -> m.equals(t.assignee()) && (t.status() == TicketStatus.ASSIGNED || t.status() == TicketStatus.IN_PROGRESS)).count(); }
+        public List<com.communityos.api.maintenance.domain.Dispatch.Tech> techs(String category) {
+            if (!category.equals("Plumbing")) return List.of();
+            return List.of(new com.communityos.api.maintenance.domain.Dispatch.Tech(plumber.membership(), "Ravi Plumber", plumberClockedIn, busy(plumber.membership()), null, null),
+                new com.communityos.api.maintenance.domain.Dispatch.Tech(plumber2.membership(), "Sam Plumber", samClockedIn, busy(plumber2.membership()), null, null));
+        }
+        public void lock(String category) { }
+        public List<UUID> queued(String category, int limit) {
+            return rows.values().stream().filter((t) -> t.status() == TicketStatus.OPEN && t.assignee() == null && t.category().equals(category) && t.taskType().queue()).map(Ticket::id).limit(limit).toList();
+        }
+        public List<String> queuedCategories() { return rows.values().stream().filter((t) -> t.status() == TicketStatus.OPEN && t.assignee() == null && t.taskType().queue()).map(Ticket::category).distinct().toList(); }
+        public List<UUID> offShiftAssigned() { return List.of(); }
+        public List<Active> active() { return List.of(); }
+        public boolean claim(UUID ticket, String kind, int stage, java.time.Instant since) { return true; }
+        public List<Row> queueView(String category, java.time.Instant since) { return List.of(); }
+    };
+    TicketService svc() { return new TicketService(repo, comments, dir, taskMoney, dispatch, Fixtures.events(List.of(), outbox), new Fixtures.Audit(), Tx.direct(), clock); }
 
     Ticket leak(Caller who) { return svc().raise(who, new TicketService.RaiseTicket(null, "Leak in kitchen", "Water under the sink", null, "Unit", null, "Plumbing", null, "High", null, null)); }
 
@@ -124,6 +143,32 @@ class MaintenanceTest {
         assertThrows(DomainException.class, () -> leak(fm), "no default task type a Facility Manager may raise");
         Ticket internal = svc().raise(fm, new TicketService.RaiseTicket(PURCHASE.id(), "Replace DG battery", null, null, "Community", "DG room", "MEP", null, null, null, LocalDate.of(2026, 11, 1)));
         assertEquals(TicketStatus.OPEN, internal.status(), "direct-assign types are never auto-assigned");
+    }
+
+    @Test void aBusyPlumberLeavesTheNextTicketInTheQueueAndTakesItWhenDone() {
+        plumberClockedIn = true;
+        Ticket first = leak(owner);
+        assertEquals(plumber.membership(), first.assignee(), "Ravi is free: the first leak is his");
+        Ticket second = leak(owner);
+        assertEquals(TicketStatus.OPEN, second.status(), "Ravi is busy and Sam is off shift: the second waits in the queue");
+        Ticket started = svc().changeStatus(plumber, first.id(), first.version(), TicketStatus.IN_PROGRESS, null);
+        assertEquals(TicketStatus.OPEN, rows.get(second.id()).status(), "still busy while the first is in progress");
+        svc().changeStatus(plumber, first.id(), started.version(), TicketStatus.COMPLETED, null);
+        assertEquals(TicketStatus.ASSIGNED, rows.get(second.id()).status(), "the first done: the next in the queue goes to Ravi");
+        assertEquals(plumber.membership(), rows.get(second.id()).assignee());
+        Ticket third = leak(owner);
+        samClockedIn = true;
+        assertEquals(1, svc().dispatchAll(com.communityos.api.shared.security.SystemCaller.of(owner.community(), "ticket dispatch")), "Sam clocks in: the job gives him the waiting one");
+        assertEquals(plumber2.membership(), rows.get(third.id()).assignee());
+        var free = new com.communityos.api.maintenance.domain.Dispatch.Tech(plumber.membership(), "B", true, 0, java.time.Instant.parse("2026-10-01T10:00:00Z"), null);
+        var idle = new com.communityos.api.maintenance.domain.Dispatch.Tech(plumber2.membership(), "A", true, 0, java.time.Instant.parse("2026-10-01T08:00:00Z"), null);
+        assertEquals("A", com.communityos.api.maintenance.domain.Dispatch.next(List.of(free, idle)).orElseThrow().name(), "the one waiting longest since a job");
+        var lim = com.communityos.api.maintenance.domain.Dispatch.Limits.of(null, null);
+        java.time.Instant at = java.time.Instant.parse("2026-10-01T10:00:00Z");
+        assertTrue(com.communityos.api.maintenance.domain.Dispatch.due("Assigned", at, null, lim, at.plusSeconds(29 * 60)).isEmpty(), "30 minutes to start");
+        assertEquals(1, com.communityos.api.maintenance.domain.Dispatch.due("Assigned", at, null, lim, at.plusSeconds(31 * 60)).orElseThrow().stage());
+        assertEquals(2, com.communityos.api.maintenance.domain.Dispatch.due("Assigned", at, null, lim, at.plusSeconds(61 * 60)).orElseThrow().stage(), "twice that: the facility manager too");
+        assertEquals("fix", com.communityos.api.maintenance.domain.Dispatch.due("In Progress", at, at, lim, at.plusSeconds(4 * 3600)).orElseThrow().kind());
     }
 
     @Test void twoPlumbersOnDutyMeansNobodyIsPickedAndTheyTakeItFromTheQueue() {
@@ -153,7 +198,7 @@ class MaintenanceTest {
         assertEquals(TicketStatus.CLOSED, closed.status());
         assertThrows(AccessDenied.class, () -> svc().changeStatus(fm, t.id(), closed.version(), TicketStatus.OPEN, null), "only the EC reopens");
         Ticket reopened = svc().changeStatus(treasurer, t.id(), closed.version(), TicketStatus.OPEN, null);
-        assertEquals(1, reopened.state().reopenCount); assertNull(reopened.assignee());
+        assertEquals(1, reopened.state().reopenCount); assertEquals(plumber.membership(), reopened.assignee(), "reopened: back in the queue, and the free plumber takes it");
         assertThrows(DomainException.class, () -> svc().changeStatus(owner, t.id(), reopened.version(), TicketStatus.CANCELLED, " "), "a reason");
         Ticket cancelled = svc().changeStatus(owner, t.id(), reopened.version(), TicketStatus.CANCELLED, "fixed it myself");
         assertEquals("fixed it myself", cancelled.state().cancelReason);

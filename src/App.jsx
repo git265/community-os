@@ -7,6 +7,7 @@ import { runAutoItc } from './lib/finance/itc.js';
 import { startInlineErrors } from './lib/inlineErrors.js';
 import { runBallotReminders, runSlaAlerts } from './lib/notifyExtra.js';
 import { runPlannedReminders } from './lib/plannedWorks.js';
+import { runTicketDispatch } from './lib/ticketQueue.js';
 import { runReportSchedules } from './lib/reports/run.js';
 import { runRecurringBills, runAutoLateFees } from './lib/finance/rules.js';
 import { pageOpen } from './lib/access/tabs.js';
@@ -294,7 +295,7 @@ function Shell() {
     ensureUtilityTypes().catch(() => {});
     const run = () => (jobsRunning ||= runJobsOnce().finally(() => { jobsRunning = null; }));
     // in order (bills before late fees before reminders), but each job on its own: one failing job does not skip the rest
-    const JOBS = [['amenities', runAmenityScheduler], ['recurring bills', runRecurringBills], ['late fees', runAutoLateFees], ['due reminders', runDueReminders], ['ballot reminders', runBallotReminders], ['ticket SLA alerts', runSlaAlerts], ['input credit', runAutoItc], ['report schedules', runReportSchedules], ['planned works', runPlannedReminders]];
+    const JOBS = [['amenities', runAmenityScheduler], ['recurring bills', runRecurringBills], ['late fees', runAutoLateFees], ['due reminders', runDueReminders], ['ballot reminders', runBallotReminders], ['ticket SLA alerts', runSlaAlerts], ['input credit', runAutoItc], ['report schedules', runReportSchedules], ['planned works', runPlannedReminders], ['ticket dispatch', runTicketDispatch]];
     const runJobsOnce = async () => {
       for (const [name, job] of JOBS) {
         try { await job(); } catch (e) { console.warn(`Background job "${name}" failed:`, e?.name || 'Error', e?.status || e?.code || ''); } // no message: it can carry names or units

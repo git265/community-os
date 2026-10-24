@@ -932,7 +932,7 @@ test('finance: a payment is POSTed (taxes are the server\'s), corrected by rever
   assert.deepEqual(last('POST', /\/reverse$/).body, { reason: 'twice' }); assert.equal(rv.reversalOf, 'CB-1');
   await assert.rejects(storage.remove('ledger', e.id), /reverse it/);
   const rel = await storage.put('releases', { ticketId: '00000000-0000-4000-8000-00000000aaaa', kind: 'Against invoice', amount: 3000, vendor: 'Aqua', status: 'Waiting approval', plan: '' });
-  assert.deepEqual(last('POST', /^\/finance\/releases$/).body, { ticketId: '00000000-0000-4000-8000-00000000aaaa', expenseId: null, kind: 'Against invoice', amount: 3000, vendor: 'Aqua', note: null });
+  assert.deepEqual(last('POST', /^\/finance\/releases$/).body, { ticketId: '00000000-0000-4000-8000-00000000aaaa', expenseId: null, kind: 'Against invoice', amount: 3000, vendor: 'Aqua', note: null, payMode: null, payTo: null });
   state.releases[0].status = 'Approved';
   const paidLine = await storage.put('ledger', { date: '2026-10-21', type: 'Debit', amount: 3000, description: 'Release', sourceType: 'release', sourceId: rel.id, mode: 'UPI', ref: 'U1' });
   assert.deepEqual(last('POST', /\/releases\/[^/]+\/pay$/).body, { mode: 'UPI', ref: 'U1', date: '2026-10-21' }); assert.equal(paidLine.sourceType, 'release');

@@ -298,7 +298,7 @@ class PostgresFlowTest {
             var planCodec = new com.communityos.api.approval.application.PlanCodec(json);
             var qrepo = new com.communityos.api.maintenance.adapter.JdbcQuotationRepository(app, planCodec);
             var trepo = new com.communityos.api.maintenance.adapter.JdbcTicketRepository(app, json);
-            com.communityos.api.maintenance.application.TicketService ticketSvc = new com.communityos.api.maintenance.application.TicketService(trepo, mdir, mdir, qrepo, events, audit, app, clock);
+            com.communityos.api.maintenance.application.TicketService ticketSvc = new com.communityos.api.maintenance.application.TicketService(trepo, mdir, mdir, qrepo, new com.communityos.api.maintenance.adapter.JdbcDispatchStore(app), events, audit, app, clock);
             var leak = as(ownerC, () -> ticketSvc.raise(ownerC, new com.communityos.api.maintenance.application.TicketService.RaiseTicket(null, "Leak in kitchen", "Under the sink", null, "Unit", null, "Plumbing", null, "High", null, null)));
             assertEquals("TKT-1051", leak.shortId()); assertEquals("Assigned", leak.status().label(), "the one clocked-in plumber got it");
             assertEquals(new MembershipId(plumberMember), leak.assignee());
@@ -362,6 +362,27 @@ class PostgresFlowTest {
             assertEquals("Closed", owner.sql("SELECT status FROM maintenance.ticket WHERE id = '" + leak.id() + "'").get(0).get("status"));
             assertEquals(1, as(plumberC, () -> ticketSvc.list(plumberC, new com.communityos.api.maintenance.application.port.TicketRepository.Filter(null, false, null, null, null, new MembershipId(plumberMember), null), PageQuery.of(50, 0))).total());
 
+            // ---- 6b2. dispatch: the free plumber takes a new ticket; with him busy the next one waits in the Plumbing queue; reminders when work is not started in time
+            var tap = as(ownerC, () -> ticketSvc.raise(ownerC, new com.communityos.api.maintenance.application.TicketService.RaiseTicket(null, "Dripping tap", null, null, "Unit", null, "Plumbing", null, "Low", null, null)));
+            assertEquals(new MembershipId(plumberMember), tap.assignee(), "the plumber is free: the tap is his");
+            var valve = as(ownerC, () -> ticketSvc.raise(ownerC, new com.communityos.api.maintenance.application.TicketService.RaiseTicket(null, "Shower valve stiff", null, null, "Unit", null, "Plumbing", null, "Low", null, null)));
+            assertEquals("Open", valve.status().label(), "the plumber is busy with the tap: the valve waits in the queue");
+            var qv = as(ownerC, () -> ticketSvc.queue(ownerC, "plumbing", 3));
+            assertEquals("Plumbing", qv.category()); assertEquals(1, qv.waiting());
+            assertEquals(Integer.valueOf(1), qv.tickets().stream().filter((qr) -> valve.shortId().equals(qr.ticketNumber())).findFirst().orElseThrow().place(), "first in line");
+            assertTrue(qv.technicians().stream().anyMatch((x) -> x.onShift() && x.busy() && tap.shortId().equals(x.working())), "the plumber is on shift, busy with the tap");
+            owner.sql("UPDATE maintenance.ticket SET assigned_at = '" + clock.instant().minusSeconds(40 * 60) + "' WHERE id = '" + tap.id() + "' RETURNING 1");
+            var djob = com.communityos.api.shared.security.SystemCaller.of(new CommunityId(cid), "ticket dispatch");
+            assertTrue(as(djob, () -> ticketSvc.dispatchAll(djob)) >= 1, "the tap was given 40 minutes ago and is not started");
+            assertEquals(0, (int) as(djob, () -> ticketSvc.dispatchAll(djob)), "a reminder once; the valve still waits (the plumber is busy)");
+            assertThrows(AccessDenied.class, () -> as(admin, () -> ticketSvc.dispatchAll(admin)), "the server's job only");
+            var plumberInbox = as(plumberC, () -> inbox.mine(plumberMember, false, 50));
+            assertTrue(plumberInbox.stream().anyMatch((n) -> n.event().equals("ticket_nudge") && n.title().equals("Not started yet · " + tap.shortId())), plumberInbox.stream().map((n) -> n.title()).toList().toString());
+            var tapNow = as(plumberC, () -> ticketSvc.get(plumberC, tap.id()));
+            var tapGo = as(plumberC, () -> ticketSvc.changeStatus(plumberC, tap.id(), tapNow.version(), com.communityos.api.maintenance.domain.TicketStatus.IN_PROGRESS, null));
+            as(plumberC, () -> ticketSvc.changeStatus(plumberC, tap.id(), tapGo.version(), com.communityos.api.maintenance.domain.TicketStatus.COMPLETED, null));
+            assertEquals(new MembershipId(plumberMember), as(admin, () -> ticketSvc.get(admin, valve.id())).assignee(), "the tap done: the valve, next in line, goes to the plumber");
+            owner.sql("DELETE FROM maintenance.ticket WHERE id IN ('" + tap.id() + "', '" + valve.id() + "') RETURNING 1");   // out of the counts below
             // ---- 6c. money on a task: quotation -> EC + final approval -> invoice over budget -> release blocks closing ----------------------------
             var docsSvc = new com.communityos.api.maintenance.application.QuotationService(trepo, qrepo, qrepo, new com.communityos.api.approval.adapter.JdbcApprovalSettings(app, json),
                 events, audit, app, clock);
@@ -1344,6 +1365,14 @@ class PostgresFlowTest {
             assertEquals("release", relEntry.sourceType); assertEquals(pump.shortId(), relEntry.taskRef);
             as(admin, () -> cashSvc.reverse(admin, relEntry.id, relEntry.version, "paid to the wrong account"));
             assertEquals("Approved", as(admin, () -> relSvc.get(admin, rel.id)).status, "its payment reversed: approved, not paid, again");
+            // an EC member asks the Treasurer directly: nothing is approved on the task yet, their request is the EC's approval, the payee is paid by UPI
+            var bulb = as(treasurer, () -> relSvc.raise(treasurer, new com.communityos.api.finance.application.ReleaseService.NewRelease(street.id(), null, "Release", new java.math.BigDecimal("450"),
+                "Sri Ganesh Electricals", "LED bulb for gate 2", "UPI", "ganesh@okicici")));
+            assertEquals("Waiting approval", bulb.status); assertEquals("UPI", bulb.payMode); assertEquals("ganesh@okicici", bulb.payTo);
+            assertEquals(1, bulb.plan.steps().get(0).approvedBy().size(), "the EC member's request counts as the EC step");
+            assertEquals("bad-pay-mode", assertThrows(DomainException.RuleViolated.class, () -> as(treasurer, () -> relSvc.raise(treasurer, new com.communityos.api.finance.application.ReleaseService.NewRelease(street.id(),
+                null, "Release", java.math.BigDecimal.TEN, "Someone", null, "Crypto", null)))).code());
+            assertEquals("Approved", as(admin, () -> relSvc.decide(admin, bulb.id, bulb.version, "Approved", null, false)).status, "the final approver's say and it can be paid");
             assertTrue(as(admin, () -> fstore.accounts()).stream().anyMatch((x) -> x.code().equals("1300")));
             assertFalse(as(admin, () -> fstore.journal(today, today, "2150")).isEmpty());
             Map<String, Object> bal3 = owner.sql("SELECT sum(debit)::text AS d, sum(credit)::text AS c FROM finance.account_balance WHERE community_id = '" + cid + "'").get(0);
@@ -1468,6 +1497,13 @@ class PostgresFlowTest {
             assertEquals("STP pump A", cond.assetName()); assertEquals(members[2], cond.byId());
             assertEquals("Needs attention", as(admin, () -> kit.get(admin, com.communityos.api.assets.AssetResources.EQUIPMENT, eqRepo, stpPump.id())).data().status(), "the condition follows its log");
             assertThrows(RuntimeException.class, () -> owner.sql("UPDATE assets.condition_log SET condition = 'Working' WHERE asset_id = '" + stpPump.id() + "' RETURNING 1"), "the log is kept as written");
+            // the AMC engineer's visit is kept on the asset: an entry in its history, its service dates move; the report is a file on the entry
+            var visit = as(admin, () -> assetSvc.serviceVisit(admin, stpPump.id(), today, "AMC visit", "Aqua Pumps", "Working", "Bearing replaced", today.plusMonths(3)));
+            assertEquals("AMC visit · Aqua Pumps", visit.source()); assertEquals("Working", visit.condition());
+            var serviced = as(admin, () -> kit.get(admin, com.communityos.api.assets.AssetResources.EQUIPMENT, eqRepo, stpPump.id())).data();
+            assertEquals(today, serviced.lastService()); assertEquals(today.plusMonths(3), serviced.nextService()); assertEquals("Working", serviced.status());
+            assertEquals("bad-kind", assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> assetSvc.serviceVisit(admin, stpPump.id(), today, "Picnic", null, null, null, null))).code());
+            assertThrows(AccessDenied.class, () -> as(ownerC, () -> assetSvc.serviceVisit(ownerC, stpPump.id(), today, "Service", null, null, null, null)), "residents do not log visits");
             var saltItem = as(admin, () -> kit.create(admin, com.communityos.api.assets.AssetResources.INVENTORY, invRepo, new com.communityos.api.assets.AssetResources.InventoryFields("Softener salt", "Chemicals", "STP store", "Kg",
                 new java.math.BigDecimal("20"), null, null, null, null, null)));
             assertEquals("Out of stock", saltItem.server("stockStatus"));
@@ -1827,6 +1863,16 @@ class PostgresFlowTest {
                 "Owner occupied", true, "Sale deed registered")));
             assertEquals(1, sold.accountsClosed()); assertEquals(List.of("Meena Iyer", "Ravi Iyer"), sold.people().stream().map(com.communityos.api.property.application.port.UnitPeople.Person::name).toList());
             assertTrue(sold.people().get(0).primary()); assertEquals("Co-owner", sold.people().get(1).relation());
+            // the unit's e-vote number: its primary owner, until an admin picks the co-owner - then only the co-owner is on a new ballot's roll
+            java.util.function.Supplier<com.communityos.api.governance.application.port.GovernanceStore.Voters> evote912 = () -> as(admin, () -> ballotSvc.voters(admin)).stream().filter((x) -> x.unitId().equals(u912)).findFirst().orElseThrow();
+            assertEquals(2, evote912.get().owners().size()); assertNull(evote912.get().chosen(), "nobody chosen: the primary owner votes");
+            assertEquals(List.of("Meena Iyer"), as(admin, () -> gstore.currentOwners()).stream().filter((e) -> e.unitId().equals(u912)).findFirst().orElseThrow().owners().stream().map(com.communityos.api.governance.domain.Governance.Owner::name).toList());
+            UUID raviOcc = evote912.get().owners().stream().filter((o) -> o.name().equals("Ravi Iyer")).findFirst().orElseThrow().occupantId();
+            assertThrows(AccessDenied.class, () -> as(ownerC, () -> ballotSvc.setVoter(ownerC, u912, raviOcc)), "the people who run ballots choose it");
+            assertEquals("not-owner", assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> ballotSvc.setVoter(admin, u912, UUID.randomUUID()))).code());
+            assertEquals(raviOcc, as(admin, () -> ballotSvc.setVoter(admin, u912, raviOcc)).chosen());
+            assertEquals(List.of("Ravi Iyer"), as(admin, () -> gstore.currentOwners()).stream().filter((e) -> e.unitId().equals(u912)).findFirst().orElseThrow().owners().stream().map(com.communityos.api.governance.domain.Governance.Owner::name).toList());
+            assertNull(as(admin, () -> ballotSvc.setVoter(admin, u912, null)).chosen(), "back to the primary owner");
             assertEquals(5, as(admin, () -> peopleSvc.people(admin, v912u, true)).size(), "everyone who lived there, with their days");
             var changes = as(admin, () -> peopleSvc.history(admin, v912u));
             assertEquals(List.of("Owner changed", "Moved out", "People changed"), changes.stream().map(com.communityos.api.property.application.port.UnitPeople.Change::kind).toList());

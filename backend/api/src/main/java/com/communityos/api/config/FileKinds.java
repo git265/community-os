@@ -73,11 +73,20 @@ public final class FileKinds {
         files.register(new OwnerKind("maintenance.checklist_round", (c, id) -> team.test(c) && status.apply(id).isPresent(),
             (c, id) -> team.test(c) && status.apply(id).filter((s) -> !"Done".equals(s)).isPresent()));
     }
+    /** a release's QR code / payment details  read: whoever sees releases (the committee, the coordinators, the accounts) · attach: those who raise them, while it waits or is approved */
+    public static void registerReleases(FileService files, org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate jdbc) {
+        java.util.function.Function<java.util.UUID, java.util.Optional<String>> status = (id) -> jdbc.query("SELECT status FROM finance.release WHERE id = CAST(:id AS uuid)",
+            java.util.Map.of("id", id.toString()), (rs, i) -> rs.getString("status")).stream().findFirst();
+        java.util.function.Predicate<com.communityos.api.shared.security.Caller> sees = (c) -> com.communityos.api.finance.application.FinancePolicy.reader(c)
+            || com.communityos.api.finance.application.FinancePolicy.raisesRelease(c, false);
+        files.register(new OwnerKind("finance.release", (c, id) -> sees.test(c) && status.apply(id).isPresent(),
+            (c, id) -> com.communityos.api.finance.application.FinancePolicy.raisesRelease(c, false) && status.apply(id).filter((s) -> s.equals("Waiting approval") || s.equals("Approved")).isPresent()));
+    }
     /** equipment, stock, DG and electricity bills, custom log entries  read: the asset readers (not residents) · attach: the asset writers
      *  audit reports  read: as the audit (residents a published one) · attach: the coordinators */
     public static void registerAssets(FileService files, org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate jdbc) {
         java.util.Map<String, String> tables = java.util.Map.of("assets.equipment", "assets.equipment", "assets.inventory", "assets.inventory_item", "assets.dg_fuel", "assets.dg_fuel_log",
-            "assets.electricity_bill", "assets.electricity_bill", "assets.log_entry", "assets.log_entry");
+            "assets.electricity_bill", "assets.electricity_bill", "assets.log_entry", "assets.log_entry", "assets.condition_log", "assets.condition_log");   // a service visit's report
         for (var t : tables.entrySet()) {
             java.util.function.Predicate<java.util.UUID> exists = (id) -> !jdbc.query("SELECT 1 AS x FROM " + t.getValue() + " WHERE id = CAST(:id AS uuid)", java.util.Map.of("id", id.toString()), (rs, i) -> 1).isEmpty();
             files.register(new OwnerKind(t.getKey(), (c, id) -> com.communityos.api.assets.application.AssetPolicy.reader(c) && exists.test(id),

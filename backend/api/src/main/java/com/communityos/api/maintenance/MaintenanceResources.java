@@ -54,7 +54,9 @@ public final class MaintenanceResources {
         });
 
     // ---- category coverage ------------------------------------------------------------------------------------------------------------------
-    public record CategoryFields(String category, List<String> subCategories, String vendor, String assetLink, List<String> coordinator, String notes) {}
+    /** startWithinMin / fixWithinHours: how soon a technician should start a ticket and how long the work should take, before the reminders (Dispatch). */
+    public record CategoryFields(String category, List<String> subCategories, String vendor, String assetLink, List<String> coordinator, String notes, Integer startWithinMin,
+                                 Integer fixWithinHours) {}
     public static final Resource<CategoryFields> CATEGORIES = new Resource<>(
         new ResourceTable<>("categoryMap", "maintenance/categories", "maintenance.category_coverage", CategoryFields.class, "r.category"),
         new ResourceRules<>() {
@@ -62,8 +64,10 @@ public final class MaintenanceResources {
             @Override public CategoryFields validate(Caller c, CategoryFields f, CategoryFields old) {
                 Checks.rule(old == null || c.isSuperAdmin() || Checks.list(f.subCategories()).equals(Checks.list(old.subCategories())), "sub-categories",
                     "Only the Super Admin changes a category's sub-categories (tasks and reports use them)");
+                Checks.rule(f.startWithinMin() == null || (f.startWithinMin() >= 5 && f.startWithinMin() <= 1440), "bad-start", "Start within: 5 to 1440 minutes");
+                Checks.rule(f.fixWithinHours() == null || (f.fixWithinHours() >= 1 && f.fixWithinHours() <= 240), "bad-fix", "Fix within: 1 to 240 hours");
                 return new CategoryFields(Checks.required(f.category(), "Category"), Checks.list(f.subCategories()), Checks.text(f.vendor(), "Vendor", 200),
-                    Checks.text(f.assetLink(), "Asset", 200), Checks.list(f.coordinator()), Checks.text(f.notes(), "Notes", 2000));
+                    Checks.text(f.assetLink(), "Asset", 200), Checks.list(f.coordinator()), Checks.text(f.notes(), "Notes", 2000), f.startWithinMin(), f.fixWithinHours());
             }
             @Override public String label(CategoryFields f) { return f.category(); }
         });

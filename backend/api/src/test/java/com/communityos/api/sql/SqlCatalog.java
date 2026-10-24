@@ -29,7 +29,7 @@ public final class SqlCatalog {
         for (String c : List.of("shared.jdbc.JdbcOutboxWriter", "shared.jdbc.JdbcAuditWriter", "shared.jdbc.JdbcIdempotencyStore", "shared.jdbc.JdbcFieldDefinitions",
                 "identity.adapter.JdbcMemberRepository", "identity.adapter.JdbcRoleCatalog", "property.adapter.JdbcUnitRepository", "property.adapter.JdbcUnitPeople", "billing.adapter.JdbcDueRepository",
                 "billing.adapter.JdbcBillingLookups", "billing.adapter.JdbcPaymentOrderRepository", "billing.adapter.JdbcPaymentRepository", "billing.adapter.JdbcJournalWriter",
-                "maintenance.adapter.JdbcTicketRepository", "maintenance.adapter.JdbcMaintenanceDirectory", "maintenance.adapter.JdbcQuotationRepository", "maintenance.adapter.JdbcPlannedWorkStore",
+                "maintenance.adapter.JdbcTicketRepository", "maintenance.adapter.JdbcMaintenanceDirectory", "maintenance.adapter.JdbcQuotationRepository", "maintenance.adapter.JdbcPlannedWorkStore", "maintenance.adapter.JdbcDispatchStore",
                 "maintenance.application.WishVotes", "approval.adapter.JdbcApprovalSettings", "amenity.adapter.JdbcBookingRepository", "amenity.adapter.JdbcAmenityCatalog",
                 "gate.adapter.JdbcGateStore", "gate.adapter.JdbcGateDirectory", "comms.adapter.JdbcInbox", "comms.adapter.JdbcCommsStore", "docs.adapter.JdbcFileRepository",
                 "docs.adapter.JdbcDocumentRepository", "cultural.adapter.JdbcCulturalStore", "finance.adapter.JdbcFinanceStore",
@@ -42,7 +42,7 @@ public final class SqlCatalog {
             CLASSES.put(c, "cos_platform");
     }
     /** fragments that are only valid once composed */
-    static final Set<String> FRAGMENTS = Set.of("JdbcRefunds.COLS", "AuditLog.TZ", "JdbcMemberRepository.SELECT", "JdbcMemberRepository.FILTER", "JdbcUnitRepository.COLUMNS", "JdbcUnitRepository.JOINS", "JdbcUnitRepository.FILTER", "JdbcUnitRepository.BY_BLOCK", "JdbcUnitRepository.INDEX", "JdbcUnitRepository.ROSTER",
+    static final Set<String> FRAGMENTS = Set.of("JdbcRefunds.COLS", "JdbcDispatchStore.QUEUE_TYPE", "AuditLog.TZ", "JdbcMemberRepository.SELECT", "JdbcMemberRepository.FILTER", "JdbcUnitRepository.COLUMNS", "JdbcUnitRepository.JOINS", "JdbcUnitRepository.FILTER", "JdbcUnitRepository.BY_BLOCK", "JdbcUnitRepository.INDEX", "JdbcUnitRepository.ROSTER",
         "JdbcDueRepository.COLUMNS", "JdbcDueRepository.FROM", "JdbcDueRepository.FILTER",
         "JdbcTicketRepository.COLUMNS", "JdbcTicketRepository.FROM", "JdbcTicketRepository.FILTER", "JdbcMaintenanceDirectory.STAFF", "JdbcMaintenanceDirectory.RECENT_COMMENTS",
         "JdbcQuotationRepository.COLUMNS", "JdbcQuotationRepository.LIVE", "JdbcBookingRepository.COLUMNS", "JdbcBookingRepository.FROM", "JdbcBookingRepository.FILTER",

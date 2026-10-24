@@ -14,8 +14,8 @@ export function SegTabs({ tabs, value, onChange, label = 'Sections', variant }) 
   return (
     <Tabs base="seg-tabs" className={variant === 'pill' ? 'pill' : ''} role="tablist" aria-label={label}>
       {tabs.filter((t) => t && !t.hidden).map((t) => (
-        <button key={t.key} type="button" role="tab" aria-selected={value === t.key} data-testid={`tab-${t.key}`}
-          className={value === t.key ? 'on' : ''} onClick={() => onChange(t.key)}>
+        <button key={t.key} type="button" role="tab" aria-selected={value === t.key} data-testid={`tab-${t.key}`} disabled={!!t.disabled} title={t.title || undefined}
+          className={value === t.key ? 'on' : ''} onClick={() => !t.disabled && onChange(t.key)}>
           {t.label}
           {t.count != null && t.count > 0 && <span className="seg-badge">{t.count}</span>}
           {t.dot && <span className="seg-dot" aria-label="needs attention" />}

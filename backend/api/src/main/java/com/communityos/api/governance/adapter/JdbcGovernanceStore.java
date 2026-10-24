@@ -73,16 +73,34 @@ public final class JdbcGovernanceStore implements GovernanceStore {
     static final String CLOSE = """
         UPDATE governance.ballot SET status = 'Closed', closed_at = CAST(:closedAt AS timestamptz), closed_by_id = CAST(:closedBy AS uuid), votes_counted = votes_cast
         WHERE id = CAST(:id AS uuid) AND version = :version AND status = 'Open' RETURNING version""";
-    /** The registered owners of each active unit now (owners and co-owners whose ownership has not ended). */
+    /** Each active unit's voter now: the owner chosen as its e-vote number, or else its primary owner (an owner whose ownership has not ended). */
     static final String OWNERS_NOW = """
         SELECT u.id AS unit_id, u.unit_no,
-               jsonb_agg(jsonb_build_object('occupantId', o.id, 'personId', o.person_id, 'name', o.full_name, 'phoneLast4', right(coalesce(o.phone_e164, p.phone_e164), 4))
+               jsonb_build_array(jsonb_build_object('occupantId', o.id, 'personId', o.person_id, 'name', o.full_name, 'phoneLast4', right(coalesce(o.phone_e164, p.phone_e164), 4))) AS owners
+        FROM property.unit u
+        JOIN LATERAL (SELECT x.* FROM property.occupant x
+                       WHERE x.community_id = u.community_id AND x.unit_id = u.id AND x.relation IN ('Owner', 'Co-owner')
+                         AND (x.to_date IS NULL OR x.to_date > current_date) AND (x.from_date IS NULL OR x.from_date <= current_date)
+                       ORDER BY (x.id = u.evote_occupant_id) DESC NULLS LAST, x.is_primary DESC, x.full_name LIMIT 1) o ON true
+        LEFT JOIN identity.person p ON p.id = o.person_id
+        WHERE u.status = 'Active' ORDER BY u.unit_no""";
+    /** Every active unit's current owners, with the one chosen as its e-vote number (the register an admin keeps). */
+    static final String VOTERS = """
+        SELECT u.id AS unit_id, u.unit_no, u.evote_occupant_id,
+               jsonb_agg(jsonb_build_object('occupantId', o.id, 'name', o.full_name, 'primary', o.is_primary, 'phoneLast4', right(coalesce(o.phone_e164, p.phone_e164), 4))
                          ORDER BY o.is_primary DESC, o.full_name) AS owners
         FROM property.unit u
         JOIN property.occupant o ON o.community_id = u.community_id AND o.unit_id = u.id
         LEFT JOIN identity.person p ON p.id = o.person_id
         WHERE u.status = 'Active' AND o.relation IN ('Owner', 'Co-owner') AND (o.to_date IS NULL OR o.to_date > current_date) AND (o.from_date IS NULL OR o.from_date <= current_date)
-        GROUP BY u.id, u.unit_no ORDER BY u.unit_no""";
+        GROUP BY u.id, u.unit_no, u.evote_occupant_id ORDER BY u.unit_no""";
+    /** Choose a unit's e-vote number: one of its current owners, or none (back to the primary owner). */
+    static final String SET_VOTER = """
+        UPDATE property.unit u SET evote_occupant_id = CAST(:occupant AS uuid), updated_at = now()
+        WHERE u.id = CAST(:unit AS uuid) AND u.status = 'Active'
+          AND (CAST(:occupant AS uuid) IS NULL OR EXISTS (SELECT 1 FROM property.occupant o WHERE o.community_id = u.community_id AND o.unit_id = u.id
+               AND o.id = CAST(:occupant AS uuid) AND o.relation IN ('Owner', 'Co-owner') AND (o.to_date IS NULL OR o.to_date > current_date)))
+        RETURNING u.unit_no""";
     static final String ELECTOR_INSERT = """
         INSERT INTO governance.ballot_elector (community_id, ballot_id, unit_id, unit_no, owners)
         VALUES (platform.current_community(), CAST(:ballot AS uuid), CAST(:unit AS uuid), :unitNo, CAST(:owners AS jsonb))""";
@@ -185,6 +203,21 @@ public final class JdbcGovernanceStore implements GovernanceStore {
         return p;
     }
     @Override public List<Governance.Elector> currentOwners() { return jdbc.query(OWNERS_NOW, Map.of(), (rs, i) -> elector(rs)); }
+    @Override public List<Voters> voters() {
+        return jdbc.query(VOTERS, Map.of(), (rs, i) -> {
+            List<VoterOwner> owners = new java.util.ArrayList<>();
+            try {
+                for (Map<String, Object> o : json.readValue(rs.getString("owners"), new com.fasterxml.jackson.core.type.TypeReference<List<Map<String, Object>>>() {}))
+                    owners.add(new VoterOwner(uuid(o.get("occupantId")), (String) o.get("name"), Boolean.TRUE.equals(o.get("primary")), (String) o.get("phoneLast4")));
+            } catch (com.fasterxml.jackson.core.JsonProcessingException e) { throw new IllegalStateException(e); }
+            UUID chosen = com.communityos.api.shared.jdbc.Rows.uuid(rs, "evote_occupant_id");
+            return new Voters(com.communityos.api.shared.jdbc.Rows.uuid(rs, "unit_id"), rs.getString("unit_no"), owners, chosen != null && owners.stream().anyMatch((o) -> chosen.equals(o.occupantId())) ? chosen : null);
+        });
+    }
+    @Override public java.util.Optional<String> setVoter(UUID unit, UUID occupant) {
+        java.util.Map<String, Object> p = new java.util.HashMap<>(); p.put("unit", unit.toString()); p.put("occupant", occupant == null ? null : occupant.toString());
+        return jdbc.query(SET_VOTER, p, (rs, i) -> rs.getString("unit_no")).stream().findFirst();
+    }
     @Override public boolean open(Governance.Ballot b, List<Governance.Elector> roll) {
         Map<String, Object> p = new HashMap<>();
         p.put("id", b.id.toString()); p.put("version", b.version); p.put("rollHash", b.rollHash); p.put("openedAt", s(b.openedAt)); p.put("openedBy", s(b.openedById));

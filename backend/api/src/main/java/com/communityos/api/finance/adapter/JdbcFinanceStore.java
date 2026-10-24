@@ -55,7 +55,7 @@ public final class JdbcFinanceStore implements FinanceStore {
     // ---- releases ------------------------------------------------------------------------------------------------------------------------------
     static final String RELEASE_COLUMNS = """
         SELECT r.id, r.short_id, r.ticket_id, t.short_id AS ticket_no, r.expense_id, r.kind, r.amount, r.vendor, r.note, r.status, r.cancel_reason, r.cancelled_by_id, r.cancelled_at,
-               r.raised_by_id, m.display_name AS raised_by, r.plan, r.paid_at, r.paid_entry_id, r.created_at, r.version
+               r.raised_by_id, m.display_name AS raised_by, r.plan, r.paid_at, r.paid_entry_id, r.created_at, r.version, r.pay_mode, r.pay_to
         FROM finance.release r LEFT JOIN maintenance.ticket t ON t.community_id = r.community_id AND t.id = r.ticket_id
         LEFT JOIN identity.membership m ON m.community_id = r.community_id AND m.id = r.raised_by_id""";
     static final String RELEASES = RELEASE_COLUMNS + """
@@ -64,12 +64,12 @@ public final class JdbcFinanceStore implements FinanceStore {
         ORDER BY r.created_at DESC LIMIT 2000""";
     static final String RELEASE = RELEASE_COLUMNS + "\nWHERE r.id = CAST(:id AS uuid)";
     static final String RELEASE_INSERT = """
-        INSERT INTO finance.release (community_id, id, ticket_id, ticket_short_id, expense_id, kind, amount, vendor, note, status, requested_by, raised_by_id, plan, settled)
+        INSERT INTO finance.release (community_id, id, ticket_id, ticket_short_id, expense_id, kind, amount, vendor, note, status, requested_by, raised_by_id, plan, settled, pay_mode, pay_to)
         VALUES (platform.current_community(), CAST(:id AS uuid), CAST(:ticket AS uuid), (SELECT t.short_id FROM maintenance.ticket t WHERE t.id = CAST(:ticket AS uuid)), CAST(:expense AS uuid),
-                :kind, :amount, :vendor, :note, :status, :requestedBy, platform.current_actor(), :plan, false)
+                :kind, :amount, :vendor, :note, :status, :requestedBy, platform.current_actor(), :plan, false, :payMode, :payTo)
         RETURNING short_id, version, created_at""";
     static final String RELEASE_UPDATE = """
-        UPDATE finance.release SET kind = :kind, amount = :amount, vendor = :vendor, note = :note, status = :status, plan = :plan, cancel_reason = :cancelReason,
+        UPDATE finance.release SET kind = :kind, amount = :amount, vendor = :vendor, note = :note, status = :status, plan = :plan, cancel_reason = :cancelReason, pay_mode = :payMode, pay_to = :payTo,
                cancelled_by_id = CAST(:cancelledBy AS uuid), cancelled_at = CAST(:cancelledAt AS timestamptz), paid_at = CAST(:paidAt AS timestamptz), paid_entry_id = CAST(:paidEntry AS uuid),
                settled = :settled
         WHERE id = CAST(:id AS uuid) AND version = :version RETURNING version""";
@@ -189,14 +189,14 @@ public final class JdbcFinanceStore implements FinanceStore {
         if (r.id == null) r.id = UUID.randomUUID();
         Map<String, Object> p = new HashMap<>();
         p.put("id", r.id.toString()); p.put("ticket", s(r.ticketId)); p.put("expense", s(r.expenseId)); p.put("kind", r.kind); p.put("amount", r.amount); p.put("vendor", r.vendor);
-        p.put("note", r.note); p.put("status", r.status); p.put("requestedBy", r.raisedBy); p.put("plan", plans.write(r.plan));
+        p.put("note", r.note); p.put("status", r.status); p.put("requestedBy", r.raisedBy); p.put("plan", plans.write(r.plan)); p.put("payMode", r.payMode); p.put("payTo", r.payTo);
         jdbc.query(RELEASE_INSERT, p, (rs, i) -> { r.shortId = rs.getString("short_id"); r.version = rs.getLong("version"); r.createdAt = Rows.instant(rs, "created_at"); return null; });
     }
     @Override public boolean update(Books.Release r) {
         Map<String, Object> p = new HashMap<>();
         p.put("id", r.id.toString()); p.put("version", r.version); p.put("kind", r.kind); p.put("amount", r.amount); p.put("vendor", r.vendor); p.put("note", r.note); p.put("status", r.status);
         p.put("plan", plans.write(r.plan)); p.put("cancelReason", r.cancelReason); p.put("cancelledBy", s(r.cancelledById)); p.put("cancelledAt", s(r.cancelledAt));
-        p.put("paidAt", s(r.paidAt)); p.put("paidEntry", s(r.paidEntryId)); p.put("settled", "Paid".equals(r.status));
+        p.put("paidAt", s(r.paidAt)); p.put("paidEntry", s(r.paidEntryId)); p.put("settled", "Paid".equals(r.status)); p.put("payMode", r.payMode); p.put("payTo", r.payTo);
         List<Long> v = jdbc.query(RELEASE_UPDATE, p, (rs, i) -> rs.getLong("version"));
         if (v.isEmpty()) return false;
         r.version = v.get(0); return true;
@@ -290,6 +290,7 @@ public final class JdbcFinanceStore implements FinanceStore {
         r.cancelReason = rs.getString("cancel_reason"); r.cancelledById = Rows.uuid(rs, "cancelled_by_id"); r.cancelledAt = Rows.instant(rs, "cancelled_at"); r.raisedById = Rows.uuid(rs, "raised_by_id");
         r.raisedBy = rs.getString("raised_by"); r.plan = rs.getString("plan") == null || rs.getString("plan").isBlank() ? null : plans.read(rs.getString("plan")); r.paidAt = Rows.instant(rs, "paid_at");
         r.paidEntryId = Rows.uuid(rs, "paid_entry_id"); r.createdAt = Rows.instant(rs, "created_at"); r.version = rs.getLong("version");
+        r.payMode = rs.getString("pay_mode"); r.payTo = rs.getString("pay_to");
         return r;
     }
     static Books.PayRequest pay(ResultSet rs) throws SQLException {

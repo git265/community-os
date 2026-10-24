@@ -26,6 +26,12 @@ public interface GovernanceStore {
     boolean deleteBallot(UUID id, long version);
     /** The units that have a registered owner now (Owner / Co-owner, current), with those owners. */
     List<Governance.Elector> currentOwners();
+    /** A unit's current owners and the one chosen as its e-vote number (null: the primary owner votes). */
+    record VoterOwner(UUID occupantId, String name, boolean primary, String phoneLast4) {}
+    record Voters(UUID unitId, String unitNo, List<VoterOwner> owners, UUID chosen) {}
+    List<Voters> voters();
+    /** Choose a unit's e-vote number (null: back to the primary owner); the unit number when it was set, empty when the owner is not a current one. */
+    java.util.Optional<String> setVoter(UUID unit, UUID occupant);
     /** Freeze the roll and open the ballot (status, fingerprint, who and when). */
     boolean open(Governance.Ballot b, List<Governance.Elector> roll);
     List<Governance.Elector> roll(UUID ballotId);

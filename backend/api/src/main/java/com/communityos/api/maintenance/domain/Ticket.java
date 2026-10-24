@@ -152,7 +152,7 @@ public final class Ticket extends AggregateRoot {
     public State state() { return s; }
     public UUID id() { return s.id; } public String shortId() { return s.shortId; } public TicketStatus status() { return s.status; } public TaskType taskType() { return s.taskType; }
     public UnitId unit() { return s.unit; } public BlockId block() { return s.block; } public String scope() { return s.scope; } public String category() { return s.category; }
-    public MembershipId assignee() { return s.assignee; } public MembershipId raisedBy() { return s.raisedBy; } public Instant createdAt() { return s.createdAt; }
+    public MembershipId assignee() { return s.assignee; } public MembershipId raisedBy() { return s.raisedBy; } public Instant createdAt() { return s.createdAt; } public String assigneeName() { return s.assigneeName; }
     public boolean community() { return "Community".equals(s.scope); }
     public boolean financial() { return s.financial; } public Approval approval() { return s.approval; } public String title() { return s.title; }
     /** Shortened numbers for logs; never used for decisions. */

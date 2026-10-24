@@ -61,15 +61,34 @@ const rand = (bytes) => [...crypto.getRandomValues(new Uint8Array(bytes))].map((
 
 /* ----------------------------------------------------------- electorate -- */
 const last4 = (s) => String(s || '').replace(/\D/g, '').slice(-4);
-/** Everyone who may vote: one entry per unit that has a registered owner. */
+/** The owner who votes for a unit (its e-vote number): the one an admin chose (evoteOwner), or else the primary owner. */
+export const unitVoter = (p) => { const owners = ownersOf(p); return owners.find((o) => sameName(o.name, p.evoteOwner)) || owners[0] || null; };
+/** Everyone who may vote: one entry per unit that has a registered owner - the unit's voter only (tenants and family contacts never vote). */
 export function buildRoll(properties) {
   return properties
     .filter((p) => p.unit && p.owner)
     .map((p) => {
-      const owners = ownersOf(p); // primary + additional owners; tenants and family contacts never vote in owner ballots
-      return { unit: p.unit, owners: owners.map((o) => o.name), phones: Object.fromEntries(owners.map((o) => [o.name, last4(o.phone)])), phoneLast4: last4(p.ownerPhone) };
+      const v = unitVoter(p);
+      return { unit: p.unit, owners: [v.name], phones: { [v.name]: last4(v.phone) }, phoneLast4: last4(v.phone) };
     })
     .sort((a, b) => String(a.unit).localeCompare(String(b.unit), undefined, { numeric: true }));
+}
+/** The e-vote numbers for the register: [{ unitId, unit, owners: [{ id, name, primary, phoneLast4 }], chosen }] (chosen null: the primary owner). */
+export async function evoteVoters(properties = []) {
+  if (getDataSource().mode === 'v2') return evote.voters();
+  return properties.filter((p) => p.unit && p.owner).map((p) => {
+    const owners = ownersOf(p).map((o, i) => ({ id: o.name, name: o.name, primary: i === 0, phoneLast4: last4(o.phone) }));
+    const chosen = owners.find((o) => !o.primary && sameName(o.name, p.evoteOwner))?.id || null;
+    return { unitId: p.id, unit: p.unit, owners, chosen };
+  }).sort((a, b) => String(a.unit).localeCompare(String(b.unit), undefined, { numeric: true }));
+}
+/** Choose a unit's e-vote number (null: back to the primary owner). */
+export async function setEvoteVoter(unitId, ownerId, properties = []) {
+  if (getDataSource().mode === 'v2') return evote.setVoter(unitId, ownerId);
+  const { secureStorage } = await import('./storage/secureStorage.js');
+  const p = properties.find((x) => x.id === unitId) || await secureStorage.get(C.PROPERTIES, unitId);
+  if (!p) throw new Error('Unit not found');
+  return secureStorage.put(C.PROPERTIES, { ...p, evoteOwner: ownerId || '' }, { summaryOf: () => `E-vote number of ${p.unit}: ${ownerId || 'primary owner'}`, label: 'Properties' });
 }
 export const rollHash = (roll) => sha256Hex(JSON.stringify(roll));
 const sameName = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();

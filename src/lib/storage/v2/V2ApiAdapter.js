@@ -270,6 +270,14 @@ const liveTickets = withFiles({
   get: async () => null,
 }, 'maintenance.ticket', 'attachments', photos);
 export async function liveTicketsV2() { return revs(await liveTickets.list()); }
+/** An AMC / service visit on an asset (POST /assets/{id}/service-visits); its report files, uploaded first, are then attached to the entry. */
+export async function serviceVisitV2(assetId, body, fileIds = []) {
+  const e = await call(`/assets/${encodeURIComponent(assetId)}/service-visits`, json('POST', body));
+  for (const id of fileIds.filter(isUuid)) await call(`/files/${id}/attach`, json('POST', { ownerType: 'assets.condition_log', ownerId: e.id }));
+  return e;
+}
+/** A category's queue (GET /tickets/queue): who is on shift and busy, its tickets of the last days in the order received (other homes' anonymised). */
+export async function ticketQueueV2(category, days = 3) { return call(`/tickets/queue?category=${encodeURIComponent(category)}&days=${encodeURIComponent(days)}`); }
 const liveOnly = (params) => Array.isArray(params?.filters?.status) && params.filters.status.length > 0 && params.filters.status.every((x) => TICKET_LIVE.includes(x));
 readers.ticketComments = withFiles(readers.ticketComments, 'maintenance.comment', 'attachments');
 readers.quotations = withFiles(readers.quotations, 'maintenance.quotation', 'attachments');
@@ -281,6 +289,7 @@ const ASSET_FILES = { equipment: ['assets.equipment', 'files'], inventory: ['ass
   electricityBills: ['assets.electricity_bill', 'billFile'], audits: ['assets.audit', 'report'], logEntries: ['assets.log_entry', 'attachments'] };
 for (const [c, [owner, field]] of Object.entries(ASSET_FILES)) readers[c] = withFiles(readers[c], owner, field);
 readers.checklistRounds = withFiles(readers.checklistRounds, 'maintenance.checklist_round', 'photos');   // a planned works round's photos
+readers.infraLog = withFiles(readers.infraLog, 'assets.condition_log', 'reports');   // a service visit's report
 // report schedules: units and people by id on the server, by unit number and name in the app
 async function peopleIndex() { const ms = await all('/members'); return { idByName: Object.fromEntries(ms.map((m) => [m.displayName, m.id])), nameById: Object.fromEntries(ms.map((m) => [m.id, m.displayName])) }; }
 const scheduleReader = readers.reportSchedules;
@@ -313,6 +322,9 @@ export async function runReportNow(scheduleId) { return call(`/reports/schedules
 export const evote = {
   async request(ballot, unitNo) { const r = await call(`/governance/ballots/${ballot.id}/code`, json('POST', { unitId: voteUnit(ballot, unitNo) })); return { code: r.code || '', phoneLast4: r.phoneLast4 || '' }; },
   async verify(ballot, unitNo, code) { return (await call(`/governance/ballots/${ballot.id}/code/verify`, json('POST', { unitId: voteUnit(ballot, unitNo), code: String(code || '').trim() }))).proof; },
+  /** The e-vote numbers: every unit's current owners and the one who votes for it (chosen: null = the primary owner). */
+  async voters() { return ((await call('/governance/voters')) || []).map((v) => ({ unitId: v.unitId, unit: v.unitNo, chosen: v.chosen || null, owners: (v.owners || []).map((o) => ({ id: o.occupantId, name: o.name, primary: !!o.primary, phoneLast4: o.phoneLast4 || '' })) })); },
+  async setVoter(unitId, ownerId) { return call(`/governance/voters/${encodeURIComponent(unitId)}`, json('PUT', { occupantId: ownerId || null })); },
 };
 readers.attendance = { list: async () => (await many('/workforce/attendance')).map(attendanceOf) }; readers.attendance.get = byId(readers.attendance.list);
 readers.workforce = { list: async () => (await many('/workforce/teams')).map(teamOf) }; readers.workforce.get = byId(readers.workforce.list);
@@ -367,6 +379,7 @@ readers.culturalExpenses = {
 const orEmpty = (f) => async (...a) => { try { return await f(...a); } catch (e) { if (e instanceof AuthzError) return []; throw e; } };
 readers.ledger = { list: orEmpty(async () => (await many('/finance/cash-book')).map(ledgerOf)), get: async (id) => { if (!isUuid(id)) return null; const e = await call(`/finance/cash-book/${id}`); return e && ledgerOf(e); } };
 readers.releases = { list: orEmpty(async () => (await many('/finance/releases')).map(releaseOf)), get: async (id) => { if (!isUuid(id)) return null; const r = await call(`/finance/releases/${id}`); return r && releaseOf(r); } };
+readers.releases = withFiles(readers.releases, 'finance.release', 'payQr');   // the payee's QR code to scan
 readers.payRequests = { list: orEmpty(async () => (await many('/finance/pay-requests')).map(payRequestOf)) }; readers.payRequests.get = byId(readers.payRequests.list);
 readers.bankTxns = { list: orEmpty(async () => (await many('/finance/bank-lines')).map(bankTxnOf)) }; readers.bankTxns.get = byId(readers.bankTxns.list);
 // task types also say which ones this person may raise (the ticket form offers only those)
@@ -915,11 +928,11 @@ async function putLedger(rec) {
 async function putRelease(rec) {
   const before = isUuid(rec.id) ? await readers.releases.get(rec.id) : null;
   if (!before) return releaseOf(await call('/finance/releases', json('POST', { ticketId: isUuid(rec.ticketId) ? rec.ticketId : null, expenseId: isUuid(rec.expenseId) ? rec.expenseId : null,
-    kind: rec.kind || 'Release', amount: Number(rec.amount), vendor: rec.vendor || null, note: rec.note || null })));
+    kind: rec.kind || 'Release', amount: Number(rec.amount), vendor: rec.vendor || null, note: rec.note || null, payMode: rec.payMode || null, payTo: rec.payTo || null })));
   return inSteps(async () => readers.releases.get(rec.id), async (did) => {
     let version = before.version; let out = null;
     for (const cmd of releaseCommands(before, rec)) {
-      out = cmd.put ? await call(`/finance/releases/${rec.id}`, json('PUT', { kind: rec.kind || null, amount: n2v(rec.amount), vendor: rec.vendor || null, note: rec.note || null }, ifMatch(version)))
+      out = cmd.put ? await call(`/finance/releases/${rec.id}`, json('PUT', { kind: rec.kind || null, amount: n2v(rec.amount), vendor: rec.vendor || null, note: rec.note || null, payMode: rec.payMode || null, payTo: rec.payTo ?? null }, ifMatch(version)))
         : await call(`/finance/releases/${rec.id}/${cmd.path}`, json('POST', cmd.body || {}, ifMatch(version)));
       version = out.version; did(cmd.put ? 'the details' : `the ${cmd.path}`);
     }
@@ -974,6 +987,7 @@ WRITERS.vendors = attaching(WRITERS.vendors, 'vendor.vendor', 'attachments');
 WRITERS.readings = attaching(WRITERS.readings, 'billing.reading', 'photos');
 for (const [c, [owner, field]] of Object.entries(ASSET_FILES)) WRITERS[c] = attaching(WRITERS[c], owner, field);
 WRITERS.checklistRounds = attaching(WRITERS.checklistRounds, 'maintenance.checklist_round', 'photos');
+WRITERS.releases = attaching(WRITERS.releases, 'finance.release', 'payQr');   // the payee's QR code / payment details
 const warned = new Set();
 const notYet = (c) => { if (!warned.has(c)) { warned.add(c); console.info(`[v2] "${c}" is not on the v2 back end yet; showing it empty.`); } };
 

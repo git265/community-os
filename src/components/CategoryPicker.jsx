@@ -2,12 +2,20 @@ import React, { useState } from 'react';
 
 /**
  * A pick-one list that costs one line once chosen. With nothing picked it shows a compact grid of tiles (2-3 per row on a phone);
- * after a pick it folds to "🔧 Plumbing   Change". Same data as a drop-down, far less screen.
+ * after a pick it folds to "🔧 Plumbing   Change". Same data as a drop-down, far less screen. startFolded: one line even before a pick.
  * options: [{ value, label, icon? }]
  */
-export default function CategoryPicker({ options, value, onChange, label = 'Category' }) {
+export default function CategoryPicker({ options, value, onChange, label = 'Category', startFolded = false }) {
   const [open, setOpen] = useState(false);
+  const [shut, setShut] = useState(startFolded);   // folded before anything is picked (the common issues come first): one line until opened
   const picked = options.find((o) => o.value === value);
+  if (!picked && shut) {
+    return (
+      <button type="button" className="pick-folded pick-btn" data-testid="cat-folded-empty" aria-expanded="false" onClick={() => setShut(false)}>
+        <span className="pick-now">Choose a category</span><span className="link-btn">Show</span>
+      </button>
+    );
+  }
   if (picked && !open) {
     return (
       <div className="pick-folded" data-testid="cat-folded">

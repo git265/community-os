@@ -98,6 +98,15 @@ public class GovernanceController {
         return ResponseEntity.noContent().build();
     }
 
+    // ---- e-vote numbers: which owner votes for each unit (the primary owner unless an admin chose another) ------------------------------------
+    @GetMapping("/api/v1/governance/voters")
+    public List<com.communityos.api.governance.application.port.GovernanceStore.Voters> voters() { return ballots.voters(CallerHolder.require()); }
+    public record VoterRequest(UUID occupantId) {}
+    @PutMapping("/api/v1/governance/voters/{unitId}")
+    public com.communityos.api.governance.application.port.GovernanceStore.Voters setVoter(@PathVariable UUID unitId, @RequestBody VoterRequest b) {
+        return ballots.setVoter(CallerHolder.require(), unitId, b == null ? null : b.occupantId());
+    }
+
     // ---- ballots ---------------------------------------------------------------------------------------------------------------------------------
     @GetMapping("/api/v1/governance/ballots")
     public List<BallotResponse> ballots() { return ballots.list(CallerHolder.require()).stream().map(BallotResponse::of).toList(); }

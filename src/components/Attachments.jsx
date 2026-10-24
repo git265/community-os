@@ -3,7 +3,6 @@ import { screenFiles, loadFileData, isImageMeta, isVideoMeta } from '../lib/file
 import FilePreview from './FilePreview.jsx';
 import { ATTACHMENT_ACCEPT, ATTACHMENT_HELP, MAX_BYTES } from '../lib/files/fileValidation.js';
 import { tell } from '../lib/net/activity.js';
-import { usePhone } from './Tabs.jsx';
 
 const kb = (n) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 const icon = (m) => (isImageMeta(m) ? '🖼' : isVideoMeta(m) ? '🎬' : /pdf/.test(m.mime || m.name) ? '📕' : /sheet|excel|xls|csv/.test(m.mime || m.name) ? '📊' : /word|doc/.test(m.mime || m.name) ? '📘' : '📄');
@@ -44,11 +43,11 @@ export function AttachmentList({ items = [], onRemove }) {
 }
 
 /**
- * Multi-file picker. Files are screened immediately but only STORED when the parent form is saved:
- * `pending` / `onChange` is the parent's staged list.
+ * Multi-file picker: ONE "Attach files" button, everywhere in the portal. It opens the device's own chooser, which on a phone offers the
+ * camera (photo or video), the gallery and documents in one place; on a computer, any file. Files are screened at once but only
+ * STORED when the parent form is saved: `pending` / `onChange` is the parent's staged list.
  */
-export function AttachmentPicker({ pending, onChange, label = 'Add files', compact: compactProp = false }) {
-  const compact = usePhone() || compactProp;   // a phone always gets the photo / camera buttons, not the browser's file box
+export function AttachmentPicker({ pending, onChange, label = 'Attach files' }) {
   const ref = useRef(null);
   const [busy, setBusy] = useState(false);
   const [rejected, setRejected] = useState([]);
@@ -69,25 +68,11 @@ export function AttachmentPicker({ pending, onChange, label = 'Add files', compa
     if (ref.current) ref.current.value = '';
   }
 
-  /** compact (phone) mode: big "Choose photo" / "Camera" buttons drive the one hidden input; Camera asks the phone to open its camera. */
-  function open(camera) {
-    const el = ref.current;
-    if (!el) return;
-    if (camera) { el.setAttribute('capture', 'environment'); el.accept = camera === 'video' ? 'video/*' : 'image/*'; } else { el.removeAttribute('capture'); el.accept = ATTACHMENT_ACCEPT; }
-    el.click();
-  }
-
   return (
-    <div className={`file-upload${compact ? ' compact' : ''}`}>
-      <input ref={ref} type="file" multiple accept={ATTACHMENT_ACCEPT} onChange={pick} aria-label={label} style={compact ? { display: 'none' } : undefined} />
-      {compact && (
-        <div className="photo-btns">
-          <button type="button" className="btn secondary" onClick={() => open(false)}>🖼 Choose photo or video</button>
-          <button type="button" className="btn secondary" onClick={() => open(true)}>📷 Camera</button>
-          <button type="button" className="btn secondary" data-testid="att-record" onClick={() => open('video')}>🎥 Video</button>
-        </div>
-      )}
-      <div className="muted file-help" style={{ fontSize: 12, marginTop: 4 }}>{compact ? `Photos, videos, PDF or Word · max ${MAX_BYTES / 1024 / 1024} MB each (a video about 20 seconds) · scanned before upload` : `${ATTACHMENT_HELP} · max ${MAX_BYTES / 1024 / 1024} MB each (a video about 20 seconds) · checked for type, active content and viruses before upload`}</div>
+    <div className="file-upload">
+      <input ref={ref} type="file" multiple accept={ATTACHMENT_ACCEPT} onChange={pick} aria-label={label} data-testid="att-input" style={{ display: 'none' }} />
+      <button type="button" className="btn secondary att-btn" data-testid="att-attach" disabled={busy} title={label} onClick={() => ref.current?.click()}>📎 Attach files</button>
+      <div className="muted file-help" style={{ fontSize: 12, marginTop: 4 }}>Photo, video or document ({ATTACHMENT_HELP.replace(/^Images, videos, /, '')}) · max {MAX_BYTES / 1024 / 1024} MB each (a video about 20 seconds) · checked before upload</div>
       {busy && <div className="notice">🔍 Checking files…</div>}
       {rejected.map((r, i) => <div key={i} className="notice error">🚫 {r.name}: {r.reason}</div>)}
       {pending.length > 0 && (

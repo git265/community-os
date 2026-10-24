@@ -11,6 +11,7 @@ import { COLLECTIONS } from '../../lib/storage/index.js';
 import { secureStorage } from '../../lib/storage/secureStorage.js';
 import { canWriteCollection } from '../../lib/security/authz.js';
 import { getPrincipal } from '../../lib/security/principal.js';
+import ServiceVisits from '../infra/ServiceVisits.jsx';
 import { fyRange, currentFy, actualsByHead } from '../../lib/bank/analysis.js';
 import { readWorkbook } from '../../lib/files/xlsxRead.js';
 import { fmtDate, money } from '../../lib/locale.js';
@@ -397,6 +398,7 @@ export function Equipment() {
       filters={[{ key: 'area', label: 'All areas' }, { key: 'type', label: 'All types' }, { key: 'status', label: 'All conditions' }]}
       dateFields={[{ key: 'nextService', label: 'Next service' }]}
       baseSort={{ key: 'nextService', dir: 'asc' }}
+      formExtra={(rec) => (rec?.id ? <ServiceVisits asset={rec} canEdit={canWriteCollection(COLLECTIONS.EQUIPMENT, getPrincipal())} /> : null)}
     />
   );
 }

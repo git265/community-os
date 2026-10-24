@@ -154,6 +154,24 @@ public final class BallotService {
     }
 
     /** The frozen roll: every unit and whether it voted; owner names and who voted only for the managers (and a unit's own people). */
+    /** The e-vote numbers: every unit's current owners and which one votes for it (the primary owner unless an admin chose another). */
+    public List<GovernanceStore.Voters> voters(Caller c) {
+        if (!GovernancePolicy.manager(c)) throw new AccessDenied("Only the people who run ballots see the voter register");
+        return store.voters();
+    }
+    /** Choose which owner is a unit's e-vote number (null: the primary owner). Ballots already open keep the roll they froze. */
+    public GovernanceStore.Voters setVoter(Caller c, UUID unit, UUID occupant) {
+        if (!GovernancePolicy.manager(c)) throw new AccessDenied("Only the people who run ballots choose a unit's e-vote number");
+        return tx.inTx(() -> {
+            String unitNo = store.setVoter(unit, occupant).orElseThrow(() -> new com.communityos.api.shared.domain.DomainException.RuleViolated("not-owner", "Pick one of the unit's current owners"));
+            GovernanceStore.Voters v = store.voters().stream().filter((x) -> x.unitId().equals(unit)).findFirst().orElseThrow();
+            String who = v.owners().stream().filter((o) -> o.occupantId().equals(v.chosen())).map(GovernanceStore.VoterOwner::name).findFirst()
+                .orElse(v.owners().stream().filter(GovernanceStore.VoterOwner::primary).map(GovernanceStore.VoterOwner::name).findFirst().orElse("the primary owner"));
+            audit.write(c, AuditWriter.Action.Update, "property.unit", unit, unitNo, unit, "E-vote number of " + unitNo + ": " + who + (occupant == null ? " (primary owner)" : ""), List.of());
+            return v;
+        });
+    }
+
     public List<RollEntry> roll(Caller c, UUID id) {
         Ballot b = visible(c, id);
         if (b.draft()) return List.of();

@@ -27,7 +27,8 @@ export default function FileUpload({ onAccepted, onCleared, accept = DOCUMENT_AC
 
   return (
     <div className={`file-upload ${state.phase}`}>
-      <input ref={inputRef} type="file" accept={accept} onChange={pick} />
+      <input ref={inputRef} type="file" accept={accept} onChange={pick} data-testid="file-input" style={{ display: 'none' }} />
+      <button type="button" className="btn secondary att-btn" data-testid="file-attach" disabled={state.phase === 'scanning'} onClick={() => inputRef.current?.click()}>📎 {state.phase === 'ok' ? 'Choose another file' : 'Attach file'}</button>
       <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
         PDF, Excel (.xls/.xlsx), text/CSV{allowImages ? ', PNG/JPG' : ''} · max {MAX_BYTES / 1024 / 1024} MB · files are checked before upload
       </div>

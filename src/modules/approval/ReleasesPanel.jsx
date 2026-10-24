@@ -8,6 +8,9 @@ import { buildPlan } from '../../lib/approval/engine.js';
 import { parseJson } from '../../lib/approval/kit.js';
 import { releaseSummary, releaseProblem } from '../../lib/approval/releases.js';
 import { money } from '../../lib/locale.js';
+import { PayeeFields, PayeeView, ecAskPlan } from './Payee.jsx';
+import { persistPending } from '../../lib/files/attachments.js';
+import { uuid } from '../../lib/uuid.js';
 
 const inr = (n) => money(n, { round: false });
 const todayIso = () => new Date().toISOString().slice(0, 10);
@@ -25,6 +28,7 @@ export default function ReleasesPanel({ ticket, kit, open, canEC, canAsk, onSave
   const { records: ledger } = useCollection(COLLECTIONS.LEDGER, 'Payments Cross-check');
   const [dlg, setDlg] = useState(null); // 'release'
   const [f, setF] = useState({});
+  const [qr, setQr] = useState([]);   // the payee's QR code, stored when the request is sent
   const [err, setErr] = useState('');
   const sum = useMemo(() => releaseSummary(ticket, releases, docs, kit.settings.tolerancePct, ledger), [ticket, releases, docs, kit.settings.tolerancePct, ledger]);
   const mine = releases.filter((r) => r.ticketId === ticket.id).sort((a, b) => String(a.recordCreatedAt || '').localeCompare(String(b.recordCreatedAt || '')));
@@ -42,9 +46,18 @@ export default function ReleasesPanel({ ticket, kit, open, canEC, canAsk, onSave
     const msg = sum.askBlock || releaseProblem(f.amount, sum);
     if (msg) return setErr(msg);
     if (!String(f.vendor || '').trim()) return setErr('Who is the money for?');
+    if ((f.payMode === 'UPI' || f.payMode === 'Bank transfer') && !String(f.payTo || '').trim() && !qr.length) return setErr(f.payMode === 'UPI' ? 'Give the UPI id, or attach the QR code' : 'Give the account details');
     const plan = buildPlan(kit.policies, { subject: 'Maintenance release', amount: Number(f.amount), category: ticket.category, taskType: ticket.taskType, flags: [] });
-    const out = await save({ ticketId: ticket.id, ticketShortId: ticket.ticketNumber, kind, amount: Number(f.amount), vendor: f.vendor.trim(), note: f.note || '', status: 'Waiting approval', requestedBy: kit.me.name, settled: false, plan: JSON.stringify(plan) });
-    if (out) { setDlg(null); setF({}); }
+    const id = uuid();
+    const payQr = qr.length ? await persistPending(qr, { ownerType: 'release', ownerId: id }) : [];
+    if (!payQr) return;
+    const out = await save({ id, ticketId: ticket.id, ticketShortId: ticket.ticketNumber, kind, amount: Number(f.amount), vendor: f.vendor.trim(), note: f.note || '', status: 'Waiting approval', requestedBy: kit.me.name, settled: false, plan: JSON.stringify(plan),
+      payMode: f.payMode || '', payTo: String(f.payTo || '').trim(), payQr });
+    if (!out) return;
+    // an EC member's request is the EC's approval: it goes straight on to the final approvers (the server does this itself)
+    const ec = ecAskPlan(parseJson(out.plan, null) || plan, kit.me);
+    if (ec) await planSaved(out, ec);
+    setDlg(null); setF({}); setQr([]);
   }
   /** Correction: an approved release that is wrong (or no longer needed) is cancelled with a reason - it frees the amount again. */
   async function cancelRelease(r) {
@@ -86,6 +99,7 @@ export default function ReleasesPanel({ ticket, kit, open, canEC, canAsk, onSave
             <div className="quote-main">
               <div className="q-head"><b>Release{r.kind && r.kind !== 'Release' ? <small className="muted"> · {r.kind.toLowerCase()}</small> : ''}</b> <span className="quote-amt">{inr(r.amount)}</span> <span className={`tag ${r.status === 'Paid' ? 'blue' : r.status === 'Approved' ? 'green' : r.status === 'Rejected' ? 'red' : 'orange'}`}>{r.status}</span></div>
               <div className="muted">{r.shortId} · to {r.vendor}{r.note ? ` · ${r.note}` : ''} · asked by {r.requestedBy}</div>
+              {r.status !== 'Paid' && r.status !== 'Cancelled' && <PayeeView release={r} />}
               {plan && r.status !== 'Paid' && <PlanPanel title="Release approval" plan={plan} kit={kit} rec={r} open={open && r.status !== 'Approved' ? true : false} onSave={(pl) => planSaved(r, pl)} entry={r.status === 'Approved' ? null : undefined} />}
               {r.status === 'Cancelled' && <small className="muted" data-testid="release-cancelled">Cancelled{r.cancelReason ? `: ${r.cancelReason}` : ''}{r.cancelledBy ? ` — ${r.cancelledBy}` : ''}</small>}
               {r.status === 'Approved' && open && (canEC || canAsk) && <button type="button" className="link-btn" data-testid="release-cancel" onClick={() => cancelRelease(r)}>Cancel this release</button>}
@@ -97,7 +111,7 @@ export default function ReleasesPanel({ ticket, kit, open, canEC, canAsk, onSave
       {open && canAsk && sum.askBlock && <div className="notice" data-testid="release-blocked" style={{ marginTop: 8 }}>{sum.askBlock}</div>}
       {open && (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
-          {canAsk && <button type="button" className="btn secondary" data-testid="release-ask" disabled={!!sum.askBlock} title={sum.askBlock || ''} onClick={() => { setErr(''); setF({ vendor: defaultVendor || '', amount: sum.suggest || '' }); setDlg('release'); }}>+ Ask for a release</button>}
+          {canAsk && <button type="button" className="btn secondary" data-testid="release-ask" disabled={!!sum.askBlock} title={sum.askBlock || ''} onClick={() => { setErr(''); setF({ vendor: defaultVendor || '', amount: sum.suggest || '' }); setQr([]); setDlg('release'); }}>+ Ask for a release</button>}
         </div>
       )}
       {dlg === 'release' && (
@@ -106,6 +120,7 @@ export default function ReleasesPanel({ ticket, kit, open, canEC, canAsk, onSave
           <div className="form-grid">
             <div className="field"><label>Amount (₹) *</label><input type="number" min="0" data-testid="rel-amount" value={f.amount} onChange={(e) => set('amount', e.target.value)} /></div>
             <div className="field" data-testid="rel-vendor"><label>Pay to *</label><Combobox value={f.vendor || ''} onChange={(v) => set('vendor', v)} options={payeeOptions} allowCustom placeholder="Search vendors or people…" /></div>
+            <PayeeFields value={f} onChange={setF} pending={qr} onPending={setQr} />
             <div className="field" style={{ gridColumn: '1 / -1' }}><label>Note</label><textarea rows={2} data-testid="rel-note" value={f.note || ''} onChange={(e) => set('note', e.target.value)} placeholder="e.g. advance for materials, first stage" /></div>
           </div>
           <div style={{ display: 'flex', gap: 8 }}><button type="button" className="btn" data-testid="rel-save" onClick={ask}>Send for approval</button><button type="button" className="btn secondary" onClick={() => setDlg(null)}>Cancel</button></div>

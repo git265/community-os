@@ -8,7 +8,8 @@ import { COLLECTIONS } from '../../lib/storage/index.js';
 import { secureStorage } from '../../lib/storage/secureStorage.js';
 import { canWriteCollection } from '../../lib/security/authz.js';
 import { getPrincipal } from '../../lib/security/principal.js';
-import { FOR_AGAINST, buildRoll, rollHash, rollEntryFor, whyCannotVote, requestOtp, verifyOtp, tally, verifyChain, todayStr } from '../../lib/evoting.js';
+import { FOR_AGAINST, buildRoll, rollHash, rollEntryFor, whyCannotVote, requestOtp, verifyOtp, tally, verifyChain, todayStr, evoteVoters, setEvoteVoter } from '../../lib/evoting.js';
+import { getDataSource } from '../../lib/storage/dataSource.js';
 
 const STATUS_TAG = { Draft: '', Open: 'green', Closed: 'blue' };
 
@@ -168,8 +169,13 @@ export default function EVoting() {
   const { currentUser } = useApp();
   const principal = getPrincipal();
   const canManage = canWriteCollection(COLLECTIONS.BALLOTS, principal);
-  // the voter roll is built from every unit's owners: only the people who run ballots read them (a voter's roll entry is on the ballot)
-  const { records: properties } = useCollection(COLLECTIONS.PROPERTIES, 'Properties', { enabled: canManage });
+  // the voter roll is built from every unit's owners: only the people who run ballots read them (a voter's roll entry is on the ballot).
+  // On the back end the server freezes the roll itself and the register comes from GET /governance/voters, so the units are not read here.
+  const v2 = getDataSource().mode === 'v2';
+  const { records: properties } = useCollection(COLLECTIONS.PROPERTIES, 'Properties', { enabled: canManage && !v2 });
+  const [voters, setVoters] = useState(null);
+  const loadVoters = () => evoteVoters(properties).then(setVoters).catch((e) => setError(e.message));
+  useEffect(() => { if (canManage && (v2 || properties.length)) loadVoters(); }, [canManage, v2, properties]); // eslint-disable-line react-hooks/exhaustive-deps
   const [editing, setEditing] = useState(null);
   const [voting, setVoting] = useState(null);
   const [opening, setOpening] = useState(null);
@@ -203,20 +209,22 @@ export default function EVoting() {
     try { await saveBallot({ ...b, status: 'Closed' }); await refresh(); window.dispatchEvent(new CustomEvent('communityos:changed', { detail: { collection: COLLECTIONS.BALLOT_BOX } })); } catch (e) { setError(e.message); }
   }
 
-  const rollPreview = opening ? buildRoll(properties) : [];
-  const noOwner = opening ? properties.filter((p) => p.unit && !p.owner).length : 0;
+  // who will be on the roll: each unit's voter (the e-vote number chosen for it, or its primary owner)
+  const rollPreview = opening ? (v2 ? (voters || []).map(rollOf) : buildRoll(properties)) : [];
+  const noOwner = opening && !v2 ? properties.filter((p) => p.unit && !p.owner).length : 0;
 
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <div>
           <h2 style={{ margin: 0 }}>E-voting</h2>
-          <p className="muted" style={{ margin: '4px 0 0' }}>Registered owners only · one vote per villa (any registered owner of the villa may cast it) · code to your registered mobile · secret, tamper-evident ballot.</p>
+          <p className="muted" style={{ margin: '4px 0 0' }}>Registered owners only · one vote per villa, cast by its e-vote number (the primary owner unless the admin chose another owner) · code to that mobile · secret, tamper-evident ballot.</p>
         </div>
         {canManage && <button className="btn" onClick={() => setEditing(draftRecord)}>+ New ballot</button>}
       </div>
       {error && <div className="notice error" style={{ marginTop: 8 }}>{error}</div>}
-      {canManage && <VoterRegister properties={properties} />}
+      {canManage && <VoterRegister voters={voters} unitsWithout={v2 ? [] : properties.filter((p) => p.unit && !p.owner).map((p) => p.unit)}
+        onSet={async (unitId, ownerId) => { setError(''); try { await setEvoteVoter(unitId, ownerId, properties); await loadVoters(); } catch (e) { setError(e.message); } }} />}
       {sorted.length === 0 && <div className="empty">No ballots yet.</div>}
       {sorted.map((b) => (
         <BallotCard key={b.id} ballot={b} roll={roll} box={box} canManage={canManage} principal={principal}
@@ -244,15 +252,46 @@ export default function EVoting() {
   );
 }
 
-/** The registered voters today: one line per unit with a registered owner (who may vote for it, and the mobile the code goes to). */
-function VoterRegister({ properties }) {
-  const roll = buildRoll(properties);
-  const without = properties.filter((p) => p.unit && !p.owner).map((p) => p.unit).sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
+/** A register row as a roll entry: the unit's voter (the e-vote number chosen, or the primary owner) and the mobile the code goes to. */
+const rollOf = (v) => { const o = v.owners.find((x) => x.id === v.chosen) || v.owners.find((x) => x.primary) || v.owners[0]; return { unit: v.unit, owners: [o.name], phones: { [o.name]: o.phoneLast4 }, phoneLast4: o.phoneLast4 }; };
+
+/**
+ * The registered voters today, one line per unit with a registered owner: its e-vote number - the owner who votes for it and gets the code.
+ * The primary owner by default; the admin can pick another of the unit's owners. Ballots already open keep the roll they froze.
+ */
+function VoterRegister({ voters, unitsWithout = [], onSet }) {
+  const [q, setQ] = useState('');
+  const [busy, setBusy] = useState('');
+  const rows = (voters || []).filter((v) => !q || String(v.unit).toLowerCase().includes(q.toLowerCase()) || v.owners.some((o) => o.name.toLowerCase().includes(q.toLowerCase())));
+  const changed = (voters || []).filter((v) => v.chosen).length;
+  const without = [...unitsWithout].sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
   return (
     <details className="card" style={{ marginTop: 12 }} data-testid="voter-register">
-      <summary><b>Registered voters</b> <span className="muted">· {roll.length} unit{roll.length === 1 ? '' : 's'} can vote{without.length ? `, ${without.length} without a registered owner` : ''}</span></summary>
-      <p className="muted" style={{ margin: '6px 0' }}>Taken from the Unit Directory: the primary and additional owners of each unit (tenants and family contacts do not vote in owner ballots). The list is frozen into a ballot when voting opens.</p>
-      <RollTable roll={roll} />
+      <summary><b>Registered voters</b> <span className="muted">· {voters ? `${voters.length} unit${voters.length === 1 ? '' : 's'} can vote` : 'loading…'}{changed ? ` · ${changed} with another owner as e-vote number` : ''}{without.length ? `, ${without.length} without a registered owner` : ''}</span></summary>
+      <p className="muted" style={{ margin: '6px 0' }}>Each unit votes once, through its <b>e-vote number</b>: the primary owner, unless you pick another of the unit's owners here (tenants and family contacts never vote). The roll is frozen into a ballot when voting opens.</p>
+      <input aria-label="Find a unit or owner" data-testid="voter-search" placeholder="Find a unit or owner" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 280, marginBottom: 8 }} />
+      <div className="table-wrap"><table className="resp-table" data-testid="roll-table">
+        <thead><tr><th>Unit</th><th>Owners</th><th>E-vote number</th></tr></thead>
+        <tbody>{rows.slice(0, 300).map((v) => {
+          const primary = v.owners.find((o) => o.primary) || v.owners[0];
+          return (
+            <tr key={v.unitId || v.unit} style={{ cursor: 'default' }}>
+              <td data-label="Unit"><b>{v.unit}</b></td>
+              <td data-label="Owners">{v.owners.map((o) => o.name).join(', ')}</td>
+              <td data-label="E-vote number">
+                {v.owners.length < 2 ? <span>{primary.name}: {primary.phoneLast4 ? `••${primary.phoneLast4}` : 'no mobile'}</span> : (
+                  <select aria-label={`E-vote number of ${v.unit}`} data-testid="evote-pick" disabled={busy === v.unit} value={v.chosen || ''}
+                    onChange={async (e) => { setBusy(v.unit); await onSet(v.unitId, e.target.value || null); setBusy(''); }}>
+                    <option value="">{primary.name} (primary owner){primary.phoneLast4 ? ` · ••${primary.phoneLast4}` : ' · no mobile'}</option>
+                    {v.owners.filter((o) => o !== primary).map((o) => <option key={o.id} value={o.id}>{o.name}{o.phoneLast4 ? ` · ••${o.phoneLast4}` : ' · no mobile'}</option>)}
+                  </select>
+                )}
+              </td>
+            </tr>
+          );
+        })}</tbody>
+      </table></div>
+      {rows.length > 300 && <p className="muted">Showing the first 300 - search for a unit or owner.</p>}
       {without.length > 0 && <p className="muted" data-testid="no-owner">No registered owner, so cannot vote: {without.join(', ')}. Add the owner in the Unit Directory.</p>}
     </details>
   );

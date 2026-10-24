@@ -249,6 +249,8 @@ class GovernanceTest {
         boolean save(Governance.Ballot b) { Governance.Ballot o = ballots.get(b.id); if (o == null || o.version != b.version) return false; b.version++; ballots.put(b.id, copy(b)); return true; }
         @Override public boolean deleteBallot(UUID id, long version) { return ballots.remove(id) != null; }
         @Override public List<Governance.Elector> currentOwners() { return List.copyOf(owners); }
+        @Override public List<Voters> voters() { return List.of(); }
+        @Override public java.util.Optional<String> setVoter(UUID unit, UUID occupant) { return java.util.Optional.empty(); }
         @Override public boolean open(Governance.Ballot b, List<Governance.Elector> roll) { if (!save(b)) return false; rolls.put(b.id, List.copyOf(roll)); return true; }
         @Override public List<Governance.Elector> roll(UUID ballotId) { return rolls.getOrDefault(ballotId, List.of()); }
         @Override public Optional<Governance.Elector> elector(UUID ballotId, UUID unitId) { return roll(ballotId).stream().filter((e) -> e.unitId().equals(unitId)).findFirst(); }

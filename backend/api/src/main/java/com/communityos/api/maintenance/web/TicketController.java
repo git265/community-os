@@ -63,6 +63,11 @@ public class TicketController {
             assignedToMe ? c.membership() : null, q, statusIn, priority, taskType, financial, scope, order);
         return PageResponse.of(tickets.list(c, f, PageQuery.of(limit, offset)).map(TicketResponse::of));
     }
+    /** A category's queue: who is on shift and busy, its tickets of the last days in the order received (other homes' anonymised). */
+    @GetMapping("/api/v1/tickets/queue")
+    public com.communityos.api.maintenance.application.TicketService.QueueView queue(@RequestParam String category, @RequestParam(defaultValue = "3") int days) {
+        return tickets.queue(CallerHolder.require(), category, days);
+    }
     @GetMapping("/api/v1/tickets/{id}")
     public ResponseEntity<TicketResponse> get(@PathVariable UUID id) { return tagged(tickets.get(CallerHolder.require(), id), 200); }
 

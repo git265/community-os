@@ -26,6 +26,10 @@ import { SegTabs, Segmented, StatTiles, MoneyTiles } from '../../components/ui.j
 import CommentThread from './CommentThread.jsx';
 import TaskTypesPanel from './TaskTypesPanel.jsx';
 import PlannedWorks from './PlannedWorks.jsx';
+import TicketQueue, { QueueAvailability, QueuePlace } from './TicketQueue.jsx';
+import PaymentRequest from '../approval/PaymentRequest.jsx';
+import { isQueueType } from '../../lib/ticketQueue.js';
+import { tell } from '../../lib/net/activity.js';
 import Wishlist from './Wishlist.jsx';
 import AssetBackDialog from '../infra/AssetBackDialog.jsx';
 import AssetField from './AssetField.jsx';
@@ -39,7 +43,7 @@ import QuotationsPanel from './QuotationsPanel.jsx';
 import LedgerLink from './LedgerLink.jsx';
 import { usePrompt } from '../../components/PromptDialog.jsx';
 import {
-  CORE_STATUSES, tradeFromRoleName, pickAssignee, teamFor, creatableTaskTypes, stageApplies, visibleTicketsFor,
+  CORE_STATUSES, tradeFromRoleName, teamFor, creatableTaskTypes, stageApplies, visibleTicketsFor,
   withinEditWindow, isInternalType, assigneesForCategory, todayIso, approvalSteps, approvalState, slaLabel, slaInfo, finalApproverRoleIds, invoiceApproval, readyToClose, ledgerEntryForTask, visibleCommentsFor,
 } from './ticketEngine.js';
 import { uuid } from '../../lib/uuid.js';
@@ -140,34 +144,13 @@ const DRAFT_DEFAULTS = {
   priority: '', assignedTo: '', slaDueAt: '', description: '', status: '', awaitingParts: false, materialsCost: 0, residentRating: 0,
   financial: false, approvedAmount: 0, invoiceApprovalMode: 'Required', selectedQuotationId: '', selectedQuotationIds: [], selectedInvoiceId: '', approvalStage: '', paymentStatus: 'Not Paid',
   finalRequired: null, ecApproval: 'Pending', ecApprovedBy: '', ecApprovedAt: '', treasurerApproval: 'Pending', treasurerApprovedBy: '', treasurerApprovedAt: '',
-  attachments: [],
+  attachments: [], cancelReason: '',
 };
 const DRAFT_KEYS = Object.keys(DRAFT_DEFAULTS);
 function pickDraft(t, extra = []) {
   const d = {};
   [...DRAFT_KEYS, ...extra].forEach((k) => { d[k] = t?.[k] ?? DRAFT_DEFAULTS[k]; });
   return d;
-}
-
-/** Status shown as its actual movement: every status the ticket has been through, oldest first, ending at the current one. */
-function Workflow({ ticket }) {
-  const trail = Array.isArray(ticket.statusHistory) && ticket.statusHistory.length ? ticket.statusHistory : [{ status: ticket.status }];
-  // collapse repeats (e.g. Open -> Open) and keep the order the ticket really moved in
-  const steps = trail.filter((s, i) => i === 0 || s.status !== trail[i - 1].status);
-  return (
-    <div className="workflow" aria-label="Status movement">
-      {steps.map((s, i) => {
-        const last = i === steps.length - 1;
-        const when = s.at ? new Date(s.at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) : '';
-        return (
-          <React.Fragment key={i}>
-            <span className={`wf-step ${last ? 'now' : 'done'}`} title={[s.by, s.at ? new Date(s.at).toLocaleString() : ''].filter(Boolean).join(' · ')}>{last ? '' : '✓ '}{s.status}{when ? <small> · {when}</small> : null}</span>
-            {!last && <span className="wf-arrow">➜</span>}
-          </React.Fragment>
-        );
-      })}
-    </div>
-  );
 }
 
 function CoverageHint({ row, fallback, roles = [], extra = null }) {
@@ -263,8 +246,9 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
   const showTabs = !isResident && (!isHandymanRole || roleId === 'handyman_mep');
   const showWishTab = isEC || roleId === 'super_admin'; // the wishlist is the committee's: ideas it weighs, estimates and decides
   const showPlanned = !isResident && role?.category !== 'Vendor';   // planned works: the technicians fill the rounds, the FM / MEP plan them
+  const showQueue = role?.category !== 'Vendor';   // the technicians' queue: everyone (residents see other homes' tickets anonymised)
   // a role whose Tickets tab was switched off lands on the first tab it may open
-  const firstTab = ['tickets', 'planned', 'wishlist', 'coverage', 'approvers', 'types'].find((t) => tabAllowed(`tickets.${t}`)) || 'tickets';
+  const firstTab = ['tickets', 'queue', 'planned', 'wishlist', 'coverage', 'approvers', 'types'].find((t) => tabAllowed(`tickets.${t}`)) || 'tickets';
   const tab = showTabs && !tabAllowed(`tickets.${tabRaw}`) ? firstTab : tabRaw;
 
   const visibleTickets = useMemo(() => visibleTicketsFor(tickets, taskTypes, { role, currentUser }), [tickets, taskTypes, role, currentUser]);
@@ -282,6 +266,7 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
   const canEditApprovers = canWriteCollection(COLLECTIONS.APPROVER_SETTINGS, getPrincipal());
   const canPostNotice = canWriteCollection(COLLECTIONS.SERVICE_NOTICES, getPrincipal());
   const [svcAsk, setSvcAsk] = useState(0);
+  const [payReq, setPayReq] = useState(false);   // an EC member asking the Treasurer to pay (files a task and its release)
   const { records: svcNotices } = useCollection(COLLECTIONS.SERVICE_NOTICES, 'Service Notices');
   const myBlock = useMyBlock();
   const awaitingMe = useMemo(() => (canSeeFinance ? tickets.filter((t) => {
@@ -341,10 +326,7 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
         return;
       }
       if (raiseForm.assignedTo) { status = 'Assigned'; assignedTo = raiseForm.assignedTo; }
-    } else {
-      const assignee = pickAssignee(handymen, tickets, raiseForm.category);
-      if (assignee) { status = 'Assigned'; assignedTo = assignee.name; }
-    }
+    }   // a queue task joins its category's queue: the next free technician is given it when it is saved (ticketQueue.js / the server)
 
     setSubmitting(true);
     const id = uuid(); // primary key; files are attached to it before the ticket exists
@@ -383,6 +365,7 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
     });
     } catch (err) { setRaiseErrors((x) => ({ ...x, form: `Could not submit: ${err?.message || 'storage error'}` })); } finally { setSubmitting(false); }
     if (!saved) return;
+    if (ownerForm || isQueueType(tt)) tell(saved.assignedTo ? `${saved.ticketNumber || 'Your request'} is with ${saved.assignedTo}.` : `${saved.ticketNumber || 'Your request'} is in the ${saved.category} queue — the next free technician takes it.`, 'success');
     const then = raiseThen.current; raiseThen.current = null;
     setRaiseForm(blankRaiseForm());
     setRaisePending([]);
@@ -559,10 +542,12 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
     setFormError('');
     if (selectedInternal && !draft.assignedTo) { setFormError('Assigned to is required.'); return; }
     if (isEC && open && !draft.slaDueAt) { setFormError('SLA due is required.'); return; }
+    if (draft.status === 'Cancelled' && selected.status !== 'Cancelled' && !String(draft.cancelReason || '').trim()) { setFormError('Say why the ticket is cancelled.'); return; }
     setSavingTicket(true);
     let out = null; const patch = {};
     try {   // whatever happens (an upload refused, a timeout, no network), the button comes back: "Saving…" never stays
       changedKeys.forEach((k) => { patch[k] = draft[k]; });
+      if (patch.cancelReason !== undefined) patch.cancelReason = String(patch.cancelReason || '').trim();
       if (patch.assignedTo && selected.status === 'Open' && !patch.status) patch.status = 'Assigned';
       if (pendingFiles.length) {
         const metas = await persistPending(pendingFiles, { ownerType: 'ticket', ownerId: selected.id });
@@ -858,6 +843,7 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
             </button>
           )}
           {!isResident && canPostNotice && (tab === 'tickets' || !showTabs) && <button type="button" className="btn secondary" data-testid="svc-post" onClick={() => setSvcAsk((n) => n + 1)}>📢 <span className="m-hide">Service </span>notice</button>}
+          {isEC && <button type="button" className="btn secondary" data-testid="payreq-open" onClick={() => setPayReq(true)}>₹ <span className="m-hide">Payment </span>request</button>}
           {myCreatableTypes.length > 0 && (
             <button className="btn" onClick={() => { const first = myCreatableTypes[0]; setRaiseForm({ ...blankRaiseForm(), taskType: first?.name || '', financial: first?.quotationStage === 'Yes' }); setRaisePending([]); setRaiseErrors({}); setRaising('task'); }}>
               + New task
@@ -866,9 +852,10 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
         </PageActions>
       </div>
 
-      {(showWishTab || showTabs || showPlanned) && (
+      {(showWishTab || showTabs || showPlanned || showQueue) && (
         <Tabs>
           {(!showTabs || tabAllowed('tickets.tickets')) && <button className={tab === 'tickets' ? 'active' : ''} onClick={() => setTab('tickets')}>Tickets</button>}
+          {showQueue && tabAllowed('tickets.queue') && <button data-testid="tab-queue" className={tab === 'queue' ? 'active' : ''} onClick={() => setTab('queue')}>Queue</button>}
           {showPlanned && tabAllowed('tickets.planned') && <button data-testid="tab-planned" className={tab === 'planned' ? 'active' : ''} onClick={() => setTab('planned')}>Planned works</button>}
           {showWishTab && (!showTabs || tabAllowed('tickets.wishlist')) && <button data-testid="tab-wishlist" className={tab === 'wishlist' ? 'active' : ''} onClick={() => setTab('wishlist')}>Wishlist</button>}
           {showTabs && tabAllowed('tickets.coverage') && <button className={tab === 'coverage' ? 'active' : ''} onClick={() => setTab('coverage')}>Category coverage</button>}
@@ -877,7 +864,10 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
         </Tabs>
       )}
 
-      {tab === 'planned' && showPlanned && tabAllowed('tickets.planned') ? (
+      {tab === 'queue' && showQueue && tabAllowed('tickets.queue') ? (
+        <TicketQueue categories={allCategories} coverage={coverage}
+          defaultCategory={myTrade || (isResident ? visibleTickets.find((t) => !['Closed', 'Cancelled'].includes(t.status))?.category || visibleTickets[0]?.category : '') || ''} />
+      ) : tab === 'planned' && showPlanned && tabAllowed('tickets.planned') ? (
         <PlannedWorks onRaise={myCreatableTypes.length ? raiseFrom : null} categories={allCategories} />
       ) : tab === 'wishlist' && showWishTab ? (
         <Wishlist />
@@ -990,6 +980,7 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
         </>
       )}
 
+      {payReq && <PaymentRequest onClose={() => setPayReq(false)} onDone={(task) => { setPayReq(false); refreshTickets?.(); if (task?.id) { setExtraT(task); setSelectedId(task.id); } }} />}
       {raising && (
         <Modal
           title={raiseCommunity ? 'Raise a community request' : raiseOwnerForm ? 'Raise a maintenance request' : 'Create a task'}
@@ -997,7 +988,7 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
           onClose={() => { raiseThen.current = null; setRaising(null); }}>
           <form className="form-grid" onSubmit={submitRaise} noValidate>
             {raiseOwnerForm && quickPhrases.length > 0 && (
-              <QuickIssues phrases={quickPhrases} emoji={EMOJI} onPick={(qp) => setRaiseForm((f) => ({ ...f, title: qp.phrase, category: qp.category, subCategory: '' }))} />
+              <QuickIssues phrases={quickPhrases} emoji={EMOJI} defaultOpen onPick={(qp) => setRaiseForm((f) => ({ ...f, title: qp.phrase, category: qp.category, subCategory: '' }))} />
             )}
             {!raiseOwnerForm && (
               <div className={`field${raiseErrors.taskType ? ' invalid' : ''}`}>
@@ -1013,9 +1004,10 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
             )}
             <div className={`field${raiseErrors.category ? ' invalid' : ''}`} style={{ gridColumn: '1 / -1' }}>
               <label>Category *</label>
-              <CategoryPicker label="Category" value={raiseForm.category} options={allCategories.map((c) => ({ value: c, label: c, icon: EMOJI[c] || '' }))}
+              <CategoryPicker label="Category" value={raiseForm.category} startFolded={raiseOwnerForm && quickPhrases.length > 0} options={allCategories.map((c) => ({ value: c, label: c, icon: EMOJI[c] || '' }))}
                 onChange={(c) => setRaiseForm((f) => ({ ...f, category: c, subCategory: '', assignedTo: '' }))} />
               {raiseErrors.category && <div className="field-error">{raiseErrors.category}</div>}
+              {raiseForm.category && (raiseOwnerForm || isQueueType(raiseType)) && <QueueAvailability category={raiseForm.category} />}
             </div>
             {!raiseOwnerForm && raiseSubs.length > 0 && (
               <div className={`field${raiseErrors.subCategory ? ' invalid' : ''}`}>
@@ -1132,8 +1124,8 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
         const tabs = [
           { key: 'overview', label: 'Overview' },
           { key: 'money', label: 'Costs & approvals', hidden: !showFinance || !tabAllowed('tickets.d.money'), dot: myPendingCount > 0 && open },
-          { key: 'chat', label: 'Chat', count: msgCount, hidden: !tabAllowed('tickets.d.chat') },
-          { key: 'history', label: 'History', hidden: !tabAllowed('tickets.d.history') },
+          { key: 'chat', label: 'Chat', count: msgCount, hidden: !tabAllowed('tickets.d.chat'), disabled: dirty, title: dirty ? 'Save or discard your changes first' : '' },
+          { key: 'history', label: 'History', hidden: !tabAllowed('tickets.d.history'), disabled: dirty, title: dirty ? 'Save or discard your changes first' : '' },
         ];
         return (
         <Modal title={selected.title} onClose={closeDetail} wide dock={!embeddedRef}>
@@ -1142,7 +1134,7 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
           <SegTabs tabs={tabs} value={dtab} onChange={setDtab} label="Ticket sections" />
 
           <div hidden={dtab !== 'overview'} className="tk-pane">
-            <Workflow ticket={selected} />
+            {open && isQueueType(taskTypeOf(selected)) && <QueuePlace ticket={selected} />}
           {showFinance && apTone.label && apTone.tone === 'orange' && (
             <div className="notice" data-testid="next-step" style={{ marginTop: 8 }}>
               <b>Next step:</b> {apTone.key === 'pending-ec' ? 'EC approval' : 'Final approval (Treasurer / President)'} — the {apTone.key === 'pending-ec' ? 'EC members' : 'final approvers'} have been notified. Open the Costs & approvals tab to see what is being approved.
@@ -1253,22 +1245,16 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
                   </select>
                 ) : <div className="ro-value ro-select">{selected.priority}</div>}
               </div>
-              <div className="field"><label>Assigned to{selectedInternal ? ' *' : ''}{canManageTickets && open && <CoverageHint row={assignInfo.row} fallback={assignInfo.fallback} roles={roles} />}</label>
-                {canManageTickets && open ? (
-                  <>
-                    <select value={draft.assignedTo} onChange={(e) => setD('assignedTo', e.target.value)}>
-                      {!selectedInternal && <option value="">Unassigned</option>}
-                      {selectedInternal && !draft.assignedTo && <option value="">Choose…</option>}
-                      {assignOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                    </select>
-                  </>
-                ) : (
-                  <div className="ro-value ro-select">
-                    {selected.assignedTo || '—'}{' '}
-                    {selected.assignedTo && <a className="call-btn" aria-label="Call" href={`tel:${(handymen.find((h) => h.name === selected.assignedTo) || {}).phone || ''}`} title="Call">📞</a>}
-                  </div>
-                )}
-              </div>
+              {/* who has it is at the top of the ticket; the field is here only for those who change it */}
+              {canManageTickets && open && (
+                <div className="field"><label>Assigned to{selectedInternal ? ' *' : ''}<CoverageHint row={assignInfo.row} fallback={assignInfo.fallback} roles={roles} /></label>
+                  <select value={draft.assignedTo} onChange={(e) => setD('assignedTo', e.target.value)}>
+                    {!selectedInternal && <option value="">Unassigned</option>}
+                    {selectedInternal && !draft.assignedTo && <option value="">Choose…</option>}
+                    {assignOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </div>
+              )}
               {ownerConfirms && !privileged && moneyBlocked && <div className="notice" data-testid="close-blocked">You cannot close this task yet: {ledgerVisible ? `₹${Number(pos.owed).toLocaleString('en-IN')} is still to be paid.` : 'its payments have not been checked. Ask the Treasurer or an EC member.'}</div>}
               {statusOptions.length > 1 && (
                 <div className="field"><label>Status</label>
@@ -1277,6 +1263,15 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
                   </select>
                   {(canClose || canCancel) && <small className="muted">{canClose && canCancel ? 'Close and Cancel are offered to you as the ticket owner / EC.' : canClose ? 'Close is offered to you as the ticket owner / EC.' : 'Cancel is offered to you as the ticket owner / EC.'}</small>}
                 </div>
+              )}
+              {draft.status === 'Cancelled' && selected.status !== 'Cancelled' && (
+                <div className={`field${formError && !String(draft.cancelReason || '').trim() ? ' invalid' : ''}`} style={{ gridColumn: '1 / -1' }} data-testid="cancel-reason">
+                  <label>Reason for cancelling *</label>
+                  <input aria-label="Reason for cancelling" value={draft.cancelReason || ''} maxLength={500} onChange={(e) => setD('cancelReason', e.target.value)} placeholder="e.g. Raised twice, resident fixed it, not our scope" autoFocus />
+                </div>
+              )}
+              {selected.status === 'Cancelled' && selected.cancelReason && (
+                <div className="field" style={{ gridColumn: '1 / -1' }}><label>Cancelled because</label><div className="ro-value">{selected.cancelReason}</div></div>
               )}
               <div className={`field${slaMissing ? ' invalid' : ''}`}><label>SLA due{isEC && open ? ' *' : ''}</label>
                 {isEC && open ? (

@@ -60,8 +60,10 @@ public class FinanceController {
     public record ReverseRequest(@NotBlank @Size(max = 500) String reason) {}
     public record AnnotateRequest(@Size(max = 500) String description, @Size(max = 80) String category, @Size(max = 80) String subCategory, @Size(max = 30) String itcStatus, @Size(max = 500) String itcNote) {}
     public record StatementRequest(@NotNull Boolean notApplicable) {}
-    public record ReleaseRequest(UUID ticketId, UUID expenseId, @Size(max = 30) String kind, @NotNull BigDecimal amount, @Size(max = 200) String vendor, @Size(max = 2000) String note) {}
-    public record ReleaseChange(@Size(max = 30) String kind, BigDecimal amount, @Size(max = 200) String vendor, @Size(max = 2000) String note) {}
+    public record ReleaseRequest(UUID ticketId, UUID expenseId, @Size(max = 30) String kind, @NotNull BigDecimal amount, @Size(max = 200) String vendor, @Size(max = 2000) String note,
+                                 @Size(max = 30) String payMode, @Size(max = 300) String payTo) {}
+    public record ReleaseChange(@Size(max = 30) String kind, BigDecimal amount, @Size(max = 200) String vendor, @Size(max = 2000) String note, @Size(max = 30) String payMode,
+                                @Size(max = 300) String payTo) {}
     public record DecisionRequest(@NotNull @Pattern(regexp = "Approved|Rejected|Pending") String value, @Size(max = 2000) String comment, Boolean finish) {}
     public record PayRequestBody(@Size(max = 30) String mode, @Size(max = 100) String ref, LocalDate date) {}
     public record CancelRequest(@NotBlank @Size(max = 500) String reason) {}
@@ -73,7 +75,8 @@ public class FinanceController {
     public record LockRequest(LocalDate until, @Size(max = 500) String reason) {}
 
     public record ReleaseResponse(UUID id, String shortId, UUID ticketId, String ticketShortId, UUID expenseId, String kind, BigDecimal amount, String vendor, String note, String status,
-                                  String cancelReason, Instant cancelledAt, String raisedBy, UUID raisedById, String plan, Instant paidAt, UUID paidEntryId, String whyNotMe, Instant createdAt, long version) {}
+                                  String cancelReason, Instant cancelledAt, String raisedBy, UUID raisedById, String plan, Instant paidAt, UUID paidEntryId, String whyNotMe, Instant createdAt, long version,
+                                  String payMode, String payTo) {}
 
     private final CashBookService cash; private final ReleaseService releases; private final PayRequestService payRequests; private final BankService bank; private final FinanceStore store;
     private final PlanCodec plans;
@@ -115,12 +118,12 @@ public class FinanceController {
     @PostMapping("/api/v1/finance/releases")
     public ResponseEntity<ReleaseResponse> raise(@Valid @RequestBody ReleaseRequest b) {
         Caller c = CallerHolder.require();
-        return ResponseEntity.status(201).body(release(c, releases.raise(c, new ReleaseService.NewRelease(b.ticketId(), b.expenseId(), b.kind(), b.amount(), b.vendor(), b.note()))));
+        return ResponseEntity.status(201).body(release(c, releases.raise(c, new ReleaseService.NewRelease(b.ticketId(), b.expenseId(), b.kind(), b.amount(), b.vendor(), b.note(), b.payMode(), b.payTo()))));
     }
     @PutMapping("/api/v1/finance/releases/{id}")
     public ReleaseResponse change(@PathVariable UUID id, @Valid @RequestBody ReleaseChange b, @RequestHeader(name = "If-Match", required = false) String ifMatch) {
         Caller c = CallerHolder.require();
-        return release(c, releases.change(c, id, ETags.require(ifMatch), b.kind(), b.amount(), b.vendor(), b.note()));
+        return release(c, releases.change(c, id, ETags.require(ifMatch), b.kind(), b.amount(), b.vendor(), b.note(), b.payMode(), b.payTo()));
     }
     @PostMapping("/api/v1/finance/releases/{id}/decision")
     public ReleaseResponse decide(@PathVariable UUID id, @Valid @RequestBody DecisionRequest b, @RequestHeader(name = "If-Match", required = false) String ifMatch) {
@@ -178,6 +181,6 @@ public class FinanceController {
     }
     ReleaseResponse release(Caller c, Books.Release r) {
         return new ReleaseResponse(r.id, r.shortId, r.ticketId, r.ticketShortId, r.expenseId, r.kind, r.amount, r.vendor, r.note, r.status, r.cancelReason, r.cancelledAt, r.raisedBy, r.raisedById,
-            plans.write(r.plan), r.paidAt, r.paidEntryId, releases.whyNot(c, r), r.createdAt, r.version);
+            plans.write(r.plan), r.paidAt, r.paidEntryId, releases.whyNot(c, r), r.createdAt, r.version, r.payMode, r.payTo);
     }
 }

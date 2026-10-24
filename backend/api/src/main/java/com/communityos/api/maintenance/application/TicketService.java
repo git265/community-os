@@ -1,6 +1,9 @@
 package com.communityos.api.maintenance.application;
 
 import com.communityos.api.maintenance.application.port.CommentRepository;
+import com.communityos.api.maintenance.application.port.DispatchStore;
+import com.communityos.api.maintenance.domain.Dispatch;
+import com.communityos.api.shared.access.Spec;
 import com.communityos.api.maintenance.application.port.MaintenanceDirectory;
 import com.communityos.api.maintenance.application.port.MaintenanceDirectory.Candidate;
 import com.communityos.api.maintenance.application.port.TicketRepository;
@@ -43,11 +46,13 @@ public final class TicketService {
 
     private final TicketRepository tickets; private final CommentRepository comments; private final MaintenanceDirectory directory; private final DomainEvents events;
     private final AuditWriter audit; private final Tx tx; private final Clock clock; private final com.communityos.api.maintenance.application.port.TaskMoney money;
+    private final DispatchStore dispatch;
     private final TicketPolicy policy = new TicketPolicy();
 
     public TicketService(TicketRepository tickets, CommentRepository comments, MaintenanceDirectory directory, com.communityos.api.maintenance.application.port.TaskMoney money,
-                         DomainEvents events, AuditWriter audit, Tx tx, Clock clock) {
-        this.tickets = tickets; this.comments = comments; this.directory = directory; this.money = money; this.events = events; this.audit = audit; this.tx = tx; this.clock = clock;
+                         DispatchStore dispatch, DomainEvents events, AuditWriter audit, Tx tx, Clock clock) {
+        this.tickets = tickets; this.comments = comments; this.directory = directory; this.money = money; this.dispatch = dispatch; this.events = events; this.audit = audit;
+        this.tx = tx; this.clock = clock;
     }
 
     // ---- reads ----------------------------------------------------------------------------------------------------------------------------
@@ -98,17 +103,14 @@ public final class TicketService {
         s.slaDueAt = c.isResident() ? null : cmd.slaDueAt();
         Instant now = clock.instant();
         Ticket t = Ticket.raise(s, now);
-        // a role-queue task with exactly one clocked-in person in its trade goes straight to them
-        if (type.queue()) {
-            List<Candidate> on = directory.candidates(t.category(), false).stream().filter((x) -> "Field staff".equals(x.kind()) && x.clockedIn()).toList();
-            if (on.size() == 1) t.assign(on.get(0).id(), on.get(0).name(), now);
-        }
         return tx.inTx(() -> {
             tickets.insert(t);
             events.publish(t.pullEvents());
             audit.write(c, AuditWriter.Action.Create, "maintenance.ticket", t.id(), t.shortId(), unitValue(t), "Raised " + t.shortId() + ": " + s.title,
                 List.of(new AuditWriter.Change("status", null, t.status().label())));
-            return t;
+            // a maintenance ticket joins its category's queue: the next free technician takes the oldest one (this one, when nobody waits before it)
+            if (!type.queue() || dispatchIn(c, t.category()) == 0) return t;
+            return tickets.findById(t.id(), Spec.all()).orElse(t);
         });
     }
 
@@ -150,6 +152,81 @@ public final class TicketService {
                 clock.instant())).toList());
             return late.size();
         });
+    }
+
+    // ---- dispatch: the next free technician takes the oldest ticket of the queue -------------------------------------------------------------
+    /** Give a category's queued tickets, oldest first, to its free technicians (inside the caller's transaction). Returns how many were given. */
+    int dispatchIn(Caller c, String category) {
+        dispatch.lock(category);
+        List<Dispatch.Tech> techs = new ArrayList<>(dispatch.techs(category));
+        int given = 0; Instant now = clock.instant();
+        for (UUID id : dispatch.queued(category, 50)) {
+            Dispatch.Tech x = Dispatch.next(techs).orElse(null);
+            if (x == null) break;
+            Ticket t = tickets.findById(id, Spec.all()).orElse(null);
+            if (t == null) continue;
+            t.assign(x.id(), x.name(), now);
+            if (!tickets.save(t)) continue;
+            events.publish(t.pullEvents());
+            audit.write(c, AuditWriter.Action.Update, "maintenance.ticket", t.id(), t.shortId(), unitValue(t), "Auto-assigned " + t.shortId() + " to " + x.name() + " (next free " + category + " technician)",
+                List.of(new AuditWriter.Change("assignee", null, x.name())));
+            techs.replaceAll((y) -> y.id().equals(x.id()) ? new Dispatch.Tech(y.id(), y.name(), y.onShift(), y.busy() + 1, now, t.shortId()) : y);
+            given++;
+        }
+        return given;
+    }
+
+    /**
+     * The job (every minute): tickets given to a technician who went off shift before starting go back to the queue; every queue moves to the
+     * free technicians (one who just clocked in takes the oldest); reminders for work not started in time or taking too long. Returns how much it did.
+     */
+    public int dispatchAll(Caller system) {
+        if (system.category() != Caller.Category.System) throw new AccessDenied("The server's job only");
+        return tx.inTx(() -> {
+            int n = 0; Instant now = clock.instant();
+            for (UUID id : dispatch.offShiftAssigned()) {
+                Ticket t = tickets.findById(id, Spec.all()).orElse(null);
+                if (t == null) continue;
+                String who = t.assigneeName();
+                t.assign(null, null, now);
+                if (!tickets.save(t)) continue;
+                events.publish(t.pullEvents());
+                audit.write(system, AuditWriter.Action.Update, "maintenance.ticket", t.id(), t.shortId(), unitValue(t), "Back to the queue: " + who + " went off shift before starting " + t.shortId(),
+                    List.of(new AuditWriter.Change("assignee", who, null)));
+                n++;
+            }
+            for (String category : dispatch.queuedCategories()) n += dispatchIn(system, category);
+            for (DispatchStore.Active a : dispatch.active()) {
+                Dispatch.Due due = Dispatch.due(a.status(), a.assignedAt(), a.startedAt(), Dispatch.Limits.of(a.startWithinMin(), a.fixWithinHours()), now).orElse(null);
+                if (due == null || !dispatch.claim(a.id(), due.kind(), due.stage(), due.since())) continue;
+                events.publish(List.of(new TicketEvents.TicketNudged(a.id(), system.community(), a.assignee(), a.shortId(), a.title(), a.category(), a.assigneeName(), due.kind(), due.stage(),
+                    due.minutes(), now)));
+                n++;
+            }
+            return n;
+        });
+    }
+
+    /** A category's queue as the caller may see it: who is on shift and busy, and its tickets of the last days in the order received (other homes' anonymised). */
+    public record QueueTech(String name, boolean onShift, boolean busy, String working) {}
+    public record QueueRow(String ticketNumber, String title, String unitNo, String priority, String status, String technician, Instant receivedAt, Instant assignedAt,
+                           Instant startedAt, Instant completedAt, boolean mine, Integer place, UUID id) {}
+    public record QueueView(String category, List<QueueTech> technicians, List<QueueRow> tickets, int waiting) {}
+    public QueueView queue(Caller c, String categoryAsTyped, int days) {
+        String category = com.communityos.api.shared.domain.Names.pick(Ticket.CATEGORIES, categoryAsTyped);
+        if (category == null) throw new DomainException.RuleViolated("bad-category", "Pick a category from the list");
+        boolean staff = TicketPolicy.canSeeInternal(c);
+        Instant since = clock.instant().minus(Duration.ofDays(Math.max(1, Math.min(days, 14))));
+        List<QueueTech> techs = dispatch.techs(category).stream().map((x) -> new QueueTech(x.name(), x.onShift(), x.busy() > 0, x.working())).toList();
+        List<QueueRow> rows = new ArrayList<>(); int place = 0;
+        for (DispatchStore.Row r : dispatch.queueView(category, since)) {
+            boolean mine = c.membership().equals(r.raisedBy()) || (r.unitId() != null && c.units().contains(new UnitId(r.unitId())));
+            boolean waiting = "Open".equals(r.status()) && r.assigneeId() == null;
+            if (waiting) place++;
+            rows.add(new QueueRow(r.shortId(), staff || mine ? r.title() : null, staff || mine ? r.unitNo() : null, r.priority(), r.status(), r.assigneeName(), r.createdAt(),
+                r.assignedAt(), r.startedAt(), r.completedAt(), mine, waiting ? place : null, staff || mine ? r.id() : null));
+        }
+        return new QueueView(category, techs, rows, place);
     }
 
     /** A resident joins (or leaves) someone else's community request with their own unit. */
@@ -204,13 +281,20 @@ public final class TicketService {
         return tx.inTx(() -> {
             Ticket t = tickets.findById(id, policy.readScope(c)).orElseThrow(AccessDenied.NotVisible::new);
             if (t.version() != version) throw new DomainException.Conflict("Ticket " + t.shortId());
-            String before = t.status().label();
+            String before = t.status().label(); MembershipId had = t.assignee(); String category = t.category();
             work.accept(t);
             if (!tickets.save(t)) throw new DomainException.Conflict("Ticket " + t.shortId());
             events.publish(t.pullEvents());
             List<AuditWriter.Change> diff = new ArrayList<>();
             if (!before.equals(t.status().label())) diff.add(new AuditWriter.Change("status", before, t.status().label()));
             audit.write(c, AuditWriter.Action.Update, "maintenance.ticket", t.id(), t.shortId(), unitValue(t), what + " " + t.shortId(), diff);
+            // a technician freed (the job done, on hold, cancelled, handed back) or a ticket back in the queue: the next one in line moves
+            boolean moved = !before.equals(t.status().label()) || !Objects.equals(had, t.assignee()) || !Objects.equals(category, t.category());
+            if (moved && t.taskType() != null && t.taskType().queue()) {
+                dispatchIn(c, t.category());
+                if (!Objects.equals(category, t.category())) dispatchIn(c, category);
+                return tickets.findById(t.id(), Spec.all()).orElse(t);
+            }
             return t;
         });
     }

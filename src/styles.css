@@ -2955,3 +2955,29 @@ html, body, .main, .content { background: #f3f5f9 !important; }
   .pw-item-acts .segmented button { flex: 1; }
   .pw-item-acts .pw-remark { min-width: 100%; }
 }
+.seg-tabs button:disabled { opacity: .45; cursor: not-allowed; }
+/* the one "Attach files" button (Attachments.jsx, FileUpload.jsx) */
+.att-btn { min-height: 40px; }
+@media (max-width: 700px) { .att-btn { width: 100%; min-height: 44px; } }
+.composer .chat-attach { min-height: 44px; padding: 0 12px; }
+.composer .chat-attach.on { border-color: var(--blue); color: var(--blue); }
+.chat-files-pick { margin-top: 6px; }
+/* Maintenance → Queue */
+.tq-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+.tq-head select { width: auto; }
+.tq-techs { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+.tq-tech { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); background: #fff; font-size: 13px; }
+.tq-tech i { width: 8px; height: 8px; border-radius: 50%; background: #94a3b8; }
+.tq-tech.free i { background: #16a34a; } .tq-tech.busy i { background: #f59e0b; }
+.tq-tech small { color: var(--muted, #64748b); }
+.tq-sum { margin: 6px 0 10px; font-size: 13px; }
+.tq-list { display: flex; flex-direction: column; gap: 8px; }
+.tq-row { display: flex; justify-content: space-between; gap: 10px; width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+.tq-row:disabled { cursor: default; opacity: 1; }
+.tq-row.mine { border-color: #93c5fd; background: #f5f9ff; }
+.tq-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tq-side { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; white-space: nowrap; }
+.tq-avail { margin-top: 8px; padding: 8px 10px; border-radius: 8px; font-size: 13px; background: #f1f5f9; }
+.tq-avail.ok { background: #ecfdf5; color: #065f46; } .tq-avail.wait { background: #fffbeb; color: #92400e; }
+.tq-place { margin: 8px 0; padding: 10px 12px; border-radius: 10px; background: #fffbeb; border: 1px solid #fde68a; font-size: 14px; }
+.payee-view { margin-top: 6px; padding: 8px 10px; border-radius: 8px; background: #f0f9ff; border: 1px solid #bae6fd; font-size: 13px; }

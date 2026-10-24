@@ -75,5 +75,33 @@ public final class AssetService {
             return e;
         });
     }
+    /** The kinds of service visit kept on an asset (the vendor's AMC visit, a service, a repair, a warranty claim). */
+    public static final List<String> VISIT_KINDS = List.of("AMC visit", "Service", "Repair", "Warranty claim");
+    /**
+     * A service visit on an asset (an AMC engineer's visit, a service, a repair): an entry in its condition history - "AMC visit · Otis" - with
+     * what was done, which moves its last service date to the visit and its next one to `nextService`. The report is a file attached to the entry.
+     */
+    public AssetStore.ConditionEntry serviceVisit(Caller c, UUID assetId, LocalDate date, String kind, String vendor, String condition, String note, LocalDate nextService) {
+        if (!AssetPolicy.writer(c)) throw new AccessDenied("Only the EC, Facility Manager, MEP or the people who record readings log a service visit");
+        String k = kind == null || kind.isBlank() ? "Service" : kind.strip();
+        if (!VISIT_KINDS.contains(k)) throw new DomainException.RuleViolated("bad-kind", "A visit is one of: " + String.join(", ", VISIT_KINDS));
+        String v = blank(vendor);
+        if (v != null && v.length() > 60) throw new DomainException.RuleViolated("too-long", "The vendor's name is up to 60 characters");
+        String cond = condition == null || condition.isBlank() ? "Working" : condition.strip();
+        LocalDate day = date == null ? today() : date;
+        if (nextService != null && nextService.isBefore(day)) throw new DomainException.RuleViolated("bad-next", "The next service is on or after the visit");
+        if (!AssetResources.CONDITIONS.contains(cond)) throw new DomainException.RuleViolated("bad-condition", "Condition must be one of: " + String.join(", ", AssetResources.CONDITIONS));
+        if (day.isAfter(today())) throw new DomainException.RuleViolated("future", "The date is today or earlier");
+        if (note != null && note.length() > 4000) throw new DomainException.RuleViolated("too-long", "The note is up to 4000 characters");
+        return tx.inTx(() -> {
+            AssetStore.Asset a = store.asset(assetId, true).orElseThrow(() -> new DomainException.NotFound("Asset"));
+            boolean latest = a.lastInspected() == null || !day.isBefore(a.lastInspected());
+            AssetStore.ConditionEntry e = store.recordCondition(a, day, cond, k + (v == null ? "" : " · " + v), blank(note), null, latest);
+            store.serviced(assetId, day, nextService);
+            audit.write(c, AuditWriter.Action.Update, "assets.equipment", assetId, null, null, e.assetName() + ": " + k + (v == null ? "" : " by " + v) + " on " + day
+                + (nextService == null ? "" : ", next service " + nextService), List.of());
+            return e;
+        });
+    }
     static String blank(String s) { return s == null || s.isBlank() ? null : s.strip(); }
 }

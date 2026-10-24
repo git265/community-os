@@ -750,13 +750,14 @@ export function releaseOf(r) {
     id: r.id, shortId: r.shortId, ticketId: r.ticketId || '', ticketShortId: r.ticketShortId || '', expenseId: r.expenseId || '', kind: r.kind, amount: num(r.amount), vendor: r.vendor || '',
     note: r.note || '', status: r.status, cancelReason: r.cancelReason || '', requestedBy: r.raisedBy || '', recordCreatedBy: r.raisedBy || '', settled: r.status === 'Paid', plan,
     paidEntryId: r.paidEntryId || '', canDecide: !r.whyNotMe, whyNotMe: r.whyNotMe || '', recordCreatedAt: r.createdAt, version: r.version,
+    payMode: r.payMode || '', payTo: r.payTo || '', payQr: [],
   };
 }
 export function releaseCommands(before, after) {
   const out = [];
   if (after.status === 'Cancelled' && before.status !== 'Cancelled') return [{ path: 'cancel', body: { reason: after.cancelReason || after.reason || '' } }];
   const resubmit = before.status === 'Rejected' && after.status === 'Waiting approval';
-  const edited = ['kind', 'amount', 'vendor', 'note'].some((k) => String(after[k] ?? '') !== String(before[k] ?? ''));
+  const edited = ['kind', 'amount', 'vendor', 'note', 'payMode', 'payTo'].some((k) => String(after[k] ?? '') !== String(before[k] ?? ''));
   if (resubmit || edited) out.push({ put: true });
   if (!resubmit) {
     const was = decisions(before.plan); const now = decisions(after.plan);

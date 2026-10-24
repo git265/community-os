@@ -55,6 +55,21 @@ public final class Recipes {
             case TicketEvents.TicketOverdue o -> ticket(facts, o.ticketId()).ifPresent((f) -> out.add(new Message("ticket_overdue", "status", "Past its SLA · " + f.number(),
                 f.title() + " was due " + o.dueOn() + " and is " + o.status() + (o.assigneeId() == null ? ", with nobody assigned" : "") + ".", ticketLink(f), o.ticketId(),
                 To.member(o.assigneeId() == null ? null : o.assigneeId().value()).and(To.roles(HELPDESK)))));
+            case TicketEvents.TicketNudged n -> {
+                String took = n.minutes() >= 120 ? (n.minutes() / 60) + " hours" : n.minutes() + " minutes";
+                String who = n.assigneeName() == null ? "the technician" : n.assigneeName();
+                String link = "#/ticket/" + n.shortId();
+                if ("start".equals(n.kind())) out.add(n.stage() == 1
+                    ? new Message("ticket_nudge", "status", "Not started yet · " + n.shortId(), n.title() + " was given to you " + took + " ago. Start it, or hand it back to the queue.", link, n.ticketId(),
+                        To.member(n.assigneeId() == null ? null : n.assigneeId().value()))
+                    : new Message("ticket_nudge", "status", "Still not started · " + n.shortId(), n.title() + " (" + n.category() + ") was given to " + who + " " + took + " ago and is not started.",
+                        link, n.ticketId(), To.member(n.assigneeId() == null ? null : n.assigneeId().value()).and(To.roles("facility_manager"))));
+                else out.add(n.stage() == 1
+                    ? new Message("ticket_nudge", "status", "Taking long · " + n.shortId(), n.title() + " has been in progress for " + took + ". Mark it done, or put it on hold and say why.",
+                        link, n.ticketId(), To.member(n.assigneeId() == null ? null : n.assigneeId().value()))
+                    : new Message("ticket_nudge", "status", "Still in progress · " + n.shortId(), n.title() + " (" + n.category() + ") has been in progress with " + who + " for " + took + ".",
+                        link, n.ticketId(), To.member(n.assigneeId() == null ? null : n.assigneeId().value()).and(To.roles("facility_manager"))));
+            }
             case QuotationService.ApprovalWaiting w -> ticket(facts, w.ticketId()).ifPresent((f) -> out.add(new Message("approval", "approval",
                 (w.kind() == null ? "Approval" : w.kind()) + " to approve · " + f.number(), "The " + nz(w.kind(), "document").toLowerCase(Locale.ROOT) + " on " + f.title()
                     + " waits for your approval (" + nz(w.step(), "next step") + "). Open the task → Money.", ticketLink(f), w.ticketId(),

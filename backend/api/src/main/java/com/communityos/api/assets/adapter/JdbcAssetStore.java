@@ -36,6 +36,10 @@ public final class JdbcAssetStore implements AssetStore {
         RETURNING short_id, by_id, created_at""";
     static final String ASSET_CONDITION = "UPDATE assets.equipment SET status = :condition, last_inspected = CAST(:date AS date) WHERE id = CAST(:asset AS uuid)";
     static final String TICKET = "SELECT EXISTS (SELECT 1 FROM maintenance.ticket t WHERE t.id = CAST(:id AS uuid)) AS ok";
+    static final String SERVICED = """
+        UPDATE assets.equipment SET last_service = CAST(:day AS date),
+               next_service = CASE WHEN CAST(:next AS date) IS NOT NULL THEN CAST(:next AS date) WHEN next_service < CAST(:day AS date) THEN NULL ELSE next_service END
+        WHERE id = CAST(:asset AS uuid) AND (last_service IS NULL OR last_service <= CAST(:day AS date))""";
 
     private final NamedParameterJdbcTemplate jdbc;
     public JdbcAssetStore(NamedParameterJdbcTemplate jdbc) { this.jdbc = jdbc; }
@@ -72,6 +76,10 @@ public final class JdbcAssetStore implements AssetStore {
             Rows.uuid(rs, "by_id"), Rows.instant(rs, "created_at"))).get(0);
         if (latest) jdbc.update(ASSET_CONDITION, p);
         return e;
+    }
+    @Override public void serviced(UUID assetId, LocalDate day, LocalDate next) {
+        Map<String, Object> p = new HashMap<>(); p.put("asset", assetId.toString()); p.put("day", day.toString()); p.put("next", next == null ? null : next.toString());
+        jdbc.update(SERVICED, p);
     }
     @Override public boolean ticketExists(UUID ticketId) { return Boolean.TRUE.equals(jdbc.query(TICKET, Map.of("id", ticketId.toString()), (rs, i) -> rs.getBoolean("ok")).get(0)); }
     static String s(Object o) { return o == null ? null : o.toString(); }

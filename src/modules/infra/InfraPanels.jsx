@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import ServiceVisits from './ServiceVisits.jsx';
 import Modal from '../../components/Modal.jsx';
 import { parseSpecs } from '../../lib/assets/specs.js';
 import { repairKindOf } from './AssetTaskDialog.jsx';
@@ -167,6 +168,7 @@ export function AssetPanel({ outside, asset: a, plan, layers, open, tickets, log
         </div>
       )}
       <div style={{ display: 'flex', gap: 6, marginTop: 12 }}><button type="button" className="btn secondary sm" data-testid="asset-share" onClick={onShare}>🔗 Copy link to this asset</button></div>
+      <div style={{ marginTop: 14 }}><ServiceVisits asset={a} canEdit={canEdit && !outside} /></div>
       <h4 style={{ margin: '14px 0 6px' }}>Maintenance tasks</h4>
       {linked.length === 0 ? <p className="muted" style={{ margin: 0 }}>None yet.</p> : (
         <ul className="infra-list" data-testid="asset-tasks">
