@@ -500,7 +500,6 @@ export default function CulturalModule() {
                               {x.status === 'Pending approval' && noAmount && <small className="muted" data-testid="need-amount">Enter the actual amount to send it for approval</small>}
                               {ecCan && <ActionMenu label="EC decision" actions={ecActions} testid="ec-decide-expense" align="right" />}
                               {x.status === 'Pending approval' && x.ecApproval === 'Approved' && kit.mayDecide(expPlan(x), x) && <><button type="button" className="btn good sm" data-testid="approve-expense" onClick={() => decide(x, 'Approved')}>Final approve</button>{' '}<button type="button" className="btn danger sm" data-testid="reject-expense" onClick={() => decide(x, 'Rejected')}>Reject</button></>}
-                              {approver && x.status === 'Approved' && <button type="button" className="btn sm" data-testid="pay-expense" onClick={() => decide(x, 'Paid')}>Mark paid</button>}
                               {x.status === 'Rejected' && <button type="button" className="btn secondary sm" data-testid="resubmit-expense" onClick={() => resubmit(x)}>Resubmit</button>}
                             </td></tr>);
                       })}</tbody></table>

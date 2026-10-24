@@ -709,7 +709,7 @@ export function expenseCommands(before, after) {
       out.push({ path: 'decision', body: { value: after.status, comment: after.approvalNote || null } });
     }
   }
-  if (after.status === 'Paid' && before.status !== 'Paid') out.push({ path: 'pay', body: { mode: after.paidMode || null } });
+  // Paid is not sent: the server makes an expense Paid when a payment (Billing -> Payments) or its releases cover it
   return out;
 }
 /** A sign-up list as the app keeps it (name, unit, people), keeping the member id for removing someone. */
@@ -721,19 +721,21 @@ export function ledgerOf(e) {
   return {
     id: e.id, shortId: e.shortId, date: e.date, account: e.account || '', description: e.description, category: e.category || '', subCategory: e.subCategory || '', type: e.type,
     amount: num(e.amount), vendor: e.vendor || '', taskRef: e.taskRef || '', noTask: e.noTask || '', module: e.module || '', sourceType: e.sourceType || '', sourceLabel: e.sourceLabel || '',
-    sourceId: e.sourceId || '', mode: e.mode || '', ref: e.ref || '', unit: e.unitNo || '', unitId: e.unitId || '', bookingNo: e.bookingNo || '', invoiceNo: e.invoiceNo || '', billNo: e.billNo || '',
+    sourceId: e.sourceType === 'culturalExpense' && e.sourceId ? `cultural:${e.sourceId}` : e.sourceId || '', mode: e.mode || '', ref: e.ref || '', unit: e.unitNo || '', unitId: e.unitId || '', bookingNo: e.bookingNo || '', invoiceNo: e.invoiceNo || '', billNo: e.billNo || '',
     baseAmount: num(e.baseAmount) ?? '', gstRate: num(e.gstRate) ?? '', gstAmount: num(e.gstAmount) || 0, tdsSection: e.tdsSection || '', tdsRate: num(e.tdsRate) ?? '', tdsAmount: num(e.tdsAmount) || 0,
     fund: e.fund || '', itcStatus: e.itcStatus || '', itcNote: e.itcNote || '', internal: !!e.internal, reversalOf: e.reversalOf || '', reason: e.reason || '', reconStatus: e.reconStatus,
     bankTxnId: e.bankTxnId || '', recordCreatedBy: e.enteredBy || '', recordCreatedAt: e.createdAt, attachments: [], version: e.version,
   };
 }
 /** The cash book entry the server takes (taxes and the bank amount are worked out there when a base is given). */
+// a payment for an event expense points at it as `cultural:<id>` in the app (Payments' own way of naming what is paid), at the expense's id on the server
+const sourceIdOut = (r) => (r.sourceType === 'culturalExpense' ? String(r.sourceId || '').replace(/^cultural:/, '') : r.sourceId);
 export function ledgerBody(r, unitIdByNo = {}) {
   const unitId = r.unitId || (r.unit ? unitIdByNo[r.unit] : null) || null;
   return {
     date: r.date, account: r.account || null, description: r.description, category: r.category || null, subCategory: r.subCategory || null, type: r.type || 'Debit', amount: n2(r.amount),
     vendor: r.vendor || null, taskRef: r.taskRef || null, noTask: r.noTask || null, module: r.module || null, sourceType: r.sourceType || null, sourceLabel: r.sourceLabel || null,
-    sourceId: isUuid(r.sourceId) ? r.sourceId : null, mode: r.mode || null, ref: r.ref || null, unitId, bookingNo: r.bookingNo || null, invoiceNo: r.invoiceNo || null, billNo: r.billNo || null,
+    sourceId: isUuid(sourceIdOut(r)) ? sourceIdOut(r) : null, mode: r.mode || null, ref: r.ref || null, unitId, bookingNo: r.bookingNo || null, invoiceNo: r.invoiceNo || null, billNo: r.billNo || null,
     baseAmount: n2(r.baseAmount), gstRate: n2(r.gstRate), tdsSection: r.tdsSection || null, tdsRate: n2(r.tdsRate), fund: r.fund || null, itcStatus: r.itcStatus || null, itcNote: r.itcNote || null,
   };
 }

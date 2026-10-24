@@ -31,7 +31,11 @@ public interface FinanceStore {
     /** A cultural expense as releases see it: what it costs, what is released on it (live releases) and paid. */
     record ExpenseMoney(UUID id, UUID eventId, String item, String status, BigDecimal amount, BigDecimal released, BigDecimal paid) {}
     Optional<ExpenseMoney> expenseMoney(UUID expenseId);
-    void markExpensePaid(UUID expenseId, String how);
+    /** A cultural expense's status follows the money paid on it: Paid once its live payments and paid releases cover the amount, Approved again
+     *  when a reversal leaves it short. `how` is kept as the payment's mode. Nothing changes for an expense that is not Approved or Paid. */
+    void settleExpense(UUID expenseId, String how);
+    /** The cultural expense a release pays towards, if any. */
+    Optional<UUID> releaseExpense(UUID releaseId);
     // pay requests
     List<Books.PayRequest> payRequests(String status);
     Optional<Books.PayRequest> payRequest(UUID id);

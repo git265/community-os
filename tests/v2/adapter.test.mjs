@@ -899,8 +899,14 @@ test('cultural: a pledge is POSTed (status and receipt are the server\'s), recei
   assert.deepEqual(last('POST', /\/expenses$/).body, { item: 'Flowers', category: null, vendor: null, amount: 3000, estimate: null, date: null, fund: null, note: null });
   const xa = await storage.put('culturalExpenses', { ...x, ecApproval: 'Approved', ecNote: 'ok', finalRequired: false, status: 'Approved' });
   assert.deepEqual(last('POST', /\/decision$/).body, { value: 'Approved', comment: 'ok', finish: true });
+  // Paid is the server's: marking it on the screen sends nothing; a payment for it in the cash book points at the expense by its id
+  const n0 = calls.length;
   await storage.put('culturalExpenses', { ...xa, status: 'Paid' });
-  assert.equal(last('POST', /\/pay$/).headers['If-Match'], '"2"');
+  assert.equal(calls.slice(n0).filter((c) => c.method === 'POST').length, 0, 'no pay command');
+  const paid = await storage.put('ledger', { date: '2026-10-21', account: 'Cultural', description: 'Flowers', type: 'Debit', amount: 3000, mode: 'Cash', sourceType: 'culturalExpense', sourceId: `cultural:${x.id}` });
+  assert.equal(last('POST', /\/finance\/cash-book$/).body.sourceId, x.id, 'the payment points at the expense');
+  assert.equal(paid.sourceId, `cultural:${x.id}`, 'and reads back the way Payments names it');
+  state.cbook.pop();   // the cash book of the next test starts empty
 });
 
 test('finance: a payment is POSTed (taxes are the server\'s), corrected by reversal, matched to a statement line; bill lines are not booked twice; releases are paid by command', async () => {

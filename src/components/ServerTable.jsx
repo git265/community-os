@@ -90,7 +90,7 @@ export default function ServerTable({
   const lastParams = useRef(null);
 
   const cols = useMemo(() => {
-    const base = columns ?? (schema?.fields ?? []).filter((f) => f.showInTable && canView(f, roleId)).map((f) => ({ key: f.key, label: f.label }));
+    const base = columns ?? (schema?.fields ?? []).filter((f) => f.showInTable && canView(f, roleId)).map((f) => ({ key: f.key, label: f.label, ...(f.sortable === false ? { sortable: false } : {}) }));
     return showId ? [{ key: 'shortId', label: 'ID', className: 'mono' }, ...base] : base;
   }, [columns, schema, roleId, showId]);
 
@@ -197,6 +197,9 @@ export default function ServerTable({
     return () => window.removeEventListener('communityos:changed', h);
   }, [collection, load]);
 
+  // a field marked strong (a bill's month) is shown in bold wherever the table draws it itself
+  const strongKeys = useMemo(() => new Set((schema?.fields ?? []).filter((f) => f.strong).map((f) => f.key)), [schema]);
+  const plainCell = (r, key) => { const t = cellText(r, key); return strongKeys.has(key) && t !== '—' ? <b>{t}</b> : statusify(t); };
   // Default cell text: role lists show role names, rich text shows plain text, arrays are joined.
   const cellText = (r, key) => {
     const v = r[key];
@@ -231,7 +234,7 @@ setSort((s) => (s?.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } 
     const isId = (c) => c.key === 'shortId' || c.key === 'id' || /^(id|ref|ticket #)$/i.test(c.label || '');
     const idCol = cols.length > 2 ? cols.find(isId) : null;
     const [first, ...rest] = idCol ? cols.filter((c) => c !== idCol) : cols;
-    const show = (c) => (c.render ? c.render(r) : statusify(cellText(r, c.key)));
+    const show = (c) => (c.render ? c.render(r) : plainCell(r, c.key));
     // a phone card says the essentials: the title (its number beside it, small), then the first four fields that have a value
     const blank = (c) => !c.render && ['', '—', '-', 'null', 'undefined'].includes(String(cellText(r, c.key) ?? '').trim());
     // status-like values (a coloured chip: Paid, Confirmed, Working...) sit together on one row under the title, not one per label
@@ -369,7 +372,7 @@ setSort((s) => (s?.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } 
               <tr key={r.id} className={`${onRowClick ? 'clickable' : ''} ${rowClassName ? rowClassName(r) : ''}`} onClick={onRowClick ? () => onRowClick(r) : undefined}>
                 {cols.map((c) => (
                   <td key={c.key} data-label={c.label} className={c.className}>
-                    {c.render ? c.render(r) : statusify(cellText(r, c.key))}
+                    {c.render ? c.render(r) : plainCell(r, c.key)}
                   </td>
                 ))}
               </tr>

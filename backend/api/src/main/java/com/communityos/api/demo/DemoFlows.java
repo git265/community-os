@@ -510,11 +510,19 @@ final class DemoFlows {
                 Caller t = d.role("treasurer"); Cultural.Expense cur = x;
                 if (cur.status != null && cur.status.contains("approval")) x = d.at(at.plus(Duration.ofHours(4)), t, () -> d.s.expenses().decide(t, cur.id, cur.version, "Approved", null, true));
             }
-            if ("Paid".equals(r.path("status").asText())) {
+            if ("Paid".equals(r.path("status").asText())) {   // paid the way the app pays one: a payment in the cash book, which makes it Paid
                 Caller t = d.role("treasurer"); Cultural.Expense cur = x;
                 String paidBy = r.path("paidBy").asText("UPI");
                 String mode = paidBy.contains("·") ? paidBy.substring(paidBy.indexOf('·') + 1).strip() : paidBy;
-                x = d.at(at.plus(Duration.ofHours(6)), t, () -> d.s.expenses().pay(t, cur.id, cur.version, mode));
+                String fund = cur.fund != null ? cur.fund : d.at(at, t, () -> d.s.jdbc().query("SELECT fund FROM cultural.event WHERE id = CAST(:id AS uuid)",
+                    java.util.Map.of("id", event.toString()), (rs, i) -> rs.getString("fund")).stream().filter(java.util.Objects::nonNull).findFirst().orElse("Cultural"));
+                Books.Entry e = new Books.Entry();
+                e.date = on == null ? d.today : on; e.type = "Debit"; e.amount = cur.amount; e.vendor = cur.vendor; e.mode = mode; e.account = fund; e.fund = fund;
+                e.ref = "Cash".equals(mode) ? null : "DEMO-" + r.path("id").asText(); e.module = "Cultural"; e.category = cur.category;
+                e.description = cur.item + (cur.vendor == null ? "" : " - " + cur.vendor);
+                e.sourceType = com.communityos.api.finance.application.CashBookService.CULTURAL_EXPENSE; e.sourceId = cur.id; e.sourceLabel = cur.item;
+                d.at(at.plus(Duration.ofHours(6)), t, () -> d.s.cash().recordApproved(t, e));
+                x = d.at(at.plus(Duration.ofHours(6)), t, () -> d.s.expenses().get(t, cur.id));
             }
             return x.id;
         });

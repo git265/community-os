@@ -11,6 +11,7 @@ import { COLLECTIONS as C } from './storage/StorageAdapter.js';
 export const AREAS = ['Maintenance', 'Cultural', 'Utilities', 'Amenities', 'Dues', 'Capex / projects', 'Other'];
 import { ALL_MODES } from './region/paymentModes.js';
 import { tell } from './net/activity.js';
+import { getDataSource } from './storage/dataSource.js';
 export const MODES = ALL_MODES; // live: follows the community's country
 export const DEFAULT_ROUTING = { Maintenance: 'Maintenance', Cultural: 'Cultural', Utilities: 'Electricity/Water/Tax', Amenities: 'Maintenance', Dues: 'Maintenance', 'Capex / projects': 'Sinking' };
 
@@ -64,6 +65,11 @@ export async function recordPayment(p) {
  * a matching CREDIT row (reversalOf) cancels it, both leave the bank-matching list, and a release that was marked Paid goes back to Approved
  * so it can be paid correctly or cancelled. Not allowed once the payment is matched to a bank statement line.
  */
+const onServer = () => getDataSource().mode === 'v2';
+async function unpayExpense(id) {
+  const x = await secureStorage.get(C.CULTURAL_EXPENSES, id);
+  if (x && x.status === 'Paid') { await secureStorage.put(C.CULTURAL_EXPENSES, { ...x, status: 'Approved', paidBy: '' }); await import('./culturalServer.js').then((m) => m.recomputeEventTotals(x.eventId)).catch(() => {}); }
+}
 export async function reversePayment(orig, reason) {
   const all = await secureStorage.list(C.LEDGER).catch(() => []);
   const today = new Date().toISOString().slice(0, 10);
@@ -86,7 +92,12 @@ export async function reversePayment(orig, reason) {
     try {
       const rel = await secureStorage.get(C.RELEASES, orig.sourceId);
       if (rel && rel.status === 'Paid') await secureStorage.put(C.RELEASES, { ...rel, status: 'Approved' });
+      if (rel?.expenseId && !onServer()) await unpayExpense(rel.expenseId);
     } catch (e) { after.push(`its release could not be set back to Approved (${e?.message || 'failed'})`); }
+  }
+  // an event expense is Paid only while a payment covers it: the reversal makes it Approved (unpaid) again (the server does this itself)
+  if (orig.sourceType === 'culturalExpense' && orig.sourceId && !onServer()) {
+    try { await unpayExpense(String(orig.sourceId).replace(/^cultural:/, '')); } catch (e) { after.push(`its event expense could not be set back to Approved (${e?.message || 'failed'})`); }
   }
   window.dispatchEvent(new CustomEvent('communityos:changed', { detail: { collection: C.LEDGER } }));
   const warning = after.length ? `The reversal was recorded, but ${after.join('; ')}. Fix it by hand before paying again.` : '';

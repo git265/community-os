@@ -80,8 +80,19 @@ public final class JdbcFinanceStore implements FinanceStore {
                coalesce((SELECT sum(r.amount) FROM finance.release r WHERE r.community_id = x.community_id AND r.expense_id = x.id AND r.status NOT IN ('Rejected', 'Cancelled')), 0) AS released,
                coalesce((SELECT sum(r.amount) FROM finance.release r WHERE r.community_id = x.community_id AND r.expense_id = x.id AND r.status = 'Paid'), 0) AS paid
         FROM cultural.expense x WHERE x.id = CAST(:id AS uuid)""";
-    static final String EXPENSE_PAID = """
-        UPDATE cultural.expense SET status = 'Paid', paid_at = now(), paid_by_id = platform.current_actor(), paid_mode = :how WHERE id = CAST(:id AS uuid) AND status = 'Approved'""";
+    /** Paid = its live (not reversed) cash-book payments, with the tax withheld from them, plus its paid releases cover the amount. */
+    static final String EXPENSE_SETTLE = """
+        UPDATE cultural.expense x SET status = CASE WHEN s.covered THEN 'Paid' ELSE 'Approved' END,
+               paid_at = CASE WHEN s.covered THEN now() END, paid_by_id = CASE WHEN s.covered THEN platform.current_actor() END,
+               paid_mode = CASE WHEN s.covered THEN CAST(:how AS text) END
+        FROM (SELECT y.id, (coalesce(y.amount, 0) > 0 AND
+                coalesce((SELECT sum(e.amount + coalesce(e.tds_amount, 0)) FROM finance.cash_book_entry e
+                          WHERE e.community_id = y.community_id AND e.source_type = 'culturalExpense' AND e.source_id = y.id AND e.type = 'Debit' AND e.reversal_of IS NULL
+                            AND NOT EXISTS (SELECT 1 FROM finance.cash_book_entry r WHERE r.community_id = e.community_id AND r.reversal_of IN (e.short_id, e.id::text))), 0)
+              + coalesce((SELECT sum(r.amount) FROM finance.release r WHERE r.community_id = y.community_id AND r.expense_id = y.id AND r.status = 'Paid'), 0) + 0.5 >= y.amount) AS covered
+              FROM cultural.expense y WHERE y.id = CAST(:id AS uuid)) s
+        WHERE x.id = s.id AND x.status IN ('Approved', 'Paid') AND (x.status = 'Paid') IS DISTINCT FROM s.covered""";
+    static final String RELEASE_EXPENSE = "SELECT expense_id FROM finance.release WHERE id = CAST(:id AS uuid) AND expense_id IS NOT NULL";
 
     // ---- pay requests --------------------------------------------------------------------------------------------------------------------------
     static final String PAY_COLUMNS = """
@@ -196,7 +207,13 @@ public final class JdbcFinanceStore implements FinanceStore {
         return jdbc.query(EXPENSE_MONEY, Map.of("id", expenseId.toString()), (rs, i) -> new ExpenseMoney(Rows.uuid(rs, "id"), Rows.uuid(rs, "event_id"), rs.getString("item"), rs.getString("status"),
             rs.getBigDecimal("amount"), rs.getBigDecimal("released"), rs.getBigDecimal("paid"))).stream().findFirst();
     }
-    @Override public void markExpensePaid(UUID expenseId, String how) { jdbc.update(EXPENSE_PAID, Map.of("id", expenseId.toString(), "how", how)); }
+    @Override public void settleExpense(UUID expenseId, String how) {
+        var p = new java.util.HashMap<String, Object>(); p.put("id", expenseId.toString()); p.put("how", how);
+        jdbc.update(EXPENSE_SETTLE, p);
+    }
+    @Override public Optional<UUID> releaseExpense(UUID releaseId) {
+        return jdbc.query(RELEASE_EXPENSE, Map.of("id", releaseId.toString()), (rs, i) -> Rows.uuid(rs, "expense_id")).stream().findFirst();
+    }
 
     @Override public List<Books.PayRequest> payRequests(String status) { Map<String, Object> p = new HashMap<>(); p.put("status", status); return jdbc.query(PAYS, p, (rs, i) -> pay(rs)); }
     @Override public Optional<Books.PayRequest> payRequest(UUID id) { return jdbc.query(PAY, Map.of("id", id.toString()), (rs, i) -> pay(rs)).stream().findFirst(); }

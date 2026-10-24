@@ -71,7 +71,9 @@ export function MoneyTiles({ items }) {
   return (
     <div className="money-tiles">
       {items.map((m) => (
-        <div key={m.label} className={`money-tile ${m.tone || ''}`}><small>{m.label}</small><b>{m.value}</b>{m.sub && <em>{m.sub}</em>}</div>
+        m.onClick
+          ? <button type="button" key={m.label} className={`money-tile clickable ${m.tone || ''}${m.active ? ' on' : ''}`} aria-pressed={!!m.active} data-testid={m.testid} onClick={m.onClick}><small>{m.label}</small><b>{m.value}</b>{m.sub && <em>{m.sub}</em>}</button>
+          : <div key={m.label} className={`money-tile ${m.tone || ''}`}><small>{m.label}</small><b>{m.value}</b>{m.sub && <em>{m.sub}</em>}</div>
       ))}
     </div>
   );

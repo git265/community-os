@@ -51,7 +51,6 @@ public class CulturalController {
         ExpenseService.Fields fields() { return new ExpenseService.Fields(item, category, vendor, amount, estimate, date, fund, note); }
     }
     public record DecisionRequest(@NotNull @Pattern(regexp = "Approved|Rejected|Pending") String value, @Size(max = 2000) String comment, Boolean finish) {}
-    public record PayRequest(@Size(max = 30) String mode) {}
     public record CreditRequest(@NotNull BigDecimal amount, @Size(max = 500) String note) {}
     public record SignupRequest(@Min(1) @Max(50) Integer people) {}
 
@@ -127,11 +126,6 @@ public class CulturalController {
     public ExpenseResponse decide(@PathVariable UUID id, @Valid @RequestBody DecisionRequest b, @RequestHeader(name = "If-Match", required = false) String ifMatch) {
         Caller c = CallerHolder.require();
         return expense(c, expenses.decide(c, id, ETags.require(ifMatch), b.value(), b.comment(), Boolean.TRUE.equals(b.finish())));
-    }
-    @PostMapping("/api/v1/cultural/expenses/{id}/pay")
-    public ExpenseResponse pay(@PathVariable UUID id, @Valid @RequestBody PayRequest b, @RequestHeader(name = "If-Match", required = false) String ifMatch) {
-        Caller c = CallerHolder.require();
-        return expense(c, expenses.pay(c, id, ETags.require(ifMatch), b.mode()));
     }
     @DeleteMapping("/api/v1/cultural/expenses/{id}")
     public ResponseEntity<Void> removeExpense(@PathVariable UUID id, @RequestHeader(name = "If-Match", required = false) String ifMatch) {

@@ -187,7 +187,7 @@ export default function DynamicForm({ schema, roleId, record, onSave, onCancel, 
       const opt = field.type === 'lookup' ? (lookups[field.key] || []).find((o) => o.value === value) : null;
       const stampAt = field.type === 'date' && value ? record?.dateStamps?.[field.key] : '';
       const shown = String(opt?.label || value || '—');
-      const cls = `ro-value${['select', 'lookup'].includes(field.type) ? ' ro-select' : field.type === 'textarea' ? ' ro-text' : ''}`;
+      const cls = `ro-value${['select', 'lookup'].includes(field.type) ? ' ro-select' : field.type === 'textarea' ? ' ro-text' : ''}${field.strong ? ' ro-strong' : ''}`;
       return <div className={cls} aria-readonly="true" style={field.type === 'textarea' ? { whiteSpace: 'pre-wrap', minHeight: 64 } : undefined}>{shown}{stampAt ? <small className="muted" title="When this date was recorded"> · {new Date(stampAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small> : null}</div>;
     }
 
@@ -236,7 +236,7 @@ export default function DynamicForm({ schema, roleId, record, onSave, onCancel, 
       default:
         return (
           <>
-            <input type="text" value={value} maxLength={maxLengthFor(field)} onChange={(e) => setValue(field.key, e.target.value)} />
+            <input type="text" value={value} maxLength={maxLengthFor(field)} onChange={(e) => setValue(field.key, e.target.value)} style={field.strong ? { fontWeight: 700 } : undefined} />
             {field.suggestSimilar && <SimilarNotice text={value} rows={existing} fieldKey={field.key} exclude={draft.id} noun={schema.label} />}
             {field.suggestSimilar && existingErr && <div className="notice error" data-testid="similar-check-error" style={{ marginTop: 6 }}>Could not check for an existing {schema.label.toLowerCase()} with this name ({existingErr}). Look in the list before adding it.</div>}
           </>

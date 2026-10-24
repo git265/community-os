@@ -45,7 +45,6 @@ const CalendarModule = lazyPage(() => import('./modules/calendar/CalendarModule.
 const NotificationsModule = lazyPage(() => import('./modules/notifications/NotificationsModule.jsx'));
 const CulturalModule = lazyPage(() => import('./modules/cultural/CulturalModule.jsx'));
 const SecurityModule = lazyPage(() => import('./modules/gate/GateModule.jsx'));
-const OnSiteModule = lazyPage(() => import('./modules/onsite/OnSiteModule.jsx'));
 const MyGate = lazyPage(() => import('./modules/gate/MyGate.jsx'));
 const VendorsModule = lazyPage(() => import('./modules/vendors/VendorsModule.jsx'));
 const CommunicationsModule = lazyPage(() => import('./modules/communications/CommunicationsModule.jsx'));
@@ -90,7 +89,6 @@ const NAV_GROUPS = [
   {
     key: 'security', label: 'Security', short: 'Security', icon: '◇',
     items: [
-      { id: 'onsite', label: 'On site', icon: '◎', Component: OnSiteModule, visible: (role, has) => role.category !== 'Resident' && (has('MANAGE_SECURITY') || role.category === 'EC' || role.id === 'facility_manager') },
       { id: 'security', label: 'Security & Visitors', icon: '◇', Component: SecurityModule, visible: (role, has) => role.category !== 'Resident' && (has('MANAGE_SECURITY') || role.category === 'EC' || role.id === 'facility_manager') },
       { id: 'shifts', label: 'Workforce', icon: '🕒', Component: WorkforceModule, visible: (role) => role.category !== 'Resident' },
     ],
@@ -272,6 +270,7 @@ function Shell() {
     if (cu) { set('communityos:culturalOpen', JSON.stringify({ kind: cu[1], id: decodeURIComponent(cu[2]) })); setActive('cultural'); setNavKey((k) => k + 1); return; }
     const mp = /^#?\/map\b(\?.*)?$/.exec(link || '');
     if (mp) { set('communityos:mapLink', mp[1] || ''); setActive('sitemap'); setNavKey((k) => k + 1); return; }
+    if (/^#?\/onsite\b/.test(link || '')) { set('communityos:openTab', 'live'); setActive('shifts'); setNavKey((k) => k + 1); return; }   // On site is part of Workforce now
     const pg = /^#?\/(governance|billing|communications|cultural|shifts|calendar|notifications|inventory|utilities|documents|audits|directory|security|mygate)\b/.exec(link || '');
     if (pg) { if (pg[1] === 'inventory') set('communityos:openSection', 'stores'); setActive(pg[1] === 'inventory' ? 'utilities' : pg[1]); setNavKey((k) => k + 1); return; }
     const m = /#?\/ticket\/([^/?]+)(\/chat)?/.exec(link || '');

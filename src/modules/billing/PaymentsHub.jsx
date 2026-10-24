@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useApp, useCollection } from '../../context/AppContext.jsx';
 import { needsRef } from '../../lib/region/paymentModes.js';
 import { COLLECTIONS as C } from '../../lib/storage/index.js';
+import { getDataSource } from '../../lib/storage/dataSource.js';
 import { SegTabs, MoneyTiles } from '../../components/ui.jsx';
 import Modal from '../../components/Modal.jsx';
 import Combobox from '../../components/Combobox.jsx';
@@ -53,7 +54,7 @@ function useLinkables() {
         ...docs.filter((d) => d.kind === 'Invoice' && invoiceApproval(d).key === 'approved' && !paid.has(d.id)).map((d) => { const t = tk.get(d.ticketId); return { value: d.id, label: `${t?.ticketNumber || 'Task'} · invoice · ${d.vendor}`, hint: `${inr(d.amount)}${Number(d.gstAmount) ? ` incl. GST ${inr(d.gstAmount)}` : ''}`, amount: d.amount, type: 'invoice', vendor: d.vendor, taskRef: t?.ticketNumber, gst: { mode: Number(d.gstRate) > 0 ? 'Included' : 'None', rate: Number(d.gstRate) || 18, billed: Number(d.gstAmount) || 0 }, text: t?.title || '' }; }),
         ...tickets.filter((t) => t.financial).map((t) => ({ value: t.ticketNumber, label: `${t.ticketNumber} · ${t.title}`, hint: t.approvedAmount ? inr(t.approvedAmount) : '', amount: t.approvedAmount || 0, type: 'task', vendor: t.assignedTo || '', taskRef: t.ticketNumber, text: t.title })),
       ],
-      Cultural: [...rels.filter((r) => r.status === 'Approved' && r.expenseId).map((r) => { const x = xp.get(r.expenseId); return { value: `culrel:${r.id}`, label: `${x?.item || 'Expense'} · release ${r.shortId || ''} · ${r.vendor}`, hint: inr(r.amount), amount: r.amount, type: 'culturalRelease', vendor: r.vendor, fund: x?.fund || ev.get(x?.eventId)?.fund || '', release: { ...r, id: r.id }, expense: x }; }), ...expenses.filter((x) => x.status !== 'Rejected').map((x) => ({ value: `cultural:${x.id}`, label: `${x.item} · ${ev.get(x.eventId)?.name || ''}`, hint: `${inr(x.amount)} · ${x.status}`, amount: x.amount, type: 'culturalExpense', vendor: x.vendor || '', fund: x.fund || ev.get(x.eventId)?.fund || '', expense: x }))],
+      Cultural: [...rels.filter((r) => r.status === 'Approved' && r.expenseId).map((r) => { const x = xp.get(r.expenseId); return { value: `culrel:${r.id}`, label: `${x?.item || 'Expense'} · release ${r.shortId || ''} · ${r.vendor}`, hint: inr(r.amount), amount: r.amount, type: 'culturalRelease', vendor: r.vendor, fund: x?.fund || ev.get(x?.eventId)?.fund || '', release: { ...r, id: r.id }, expense: x }; }), ...expenses.filter((x) => x.status === 'Approved').map((x) => ({ value: `cultural:${x.id}`, label: `${x.item} · ${ev.get(x.eventId)?.name || ''}`, hint: `${inr(x.amount)} · ${x.status}`, amount: x.amount, type: 'culturalExpense', vendor: x.vendor || '', fund: x.fund || ev.get(x.eventId)?.fund || '', expense: x }))],
       Utilities: [
         ...fuel.map((f) => ({ value: `dgfuel:${f.id}`, label: `DG diesel ${f.date} · ${f.litres} L`, hint: inr(f.amount || f.litres * f.rate), amount: f.amount || Math.round(f.litres * f.rate), type: 'dgFuel', vendor: f.supplier || '' })),
         ...elec.map((b) => ({ value: `elec:${b.id}`, label: `${b.shortId || ''} Electricity · ${b.service || 'Supply'} · ${b.period || b.billDate || ''}`, hint: inr(b.amount || b.totalAmount), amount: b.amount || b.totalAmount || 0, type: 'electricityBill', vendor: 'Electricity board' })),
@@ -150,7 +151,8 @@ export function PayDialog({ initial = {}, accounts, routing, onClose, onDone }) 
         });
       }
       if (picked?.type === 'culturalRelease' && !res.existing) await step('the cultural release could not be marked Paid', () => markReleasePaid(picked.release.id, how));
-      if (picked?.type === 'culturalExpense' && !res.existing && picked.expense.status !== 'Paid') {
+      // the expense's Paid follows this payment: on the server it is set there; the browser demo sets it here
+      if (picked?.type === 'culturalExpense' && !res.existing && picked.expense.status !== 'Paid' && getDataSource().mode !== 'v2') {
         await step('the cultural expense could not be marked Paid', async () => {
           const cur = await secureStorage.get(C.CULTURAL_EXPENSES, picked.expense.id);
           if (!cur) throw new Error('expense not found');

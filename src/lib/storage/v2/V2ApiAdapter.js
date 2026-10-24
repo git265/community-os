@@ -262,6 +262,15 @@ function withFiles(reader, ownerType, field, extra = () => ({})) {
 }
 const photos = (metas) => ({ hasPhotos: metas.some((m) => /^image\//.test(m.mime)) });
 readers.tickets = withFiles(readers.tickets, 'maintenance.ticket', 'attachments', photos);
+// The tickets still being worked on (everything but Closed and Cancelled): what the Maintenance page loads. Closed ones are read a page at a
+// time from their own tile, so a community's years of finished work are never downloaded to show today's queue.
+export const TICKET_LIVE = ['Open', 'Assigned', 'In Progress', 'On Hold', 'Completed', 'Reopened'];
+const liveTickets = withFiles({
+  list: async () => { const { noById } = await unitIndex(); return (await all(`/tickets?statusIn=${encodeURIComponent(TICKET_LIVE.join(','))}`)).map((t) => ticketOf(t, noById)); },
+  get: async () => null,
+}, 'maintenance.ticket', 'attachments', photos);
+export async function liveTicketsV2() { return revs(await liveTickets.list()); }
+const liveOnly = (params) => Array.isArray(params?.filters?.status) && params.filters.status.length > 0 && params.filters.status.every((x) => TICKET_LIVE.includes(x));
 readers.ticketComments = withFiles(readers.ticketComments, 'maintenance.comment', 'attachments');
 readers.quotations = withFiles(readers.quotations, 'maintenance.quotation', 'attachments');
 readers.amenities = withFiles(readers.amenities, 'amenity.booking', 'depositPhotos');
@@ -729,6 +738,14 @@ async function putInventory(rec) {
     quantity: want > had && rec.lastRestocked && rec.lastRestocked !== before?.lastRestocked ? want - had : want, note: rec.movementNote || null }));
   return { ...out, quantity: Number(r.item.quantity), lastRestocked: r.item.lastRestocked || '', stockStatus: Number(r.item.quantity) <= 0 ? 'Out of stock' : r.item.minStock != null && Number(r.item.quantity) <= Number(r.item.minStock) ? 'Low' : 'In stock' };
 }
+/** Stock taken out of (or put back into) an Inventory item, e.g. the plant's salt and chlorine as the daily plant log uses them. */
+export async function moveStockV2(itemId, { kind, quantity, date, note }) {
+  const r = await call(`/assets/inventory/${encodeURIComponent(itemId)}/movements`, json('POST', { kind, quantity, date: date || null, note: note || null }));
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('communityos:changed', { detail: { collection: 'inventory' } }));
+  return r;
+}
+/** An Inventory item's movements (received, issued, counted), newest first as the server keeps them. */
+export async function stockMovesV2(itemId) { return (await call(`/assets/inventory/${encodeURIComponent(itemId)}/movements`)) || []; }
 /** What was found on an asset: the server keeps the entry and moves the asset's condition with it. */
 async function putConditionLog(rec) {
   if (isUuid(rec.id) && await readers.infraLog.get(rec.id)) throw new Error('The condition log is kept as written - add a new entry.');
@@ -1036,7 +1053,7 @@ export const V2ApiAdapter = {
   async query(c, params = {}) {
     const paged = await serverPage(c, params);   // one page from the server when it can sort, filter and search the way the page asks
     if (paged) return paged;
-    const rows = await this.list(c);
+    const rows = c === 'tickets' && liveOnly(params) ? await liveTicketsV2() : await this.list(c);   // a ticket list of live statuses never reads the closed ones
     const { runQuery } = await import('../queryEngine.js');   // same paging / sort / search as the session store
     return runQuery(rows, params);
   },

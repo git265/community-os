@@ -119,9 +119,7 @@ public final class ReleaseService {
             Books.Entry paid = cash.recordApproved(c, e);
             r.status = "Paid"; r.paidAt = clock.instant(); r.paidEntryId = paid.id;
             if (!store.update(r)) throw new DomainException.Conflict("Release " + r.shortId);
-            if (r.expenseId != null) store.expenseMoney(r.expenseId).ifPresent((x) -> {
-                if (x.paid().add(TOLERANCE).compareTo(x.amount()) >= 0) store.markExpensePaid(x.id(), "Paid in releases");
-            });
+            if (r.expenseId != null) store.settleExpense(r.expenseId, "Paid in releases");   // Paid once the releases (and any payment) cover it
             done(c, r, "finance.release.paid", AuditWriter.Action.Update, "Paid release " + r.shortId + " (" + paid.shortId + ")");
             return store.release(id).orElseThrow();
         });

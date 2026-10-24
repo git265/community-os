@@ -4,14 +4,12 @@ import com.communityos.api.approval.application.ApprovalSettings;
 import com.communityos.api.approval.domain.Plan;
 import com.communityos.api.approval.domain.Policy;
 import com.communityos.api.billing.application.BillingDesk;
-import com.communityos.api.billing.domain.Journal;
 import com.communityos.api.cultural.application.port.CulturalStore;
 import com.communityos.api.cultural.domain.Cultural;
 import com.communityos.api.shared.audit.AuditWriter;
 import com.communityos.api.shared.domain.DomainEvent;
 import com.communityos.api.shared.domain.DomainException;
 import com.communityos.api.shared.domain.Ids.CommunityId;
-import com.communityos.api.shared.domain.Money;
 import com.communityos.api.shared.events.DomainEvents;
 import com.communityos.api.shared.security.AccessDenied;
 import com.communityos.api.shared.security.Caller;
@@ -105,25 +103,7 @@ public final class ExpenseService {
             return store.expense(id).orElseThrow();
         });
     }
-    /** An approved expense paid out - by a final approver (or the accounts). */
-    public Cultural.Expense pay(Caller c, UUID id, long version, String mode) {
-        if (!(approvals.settings().approvers().isFinal(c) || c.has(Permission.MANAGE_LEDGER) || c.isSuperAdmin())) throw new AccessDenied("Only a final approver or the accounts mark an expense paid");
-        return tx.inTx(() -> {
-            Cultural.Expense x = current(id, version);
-            if (!"Approved".equals(x.status)) throw new DomainException.RuleViolated("not-approved", "Only an approved expense is paid");
-            if (x.amount == null || x.amount.signum() <= 0) throw new DomainException.RuleViolated("amount-required", "Enter the actual amount spent before marking it paid");
-            // paid once: an expense with money in releases is paid through those releases, never directly as well
-            if (store.released(x.id).signum() > 0) throw new DomainException.RuleViolated("paid-by-releases", "This expense is being paid through releases - pay the release instead");
-            Instant now = clock.instant();
-            x.status = "Paid"; x.paidAt = now; x.paidById = c.membership() == null ? null : c.membership().value(); x.paidMode = mode == null || mode.isBlank() ? "Bank transfer" : mode;
-            if (!store.update(x)) throw new DomainException.Conflict("Expense " + x.shortId);
-            Money amt = new Money(x.amount);
-            desk.post(new Journal.Entry(now.atZone(clock.getZone()).toLocalDate(), "Event expense " + x.shortId + " · " + x.item, "expense", x.id,
-                List.of(Journal.Line.debit("5100", null, amt, x.item), Journal.Line.credit("1000", null, amt, "Paid (" + x.paidMode + ")"))));
-            done(c, x, "cultural.expense.paid", AuditWriter.Action.Update, "Paid " + x.amount.toPlainString() + " for " + x.item);
-            return store.expense(id).orElseThrow();
-        });
-    }
+    // An expense is not marked paid here: it is Paid when a payment (Billing -> Payments) or its releases cover it (CashBookService).
     public void remove(Caller c, UUID id, long version) {
         requireRaiser(c);
         tx.run(() -> {

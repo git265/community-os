@@ -1182,14 +1182,26 @@ class PostgresFlowTest {
             assertEquals("Pending approval", flowers.status); assertEquals(Boolean.FALSE, flowers.finalRequired == null ? Boolean.FALSE : flowers.finalRequired);
             var fOk = as(treasurer, () -> expSvc.decide(treasurer, flowers.id, flowers.version, "Approved", null, false));
             assertEquals("Approved", fOk.status, "under the limit: the EC is the last step"); assertEquals("Member treasurer", fOk.ecApprovedBy);
-            var paidX = as(treasurer, () -> expSvc.pay(treasurer, fOk.id, fOk.version, "Bank transfer"));
-            assertEquals("Paid", paidX.status);
+            // paid = a payment for it in the cash book (Billing -> Payments): the expense follows the money, and a reversal makes it unpaid again
+            var xcash = new com.communityos.api.finance.application.CashBookService(new com.communityos.api.finance.adapter.JdbcFinanceStore(app, new com.communityos.api.approval.application.PlanCodec(json)), cdesk, audit, app, clock);
+            java.util.function.Function<java.util.UUID, com.communityos.api.finance.domain.Books.Entry> payFor = (xid) -> {
+                var e = new com.communityos.api.finance.domain.Books.Entry();
+                e.date = today; e.type = "Debit"; e.amount = new java.math.BigDecimal("3000"); e.description = "Flowers"; e.vendor = "Ganesh Florist"; e.mode = "Bank transfer"; e.ref = "UTR-FLW";
+                e.module = "Cultural"; e.account = "Cultural"; e.sourceType = "culturalExpense"; e.sourceId = xid;
+                return e;
+            };
+            var flowersPaid = as(admin, () -> xcash.record(admin, payFor.apply(fOk.id)));
+            assertEquals("Paid", as(treasurer, () -> expSvc.get(treasurer, fOk.id)).status, "its payment makes it Paid");
             assertEquals("3000.00", owner.sql("SELECT coalesce(sum(l.debit), 0)::text AS d FROM finance.journal_line l JOIN finance.account a ON a.id = l.account_id WHERE l.community_id = '" + cid + "' AND a.code = '5100'").get(0).get("d"));
             var sound = as(admin, () -> expSvc.raise(admin, diwali.id(), new com.communityos.api.cultural.application.ExpenseService.Fields("Sound system", null, null, new java.math.BigDecimal("8000"), null, today, null, null)));
             var sEc = as(treasurer, () -> expSvc.decide(treasurer, sound.id, sound.version, "Approved", null, false));
             assertEquals("Pending approval", sEc.status); assertEquals("Approved", sEc.ecApproval); assertEquals(Boolean.TRUE, sEc.finalRequired, "over the limit: a final approver too");
             assertThrows(AccessDenied.class, () -> as(ownerC, () -> expSvc.decide(ownerC, sound.id, sEc.version, "Approved", null, false)));
-            assertThrows(DomainException.RuleViolated.class, () -> as(treasurer, () -> expSvc.pay(treasurer, sound.id, sEc.version, null)), "not approved yet");
+            assertEquals("expense-not-approved", assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> xcash.record(admin, payFor.apply(sound.id)))).code(), "not approved yet");
+            as(admin, () -> xcash.reverse(admin, flowersPaid.id, flowersPaid.version, "paid to the wrong account"));
+            assertEquals("Approved", as(treasurer, () -> expSvc.get(treasurer, fOk.id)).status, "reversed: unpaid again");
+            as(admin, () -> xcash.record(admin, payFor.apply(fOk.id)));
+            assertEquals("Paid", as(treasurer, () -> expSvc.get(treasurer, fOk.id)).status);
             // the event's totals are worked out from the rows
             var after = as(ownerC, () -> kit.get(ownerC, com.communityos.api.cultural.CulturalResources.EVENTS, evRepo, diwali.id()));
             assertEquals(0, new java.math.BigDecimal("4001").compareTo(new java.math.BigDecimal(String.valueOf(after.server("collected")))), "collected: " + after.server("collected"));

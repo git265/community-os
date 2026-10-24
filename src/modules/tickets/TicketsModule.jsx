@@ -2,7 +2,7 @@ import { openSession, clockIn, clockOut } from '../../lib/attendance.js';
 import FilePreview from '../../components/FilePreview.jsx';
 import AdminDelete from '../../components/AdminDelete.jsx';
 import { useDeleteVerdict, DeleteBlockedNote } from '../../components/DeleteGuard.jsx';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { getDataSource } from '../../lib/storage/dataSource.js';
 import { useApp, useCollection } from '../../context/AppContext.jsx';
 import { COLLECTIONS } from '../../lib/storage/index.js';
@@ -62,9 +62,38 @@ function TaskDelete({ ticket, onDone }) {
 }
 
 const LIVE_STATUSES = ['Open', 'Assigned', 'In Progress', 'On Hold', 'Completed', 'Reopened'];
+/** The tickets the Maintenance page works from: on the server the live ones only (one filtered read, not every ticket ever raised); the browser
+ *  demo keeps all its tickets in memory anyway. Read again whenever tickets change. */
+function usePageTickets() {
+  const [records, setRecords] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const refresh = useCallback(async () => {
+    try {
+      const v2 = getDataSource().mode === 'v2';
+      const rows = v2 ? await (await import('../../lib/storage/v2/V2ApiAdapter.js')).liveTicketsV2() : await secureStorage.list(COLLECTIONS.TICKETS);
+      setRecords(rows);   // on the server the rows are already the ones this person may see
+    } catch (err) {
+      if (err?.name !== 'AuthzError') window.dispatchEvent(new CustomEvent('communityos:denied', { detail: { message: `Maintenance could not be loaded: ${err?.message || 'error'}` } }));
+      setRecords([]);
+    } finally { setLoading(false); }
+  }, []);
+  useEffect(() => {
+    refresh();
+    const h = (e) => { if (e.detail?.collection === COLLECTIONS.TICKETS) refresh(); };
+    window.addEventListener('communityos:changed', h);
+    return () => window.removeEventListener('communityos:changed', h);
+  }, [refresh]);
+  return { records, loading, refresh };
+}
+/** Where the work is, as one highlighted pill (the unit, or the place in the community), so a technician spots it at a glance. */
+function LocPill({ t, big }) {
+  const community = t.scope === 'Community';
+  const text = community ? (t.location || 'Community area') : (t.unit || 'Common area');
+  return <span className={`loc-pill${big ? ' lg' : ''}`} data-testid="tk-loc-pill" title="Location">{community ? '🏘' : '📍'} {text}</span>;
+}
 // Summary cards above the table; clicking one filters the table (the filter is merged into the table's base filters).
 const SUMMARY_FILTERS = {
-  all: {},
+  all: { status: LIVE_STATUSES },   // everything still being worked on: Closed and Cancelled load only from their own tile or the status filter
   open: { status: ['Open', 'Reopened'] },
   progress: { status: ['Assigned', 'In Progress'] },
   hold: { status: 'On Hold' },
@@ -72,7 +101,7 @@ const SUMMARY_FILTERS = {
   closed: { status: 'Closed' },
   critical: { status: LIVE_STATUSES, priority: ['High', 'Critical'] },
   live: { status: LIVE_STATUSES },
-  overdue: {}, // narrowed to the past-SLA ids below
+  overdue: { status: LIVE_STATUSES }, // narrowed to the past-SLA ids below
 };
 /** On the v2 back end the tiles' counts come from the server (GET /summary/tickets: counted from the rows this person may see, with the list's
  *  own rules), so the page does not need every ticket to count them. Refreshed when tickets change. null elsewhere / until loaded. */
@@ -159,7 +188,12 @@ function CoverageHint({ row, fallback, roles = [], extra = null }) {
 /** `embeddedRef` + `onEmbeddedClose`: show only one task's details on top of another screen (e.g. Billing) instead of the whole Maintenance page. */
 export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = null, onNavigate = null }) {
   const { roleId, role, roles, currentUser, hasPermission, tabAllowed, schemaFor } = useApp();
-  const { records: tickets, save: saveTicket, refresh: refreshTickets } = useCollection(COLLECTIONS.TICKETS, 'Maintenance');
+  // saves only through this one: the page's own list is the live tickets (on the server; the browser demo keeps all), plus a closed one opened on its own
+  const { save: saveTicket } = useCollection(COLLECTIONS.TICKETS, 'Maintenance', { enabled: false });
+  const liveT = usePageTickets();
+  const [extraT, setExtraT] = useState(null);
+  const tickets = useMemo(() => (extraT && !liveT.records.some((t) => t.id === extraT.id) ? [...liveT.records, extraT] : liveT.records), [liveT.records, extraT]);
+  const refreshTickets = liveT.refresh;
   const { records: taskTypes, loading: typesLoading } = useCollection(COLLECTIONS.TASK_TYPES, 'Task Types');
   const { records: approverRows } = useCollection(COLLECTIONS.APPROVER_SETTINGS, 'Final Approvers');
   const { records: ecRoles } = useCollection(COLLECTIONS.EC_ROLES, 'EC Roster');
@@ -180,10 +214,12 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
     let want = null;
     if (embeddedRef) want = embeddedRef;
     else { try { want = sessionStorage.getItem('communityos:openTicket'); } catch { /* ignore */ } }
-    if (!want || tickets.length === 0) return;
+    if (!want || liveT.loading) return;
+    const done = (t) => { setSelectedId(t.id); if (!embeddedRef) { try { sessionStorage.removeItem('communityos:openTicket'); } catch { /* ignore */ } } };
     const hit = tickets.find((t) => t.id === want || t.ticketNumber === want || t.shortId === want);
-    if (hit) { setSelectedId(hit.id); if (!embeddedRef) { try { sessionStorage.removeItem('communityos:openTicket'); } catch { /* ignore */ } } }
-  }, [tickets, embeddedRef]);
+    if (hit) done(hit);
+    else secureStorage.get(COLLECTIONS.TICKETS, want).then((t) => { if (t) { setExtraT(t); done(t); } }).catch(() => {});   // a closed one: read on its own
+  }, [tickets, embeddedRef, liveT.loading]); // eslint-disable-line react-hooks/exhaustive-deps
   const [raising, setRaising] = useState(null); // null | 'task' | 'request'
   // read only when needed: people to assign (raising a task or one task open), and the payments and chat of the open task
   const { records: users } = useCollection(COLLECTIONS.USERS, 'Users', { enabled: !!raising || !!selectedId });
@@ -369,6 +405,13 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
   }
 
   const selected = tickets.find((t) => t.id === selectedId) ?? null;
+  // a ticket opened from the Closed tile is not in the live list: read it on its own (again whenever tickets change)
+  useEffect(() => {
+    if (!selectedId || liveT.records.some((t) => t.id === selectedId)) return undefined;
+    let on = true;
+    secureStorage.get(COLLECTIONS.TICKETS, selectedId).then((t) => { if (on && t) setExtraT(t); }).catch(() => {});
+    return () => { on = false; };
+  }, [selectedId, liveT.records]);
   // on a computer the open ticket sits beside the list (split view) and the list turns into two-line rows
   const docked = !!selected && !embeddedRef && !phoneView;
   const selectedType = taskTypeOf(selected);
@@ -477,7 +520,7 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
     { key: 'progress', label: 'Active' },
     { key: 'hold', label: 'On hold' },
     { key: 'closed', label: 'Closed' },
-  ].map((c) => ({ ...c, count: serverSum?.byStatus ? (c.key === 'all' ? Number(serverSum.total) : serverCount(c.key)) : c.key === 'all' ? visibleTickets.length : countOf(c.key) }));
+  ].map((c) => ({ ...c, count: serverSum?.byStatus ? serverCount(c.key) : countOf(c.key) }));
   function resetAllFilters() {
     setCardKey(firstCard); setApprovalOnly(false); setConfirmOnly(false); setFinancialOnly(false); setScope('all'); setResetToken((n) => n + 1);
   }
@@ -677,7 +720,8 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
           {ageD != null && <small className="muted tk-age">{ageD === 0 ? 'today' : `${ageD}d`}</small>}
         </div>
         <h3 className="tk-title">{t.financial ? '💰 ' : ''}{t.title}</h3>
-        <div className="tk-meta">{EMOJI[t.category] || ''} {t.category}{t.subCategory ? ` › ${t.subCategory}` : ''} · {t.unit || 'Common area'}{!isResident && t.taskType !== residentTypeName ? ` · ${t.taskType}` : ''}</div>
+        <div className="tk-loc-line"><LocPill t={t} /></div>
+        <div className="tk-meta">{EMOJI[t.category] || ''} {t.category}{t.subCategory ? ` › ${t.subCategory}` : ''}{!isResident && t.taskType !== residentTypeName ? ` · ${t.taskType}` : ''}</div>
         {(quoted > 0 || invoiced > 0) && (
           <div className="tk-money">
             {quoted > 0 && <span>Quoted <b>{rupees(quoted)}</b></span>}
@@ -723,7 +767,7 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
         </div>
         <div className="tk-strip">
           <span>{EMOJI[t.category] || ''} {t.category}{t.subCategory ? ` › ${t.subCategory}` : ''}</span>
-          <span className="tk-loc" data-testid="tk-location"><small>Location</small> {t.scope === 'Community' ? `🏘 ${t.location || 'Community area'}` : (t.unit || 'Common area')}</span>
+          <span className="tk-loc" data-testid="tk-location"><small>Location</small> <LocPill t={t} big /></span>
           <div className="tk-state">   {/* the ticket's state on one row: status and due date together, then who has it */}
             <span className={`tag ${TAG_CLASS[t.status] || ''}`}>{t.status}</span>
             <span className={`tk-sla ${sla.tone}`}>⏱ {sla.text}</span>
@@ -773,7 +817,7 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
     { key: 'recordCreatedAt', label: 'Created', render: (t) => { if (!t.recordCreatedAt) return '—'; const d = new Date(t.recordCreatedAt); const same = d.getFullYear() === new Date().getFullYear(); return <span style={{ whiteSpace: 'nowrap' }}>{d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', ...(same ? {} : { year: 'numeric' }) })}</span>; } },
     { key: 'title', label: 'Issue', render: (t) => <span style={{ display: 'inline-block', minWidth: 140 }}>{t.financial ? '💰 ' : ''}{(t.hasPhotos || t.attachments?.length) ? '📎 ' : ''}{t.title}{!isResident && t.taskType && t.taskType !== 'Resident Maintenance' && <><br /><small className="tag purple">{t.taskType}</small></>}</span> },
     { key: 'category', label: 'Category', render: (t) => `${EMOJI[t.category] || ''} ${t.category}${t.subCategory ? ` › ${t.subCategory}` : ''}` },
-    { key: 'unit', label: 'Location', render: (t) => (t.scope === 'Community' ? <span className="tag purple">🏘 {t.location || 'Community'}</span> : (t.unit || 'Common area')) },
+    { key: 'unit', label: 'Location', render: (t) => <LocPill t={t} /> },
     { key: 'priority', label: 'Priority', render: (t) => <span className={`tag ${t.priority === 'Critical' || t.priority === 'High' ? 'red' : ''}`}>{t.priority}</span> },
     { key: 'status', label: 'Status', render: (t) => <span className={`tag ${TAG_CLASS[t.status] || ''}`}>{t.status}</span> },
     ...(canSeeFinance ? [{ key: 'approval', label: 'Approval', sortable: false, render: (t) => { const a = approvalState(t, taskTypeOf(t)); return a.label ? <span className={`tag ${a.tone}`}>{a.label}</span> : <span className="muted">—</span>; } }] : []),
@@ -895,7 +939,7 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
                   cardsAlways={docked}
                   baseFilters={{
                     ...(isHandymanRole && roleId !== 'handyman_mep' ? { category: myTrade } : {}),
-                    ...(cardKey ? SUMMARY_FILTERS[cardKey] : {}),
+                    ...(cardKey ? SUMMARY_FILTERS[cardKey] : SUMMARY_FILTERS.all),
                     ...(cardKey === 'overdue' ? { id: overdueIds.length ? overdueIds : ['__none__'] } : {}),
                     ...(financialOnly ? { financial: true } : {}),
                     ...(isResident && resScope === 'Community' ? { scope: 'Community' } : {}),

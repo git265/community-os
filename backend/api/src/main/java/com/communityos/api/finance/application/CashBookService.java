@@ -23,6 +23,8 @@ import java.util.UUID;
  */
 public final class CashBookService {
     /** What the input-credit check writes on a payment (src/lib/finance/itc.js ITC), plus the older manual words kept for rows already saved. */
+    /** A payment made for an event expense (Payments -> Cultural): the expense is Paid once its payments cover it. */
+    public static final String CULTURAL_EXPENSE = "culturalExpense";
     public static final List<String> ITC_STATUSES = List.of("Not checked", "Verified", "Check vendor GSTIN", "Invoice details missing", "Not found in GSTR-2B",
         "Not applicable", "Unregistered vendor", "Claimable", "Claimed", "Not claimable", "Mismatch");
     private final FinanceStore store; private final BillingDesk desk; private final AuditWriter audit; private final Tx tx; private final Clock clock;
@@ -64,7 +66,11 @@ public final class CashBookService {
             r.check();
             store.insert(r);
             desk.post(new Journal.Entry(r.date, "Reversal " + r.shortId + " of " + e.shortId, "cashbook", r.id, e.swapped()));
-            if ("release".equals(e.sourceType) && e.sourceId != null) store.releaseUnpaid(e.sourceId);   // the release is approved, not paid, again
+            if ("release".equals(e.sourceType) && e.sourceId != null) {
+                store.releaseUnpaid(e.sourceId);   // the release is approved, not paid, again
+                store.releaseExpense(e.sourceId).ifPresent((x) -> store.settleExpense(x, null));   // and its event expense, if the money no longer covers it
+            }
+            if (CULTURAL_EXPENSE.equals(e.sourceType) && e.sourceId != null) store.settleExpense(e.sourceId, null);   // the expense is Approved (unpaid) again
             audit.write(c, AuditWriter.Action.Create, "finance.cash_book_entry", r.id, r.shortId, r.unitId, "Reversed " + e.shortId + ": " + reason.strip(), List.of());
             return store.entry(r.id).orElseThrow();
         });
@@ -99,9 +105,16 @@ public final class CashBookService {
 
     private Books.Entry write(Caller c, Books.Entry e, String what) {
         locked(e.date);
+        boolean forExpense = CULTURAL_EXPENSE.equals(e.sourceType) && e.sourceId != null;
+        if (forExpense) {   // a payment for an event expense: only once it is approved, and never beside releases on it (it would be paid twice)
+            var x = store.expenseMoney(e.sourceId).orElseThrow(() -> new DomainException.RuleViolated("expense-not-found", "The event expense was not found"));
+            if (!List.of("Approved", "Paid").contains(x.status())) throw new DomainException.RuleViolated("expense-not-approved", "Approve the event expense before paying it");
+            if (x.released().signum() > 0) throw new DomainException.RuleViolated("paid-by-releases", "This expense is being paid through releases - pay the release instead");
+        }
         e.reconStatus = "Unreconciled"; e.bankTxnId = null; e.internal = false; e.reversalOf = null;
         store.insert(e);
         desk.post(new Journal.Entry(e.date, (e.debit() ? "Paid: " : "Received: ") + e.description + " · " + e.shortId, "cashbook", e.id, e.lines()));
+        if (forExpense && e.debit()) store.settleExpense(e.sourceId, e.mode == null ? "Bank transfer" : e.mode + (e.account == null ? "" : " · " + e.account));   // Paid follows the payment
         audit.write(c, AuditWriter.Action.Create, "finance.cash_book_entry", e.id, e.shortId, e.unitId, what + " " + e.type.toLowerCase() + " " + e.amount.toPlainString() + " - " + e.description, List.of());
         return store.entry(e.id).orElseThrow();
     }
