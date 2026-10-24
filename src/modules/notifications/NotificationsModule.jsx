@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useApp, useCollection } from '../../context/AppContext.jsx';
 import { COLLECTIONS } from '../../lib/storage/index.js';
 import { listMine, markRead, markAllRead, NOTIFICATIONS } from '../../lib/notifications.js';
-import { EVENTS, CHANNELS, chKey, eventLabel, getMyPrefs, saveMyPrefs, getSettings, saveSettings } from '../../lib/notify.js';
+import { EVENTS, CHANNELS, MUTABLE, chKey, eventLabel, getMyPrefs, saveMyPrefs, getSettings, saveSettings } from '../../lib/notify.js';
 import { ICON } from '../../components/NotificationBell.jsx';
 import { ApprovalButtons } from '../../components/GateApproval.jsx';
 import { loadRoles } from '../../lib/access/roleStore.js';
@@ -44,11 +44,13 @@ function Inbox({ onNavigate }) {
 
 function MyChannels() {
   const { currentUser } = useApp();
-  const [prefs, setPrefs] = useState({ whatsapp: false, sms: false, email: false });
+  const [prefs, setPrefs] = useState({ whatsapp: false, sms: false, email: false, muted: [] });
   const [offered, setOffered] = useState({});
   const [saved, setSaved] = useState('');
   useEffect(() => { (async () => { setPrefs(await getMyPrefs(currentUser.name)); setOffered(await getSettings()); })(); }, [currentUser.name]);
-  const set = async (c, v) => { const next = { ...prefs, [chKey(c)]: v }; setPrefs(next); await saveMyPrefs(currentUser.name, next); setSaved('Saved'); setTimeout(() => setSaved(''), 1500); };
+  const store = async (next) => { setPrefs(next); await saveMyPrefs(currentUser.name, next); setSaved('Saved'); setTimeout(() => setSaved(''), 1500); };
+  const set = (c, v) => store({ ...prefs, [chKey(c)]: v });
+  const mute = (id, on) => store({ ...prefs, muted: on ? [...new Set([...(prefs.muted || []), id])] : (prefs.muted || []).filter((x) => x !== id) });
   const allOff = (c) => EVENTS.every((e) => offered[e.id]?.[chKey(c)] === false);
   return (
     <div data-testid="notif-prefs">
@@ -66,6 +68,15 @@ function MyChannels() {
           </label>
         </div>
       ))}
+      <div className="card" style={{ marginBottom: 10 }} data-testid="notif-mute">
+        <b>Mute news you do not need</b>
+        <p className="muted" style={{ margin: '4px 0 8px' }}>Muted kinds are not shown in the bell and not sent on any channel. Requests and tasks, bills and payments, approvals, the gate and notices always reach you.</p>
+        {MUTABLE.map((id) => (
+          <label key={id} style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 4 }}>
+            <input type="checkbox" data-testid={`mute-${id}`} checked={(prefs.muted || []).includes(id)} onChange={(e) => mute(id, e.target.checked)} /> Mute: {eventLabel(id)}
+          </label>
+        ))}
+      </div>
       {saved && <div className="notice">{saved}</div>}
       <div className="muted" style={{ fontSize: 12 }}>Demo build: WhatsApp / SMS / e-mail messages are queued in the Delivery log but not actually sent until a messaging gateway is connected.</div>
     </div>

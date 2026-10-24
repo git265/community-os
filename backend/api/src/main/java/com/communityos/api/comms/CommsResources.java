@@ -94,8 +94,10 @@ public final class CommsResources {
             }
             @Override public String label(TemplateFields f) { return f.event() + " · " + f.channel(); }
         });
-    /** A member's own extra channels (the app itself is always on). One row per member; the member is the caller. */
-    public record PrefFields(boolean whatsapp, boolean sms, boolean email) {}
+    /** A member's own extra channels (the app itself is always on), and the non-urgent kinds they muted. One row per member; the member is the caller. */
+    public record PrefFields(boolean whatsapp, boolean sms, boolean email, List<String> muted) {
+        public PrefFields(boolean whatsapp, boolean sms, boolean email) { this(whatsapp, sms, email, List.of()); }
+    }
     public static final Resource<PrefFields> PREFS = new Resource<>(
         new ResourceTable<>("notificationPrefs", "comms/notification-prefs", "comms.notification_pref", PrefFields.class, "r.created_at").who("userName", "membership_id", true),
         new ResourceRules<>() {
@@ -106,6 +108,11 @@ public final class CommsResources {
             }
             @Override public boolean mayWrite(Caller c) { return c.membership() != null; }
             @Override public boolean mayChange(Caller c, Item<PrefFields> it) { return ResourceRules.mine(c, it, "userNameId"); }
+            @Override public PrefFields validate(Caller c, PrefFields f, PrefFields old) {
+                List<String> muted = Checks.list(f.muted()).stream().distinct().toList();
+                for (String e : muted) Checks.rule(Comms.MUTABLE.contains(e), "not-mutable", eventName(e) + " cannot be muted: only forum, polls, cultural news, the brochure and the calendar");
+                return new PrefFields(f.whatsapp(), f.sms(), f.email(), muted);
+            }
             @Override public String label(PrefFields f) { return "channels"; }
         });
     /** Per kind of notification: which extra channels the community offers ({event: {whatsapp, sms, email, alsoRoles: [...]}}). One row per community. */
@@ -144,4 +151,5 @@ public final class CommsResources {
         });
 
     public static List<Resource<?>> all() { return List.of(NUMBERS, SECTIONS, MERGE_FIELDS, NOTICE_TEMPLATES, TEMPLATES, PREFS, SETTINGS, OUTBOX); }
+    static String eventName(String e) { return e == null ? "That" : e.replace('_', ' '); }
 }

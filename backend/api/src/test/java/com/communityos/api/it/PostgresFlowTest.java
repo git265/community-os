@@ -1031,6 +1031,18 @@ class PostgresFlowTest {
             assertTrue(as(ownerC, () -> forum.pollResults(ownerC)).containsKey(topic.id), "every poll topic's results in one call");
             assertEquals("Member treasurer", reply.author); assertEquals("treasurer", reply.authorRole);
             assertTrue(as(ownerC, () -> inboxSvc.mine(ownerC, true, 10)).stream().anyMatch((n) -> n.event().equals("forum_reply")), "the author hears of the reply");
+            // muting news: the owner mutes forum replies - the next reply tells them nothing; work (tickets, bills) cannot be muted
+            var prefNow = as(ownerC, () -> kit.list(ownerC, com.communityos.api.comms.CommsResources.PREFS, prefRepo)).get(0);
+            assertThrows(DomainException.RuleViolated.class, () -> as(ownerC, () -> kit.replace(ownerC, com.communityos.api.comms.CommsResources.PREFS, prefRepo, prefNow.id(), prefNow.version(),
+                new com.communityos.api.comms.CommsResources.PrefFields(true, false, true, List.of("bill")))), "bills always reach them");
+            as(ownerC, () -> kit.replace(ownerC, com.communityos.api.comms.CommsResources.PREFS, prefRepo, prefNow.id(), prefNow.version(),
+                new com.communityos.api.comms.CommsResources.PrefFields(true, false, true, List.of("forum_reply"))));
+            long repliesBefore = as(ownerC, () -> inboxSvc.mine(ownerC, false, 200)).stream().filter((n) -> n.event().equals("forum_reply")).count();
+            var quiet = as(ownerC, () -> forum.start(ownerC, new com.communityos.api.comms.application.ForumService.NewTopic("Gym hours", "Amenities", "Discussion", List.of())));
+            as(treasurer, () -> forum.reply(treasurer, quiet.id, null, "<p>Open at 5</p>"));
+            assertEquals(repliesBefore, as(ownerC, () -> inboxSvc.mine(ownerC, false, 200)).stream().filter((n) -> n.event().equals("forum_reply")).count(), "muted: no new row");
+            as(ownerC, () -> { var x = kit.list(ownerC, com.communityos.api.comms.CommsResources.PREFS, prefRepo).get(0);
+                return kit.replace(ownerC, com.communityos.api.comms.CommsResources.PREFS, prefRepo, x.id(), x.version(), new com.communityos.api.comms.CommsResources.PrefFields(true, false, true, List.of())); });
             var t1 = as(ownerC, () -> forum.topic(ownerC, topic.id));
             assertEquals(1, t1.replies, "counted by the server");
             assertThrows(AccessDenied.class, () -> as(ownerC, () -> forum.change(ownerC, topic.id, t1.version, new com.communityos.api.comms.application.ForumService.TopicChange(null, null, true, null))));

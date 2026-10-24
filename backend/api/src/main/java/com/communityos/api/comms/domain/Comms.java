@@ -30,6 +30,9 @@ public final class Comms {
         "event_work", "report", "gate_approval", "gate_guest_arrived", "gate_guest_exit", "gate_delivery", "gate_staff_inout", "gate_crew_inout", "gate_overstay", "gate_ghost",
         "gate_override", "gate_blocked", "gate_vetting", "amenity_booking", "stock_low", "money_check");
 
+    /** The kinds a person may mute (news, not work): tickets, bills, payments, approvals, the gate and notices always reach them. */
+    public static final List<String> MUTABLE = List.of("forum_topic", "forum_reply", "poll", "cultural", "brochure", "calendar");
+
     // ---- the inbox -------------------------------------------------------------------------------------------------------------------------------
     /** Who a notification is for: members by id, everyone with portal access to some units, and holders of some roles (by code; EC_MEMBERS = every committee role). */
     public record To(Set<UUID> members, Set<UUID> units, Set<String> roles, Set<String> relations) {

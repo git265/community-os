@@ -9,7 +9,7 @@ import { storage } from './storage/index.js';
 import { getPrincipal } from './security/principal.js';
 import { notificationForMe } from './security/authz.js';
 import { uuid } from './uuid.js';
-import { notify } from './notify.js';
+import { notify, getMyPrefs } from './notify.js';
 import { approvalState, invoiceApproval, finalApproverRoleIds } from '../modules/tickets/ticketEngine.js';
 
 export const NOTIFICATIONS = 'notifications';
@@ -21,8 +21,10 @@ export function isForMe(n, p = getPrincipal()) {
 }
 
 export async function listMine() {
-  const rows = await storage.list(NOTIFICATIONS);
-  return rows.filter((n) => isForMe(n)).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  const p = getPrincipal();
+  const [rows, prefs] = await Promise.all([storage.list(NOTIFICATIONS), p?.name ? getMyPrefs(p.name).catch(() => null) : null]);
+  const muted = new Set(prefs?.muted || []);   // the kinds this person muted (news only: forum, polls, cultural, brochure, calendar)
+  return rows.filter((n) => isForMe(n, p) && !muted.has(n.event)).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
 }
 
 export async function pushNotification(row) { return save(row); }

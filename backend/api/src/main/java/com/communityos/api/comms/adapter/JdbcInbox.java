@@ -26,6 +26,7 @@ public final class JdbcInbox implements Inbox, Facts {
         who AS (
           SELECT m.id, m.person_id, m.display_name FROM identity.membership m
           WHERE m.status = 'Active' AND m.id IS DISTINCT FROM platform.current_actor()
+            AND NOT EXISTS (SELECT 1 FROM comms.notification_pref mp WHERE mp.membership_id = m.id AND CAST(:event AS text) = ANY (mp.muted))   -- muted by them
             AND (m.id = ANY (CAST(:members AS uuid[]))
               OR EXISTS (SELECT 1 FROM property.occupant o WHERE o.community_id = m.community_id AND o.person_id = m.person_id AND o.portal_access
                            AND (o.to_date IS NULL OR o.to_date > current_date) AND o.unit_id = ANY (CAST(:units AS uuid[]))

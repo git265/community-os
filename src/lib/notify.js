@@ -27,12 +27,12 @@ export const EVENTS = [
   { id: 'payment_made', label: 'Release approved, ready to pay, or paid', group: 'Billing' },
   { id: 'ballot', label: 'E-voting opened / closing soon', group: 'Communications' },
   { id: 'ballot_result', label: 'E-voting closed: result ready', group: 'Communications' },
-  { id: 'poll', label: 'New poll', group: 'Communications' },
-  { id: 'forum_topic', label: 'New forum topic', group: 'Communications' },
-  { id: 'forum_reply', label: 'Reply to my forum post or topic', group: 'Communications' },
-  { id: 'calendar', label: 'Community calendar (trash pickup, workers allowed, holidays)', group: 'Community' },
-  { id: 'cultural', label: 'Cultural events, donation receipts & volunteer calls', group: 'Cultural' },
-  { id: 'brochure', label: 'Event brochure published or updated', group: 'Cultural' },
+  { id: 'poll', label: 'New poll', group: 'Communications', mutable: true },
+  { id: 'forum_topic', label: 'New forum topic', group: 'Communications', mutable: true },
+  { id: 'forum_reply', label: 'Reply to my forum post or topic', group: 'Communications', mutable: true },
+  { id: 'calendar', label: 'Community calendar (trash pickup, workers allowed, holidays)', group: 'Community', mutable: true },
+  { id: 'cultural', label: 'Cultural events, donation receipts & volunteer calls', group: 'Cultural', mutable: true },
+  { id: 'brochure', label: 'Event brochure published or updated', group: 'Cultural', mutable: true },
   { id: 'service_notice', label: 'Service notice from the office (power cut, water supply, lift …)', group: 'Community' },
   { id: 'meeting', label: 'Meetings (new, changed, cancelled, minutes)', group: 'Governance' },
   { id: 'shift', label: 'My shift planned / changed', group: 'Staff' },
@@ -53,6 +53,8 @@ export const EVENTS = [
   { id: 'money_check', label: 'Money check: payments, bills or the books disagree (reconciliation)', group: 'Billing' },
 ];
 export const eventLabel = (id) => EVENTS.find((e) => e.id === id)?.label || id;
+/** The kinds a person may mute (news, not work): tickets, bills, payments, approvals, the gate and notices always reach them. */
+export const MUTABLE = EVENTS.filter((e) => e.mutable).map((e) => e.id);
 
 const SYSTEM = 'System';
 const changed = (c) => window.dispatchEvent(new CustomEvent('communityos:changed', { detail: { collection: c } }));
@@ -82,14 +84,15 @@ export async function saveSettings(events) {
 }
 export async function getMyPrefs(name) {
   const row = (await storage.list(COLLECTIONS.NOTIFICATION_PREFS)).find((r) => sameName(r.userName, name));
-  return { whatsapp: !!row?.whatsapp, sms: !!row?.sms, email: !!row?.email };
+  return { whatsapp: !!row?.whatsapp, sms: !!row?.sms, email: !!row?.email, muted: (Array.isArray(row?.muted) ? row.muted : []).filter((e) => MUTABLE.includes(e)) };
 }
 export async function saveMyPrefs(name, prefs) {
   const rows = await storage.list(COLLECTIONS.NOTIFICATION_PREFS);
   const old = rows.find((r) => sameName(r.userName, name));
   const now = new Date().toISOString();
-  await storage.put(COLLECTIONS.NOTIFICATION_PREFS, { ...(old || { id: uuid(), recordCreatedAt: now }), userName: name, whatsapp: !!prefs.whatsapp, sms: !!prefs.sms, email: !!prefs.email, lastUpdatedAt: now });
-  logEvent({ what: 'Notification Settings', action: 'Update', summary: `${name}: notification preferences changed (WhatsApp ${prefs.whatsapp ? 'on' : 'off'}, SMS ${prefs.sms ? 'on' : 'off'}, email ${prefs.email ? 'on' : 'off'})`, who: name });
+  const muted = (prefs.muted || []).filter((e) => MUTABLE.includes(e));
+  await storage.put(COLLECTIONS.NOTIFICATION_PREFS, { ...(old || { id: uuid(), recordCreatedAt: now }), userName: name, whatsapp: !!prefs.whatsapp, sms: !!prefs.sms, email: !!prefs.email, muted, lastUpdatedAt: now });
+  logEvent({ what: 'Notification Settings', action: 'Update', summary: `${name}: notification preferences changed (WhatsApp ${prefs.whatsapp ? 'on' : 'off'}, SMS ${prefs.sms ? 'on' : 'off'}, email ${prefs.email ? 'on' : 'off'}${muted.length ? `; muted: ${muted.map(eventLabel).join(', ')}` : ''})`, who: name });
   changed(COLLECTIONS.NOTIFICATION_PREFS);
 }
 
@@ -186,7 +189,7 @@ export async function queueExtraChannels(items, rows) {
       for (const u of recipientsOf(it, ix)) {
         if (it.by && u.name === it.by) continue;
         const pr = prefBy.get(nameKey(u.name));
-        if (!pr) continue;
+        if (!pr || (Array.isArray(pr.muted) && pr.muted.includes(it.event))) continue;   // no extra channels, or this kind is muted by them
         for (const c of offered) if (pr[chKey(c)]) { out.push(outboxRow(++seq, c, it.event, u, rows[i].title, rows[i].body, now)); queued += 1; }
       }
     });
