@@ -24,6 +24,7 @@
 //   workforce   GET /v1/workforce/teams (field staff on duty by trade)
 //   app configuration (schema, communityConfig, roleGroups): kept in this browser until the v2 API has endpoints for them
 //   everything else: not on the v2 API yet - reads answer empty, writes are refused with a clear message (nothing is silently dropped)
+import { localDay, todayLocal } from '../../locale.js';
 import { apiFetch } from '../../net/request.js';
 import { AuthzError, ConflictError, PartialSaveError } from '../../security/errors.js';
 import { SessionStorageAdapter } from '../SessionStorageAdapter.js';
@@ -177,7 +178,7 @@ readers.amenities = {
   list: async () => {
     const own = (await many('/amenities/bookings')).map(bookingOf);
     if (getAuthUser()?.category !== 'Resident') return own;
-    const from = new Date(Date.now() - 86400e3).toISOString().slice(0, 10); const to = new Date(Date.now() + 119 * 86400e3).toISOString().slice(0, 10);   // the server answers for up to 120 days: yesterday .. 119 days ahead
+    const from = localDay(new Date(Date.now() - 86400e3)); const to = localDay(new Date(Date.now() + 119 * 86400e3));   // the server answers for up to 120 days: yesterday .. 119 days ahead
     const [taken, types] = await Promise.all([call(`/amenities/availability?from=${from}&to=${to}`), call('/amenities/types')]);
     const name = Object.fromEntries(types.map((t) => [t.id, t.name]));
     const mine = new Map();
@@ -956,7 +957,7 @@ async function putPayRequest(rec) {
   if (!before) {
     let p = {}; try { p = typeof rec.payload === 'string' ? JSON.parse(rec.payload || '{}') : (rec.payload || {}); } catch { p = {}; }
     const { idByNo } = await unitIndex();
-    return payRequestOf(await call('/finance/pay-requests', json('POST', ledgerBody({ type: 'Debit', date: new Date().toISOString().slice(0, 10), ...p, description: p.description || rec.description, amount: p.amount ?? rec.amount, vendor: p.vendor || rec.vendor }, idByNo))));
+    return payRequestOf(await call('/finance/pay-requests', json('POST', ledgerBody({ type: 'Debit', date: todayLocal(), ...p, description: p.description || rec.description, amount: p.amount ?? rec.amount, vendor: p.vendor || rec.vendor }, idByNo))));
   }
   if (rec.status !== before.status && ['Approved', 'Rejected'].includes(rec.status)) {
     return payRequestOf(await call(`/finance/pay-requests/${rec.id}/decision`, json('POST', { approve: rec.status === 'Approved', note: rec.decisionNote || rec.note || null }, ifMatch(seen(rec, before)))));

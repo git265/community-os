@@ -1,3 +1,4 @@
+import { localDay } from '../../lib/locale.js';
 import React, { useMemo, useState } from 'react';
 import { useCollection } from '../../context/AppContext.jsx';
 import { useApp } from '../../context/AppContext.jsx';
@@ -28,7 +29,7 @@ export default function AssocBills({ onNavigate }) {
   const set = (k, v) => setF((x) => ({ ...x, [k]: v }));
   const stateOf = (b) => (isPaid(b) ? 'Paid' : overdue(b) ? 'Overdue' : 'Unpaid');
   const years = useMemo(() => [...new Set(bills.map((b) => String(b.date).slice(0, 4)).filter((y) => /^\d{4}$/.test(y)))].sort().reverse(), [bills]);
-  const cutoff = (() => { const d = new Date(); d.setFullYear(d.getFullYear() - 1); return d.toISOString().slice(0, 10); })();
+  const cutoff = (() => { const d = new Date(); d.setFullYear(d.getFullYear() - 1); return localDay(d); })();
   const shown = bills.filter((b) => (!f.util || b.utility === f.util) && (!f.loc || b.location === f.loc) && (f.year === 'last12' ? String(b.date).slice(0, 10) >= cutoff : !f.year || String(b.date).startsWith(f.year)) && (!f.month || String(b.date).slice(5, 7) === f.month) && (!f.status || stateOf(b) === f.status)
     && (!f.q || `${b.title} ${b.shortId} ${b.vendor} ${b.sub}`.toLowerCase().includes(f.q.toLowerCase())));
   const total = shown.reduce((s, b) => s + b.amount, 0);

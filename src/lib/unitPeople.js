@@ -3,6 +3,7 @@
 // steps run here: the property record is saved through the secure store (its rules, and portal access added or closed afterwards), the
 // household's gate access is ended, and the change is written to the unit's history. Nothing is deleted: who left stays in the history,
 // their bills, requests and bookings stay as they were, and unpaid bills stay with the unit (reported, not settled).
+import { localDay, todayLocal } from './locale.js';
 import { apiFetch } from './net/request.js';
 import { getDataSource } from './storage/dataSource.js';
 import { storage, COLLECTIONS as C } from './storage/index.js';
@@ -15,7 +16,7 @@ import { uuid } from './uuid.js';
 
 export const onV2 = () => getDataSource().mode === 'v2';
 export const OCCUPANCIES = ['Owner occupied', 'Tenant occupied', 'Vacant'];
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => todayLocal();
 const DONE_TICKET = ['Completed', 'Closed', 'Cancelled'];
 
 async function call(method, path, body) {
@@ -64,7 +65,7 @@ function checkDay(on) {
   const d = on || today();
   if (d > today()) throw new Error('Record it on the day it happens (not a future date)');
   const two = new Date(); two.setFullYear(two.getFullYear() - 2);
-  if (d < two.toISOString().slice(0, 10)) throw new Error('That date is more than two years ago');
+  if (d < localDay(two)) throw new Error('That date is more than two years ago');
   return d;
 }
 const consistent = (occ, tenant) => {

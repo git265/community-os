@@ -3,7 +3,7 @@
 // so any new report is one more entry here. `perUnit` reports can also be personalised: sent to a villa they show only that villa's rows.
 import { storage, COLLECTIONS as C } from '../storage/index.js';
 import { effectiveCondition, faultyOf, openTicketsByAsset, units as unitsOf } from '../../modules/infra/infraModel.js';
-import { fmtDate } from '../locale.js';
+import { fmtDate, localDay } from '../locale.js';
 
 export const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 export const addDays = (s, n) => { const d = new Date(`${s}T00:00:00`); d.setDate(d.getDate() + n); return iso(d); };
@@ -25,7 +25,7 @@ export const PERIODS = {
   asof: { label: 'As of now', range: (t) => ({ from: t, to: t }) },
 };
 
-const between = (d, r) => !!d && String(d).slice(0, 10) >= r.from && String(d).slice(0, 10) <= r.to;
+const between = (d, r) => !!d && localDay(d) >= r.from && localDay(d) <= r.to;   // a moment counts on the day it falls on here
 const closed = (t) => ['Completed', 'Closed', 'Cancelled'].includes(t.status);
 const bullet = (a) => a.filter((x) => x !== '' && x != null).join(' · ');
 

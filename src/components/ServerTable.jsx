@@ -1,3 +1,4 @@
+import { localDay, isMoment, fmtDateTime } from '../lib/locale.js';
 import { statusify, StatusTag, CondTag } from './StatusTag.jsx';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../context/AppContext.jsx';
@@ -74,7 +75,7 @@ export default function ServerTable({
   const [searching, setSearching] = useState(false);   // phone: the search box is open (the record count steps aside for it)
   const [dateKey, setDateKey] = useState(dateFields[0]?.key ?? '');
   // defaultRange 'last12': the list opens on the last 12 months (a year of history), not on every record ever kept
-  const last12 = () => { const d = new Date(); const to = d.toISOString().slice(0, 10); d.setFullYear(d.getFullYear() - 1); d.setDate(d.getDate() + 1); return { from: d.toISOString().slice(0, 10), to }; };
+  const last12 = () => { const d = new Date(); const to = localDay(d); d.setFullYear(d.getFullYear() - 1); d.setDate(d.getDate() + 1); return { from: localDay(d), to }; };
   const [pYear, setPYear] = useState(defaultRange === 'last12' ? 'last12' : '');
   const [pMonth, setPMonth] = useState('');
   const [years, setYears] = useState([]);
@@ -208,6 +209,7 @@ export default function ServerTable({
     if (type === 'roles') return v.length ? v.map((id) => (id === 'group:EC' ? 'Executive Committee' : roles.find((x) => x.id === id)?.name || id)).join(', ') : '—';
     if (type === 'richtext') { const t = htmlToText(v); return t.length > 90 ? `${t.slice(0, 87)}…` : t || '—'; }
     if (Array.isArray(v)) return v.every((x) => typeof x !== 'object') ? v.join(', ') : `${v.length} item(s)`;
+    if (isMoment(v)) return fmtDateTime(v);   // a moment (kept in UTC) on this browser's clock
     return String(v);
   };
 

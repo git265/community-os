@@ -5,6 +5,7 @@
 //   - how it was paid and the UTR / cheque no.
 // That makes two things possible: spending analysis by area, and tallying the ledger against the imported bank statement.
 // With the Spring Boot backend this becomes POST /payments (one transaction: ledger row + source record status).
+import { todayLocal } from './locale.js';
 import { secureStorage } from './storage/secureStorage.js';
 import { COLLECTIONS as C } from './storage/StorageAdapter.js';
 
@@ -50,7 +51,7 @@ export async function recordPayment(p) {
   let row;
   try {
     row = await secureStorage.put(C.LEDGER, {
-    date: p.date || new Date().toISOString().slice(0, 10), account, description: p.description, category: p.category || p.area, type: p.type || 'Debit', amount: Number(p.amount), vendor: p.vendor || '',
+    date: p.date || todayLocal(), account, description: p.description, category: p.category || p.area, type: p.type || 'Debit', amount: Number(p.amount), vendor: p.vendor || '',
     module: p.area, sourceType: p.sourceType || '', sourceId: p.sourceId || '', sourceLabel: p.sourceLabel || '', mode: p.mode || 'Bank transfer', ref: p.ref || '', reconStatus: 'Unreconciled',
     ...(p.taskRef ? { taskRef: p.taskRef } : {}), ...(p.unit ? { unit: p.unit } : {}), ...(p.extra || {}),
     });
@@ -72,7 +73,7 @@ async function unpayExpense(id) {
 }
 export async function reversePayment(orig, reason) {
   const all = await secureStorage.list(C.LEDGER).catch(() => []);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayLocal();
   let row;
   try {
     row = await secureStorage.put(C.LEDGER, {

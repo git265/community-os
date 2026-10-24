@@ -19,7 +19,7 @@ import { monthLabel, recentMonths, renderNotice, todayIso } from '../../lib/noti
 import { uuid } from '../../lib/uuid.js';
 import { publishOnServer, publishReadings } from '../../lib/readingsPublish.js';
 import { DEFAULT_UTILITY_TYPES, addUtilityToSchemas } from '../../lib/utilityTypes.js';
-import { money } from '../../lib/locale.js';
+import { money, localDay } from '../../lib/locale.js';
 import Tabs from '../../components/Tabs.jsx';
 import PageActions from '../../components/PageActions.jsx';
 import { PhoneSearch, PhoneFilters } from '../../components/ToolIcons.jsx';
@@ -28,7 +28,7 @@ let typeList = DEFAULT_UTILITY_TYPES; // set by the screen each render (the type
 const icon = (u) => typeList.find((t) => t.name === u)?.icon || '📊';
 const labelOf = (u) => typeList.find((t) => t.name === u)?.label || u;
 const inr = (n) => money(n, { round: false });
-const addDays = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+const addDays = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return localDay(d); };
 const byUnit = (a, b) => String(a).localeCompare(String(b), undefined, { numeric: true });
 
 // Water and DG bills are raised from the meter, so the photo of the meter is the evidence: a reading cannot be saved or published without one.

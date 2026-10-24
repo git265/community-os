@@ -1,3 +1,4 @@
+import { localDay } from '../../lib/locale.js';
 import React, { useMemo, useState } from 'react';
 import { usePrompt } from '../../components/PromptDialog.jsx';
 import { RecentNote, recentCutoff, inRecent } from '../../components/RecentWindow.jsx';
@@ -19,7 +20,7 @@ export default function UtilityPayments({ onPay, canPay, onNavigate }) {
   const [detail, setDetail] = useState(null);
   const cutoff = recentCutoff();
   const paidDate = (b) => paidBy(b.key)[0]?.date || b.paidOn || b.date;
-  const skipDate = (b) => String(skipOf(b.key)?.createdAt || b.date || '').slice(0, 10);
+  const skipDate = (b) => localDay(skipOf(b.key)?.createdAt || b.date || '');
   const f0 = bills.filter((b) => !fUtil || b.utility === fUtil);
   const full = {
     todo: f0.filter((b) => !isPaid(b) && !skipOf(b.key) && b.amount > 0),
@@ -36,7 +37,7 @@ export default function UtilityPayments({ onPay, canPay, onNavigate }) {
     const base = [b.location, b.vendor, b.src === 'elec' ? b.sub : b.rec?.accountNo ? `A/c ${b.rec.accountNo}` : '', b.rec?.quantity ? `${b.rec.quantity} used` : '', b.src === 'elec' ? '' : `bill ${dmy(b.date)}`].filter(Boolean);
     if (tab === 'todo') return (b.due ? base : [...base, 'no due date']).join(' · ');
     if (tab === 'paid') { const l = paidBy(b.key)[0]; return [...base, l ? `paid ${dmy(l.date)} via ${l.mode || 'bank'}${l.reference ? ` · ref ${l.reference}` : ''} · ${l.account}` : `paid ${b.paidOn ? dmy(b.paidOn) : 'outside the portal'}`].join(' · '); }
-    const sk = skipOf(b.key); return [...base, `skipped ${dmy(String(sk?.createdAt || '').slice(0, 10))}${sk?.createdBy ? ` by ${sk.createdBy}` : ''}`].join(' · ');
+    const sk = skipOf(b.key); return [...base, `skipped ${dmy(localDay(sk?.createdAt || ''))}${sk?.createdBy ? ` by ${sk.createdBy}` : ''}`].join(' · ');
   }
   async function skip(b) {
     const v = await ask({ title: 'Skip this payment', subtitle: 'It moves to “Skipped” so it stops showing as waiting. You can restore it later.', confirm: 'Skip', fields: [{ key: 'reason', label: 'Reason', type: 'textarea', required: true }] });

@@ -7,7 +7,7 @@ import { usePrompt } from '../../components/PromptDialog.jsx';
 import { releaseSummary } from '../../lib/approval/releases.js';
 import { liveDebits, grossOf, paymentBlock } from '../../lib/approval/moneyGuard.js';
 import { reversePayment } from '../../lib/paymentEngine.js';
-import { money } from '../../lib/locale.js';
+import { money, localDay } from '../../lib/locale.js';
 import Tabs from '../../components/Tabs.jsx';
 import { PayeeView } from '../approval/Payee.jsx';
 
@@ -79,7 +79,7 @@ export default function FinancialTasks({ onOpenTask, onPay }) {
   const [older, setOlder] = useState(false);
   const cutoff = recentCutoff();
   const allRows = all.filter((r) => r.bucket === show);
-  const dateOf = (r) => (show === 'skipped' ? String(r.skip?.createdAt || '').slice(0, 10) : r.linked?.[0]?.date || '');
+  const dateOf = (r) => (show === 'skipped' ? localDay(r.skip?.createdAt || '') : r.linked?.[0]?.date || '');
   const rows = (show === 'done' || show === 'skipped') && !older ? allRows.filter((r) => inRecent(dateOf(r), cutoff)) : allRows;
 
   async function skip(r) {

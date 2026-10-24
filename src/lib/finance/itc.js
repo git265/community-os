@@ -3,6 +3,7 @@
 //  2. the invoice has what the GST portal matches on (bill number, date, tax amount);
 //  3. the invoice shows in the GSTR-2B statement, asked of the GST gateway (simulated until a real provider is connected).
 // Runs on demand (Billing -> Input credit -> Check now) and, if switched on, once a day in the background.
+import { todayLocal, localDay } from '../locale.js';
 import { storage, COLLECTIONS as C } from '../storage/index.js';
 import { gstGateway, applyGstSettings } from './gstGateway.js';
 import { logEvent } from '../audit/auditLog.js';
@@ -60,8 +61,8 @@ export async function runItcChecks({ actor = 'System · background check', only 
 export async function runAutoItc() {
   const s = (await storage.list(C.TAX_SETTINGS))[0];
   if (!s || s.registered !== 'Yes' || s.itcAuto === false) return null;
-  const today = new Date().toISOString().slice(0, 10);
-  if (String(s.itcLastRun || '').slice(0, 10) === today) return null;
+  const today = todayLocal();
+  if (localDay(s.itcLastRun || '') === today) return null;
   const res = await runItcChecks({ only: 'pending' });
   await storage.put(C.TAX_SETTINGS, { ...s, itcLastRun: new Date().toISOString() });
   return res;

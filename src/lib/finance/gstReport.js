@@ -1,6 +1,7 @@
 // The community's GST report, built from the ledger: tax collected on what the society sells (amenity bookings and any other taxed
 // receipt) against the tax paid on vendor bills it may claim back. Shaped like the returns it feeds (GSTR-1 outward supplies,
 // GSTR-3B summary), but it is a working report for the treasurer and the CA, not a filing.
+import { todayLocal } from '../locale.js';
 import { carriesCredit, ITC } from './itc.js';
 const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 export const isOutward = (l) => l.type === 'Credit' && Number(l.gstAmount) > 0 && !l.reversalOf;
@@ -29,4 +30,4 @@ export function buildGstReport({ ledger = [], vendors = [], fy }) {
     inward: inward.map((l) => ({ date: l.date, ref: l.shortId, vendor: l.vendor || '', gstin: gstinOf(l.vendor), invoiceNo: l.invoiceNo || l.billNo || '', taxable: r2(Number(l.baseAmount) || Math.max(0, Number(l.amount) - Number(l.gstAmount))), gst: r2(l.gstAmount), status: l.itcStatus || ITC.none, claimable: claimable(l) })),
   };
 }
-export const fyOptions = (ledger) => { const s = new Set([fyOf(new Date().toISOString().slice(0, 10))]); ledger.forEach((l) => { if (l.date && (isOutward(l) || carriesCredit(l))) s.add(fyOf(l.date)); }); return [...s].sort((a, b) => b - a); };
+export const fyOptions = (ledger) => { const s = new Set([fyOf(todayLocal())]); ledger.forEach((l) => { if (l.date && (isOutward(l) || carriesCredit(l))) s.add(fyOf(l.date)); }); return [...s].sort((a, b) => b - a); };

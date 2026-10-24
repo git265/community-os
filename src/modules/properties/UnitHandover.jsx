@@ -3,11 +3,11 @@ import Modal from '../../components/Modal.jsx';
 import { PhoneInput } from '../../components/PeopleFields.jsx';
 import { validatePhone } from '../../lib/phone.js';
 import { emailError } from '../../lib/validate.js';
-import { money as fmtMoney } from '../../lib/locale.js';
+import { money as fmtMoney, todayLocal, localDay } from '../../lib/locale.js';
 import { currentPeople, leftovers, moveOut, changeOwner, unitHistory, OCCUPANCIES } from '../../lib/unitPeople.js';
 
-const today = () => new Date().toISOString().slice(0, 10);
-const dmy = (s) => (s ? new Date(`${String(s).slice(0, 10)}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—');
+const today = () => todayLocal();
+const dmy = (s) => (s ? new Date(`${localDay(s)}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—');
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /** What stays open when people leave: told before, kept after (unpaid bills stay with the unit). */

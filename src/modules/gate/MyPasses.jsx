@@ -1,3 +1,4 @@
+import { plannedTime } from '../../lib/locale.js';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useApp, useCollection } from '../../context/AppContext.jsx';
 import { COLLECTIONS } from '../../lib/storage/index.js';
@@ -154,7 +155,7 @@ export default function MyPasses({ unit, name }) {
         <div className="gg-card col" key={p.id} data-testid="pass-row">
           <div className="gg-row" style={{ width: '100%', justifyContent: 'space-between', cursor: 'pointer' }} onClick={() => setOpen(open === p.id ? '' : p.id)}>
             <div className="gg-main"><b>{p.visitorName} <StateTag state={p.status} /> {p.type === 'Goods' && <span className="tag">🚚 {p.vehicle}</span>}</b>
-              <span className="muted">{p.type === 'Goods' ? `${p.goodsKind || 'Goods'} · ${p.peopleCount || '?'} people` : p.type} · {p.validFrom}{p.validTo !== p.validFrom ? ` to ${p.validTo}` : ''}{p.fromTime ? ` · ${p.fromTime}–${p.toTime}` : ''}{p.type === 'Recurring' && p.days?.length ? ` · ${p.days.join(', ')}` : ''}</span></div>
+              <span className="muted">{p.type === 'Goods' ? `${p.goodsKind || 'Goods'} · ${p.peopleCount || '?'} people` : p.type} · {p.validFrom}{p.validTo !== p.validFrom ? ` to ${p.validTo}` : ''}{p.fromTime ? ` · ${plannedTime(`${p.fromTime}–${p.toTime}`)}` : ''}{p.type === 'Recurring' && p.days?.length ? ` · ${p.days.join(', ')}` : ''}</span></div>
             <span>PIN <b data-testid="pass-code" style={{ letterSpacing: 2 }}>{p.code}</b></span>
           </div>
           {open === p.id && (

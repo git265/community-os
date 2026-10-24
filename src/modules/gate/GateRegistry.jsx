@@ -1,3 +1,4 @@
+import { localDay } from '../../lib/locale.js';
 import React, { useMemo, useState } from 'react';
 import { useCollection } from '../../context/AppContext.jsx';
 import { useUnitRoster } from '../../lib/unitRoster.js';
@@ -144,7 +145,7 @@ function Freshness({ people, links, canEdit, onOpen }) {
       freshness(p, { lastSeen: last.get(p.id)?.slice(0, 10) }).forEach((f) => out.push({ p, ...f }));
       if (p.status === 'Active' && VILLA_CLASSES.includes(p.personClass)) {
         const ls = links.filter((l) => l.personId === p.id && l.status !== 'Ended');
-        if (ls.length && ls.every((l) => !l.confirmedAt || l.confirmedAt.slice(0, 10) < cutoff)) out.push({ p, key: 'confirm', text: 'No villa has confirmed this person in 6 months', fix: 'ask' });
+        if (ls.length && ls.every((l) => !l.confirmedAt || localDay(l.confirmedAt) < cutoff)) out.push({ p, key: 'confirm', text: 'No villa has confirmed this person in 6 months', fix: 'ask' });
       }
     });
     return out;

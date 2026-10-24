@@ -1,6 +1,7 @@
 // Record shapes: the app's collections (properties, users, dues, roles) <-> the typed /api/v1 resources (units, members, dues, roles).
 // Pure functions, no I/O - the adapter (V2ApiAdapter.js) does the calls. Money travels as decimal strings on the wire ("3540.00") and is a
 // number in the app, as before. Only fields the server lets a caller change are ever sent; everything else is the server's.
+import { todayLocal, localDay } from '../../locale.js';
 import { DEFAULT_GROUPS, groupIdForCategory, overridesFor } from '../../access/roles.js';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -126,14 +127,14 @@ export function userOf(m, unitNoById = {}) {
 }
 
 // ---- dues ----------------------------------------------------------------------------------------------------------------------------------
-export function dueOf(d, today = new Date().toISOString().slice(0, 10)) {
+export function dueOf(d, today = todayLocal()) {
   const open = d.status === 'Unpaid' || d.status === 'Partly paid';
   return {
     id: d.id, shortId: d.shortId, unit: d.unitNo || '', unitId: d.unitId, category: BILL_CATEGORY_LABEL[d.categoryCode] || d.categoryCode, categoryName: d.category, utility: d.utility,
     amount: num(d.total), baseAmount: num(d.amount), tax: num(d.tax), grossAmount: num(d.total), paidAmount: num(d.paid), outstanding: num(d.outstanding),
     billedMonth: monthLabel(d.billedMonth), billedMonthDate: d.billedMonth, description: d.description || '', dueDate: d.dueDate,
     status: open && d.dueDate < today && d.status === 'Unpaid' ? 'Overdue' : d.status, serverStatus: d.status,
-    paidAt: d.paidAt ? String(d.paidAt).slice(0, 10) : '', cancelReason: d.reason || '', version: d.version,
+    paidAt: d.paidAt ? localDay(d.paidAt) : '', cancelReason: d.reason || '', version: d.version,
   };
 }
 /** The app's bill category names that the server keeps under a shorter code (V10 charge categories). */
@@ -186,7 +187,7 @@ export function ticketOf(t, unitNoById = {}) {
     financial: !!t.financial, workDone: t.workDone || '', cancelReason: t.cancelReason || '', reopenCount: t.reopenCount || 0,
     createdAt: t.createdAt, recordCreatedAt: t.createdAt, updatedAt: t.updatedAt, attachments: [], hasPhotos: false, paymentStatus: 'Not Paid', version: t.version,
     quotationStatus: t.quotationStatus || 'None', invoiceStatus: t.invoiceStatus || 'None', approvedAmount: num(t.approvedAmount) || 0,
-    selectedQuotationId: t.selectedQuotationId || '', selectedInvoiceId: t.selectedInvoiceId || '', ecApproval: t.ecApproval || '', ecApprovedBy: t.ecApprovedBy || '', ecApprovedAt: t.ecApprovedAt ? String(t.ecApprovedAt).slice(0, 10) : '', treasurerApproval: t.treasurerApproval || '',
+    selectedQuotationId: t.selectedQuotationId || '', selectedInvoiceId: t.selectedInvoiceId || '', ecApproval: t.ecApproval || '', ecApprovedBy: t.ecApprovedBy || '', ecApprovedAt: t.ecApprovedAt ? localDay(t.ecApprovedAt) : '', treasurerApproval: t.treasurerApproval || '',
     finalRequired: !!t.finalRequired,
   };
 }
@@ -232,8 +233,8 @@ export function quotationOf(q) {
     id: q.id, shortId: q.shortId, ticketId: q.ticketId, kind: q.kind, vendor: q.vendor || '', amount: num(q.amount), baseAmount: num(q.baseAmount), gstMode: q.gstMode || 'None',
     gstRate: num(q.gstRate) || 0, gstAmount: num(q.gstAmount) || 0, quoteDate: q.quoteDate || '', note: q.note || '', selected: !!q.selected, overBudget: !!q.overBudget,
     approvalWaived: !!q.approvalWaived, correctionNote: q.correctionNote || '', ecApproval: q.ecApproval || 'Pending', ecApprovedBy: q.ecApprovedBy || '',
-    ecApprovedAt: q.ecApprovedAt ? String(q.ecApprovedAt).slice(0, 10) : '', finalRequired: !!q.finalRequired, finalApproval: q.finalApproval || 'Pending',
-    finalApprovedBy: q.finalApprovedBy || '', finalApprovedAt: q.finalApprovedAt ? String(q.finalApprovedAt).slice(0, 10) : '', plan: q.plan ? JSON.stringify(legacyPlan(q.plan)) : '',
+    ecApprovedAt: q.ecApprovedAt ? localDay(q.ecApprovedAt) : '', finalRequired: !!q.finalRequired, finalApproval: q.finalApproval || 'Pending',
+    finalApprovedBy: q.finalApprovedBy || '', finalApprovedAt: q.finalApprovedAt ? localDay(q.finalApprovedAt) : '', plan: q.plan ? JSON.stringify(legacyPlan(q.plan)) : '',
     status: q.status, waitingFor: q.waitingFor || '', canDecide: !q.whyNotMe, whyNotMe: q.whyNotMe || '', createdBy: q.createdByName || '', createdAt: q.createdAt, attachments: [], version: q.version,
   };
 }
@@ -427,7 +428,7 @@ export function localStamp(iso) {
   const d = new Date(iso);
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:00`;
 }
-const day = (iso) => (iso ? String(iso).slice(0, 10) : '');
+const day = (iso) => localDay(iso);   // a moment's day on this browser (a plain date stays itself)
 export function bookingOf(b) {
   return {
     id: b.id, shortId: b.shortId, amenity: b.amenity, amenityTypeId: b.amenityTypeId, unit: b.bookedFor === 'Association' ? `Association · ${b.association}` : (b.unitNo || ''),
@@ -686,7 +687,7 @@ export function donationBody(rec, unitIdByNo = {}) {
     offeringId: isUuid(rec.offeringId) ? rec.offeringId : null,
   };
 }
-const day10 = (t) => (t ? String(t).slice(0, 10) : '');
+const day10 = (t) => localDay(t);
 export function expenseOf(x) {
   let plan = '';
   try { plan = x.plan ? JSON.stringify(legacyPlan(typeof x.plan === 'string' ? JSON.parse(x.plan) : x.plan)) : ''; } catch { plan = ''; }

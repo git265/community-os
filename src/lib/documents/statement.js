@@ -2,10 +2,11 @@
 //   billed  = every bill at its original amount (before any advance was applied) - late fees included
 //   credits = payments received on bills + advances received + credit notes
 //   an advance that later pays a bill is NOT counted twice: it counts when received, not when applied.
+import { localDay } from '../locale.js';
 import { storage, COLLECTIONS as C } from '../storage/index.js';
 import { r2, todayIso } from '../finance/rules.js';
 
-const day = (s) => String(s || '').slice(0, 10);
+const day = (s) => localDay(s || '');
 export async function buildStatement(unit, from, to = todayIso()) {
   const [dues, credits, props] = await Promise.all([storage.list(C.DUES), storage.list(C.UNIT_CREDITS), storage.list(C.PROPERTIES)]);
   const ev = [];

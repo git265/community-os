@@ -1,3 +1,4 @@
+import { plannedTime } from '../../lib/locale.js';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { SegTabs } from '../../components/ui.jsx';
 import { usePhone } from '../../components/Tabs.jsx';
@@ -72,7 +73,7 @@ export default function BookingsTable({ bookings, isResident, onOpen, title }) {
             return (
               <button type="button" key={b.id} className="bk-card" data-testid="booking-row" onClick={() => onOpen(b.id)}>
                 <span className="bk-card-top"><b className="bk-card-name">{b.amenity}</b>{Number(b.totalPayable) > 0 && <b className="bk-card-amt">{inr(b.totalPayable)}</b>}</span>
-                <span className="bk-card-meta">{b.date}{b.slot ? ` · ${b.slot}` : ''}{!isResident && b.unit ? ` · ${b.unit}` : ''}</span>
+                <span className="bk-card-meta">{b.date}{b.slot ? ` · ${plannedTime(b.slot)}` : ''}{!isResident && b.unit ? ` · ${b.unit}` : ''}</span>
                 <span className="bk-card-foot">
                   <span className={`tag ${b.status === 'Cancelled' ? '' : b.status === 'Confirmed' || b.status === 'Completed' ? 'green' : 'orange'}`}>{b.status}</span>
                   {pay && <span className={`tag ${TONE[pay] || ''}`}>{pay}</span>}
@@ -87,7 +88,7 @@ export default function BookingsTable({ bookings, isResident, onOpen, title }) {
           <thead><tr>{th('shortId', 'Booking')}{th('amenity', 'Amenity')}{th('date', 'Date')}<th>Slot</th>{!isResident && th('unit', 'Villa')}{th('status', 'Status')}{kind !== 'free' && th('totalPayable', 'Amount')}{kind !== 'free' && th('paymentStatus', 'Payment')}</tr></thead>
           <tbody>{shown.map((b) => (
             <tr key={b.id} className="clickable" data-testid="booking-row" onClick={() => onOpen(b.id)}>
-              <td data-label="Booking" className="mono">{b.shortId}</td><td data-label="Amenity"><b>{b.amenity}</b></td><td data-label="Date">{b.date}</td><td data-label="Slot">{b.slot}</td>
+              <td data-label="Booking" className="mono">{b.shortId}</td><td data-label="Amenity"><b>{b.amenity}</b></td><td data-label="Date">{b.date}</td><td data-label="Slot">{plannedTime(b.slot)}</td>
               {!isResident && <td data-label="Villa">{b.unit}</td>}
               <td data-label="Status"><span className={`tag ${b.status === 'Cancelled' ? '' : b.status === 'Confirmed' || b.status === 'Completed' ? 'green' : 'orange'}`}>{b.status}</span></td>
               {kind !== 'free' && <td data-label="Amount">{Number(b.totalPayable) > 0 ? inr(b.totalPayable) : '—'}</td>}

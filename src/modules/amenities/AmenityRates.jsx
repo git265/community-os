@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { communityTaxId } from '../../lib/locale.js';
+import { communityTaxId, todayLocal } from '../../lib/locale.js';
 import { useApp, useCollection } from '../../context/AppContext.jsx';
 import { COLLECTIONS } from '../../lib/storage/index.js';
 import RichTextEditor from '../../components/RichTextEditor.jsx';
@@ -39,7 +39,7 @@ export default function AmenityRates() {
   useEffect(() => { if (settingsRows[0]) setSd({ ...settingsRows[0] }); }, [settingsRows[0]?.id, settingsRows[0]?.recVersion]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!amenity || !draft || !sd) return <div className="empty">Loading…</div>;
-  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayIso = todayLocal();
   const use = serverCounts
     ? { all: Number(amenity.bookings) || 0, upcoming: Number(amenity.upcomingBookings) || 0 }
     : (() => { const mine = allBookings.filter((b) => b.amenity === amenity.name); return { all: mine.length, upcoming: mine.filter((b) => b.status !== 'Cancelled' && String(b.date) >= todayIso).length }; })();

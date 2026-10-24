@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { getDataSource } from '../lib/storage/dataSource.js';
-import { todayLocal } from '../lib/locale.js';
+import { todayLocal, isMoment, fmtDateTime } from '../lib/locale.js';
 import { maxLengthFor } from '../lib/fieldLimits.js';
 import { canEdit, canView } from '../lib/access/permissions.js';
 import RecordMeta from './RecordMeta.jsx';
@@ -188,7 +188,7 @@ export default function DynamicForm({ schema, roleId, record, onSave, onCancel, 
       if (field.type === 'boolean') return <input type="checkbox" checked={!!value} disabled aria-label={field.label} />;
       const opt = field.type === 'lookup' ? (lookups[field.key] || []).find((o) => o.value === value) : null;
       const stampAt = field.type === 'date' && value ? record?.dateStamps?.[field.key] : '';
-      const shown = String(opt?.label || value || '—');
+      const shown = isMoment(value) ? fmtDateTime(value) : String(opt?.label || value || '—');   // a moment on this browser's clock
       const cls = `ro-value${['select', 'lookup'].includes(field.type) ? ' ro-select' : field.type === 'textarea' ? ' ro-text' : ''}${field.strong ? ' ro-strong' : ''}`;
       return <div className={cls} aria-readonly="true" style={field.type === 'textarea' ? { whiteSpace: 'pre-wrap', minHeight: 64 } : undefined}>{shown}{stampAt ? <small className="muted" title="When this date was recorded"> · {new Date(stampAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small> : null}</div>;
     }

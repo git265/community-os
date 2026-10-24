@@ -1,9 +1,9 @@
 import React, { useMemo } from 'react';
 import { COND_COLOR, areaRollup } from './infraModel.js';
-import { fmtDate } from '../../lib/locale.js';
+import { fmtDate, todayLocal } from '../../lib/locale.js';
 
 const dmy = (iso) => fmtDate(iso, { empty: '—' });
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => todayLocal();
 
 /** One row per area: worst condition, how many items, open tasks, next service and cover running out. Tap a row to see it on the map. */
 export default function HealthBoard({ assets, openMap, onShow }) {

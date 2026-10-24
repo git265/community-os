@@ -5,7 +5,7 @@ import Modal from '../../components/Modal.jsx';
 import { MoneyTiles } from '../../components/ui.jsx';
 import { recordPayment, routingMap } from '../../lib/paymentEngine.js';
 import { actualOf, hasActual, savingOf, creditedOf, toCredit, yearOf, seriesOf, summarize } from '../../lib/culturalBudget.js';
-import { fmtDate, money } from '../../lib/locale.js';
+import { fmtDate, money, todayLocal } from '../../lib/locale.js';
 
 const inr = (n) => money(n);
 const short = (n) => (Math.abs(n) >= 100000 ? `₹${(n / 100000).toFixed(n % 100000 ? 2 : 0)}L` : Math.abs(n) >= 1000 ? `₹${(n / 1000).toFixed(n % 1000 ? 1 : 0)}k` : `₹${Math.round(n)}`);
@@ -29,12 +29,12 @@ export function CreditDialog({ ev, onClose, onDone }) {
     if (a > room + 0.5) return setErr(`Only ${inr(room)} is left unspent`);
     setBusy(true);
     try {
-      const out = await save({ ...ev, creditedAmount: creditedOf(ev) + a, creditedAt: new Date().toISOString().slice(0, 10), creditedBy: currentUser?.name || '', creditNote: note.trim() });
+      const out = await save({ ...ev, creditedAmount: creditedOf(ev) + a, creditedAt: todayLocal(), creditedBy: currentUser?.name || '', creditNote: note.trim() });
       if (!out) { setBusy(false); return setErr('Not saved - only the Treasurer or the final approvers can credit unused budget.'); }
       // leave a record in Payments (an internal entry: the money never left the account, so it has no bank statement line)
       const route = await routingMap().catch(() => ({}));
       const account = accounts.find((x) => x.name === ev.fund)?.name || route.Cultural || '';
-      const res = await recordPayment({ area: 'Cultural', type: 'Credit', amount: a, account, date: new Date().toISOString().slice(0, 10), mode: 'Internal', description: `Unused budget credited back · ${ev.name}${note.trim() ? ` · ${note.trim()}` : ''}`,
+      const res = await recordPayment({ area: 'Cultural', type: 'Credit', amount: a, account, date: todayLocal(), mode: 'Internal', description: `Unused budget credited back · ${ev.name}${note.trim() ? ` · ${note.trim()}` : ''}`,
         sourceType: 'culturalCredit', sourceId: `culturalCredit:${ev.id}:${Date.now()}`, sourceLabel: ev.name, vendor: ev.fund ? `${ev.fund} fund` : 'Cultural fund', allowDuplicate: true, extra: { internal: true, reconStatus: 'Not applicable' } });
       setBusy(false);
       if (res.error) { setSaved(out); return setErr(`The credit is saved, but its Payments record could not be created: ${res.error}`); }

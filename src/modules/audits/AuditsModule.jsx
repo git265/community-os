@@ -12,7 +12,7 @@ import { canWriteCollection } from '../../lib/security/authz.js';
 import { getPrincipal } from '../../lib/security/principal.js';
 import { uuid } from '../../lib/uuid.js';
 import AuditTimeline from './AuditTimeline.jsx';
-import { fmtDate, todayLocal } from '../../lib/locale.js';
+import { fmtDate, todayLocal, localDay } from '../../lib/locale.js';
 import { PhoneSearch, PhoneFilters } from '../../components/ToolIcons.jsx';
 
 const DEFAULT_AREAS = ['STP (sewage treatment)', 'WTP (water treatment)', 'Swimming pool water', 'Drinking water quality', 'Fire safety', 'Lifts', 'Electrical safety', 'DG set', 'Structural', 'Security / CCTV', 'Financial'];
@@ -20,7 +20,7 @@ const RESULTS = ['Pass', 'Pass with observations', 'Fail', 'Pending'];
 const TONE = { Pass: 'green', 'Pass with observations': 'orange', Fail: 'red', Pending: '' };
 const today = todayLocal;
 const dmy = (s) => fmtDate(s, { empty: '—' });
-const addMonths = (iso, n) => { const d = new Date(`${iso}T00:00:00`); d.setMonth(d.getMonth() + Number(n)); return d.toISOString().slice(0, 10); };
+const addMonths = (iso, n) => { const d = new Date(`${iso}T00:00:00`); d.setMonth(d.getMonth() + Number(n)); return localDay(d); };
 const daysTo = (iso) => Math.round((new Date(`${iso}T00:00:00`) - new Date(`${today()}T00:00:00`)) / 86400000);
 const params = (a) => (Array.isArray(a?.parameters) ? a.parameters : []);
 const outOfRange = (p) => { const v = Number(p.value); if (p.value === '' || Number.isNaN(v)) return false; return (p.min !== '' && p.min != null && v < Number(p.min)) || (p.max !== '' && p.max != null && v > Number(p.max)); };

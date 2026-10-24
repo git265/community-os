@@ -1,4 +1,4 @@
-import { fyStartMonth } from '../locale.js';
+import { fyStartMonth, todayLocal } from '../locale.js';
 // Bank statement analysis for the Accounts & Budget screen.
 //
 // The Treasurer's workbook categorises every bank line by hand ("Remarks" / "Paid-Received" columns). Here the same
@@ -77,7 +77,7 @@ export const fyRange = (label) => {
 };
 export const fyOfDate = (iso) => { const y = Number(iso.slice(0, 4)); const m = Number(iso.slice(5, 7)); const sm = fyStartMonth(); return `FY${String((sm > 1 && m >= sm ? y + 1 : y) % 100).padStart(2, '0')}`; };
 export const prevFy = (label) => `FY${String(fyNum(label) - 1).padStart(2, '0')}`;
-export const currentFy = () => fyOfDate(new Date().toISOString().slice(0, 10));
+export const currentFy = () => fyOfDate(todayLocal());
 /** Financial year a statement line counts in: its date, except maintenance dues paid in advance and remarked "FY27". */
 export function fyOfTxn(t) {
   const byDate = fyOfDate(t.date);

@@ -1,3 +1,4 @@
+import { localDay, todayLocal } from '../../lib/locale.js';
 // Infrastructure map: the pure logic (no React, no map library) so it can be tested on its own and reused by other screens.
 //
 // An asset is an Equipment row (STORAGE: COLLECTIONS.EQUIPMENT) with a `shape` - JSON in PLAN PIXELS, not latitude / longitude:
@@ -104,7 +105,7 @@ export const assetsOnPlan = (assets, plan, plans) => assets.filter((a) => planOf
 
 export const units = (a) => Math.max(1, Number(a.quantity) || 1);
 export const faultyOf = (a) => Math.min(units(a), Math.max(0, Number(a.faulty) || 0));
-const todayIso = () => new Date().toISOString().slice(0, 10);
+const todayIso = () => todayLocal();
 
 /**
  * The condition people see. Under repair is automatic while a linked task is open; a group with faults shows amber (coral from
@@ -121,7 +122,7 @@ export function effectiveCondition(a, openTicketIds = new Set()) {
 export const isOverdue = (a) => !!a.nextService && a.nextService < todayIso() && !['Standby', 'Retired'].includes(a.status);
 export function warrantySoon(a, days = 60) {
   if (!a.warrantyUntil) return false;
-  const lim = new Date(Date.now() + days * 864e5).toISOString().slice(0, 10);
+  const lim = localDay(new Date(Date.now() + days * 864e5));
   return a.warrantyUntil >= todayIso() && a.warrantyUntil <= lim;
 }
 

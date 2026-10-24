@@ -1,3 +1,4 @@
+import { todayLocal } from '../../lib/locale.js';
 import React, { useMemo, useState } from 'react';
 import { useApp, useCollection } from '../../context/AppContext.jsx';
 import { COLLECTIONS } from '../../lib/storage/index.js';
@@ -13,7 +14,7 @@ export default function PollCard({ poll, canSeeVoters }) {
   const villaVoteBy = mine && currentUser?.unit && mine.voter !== currentUser.name ? mine.voter : '';
   const [picked, setPicked] = useState(null);
   const [error, setError] = useState('');
-  const closed = !!poll.pollClosesOn && poll.pollClosesOn < new Date().toISOString().slice(0, 10);
+  const closed = !!poll.pollClosesOn && poll.pollClosesOn < todayLocal();
   const current = picked ?? (mine?.choices || []);
   const multi = !!poll.pollMultiple;
   const total = votes.length;

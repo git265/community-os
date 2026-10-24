@@ -1,3 +1,4 @@
+import { todayLocal } from '../locale.js';
 // The approval engine: rules decide WHO must approve a thing, in what order; the thing keeps a frozen copy ("plan") of those steps.
 //
 //   policy  = a community-written rule: when [subject, amount range, category, task type, flag] -> steps
@@ -18,7 +19,7 @@ export const DEFAULT_STEPS = () => [
   { id: 's1', name: 'EC', approvers: [{ kind: 'group', value: 'EC members' }], needed: 1, canFinish: true, deadlineDays: 0 },
   { id: 's2', name: 'Final approval', approvers: [{ kind: 'group', value: 'Final approvers' }], needed: 1, canFinish: false, deadlineDays: 0 },
 ];
-const todayIso = () => new Date().toISOString().slice(0, 10);
+const todayIso = () => todayLocal();
 const keyOf = (s) => JSON.stringify([...s.approvers].map((a) => `${a.kind}:${a.value}`).sort());
 
 /* ------------------------------------------------------------------ matching -- */

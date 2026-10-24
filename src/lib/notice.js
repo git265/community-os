@@ -1,3 +1,4 @@
+import { todayLocal } from './locale.js';
 import { getCommunity } from './community.js';
 // Fills {{TOKEN}} placeholders of a Notice Template. Values passed in win; otherwise the
 // Merge Field Library default is used; unknown tokens are left visible so mistakes are obvious.
@@ -26,4 +27,4 @@ export function recentMonths(back = 12) {
   }
   return out;
 }
-export const todayIso = () => new Date().toISOString().slice(0, 10);
+export const todayIso = () => todayLocal();

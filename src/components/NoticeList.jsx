@@ -1,3 +1,4 @@
+import { localDay } from '../lib/locale.js';
 import React, { useMemo, useState } from 'react';
 import { useApp, useCollection } from '../context/AppContext.jsx';
 import { isRead, markRead } from '../lib/noticeReads.js';
@@ -44,7 +45,7 @@ export default function NoticeList({ limit = 10, title = 'Notices', onOpen }) {
             <li key={b.id} data-testid="notice-row" style={{ alignItems: 'flex-start', cursor: 'pointer' }} onClick={() => { if (open !== b.id) read(b); setOpen(open === b.id ? null : b.id); }}>
               <span style={{ flex: 1, minWidth: 0 }}>
                 <b>{b.subject}</b><br />
-                <small className="muted">{b.type} · {dmy(String(b.sentAt).slice(0, 10))}</small>
+                <small className="muted">{b.type} · {dmy(localDay(b.sentAt))}</small>
                 {b.message && (open === b.id ? <RichText html={b.message} /> : <div className="clamp3" data-testid="notice-preview"><RichText html={b.message} /></div>)}
                 {b.message && <span className="notice-more">{open === b.id ? 'Show less' : 'Read more'}</span>}
               </span>

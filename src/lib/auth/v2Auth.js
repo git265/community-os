@@ -5,6 +5,7 @@
 //   POST /v1/auth/refresh (cookie)                          -> a new access token (the refresh token rotates)
 //   POST /v1/auth/logout  (cookie)
 //   GET  /v1/me                                             -> who I am here: roles, permissions, units (read from the database per call)
+import { setCommunityTimeZone } from '../locale.js';
 import { apiFetch } from '../net/request.js';
 import { setSession } from './session.js';
 import { resolveSlug } from '../community.js';
@@ -27,7 +28,8 @@ const post = (path, body, auth = false) => send(path, { method: 'POST', body: JS
 export async function v2PublicCommunity() {
   const c = await send(`/public/communities/${encodeURIComponent(resolveSlug())}`, {}, false);
   communityId = c.id;
-  return { id: c.id, slug: c.slug, name: c.name, status: c.status };
+  setCommunityTimeZone(c.timeZone);   // its planned times (meetings, pass hours) are shown with its zone when this browser is elsewhere
+  return { id: c.id, slug: c.slug, name: c.name, status: c.status, timeZone: c.timeZone || '' };
 }
 export async function v2RequestCode(target) {
   if (!target?.phone) throw new Error('Sign-in links are not on the v2 back end yet - enter your phone number.');

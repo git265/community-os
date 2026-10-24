@@ -14,12 +14,12 @@ import { getPrincipal } from '../../lib/security/principal.js';
 import ServiceVisits from '../infra/ServiceVisits.jsx';
 import { fyRange, currentFy, actualsByHead } from '../../lib/bank/analysis.js';
 import { readWorkbook } from '../../lib/files/xlsxRead.js';
-import { fmtDate, money } from '../../lib/locale.js';
+import { fmtDate, money, localDay, todayLocal } from '../../lib/locale.js';
 
 const inr = (n) => money(n);
 const num = (n, d = 1) => Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: d, maximumFractionDigits: d });
 const dmy = (iso) => fmtDate(iso, { empty: '—' });
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => todayLocal();
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 
 /** Plant & Assets (formerly Plant Logs / Infrastructure): daily water & sewage plant logs, monthly summary, DG fuel log with performance, electricity bills, villa electricity, inventory and the equipment & assets register. */
@@ -377,7 +377,7 @@ export function Equipment() {
   const cards = (rows) => {
     const live = rows.filter((r) => r.status !== 'Retired');
     const overdue = live.filter((r) => r.nextService && r.nextService < today());
-    const in60 = new Date(Date.now() + 60 * 864e5).toISOString().slice(0, 10);
+    const in60 = localDay(new Date(Date.now() + 60 * 864e5));
     const warranty = live.filter((r) => r.warrantyUntil && r.warrantyUntil >= today() && r.warrantyUntil <= in60);
     return [
       { label: 'Items (rows / units)', value: `${live.length} / ${live.reduce((s, r) => s + (Number(r.quantity) || 1), 0)}`, sub: `${new Set(live.map((r) => r.area)).size} areas` },

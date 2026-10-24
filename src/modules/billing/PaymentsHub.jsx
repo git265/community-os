@@ -27,11 +27,11 @@ import Reconciliation from './Reconciliation.jsx';
 import PayoutDialog from './PayoutDialog.jsx';
 import { payoutsOnServer } from '../../lib/payouts.js';
 import { IncomeDialog, RecurringDialog, RequestsPanel } from './MoreMoney.jsx';
-import { fmtDate, money } from '../../lib/locale.js';
+import { fmtDate, money, todayLocal } from '../../lib/locale.js';
 
 const inr = (n) => money(n);
 const dmy = (s) => fmtDate(s, { empty: '—' });
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => todayLocal();
 
 /** The record a payment can be linked to, per area. */
 function useLinkables() {

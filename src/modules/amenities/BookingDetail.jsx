@@ -1,5 +1,5 @@
 import BillTerms from '../../components/BillTerms.jsx';
-import { communityTaxId, fmtDateTime } from '../../lib/locale.js';
+import { communityTaxId, fmtDateTime, localDay, fmtWhen, plannedTime } from '../../lib/locale.js';
 import RecordMeta from '../../components/RecordMeta.jsx';
 import { DocButton } from '../../components/DocumentPreview.jsx';
 import { bookingReceipt } from '../../lib/documents/builders.js';
@@ -32,7 +32,6 @@ function Steps({ steps, testid }) {
   );
 }
 
-const fmtWhen = (d) => fmtDateTime(d);
 
 /** Price lines of one booking (also used for the preview before booking, see PriceBreakdown). */
 export function PriceLines({ q, gstin, extras = [] }) {
@@ -75,7 +74,7 @@ export function PolicyList({ amenity, date, slot, snapshot }) {
 export default function BookingDetail({ booking: b, amenity, settings, isStaff, onClose, onAction, today }) {
   const awaiting = /awaiting|pending/i.test(`${b.paymentStatus || ''} ${b.status || ''}`) && b.status !== 'Cancelled';
   const hrs = Number(settings?.paymentDueHours) || 0;
-  const payBy = awaiting && hrs && b.recordCreatedAt ? new Date(new Date(b.recordCreatedAt).getTime() + hrs * 3600000).toISOString().slice(0, 10) : '';
+  const payBy = awaiting && hrs && b.recordCreatedAt ? localDay(new Date(new Date(b.recordCreatedAt).getTime() + hrs * 3600000)) : '';
   const [mode, setMode] = useState(null); // 'cancel' | 'receive' | 'refund' | 'settle' | 'depositPaid'
   const [reason, setReason] = useState('');
   const [newFee, setNewFee] = useState('');
@@ -124,7 +123,7 @@ export default function BookingDetail({ booking: b, amenity, settings, isStaff, 
         <span className={`tag ${TONE[b.paymentStatus] || ''}`}>{b.paymentStatus}</span>
       </div>
       <div className="form-grid" style={{ marginTop: 10 }}>
-        <div className="field"><label>When</label><div className="ro-value">{b.slot}</div></div>
+        <div className="field"><label>When</label><div className="ro-value">{plannedTime(b.slot)}</div></div>
         <div className="field"><label>{b.bookedFor === 'Association' ? 'Association' : 'Unit'}</label><div className="ro-value" data-testid="bk-unit">{b.bookedFor === 'Association' ? b.association : b.unit}</div></div>
         <div className="field"><label>Paid by</label><div className="ro-value">{b.paymentMode || '—'}{b.paymentRef ? ` · ${b.paymentRef}` : ''}</div></div>
         <div className="field"><label>Paid on</label><div className="ro-value">{b.dateStamps?.paidAt ? dateTime(b.dateStamps.paidAt) : (b.paidAt || '—')}</div></div>
@@ -165,7 +164,7 @@ export default function BookingDetail({ booking: b, amenity, settings, isStaff, 
                 { title: `Refund approved · ${inr(b.refundAmount)}`, sub: `${b.refundPct ?? 0}% of the fee${Number(b.depositReturned) > 0 ? ' + security deposit' : ''} → ${b.refundTo || (b.refundStatus === 'Credited to unit account' ? 'Unit account' : 'Original payment mode')}`, done: true },
                 b.refundStatus === 'Refund due'
                   ? { title: 'Waiting for the office to pay it out', sub: `${b.refundTo || 'Original payment mode'} — you will be notified when it is paid`, current: true }
-                  : { title: b.refundStatus === 'Credited to unit account' ? 'Credited to the unit account' : 'Refund paid', sub: `${b.refundPaidAt || (b.cancelledAt ? String(b.cancelledAt).slice(0, 10) : '')}${b.refundPayoutMode ? ` · ${b.refundPayoutMode}` : ''}${b.refundRef ? ` · ref ${b.refundRef}` : ''}${b.refundStatus === 'Credited to unit account' ? ' · available on the next booking' : ''}`, done: true },
+                  : { title: b.refundStatus === 'Credited to unit account' ? 'Credited to the unit account' : 'Refund paid', sub: `${b.refundPaidAt || (b.cancelledAt ? localDay(b.cancelledAt) : '')}${b.refundPayoutMode ? ` · ${b.refundPayoutMode}` : ''}${b.refundRef ? ` · ref ${b.refundRef}` : ''}${b.refundStatus === 'Credited to unit account' ? ' · available on the next booking' : ''}`, done: true },
               ]} />
             </>
           )}
@@ -184,7 +183,7 @@ export default function BookingDetail({ booking: b, amenity, settings, isStaff, 
           {(b.depositPhotos || []).length > 0 && <div style={{ marginTop: 6 }} data-testid="deposit-photos"><b>Inspection photos</b><AttachmentList items={b.depositPhotos} /></div>}
           {Number(b.depositReturned) > 0 && (
             <Steps testid="deposit-tracker" steps={[
-              { title: 'Deposit inspected and settled', sub: `${b.depositSettledAt}${b.depositSettledBy ? ` · ${b.depositSettledBy}` : ''}`, done: true },
+              { title: 'Deposit inspected and settled', sub: `${fmtWhen(b.depositSettledAt)}${b.depositSettledBy ? ` · ${b.depositSettledBy}` : ''}`, done: true },
               b.depositRefundStatus === 'Due'
                 ? { title: `Waiting to pay out ${inr(b.depositReturned)}`, sub: `${b.depositRefundMode || 'Cash'} — the office records it once paid`, current: true }
                 : { title: b.depositRefundStatus === 'Credited to unit account' ? `${inr(b.depositReturned)} credited to the unit account` : `${inr(b.depositReturned)} paid out`, sub: `${b.depositRefundPaidAt || b.depositSettledAt}${b.depositRefundMode ? ` · ${b.depositRefundMode}` : ''}${b.depositRefundRef ? ` · ref ${b.depositRefundRef}` : ''}`, done: true },

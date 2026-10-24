@@ -1,3 +1,4 @@
+import { localDay } from '../../lib/locale.js';
 import React, { useMemo, useState } from 'react';
 import { useApp, useCollection } from '../../context/AppContext.jsx';
 import { COLLECTIONS } from '../../lib/storage/index.js';
@@ -17,7 +18,7 @@ const OPEN = ['Submitted', 'Under review'];
 const STATUSES = ['Submitted', 'Under review', 'Planned', 'Done', 'Declined'];
 const TONE = { Submitted: 'blue', 'Under review': 'amber', Planned: 'green', Done: 'green', Declined: 'red', Withdrawn: '' };
 const label = () => new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-const plainDays = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+const plainDays = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return localDay(d); };
 
 /**
  * Wishlist: ideas raised by residents or the EC. One vote per villa. The EC reviews, plans, declines (with a reason) or

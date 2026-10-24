@@ -1,3 +1,4 @@
+import { todayLocal } from './locale.js';
 import { upiQrEnabled } from './region/paymentModes.js';
 // Payments for any event/collection (cultural events today; maintenance dues, facility fees later).
 // 1. UPI deep link + QR: works offline, no gateway needed. The payer scans the QR (or taps "Open UPI app" on a phone),
@@ -45,7 +46,7 @@ export async function payOnline(donationId, ev, { by = '', gatewayRef: paidRef =
   if (d.status === 'Received') return d;
   const receiptNo = d.receiptNo || await nextReceiptNo(ev);
   const gatewayRef = paidRef || `DEMO${Date.now().toString(36).toUpperCase()}`;
-  const out = await storage.put(C.CULTURAL_DONATIONS, { ...d, status: 'Received', receiptNo, mode: 'Online (demo)', reference: d.reference || gatewayRef, gatewayRef, date: new Date().toISOString().slice(0, 10), lastUpdatedBy: 'System · payment gateway (demo)' });
+  const out = await storage.put(C.CULTURAL_DONATIONS, { ...d, status: 'Received', receiptNo, mode: 'Online (demo)', reference: d.reference || gatewayRef, gatewayRef, date: todayLocal(), lastUpdatedBy: 'System · payment gateway (demo)' });
   await recomputeEventTotals(ev.id);
   logEvent({ who: by || 'Online payment (demo gateway)', what: 'Cultural Donations', action: 'Update', recordId: d.id, recordShortId: d.shortId || '', summary: `Online payment of ₹${Number(d.amount).toLocaleString('en-IN')} received · receipt ${receiptNo}`, changes: [{ field: 'status', label: 'Status', from: d.status, to: 'Received' }] });
   window.dispatchEvent(new CustomEvent('communityos:changed', { detail: { collection: C.CULTURAL_DONATIONS } }));

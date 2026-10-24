@@ -53,7 +53,7 @@ import { parseJson } from '../../lib/approval/kit.js';
 import ReleasesPanel from '../approval/ReleasesPanel.jsx';
 import { releaseSummary } from '../../lib/approval/releases.js';
 import { moneyPosition } from '../../lib/approval/position.js';
-import { money } from '../../lib/locale.js';
+import { money, localDay, todayLocal } from '../../lib/locale.js';
 import Tabs, { usePhone } from '../../components/Tabs.jsx';
 import PageActions from '../../components/PageActions.jsx';
 
@@ -129,7 +129,7 @@ const TAG_CLASS = { Open: '', Assigned: 'blue', 'In Progress': 'blue', 'On Hold'
 const RESET_APPROVALS = { plan: '', finalRequired: null, ecApproval: 'Pending', ecApprovedBy: '', ecApprovedAt: '', treasurerApproval: 'Pending', treasurerApprovedBy: '', treasurerApprovedAt: '' };
 
 /** Residents don't pick an SLA; one is set from the priority so it is never empty (an EC member can change it). */
-const defaultSla = (priority) => { const d = new Date(); d.setDate(d.getDate() + ({ Critical: 0, High: 1, Medium: 3, Low: 7 }[priority] ?? 3)); return d.toISOString().slice(0, 10); };
+const defaultSla = (priority) => { const d = new Date(); d.setDate(d.getDate() + ({ Critical: 0, High: 1, Medium: 3, Low: 7 }[priority] ?? 3)); return localDay(d); };
 
 function blankRaiseForm() {
   return { taskType: '', title: '', description: '', unit: '', category: '', subCategory: '', priority: 'Medium', preferredTime: '', assignedTo: '', slaDueAt: '', financial: false, assetId: '', assetName: '', outageOk: false };
@@ -504,7 +504,7 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
   // a handyman has no tiles: their queue opens on every task not yet closed (the ones they are working on too), not just the new ones
   const firstCard = isHandymanRole ? 'live' : 'open';
   const [cardKey, setCardKey] = useState(() => { try { const k = sessionStorage.getItem('communityos:ticketCard'); sessionStorage.removeItem('communityos:ticketCard'); return k && SUMMARY_FILTERS[k] ? k : firstCard; } catch { return firstCard; } });
-  const overdueIds = tickets.filter((t) => LIVE_STATUSES.includes(t.status) && t.slaDueAt && t.slaDueAt < new Date().toISOString().slice(0, 10)).map((t) => t.id);
+  const overdueIds = tickets.filter((t) => LIVE_STATUSES.includes(t.status) && t.slaDueAt && t.slaDueAt < todayLocal()).map((t) => t.id);
   const [resetToken, setResetToken] = useState(0);
   const serverSum = useTicketSummary();
   const serverCount = (key) => {
@@ -1151,7 +1151,7 @@ export default function TicketsModule({ embeddedRef = null, onEmbeddedClose = nu
               <div className="ap-head"><b>EC approval</b><span className={`tag ${selected.ecApproval === 'Approved' ? 'green' : selected.ecApproval === 'Rejected' ? 'red' : 'orange'}`}>{selected.ecApproval || 'Pending'}</span></div>
               <div className="ap-step">
                 <span className="ap-title">EC<small className="muted ap-hint"></small></span>
-                {selected.ecApproval && selected.ecApproval !== 'Pending' && <small className="muted">{selected.ecApprovedBy || '—'}{selected.ecApprovedAt ? ` · ${/^\d{4}-\d{2}-\d{2}/.test(selected.ecApprovedAt) ? new Date(`${String(selected.ecApprovedAt).slice(0, 10)}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : selected.ecApprovedAt}` : ''}</small>}
+                {selected.ecApproval && selected.ecApproval !== 'Pending' && <small className="muted">{selected.ecApprovedBy || '—'}{selected.ecApprovedAt ? ` · ${/^\d{4}-\d{2}-\d{2}/.test(selected.ecApprovedAt) ? new Date(`${localDay(selected.ecApprovedAt)}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : selected.ecApprovedAt}` : ''}</small>}
                 {open && isEC && (
                   <span className="ap-actions">
                     {selected.ecApproval !== 'Approved' && <button type="button" className="btn good sm" onClick={approveEcOnly}>Approve</button>}

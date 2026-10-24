@@ -5,6 +5,7 @@
 // recognised by synonyms (autoMap), the admin sees and can change the match, every row is checked, and nothing is written until
 // the review step is accepted. Datasets: Daily help -> registry (+ villa links), Vehicles, Visitor log (history).
 // Residents & flats go through the existing Unit import (modules/setup/UnitImport.jsx), which already knows these headings.
+import { todayLocal } from '../locale.js';
 import { validatePhone } from '../phone.js';
 import { PERSON_CLASSES } from '../gate/constants.js';
 
@@ -139,7 +140,7 @@ export function buildDailyHelp(grid, headerRow, map, ctx) {
       name, phone: ph.e164, personClass: classOfHelp(get('type')), status: ctx.status,
       ...(digits.length >= 4 ? { idType: 'Aadhaar', idLast4: digits.slice(-4) } : {}),
       ...(get('vehicleNo') ? { vehicleNo: normPlate(get('vehicleNo')) } : {}),
-      reviewNote: `Imported from MyGate on ${new Date().toISOString().slice(0, 10)}. Check ID and police verification before relying on this entry.`,
+      reviewNote: `Imported from MyGate on ${todayLocal()}. Check ID and police verification before relying on this entry.`,
     };
     const have = new Set((ctx.existingLinks || []).filter((l) => old && l.personId === old.id && l.status !== 'Ended').map((l) => String(l.unit).toLowerCase()));
     rows.push({ line, record, isNew: !old, units: good.filter((u) => !have.has(u.toLowerCase())) });

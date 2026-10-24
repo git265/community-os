@@ -4,7 +4,7 @@ import { COLLECTIONS as C } from '../../lib/storage/index.js';
 import { canWriteCollection } from '../../lib/security/authz.js';
 import { getPrincipal } from '../../lib/security/principal.js';
 import RecordModal from '../billing/RecordModal.jsx';
-import { money } from '../../lib/locale.js';
+import { money, localDay } from '../../lib/locale.js';
 
 const ym = () => new Date().toISOString().slice(0, 7);
 const n0 = (v) => Number(v) || 0;
@@ -35,7 +35,7 @@ export default function VendorWorkers({ vendor }) {
       const p = byId.get(v.personId); if (!p && v.company !== vendor.name) return;
       const r = out.get(lineOf(p));
       if (v.state === 'Inside') r.inside += 1;
-      if (p && String(v.inAt || '').slice(0, 7) === month) r.days.add(`${p.id}|${String(v.inAt).slice(0, 10)}`);   // a person on a day counts once
+      if (p && localDay(v.inAt || '').slice(0, 7) === month) r.days.add(`${p.id}|${localDay(v.inAt)}`);   // a person on a day counts once
     });
     fixed.filter((f) => f.vendor === vendor.name).forEach((f) => { (out.get(mine.some((l) => l.service === f.vendorService) ? f.vendorService : '') || out.get('')).fixed += n0(f.avg); });
     return out;

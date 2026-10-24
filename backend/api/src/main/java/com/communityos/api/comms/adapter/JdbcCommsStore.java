@@ -59,7 +59,7 @@ public final class JdbcCommsStore implements CommsStore {
               WHERE mr.community_id = m.community_id AND mr.membership_id = m.id AND g.category = CASE CAST(:kind AS text) WHEN 'EC members' THEN 'EC' ELSE 'Staff' END))
           OR EXISTS (
               SELECT 1 FROM property.occupant o JOIN property.unit u ON u.community_id = o.community_id AND u.id = o.unit_id
-              WHERE o.community_id = m.community_id AND o.person_id = m.person_id AND o.portal_access AND (o.to_date IS NULL OR o.to_date > current_date)
+              WHERE o.community_id = m.community_id AND o.person_id = m.person_id AND o.portal_access AND (o.to_date IS NULL OR o.to_date > platform.today())
                 AND CASE CAST(:kind AS text)
                       WHEN 'All residents' THEN TRUE
                       WHEN 'Owners' THEN o.relation = 'Owner'

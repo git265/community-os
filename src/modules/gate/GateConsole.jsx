@@ -1,3 +1,4 @@
+import { plannedTime } from '../../lib/locale.js';
 import React, { useEffect, useMemo, useState } from 'react';
 import { validatePhone } from '../../lib/phone.js';
 import { useApp, useCollection } from '../../context/AppContext.jsx';
@@ -139,7 +140,7 @@ function PassMode({ gate, note, q, setQ }) {
         return (
           <div className={`gg-card ${bad ? 'bad' : 'good'}`} key={p.id} style={{ marginTop: 10 }} data-testid="pass-result">
             <Photo src={p.photo} name={p.visitorName} size={64} />
-            <div className="gg-main"><b>{p.visitorName}</b><span className="muted">Host: {p.hostName || p.unit} · {p.unit} · {p.type} pass</span><small className="muted">Valid {p.validFrom} to {p.validTo}{p.fromTime ? ` · ${p.fromTime}-${p.toTime}` : ''}{p.vehicle ? ` · ${p.vehicle}` : ''}</small>
+            <div className="gg-main"><b>{p.visitorName}</b><span className="muted">Host: {p.hostName || p.unit} · {p.unit} · {p.type} pass</span><small className="muted">Valid {p.validFrom} to {p.validTo}{p.fromTime ? ` · ${plannedTime(`${p.fromTime}-${p.toTime}`)}` : ''}{p.vehicle ? ` · ${p.vehicle}` : ''}</small>
               {bad ? <div className="field-error" data-testid="pass-problem">{bad}</div> : p.type === 'Goods' ? <GoodsAdmit p={p} gate={gate} note={note} done={() => { setFound([]); setQ(''); }} /> : <div className="gg-actions"><button type="button" className="btn good" data-testid="pass-let-in" onClick={async () => { const r = await admitPass(p, { gate, photo }); if (r.ok || r.outcome === 'ask') { note(true, r.ok ? `${p.visitorName} let in to ${p.unit}.` : `${p.visitorName}: ${r.reason}. Waiting for the answer.`); setFound([]); setQ(''); setPhoto(''); } else note(false, r.reason); }}>Let in</button></div>}
             </div>
           </div>

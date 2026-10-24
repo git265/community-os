@@ -1,5 +1,6 @@
 // Billing & Finance -> Reports: income & expenditure, fund statement, levy collection, unit statement, TDS and the cash book.
 // Every figure is computed from the ledger, the bills and the credit account - nothing is typed in twice. Tables print with the 🖨 Print button; CSV downloads the same rows.
+import { localDay } from '../../lib/locale.js';
 import React, { useEffect, useMemo, useState } from 'react';
 import { SegTabs, MoneyTiles } from '../../components/ui.jsx';
 import Modal from '../../components/Modal.jsx';
@@ -145,7 +146,7 @@ function UnitStatement() {
             <>
               <h3 style={{ marginTop: 16 }}>Credit account</h3>
               <table className="table resp-table"><thead><tr><th>Date</th><th>Entry</th><th style={{ textAlign: 'right' }}>Amount</th></tr></thead>
-                <tbody>{cmoves.map((c) => <tr key={c.id}><td data-label="Date">{dmy(c.date || String(c.recordCreatedAt).slice(0, 10))}</td><td data-label="Entry">{c.reason}</td><td data-label="Amount" style={{ textAlign: 'right' }}>{c.type === 'Credit' ? '+' : '−'}{inr(c.amount)}</td></tr>)}</tbody></table>
+                <tbody>{cmoves.map((c) => <tr key={c.id}><td data-label="Date">{dmy(c.date || localDay(c.recordCreatedAt))}</td><td data-label="Entry">{c.reason}</td><td data-label="Amount" style={{ textAlign: 'right' }}>{c.type === 'Credit' ? '+' : '−'}{inr(c.amount)}</td></tr>)}</tbody></table>
             </>
           )}
         </>

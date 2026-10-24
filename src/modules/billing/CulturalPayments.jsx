@@ -4,7 +4,7 @@ import { COLLECTIONS as C } from '../../lib/storage/index.js';
 import { RecentNote, recentCutoff, inRecent } from '../../components/RecentWindow.jsx';
 import { usePrompt } from '../../components/PromptDialog.jsx';
 import RecordDetail from './RecordDetail.jsx';
-import { fmtDate, money } from '../../lib/locale.js';
+import { fmtDate, money, localDay } from '../../lib/locale.js';
 import Tabs from '../../components/Tabs.jsx';
 
 const inr = (n) => money(n);
@@ -58,7 +58,7 @@ export default function CulturalPayments({ onPay, canPay }) {
   }
   const TABS = [['todo', 'To pay'], ['approval', 'In approval'], ['paid', 'Paid'], ['skipped', 'Skipped'], ['credits', 'Budget credits']];
   const cutoff = recentCutoff();
-  const dateOf = (x) => (show === 'skipped' ? String(skipOf(x)?.createdAt || x.date || '').slice(0, 10) : (ledger.find((l) => l.sourceId === `cultural:${x.id}`)?.date || x.date));
+  const dateOf = (x) => (show === 'skipped' ? localDay(skipOf(x)?.createdAt || x.date || '') : (ledger.find((l) => l.sourceId === `cultural:${x.id}`)?.date || x.date));
   const allRows = by[show];
   const rows = (show === 'paid' || show === 'skipped') && !all ? allRows.filter((x) => inRecent(dateOf(x), cutoff)) : allRows;
   const relRows = show === 'todo' ? by.relTodo : show === 'approval' ? by.relWait : show === 'paid' ? by.relPaid : [];
@@ -114,7 +114,7 @@ function ExpenseDetail({ d, ev, ledger, releases, expOf, onClose }) {
   if (d.kind === 'rel') {
     const r = d.row; const x = expOf.get(r.expenseId);
     return <RecordDetail title={`Release · ${x?.item || 'Event expense'}`} shortId={r.shortId} tag={r.status} tagTone={r.status === 'Paid' ? 'blue' : r.status === 'Approved' ? 'green' : 'orange'}
-      rows={[['Event', ev.get(x?.eventId)?.name], ['Expense', x ? `${x.item} (${x.shortId})` : ''], ['Amount', inr(r.amount)], ['Pay to', r.vendor], ['Asked by', r.requestedBy], ['Note', r.note], ['Raised', dmy(String(r.recordCreatedAt || '').slice(0, 10))]]}
+      rows={[['Event', ev.get(x?.eventId)?.name], ['Expense', x ? `${x.item} (${x.shortId})` : ''], ['Amount', inr(r.amount)], ['Pay to', r.vendor], ['Asked by', r.requestedBy], ['Note', r.note], ['Raised', dmy(localDay(r.recordCreatedAt || ''))]]}
       steps={stepsOf(r.plan)} payments={ledger.filter((l) => String(l.sourceId || '').includes(r.id))} link={go('Open in Cultural')} onClose={onClose} />;
   }
   const x = d.row; const rels = releases.filter((r) => r.expenseId === x.id && r.status !== 'Rejected');

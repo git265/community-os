@@ -1,3 +1,4 @@
+import { fmtWhen } from '../../lib/locale.js';
 import React, { useCallback, useEffect, useState } from 'react';
 import Modal from '../../components/Modal.jsx';
 import { communityUrl, resolveSlug, usesSubdomains, SLUG_RE } from '../../lib/community.js';
@@ -196,7 +197,7 @@ export default function PlatformApp() {
                 <td data-label="Unit types">{c.unitTypes}</td>
                 <td data-label="People">{counts[c.slug] ?? '…'}</td>
                 <td data-label="Status"><span className={`tag ${c.status === 'Active' ? 'green' : 'red'}`}>{c.status}</span></td>
-                <td data-label="Created">{c.createdAt}</td>
+                <td data-label="Created">{fmtWhen(c.createdAt)}</td>
                 <td data-label="" style={{ whiteSpace: 'nowrap' }}>
                   <a className="btn secondary sm" href={communityUrl(c.slug)}>Open</a>{' '}
                   {!registryOnServer() && <><button className="btn secondary sm" onClick={() => setMembers(c)}>People</button>{' '}</>}

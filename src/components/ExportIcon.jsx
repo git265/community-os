@@ -1,6 +1,7 @@
+import { todayLocal } from '../lib/locale.js';
 import React, { useState } from 'react';
 
-const stamp = () => new Date().toISOString().slice(0, 10);
+const stamp = () => todayLocal();
 
 /** Save rows as an .xlsx file. SheetJS is loaded only when someone exports. */
 export async function saveXlsx(head, rows, name = 'export') {

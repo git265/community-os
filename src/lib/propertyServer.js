@@ -13,6 +13,7 @@
 //
 // Messages are only QUEUED into the notification outbox here: a real SMS / WhatsApp gateway (and a real one-time-code login) must
 // be added in the Spring Boot service. The invite token below stands in for a signed, single-use, expiring link.
+import { localDay } from './locale.js';
 import { storage } from './storage/index.js';
 import { COLLECTIONS as C } from './storage/StorageAdapter.js';
 import { logChange } from './audit/auditLog.js';
@@ -143,7 +144,7 @@ async function queueInvite(person, unit, community) {
   const invites = await storage.list(C.PORTAL_INVITES);
   for (const i of invites.filter((x) => x.phone === person.phone && x.unit === unit && x.status === 'Sent')) await storage.put(C.PORTAL_INVITES, { ...i, status: 'Revoked', revokedReason: 'Replaced by a new invite' });
   const token = [...crypto.getRandomValues(new Uint8Array(12))].map((b) => b.toString(16).padStart(2, '0')).join('');
-  const expiresAt = new Date(Date.now() + INVITE_DAYS * 864e5).toISOString().slice(0, 10);
+  const expiresAt = localDay(new Date(Date.now() + INVITE_DAYS * 864e5));
   const invite = await systemPut(C.PORTAL_INVITES, 'PIV', { token, phone: person.phone, personName: person.name, unit, communitySlug: getCommunity(), relation: person.relation, status: 'Sent', expiresAt });
   const link = inviteLink(token);
   const body = `Hello ${person.name}, you have been registered for ${unit} at ${community}. Open ${link} to access the community portal (valid till ${expiresAt}). If you are already on CommunityOS, this community is simply added to your account.`;

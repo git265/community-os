@@ -1,9 +1,10 @@
+import { todayLocal } from '../../lib/locale.js';
 import React, { useState } from 'react';
 import ActionMenu from '../../components/ActionMenu.jsx';
 import Modal from '../../components/Modal.jsx';
 import { planState, stepState, decidedBy, stepWho, decide as engineDecide, overrideSteps } from '../../lib/approval/engine.js';
 
-const todayIso = () => new Date().toISOString().slice(0, 10);
+const todayIso = () => todayLocal();
 const tag = (v) => (v === 'approved' ? <span className="tag green"><span className="tick">✓</span> Approved</span> : v === 'rejected' ? <span className="tag red">Rejected</span> : v === 'skipped' ? <span className="tag">Not needed</span> : <span className="tag orange">Pending</span>);
 
 /** Approver choices offered when one task's approvals are changed. */

@@ -20,7 +20,7 @@ public final class JdbcLateFeeStore implements LateFeeStore {
     static final String OVERDUE = """
         SELECT d.id, d.short_id, d.unit_id, c.code AS category, d.status, d.total, d.due_date, d.billed_month FROM billing.due d
         JOIN billing.charge_category c ON c.community_id = d.community_id AND c.id = d.category_id
-        WHERE d.status IN ('Unpaid', 'Partly paid') AND d.due_date < current_date AND d.late_fee_for IS NULL AND d.unit_id IS NOT NULL
+        WHERE d.status IN ('Unpaid', 'Partly paid') AND d.due_date < platform.today() AND d.late_fee_for IS NULL AND d.unit_id IS NOT NULL
         ORDER BY d.due_date LIMIT 20000""";
     static final String CHARGED = "SELECT d.late_fee_for, d.late_fee_no FROM billing.due d WHERE d.late_fee_for IS NOT NULL AND d.status <> 'Cancelled'";
     static final String TIE = "UPDATE billing.due SET late_fee_for = CAST(:for AS uuid), late_fee_no = :no WHERE id = CAST(:id AS uuid) AND late_fee_for IS NULL";

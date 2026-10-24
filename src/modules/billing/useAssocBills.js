@@ -1,11 +1,11 @@
 import { useMemo } from 'react';
 import { useCollection } from '../../context/AppContext.jsx';
 import { COLLECTIONS as C } from '../../lib/storage/index.js';
-import { fmtDate, money } from '../../lib/locale.js';
+import { fmtDate, money, todayLocal } from '../../lib/locale.js';
 
 export const inr = (n) => money(n);
 export const dmy = (s) => fmtDate(s, { empty: '—' });
-export const todayIso = () => new Date().toISOString().slice(0, 10);
+export const todayIso = () => todayLocal();
 export const UTIL_ICON = { Electricity: '⚡', Water: '💧', 'DG diesel': '🛢', Gas: '🔥', 'Internet / telecom': '🌐', 'Waste / sanitation': '♻', Other: '🧾' };
 
 /** Every bill the association pays itself (electricity, water, DG diesel, gas, internet …) with its payment state taken from the ledger. */

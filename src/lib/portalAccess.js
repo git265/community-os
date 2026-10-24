@@ -1,6 +1,7 @@
 // Phone-number sign-in and the invite link ("#/join/<token>") sent when a property is registered.
 // Phone = identity. This browser demo has no SMS gateway: the one-time code is returned so the screen can show it as a simulated SMS.
 // In production: the Spring Boot service sends the code/link through an SMS or WhatsApp provider and issues the session itself.
+import { todayLocal } from './locale.js';
 import { logEvent } from './audit/auditLog.js';
 import { storage } from './storage/index.js';
 import { COLLECTIONS as C } from './storage/StorageAdapter.js';
@@ -9,7 +10,7 @@ import { sha256Hex } from './evoting.js';
 
 const OTP_TTL = 5 * 60e3; const TRIES = 3; const GAP = 20e3;
 const challenges = new Map();
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => todayLocal();
 
 /** Looks an invite up (raw storage - this runs before anyone is signed in). */
 export async function lookupInvite(token) {

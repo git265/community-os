@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { todayLocal } from '../../lib/locale.js';
 import { useApp, useCollection } from '../../context/AppContext.jsx';
 import { useUnitRoster } from '../../lib/unitRoster.js';
 import ServerTable from '../../components/ServerTable.jsx';
@@ -138,7 +139,7 @@ export default function DocumentsModule() {
   const cardRender = (r) => {
     const ext = (r.fileName || '').split('.').pop().toLowerCase();
     const k = FILE_KIND[ext] || { c: '#64748b', bg: '#f1f5f9', t: ext ? ext.slice(0, 4).toUpperCase() : '📄' };
-    const exp = r.expiry && new Date(r.expiry) < new Date();
+    const exp = r.expiry && String(r.expiry).slice(0, 10) < todayLocal();   // expired once its day has passed on this browser's calendar
     return (
       <div className="doc-card" data-testid="doc-card">
         <div className="doc-tile" style={{ background: k.bg, color: k.c }}>{k.t}</div>

@@ -1,3 +1,4 @@
+import { todayLocal } from '../../lib/locale.js';
 import React, { useEffect, useMemo } from 'react';
 import { useApp, useCollection } from '../../context/AppContext.jsx';
 import { COLLECTIONS as C } from '../../lib/storage/index.js';
@@ -47,7 +48,7 @@ export default function ApprovalsPanel({ onNavigate, limit, compact }) {
     const res = planDecide(kit.planOf(x, { subject: 'Cultural expense', amount: Number(x.amount) || 0, category: x.category, taskType: '', flags: needs ? ['eventFinal'] : [] }, 'expense'), currentUser?.name || '', status, { comment: note });
     if (res.error) return;
     const ps = planState(res.plan).key;
-    const out = await saveExpense({ ...x, ...kit.planFields(res.plan, 'expense'), status: ps === 'pending' ? 'Pending approval' : status, ...(ps === 'pending' ? {} : { approvedBy: currentUser?.name || '', approvedAt: new Date().toISOString().slice(0, 10), approvalNote: note }) });
+    const out = await saveExpense({ ...x, ...kit.planFields(res.plan, 'expense'), status: ps === 'pending' ? 'Pending approval' : status, ...(ps === 'pending' ? {} : { approvedBy: currentUser?.name || '', approvedAt: todayLocal(), approvalNote: note }) });
     if (!out) return;
     await recomputeEventTotals(x.eventId);
     notify({ event: 'cultural', title: `Expense ${status.toLowerCase()} · ${x.item}`, body: `${currentUser?.name || 'The approver'} ${status.toLowerCase()} ${inr(x.amount)} for “${x.item}”${note ? ` — ${note}` : ''}.`, link: `#/cultural/expense/${x.id}`, toRoleIds: ['committee_cultural', 'president', 'general_secretary'], by: currentUser?.name || '' }).catch(() => {});

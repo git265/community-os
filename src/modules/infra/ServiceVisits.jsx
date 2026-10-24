@@ -8,11 +8,11 @@ import { useCollection } from '../../context/AppContext.jsx';
 import { COLLECTIONS as C } from '../../lib/storage/index.js';
 import { getPrincipal } from '../../lib/security/principal.js';
 import { VISIT_KINDS, visitOf, logServiceVisit } from '../../lib/serviceVisits.js';
-import { fmtDate, todayLocal } from '../../lib/locale.js';
+import { fmtDate, todayLocal, localDay } from '../../lib/locale.js';
 
 const CONDS = ['Working', 'Needs attention', 'Under repair', 'Out of service', 'Standby'];
 const today = todayLocal;
-const plusMonths = (iso, n) => { const d = new Date(`${iso}T00:00:00`); d.setMonth(d.getMonth() + n); return d.toISOString().slice(0, 10); };
+const plusMonths = (iso, n) => { const d = new Date(`${iso}T00:00:00`); d.setMonth(d.getMonth() + n); return localDay(d); };
 
 export default function ServiceVisits({ asset, canEdit = false }) {
   const { records: log } = useCollection(C.INFRA_LOG, 'Condition log');

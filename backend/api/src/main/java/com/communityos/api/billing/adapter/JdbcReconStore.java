@@ -52,7 +52,7 @@ public final class JdbcReconStore implements ReconStore {
     static final String PAYOUTS = """
         SELECT platform.current_community() AS id, count(*) AS n, coalesce(sum(p.amount - p.refunded_amount), 0) AS amount FROM billing.payment p
         WHERE p.provider IS NOT NULL AND p.payout_entry_id IS NULL AND p.status IN ('Captured', 'Partly refunded') AND p.received_at < now() - interval '7 days'
-          AND EXISTS (SELECT 1 FROM finance.bank_txn t WHERE t.date > current_date - 60)
+          AND EXISTS (SELECT 1 FROM finance.bank_txn t WHERE t.date > platform.today() - 60)
         HAVING count(*) > 0""";
     static final String KEEP = """
         INSERT INTO billing.recon_issue (community_id, kind, ref_type, ref_id, ref_short_id, provider_ref, expected, actual, detail)

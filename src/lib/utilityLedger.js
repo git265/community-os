@@ -4,6 +4,7 @@
 // number (DUE-xxxx), the head it belongs to (Water, DG, Maintenance fee …) and how it was paid. Un-paying a bill removes its line.
 // Residents cannot write the ledger, so this is a system posting made when the bill is saved. Utility bills land in the
 // Electricity/Water/Tax account; everything else in the Maintenance account (the Treasurer can re-route under Account routing).
+import { localDay } from './locale.js';
 import { storage } from './storage/index.js';
 import { COLLECTIONS } from './storage/StorageAdapter.js';
 import { logChange } from './audit/auditLog.js';
@@ -30,7 +31,7 @@ export async function syncDuePayment(due, { nextShortId, actor = 'System · bill
   const row = {
     ...(existing || {}),
     id: existing?.id || uuid(),
-    date: String(due.paidAt || due.dueDate || now).slice(0, 10),
+    date: localDay(due.paidAt || due.dueDate || now),
     account: existing?.account || (util ? 'Electricity/Water/Tax' : 'Maintenance'),
     description: `${due.category} bill${due.billedMonth ? ` · ${due.billedMonth}` : ''} · ${due.unit}`,
     category: due.category, type: 'Credit', amount: Number(due.amount) || 0, vendor: '',

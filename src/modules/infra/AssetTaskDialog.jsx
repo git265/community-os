@@ -1,3 +1,4 @@
+import { localDay } from '../../lib/locale.js';
 import { categoryFor, repairKindOf } from '../../lib/assets/repairKind.js';
 import React, { useMemo, useState } from 'react';
 import Modal from '../../components/Modal.jsx';
@@ -11,7 +12,7 @@ import { uuid } from '../../lib/uuid.js';
 import { assigneesForCategory, creatableTaskTypes, isInternalType, todayIso } from '../tickets/ticketEngine.js';
 import { isEmptyHtml } from '../../lib/richtext/sanitize.js';
 
-const plainDays = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+const plainDays = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return localDay(d); };
 const label = () => new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 
 export { categoryFor, repairKindOf } from '../../lib/assets/repairKind.js';

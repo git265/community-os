@@ -6,7 +6,7 @@ import ImportantNumbers from './ImportantNumbers.jsx';
 import DataHealthChip from './DataHealthChip.jsx';
 import NoticeList from '../../components/NoticeList.jsx';
 import { useApprovals } from '../approvals/ApprovalsPanel.jsx';
-import { money, fmtDate } from '../../lib/locale.js';
+import { money, fmtDate, todayLocal, localDay } from '../../lib/locale.js';
 import { usePhone } from '../../components/Tabs.jsx';
 
 /** Phone home: the few things waiting for THIS person, one tap each (approvals, tickets nobody has, unpaid bills). Hidden when nothing waits. */
@@ -72,7 +72,7 @@ export default function DashboardModule({ onNavigate }) {
 
   if (v2 ? !sum : (l1 || l2 || l3 || l4)) return <div className="empty">Loading…</div>;
 
-  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayIso = todayLocal();
   const st = (k) => Number(sum?.tickets?.byStatus?.[k] || 0);
   let occupied, homes, openTickets, slaTickets, unpaidTotal, unpaidUnits, inside, insideVendors, live, overdue, critical, unassigned, onHold, awaitingClose, closedMonth, mostOverdue;
   if (v2) {
@@ -99,7 +99,7 @@ export default function DashboardModule({ onNavigate }) {
     unassigned = liveRows.filter((t) => t.status === 'Open').length;
     onHold = liveRows.filter((t) => t.status === 'On Hold' || t.awaitingParts).length;
     awaitingClose = liveRows.filter((t) => t.status === 'Completed').length;
-    closedMonth = tickets.filter((t) => t.status === 'Closed' && String(t.lastUpdatedAt || '').slice(0, 7) === todayIso.slice(0, 7)).length;
+    closedMonth = tickets.filter((t) => t.status === 'Closed' && localDay(t.lastUpdatedAt || '').slice(0, 7) === todayIso.slice(0, 7)).length;
     mostOverdue = [...overdueRows].sort((a, b) => (a.slaDueAt < b.slaDueAt ? -1 : 1)).slice(0, 4);
   }
 

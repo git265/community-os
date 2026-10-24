@@ -42,11 +42,11 @@ public final class JdbcUnitPeople implements UnitPeople {
         FROM identity.membership m WHERE m.person_id = CAST(:person AS uuid)""";
     static final String ADD_MEMBER = """
         INSERT INTO identity.membership (community_id, person_id, display_name, status, joined_on)
-        VALUES (platform.current_community(), CAST(:person AS uuid), :name, 'Active', current_date) RETURNING id""";
+        VALUES (platform.current_community(), CAST(:person AS uuid), :name, 'Active', platform.today()) RETURNING id""";
     static final String MEMBER_STATUS = """
         UPDATE identity.membership SET status = :status,
-               left_on = CASE WHEN CAST(:status AS text) = 'Inactive' THEN greatest(current_date, coalesce(joined_on, current_date)) END,
-               joined_on = CASE WHEN CAST(:status AS text) = 'Active' THEN coalesce(joined_on, current_date) ELSE joined_on END
+               left_on = CASE WHEN CAST(:status AS text) = 'Inactive' THEN greatest(platform.today(), coalesce(joined_on, platform.today())) END,
+               joined_on = CASE WHEN CAST(:status AS text) = 'Active' THEN coalesce(joined_on, platform.today()) ELSE joined_on END
         WHERE id = CAST(:id AS uuid)""";
     static final String GIVE_ROLE = """
         INSERT INTO identity.membership_role (community_id, membership_id, role_id, is_primary)

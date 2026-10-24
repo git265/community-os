@@ -1,10 +1,11 @@
 // Data health: finds records that point at something that does not exist, records with an important gap, and records nobody has touched
 // for too long. Pure: give it the lists, get the findings. The Reports -> Data health tab and the Command Center warning both use it.
+import { localDay } from './locale.js';
 import { TICKET_CATEGORIES } from './lists/configLists.js';
 import { categoryFor, assetCategories } from './assets/repairKind.js';
 
 export const KINDS = ['Broken link', 'Missing', 'Mismatch', 'Stale'];
-const day = (iso) => String(iso || '').slice(0, 10);
+const day = (iso) => localDay(iso || '');
 const daysSince = (iso, now) => (iso ? Math.floor((now - new Date(day(iso)).getTime()) / 86400000) : null);
 const OPEN = (t) => !['Closed', 'Cancelled', 'Completed'].includes(t.status);
 const COMMON = /^(common area|community|whole community|all|shared)/i;

@@ -1,4 +1,5 @@
 // Billing & Finance -> Defaulters: every unit with overdue bills, oldest and biggest first, with one-click reminder / demand / final notices.
+import { localDay } from '../../lib/locale.js';
 import React, { useMemo, useState } from 'react';
 import { escapeHtml as esc } from '../../lib/escapeHtml.js';
 import Modal from '../../components/Modal.jsx';
@@ -45,7 +46,7 @@ export default function Defaulters() {
         {canSend && <button className="btn" data-testid="def-notice" disabled={!chosen.length} onClick={() => setDlg(true)}>Send notice to {chosen.length || ''} selected…</button>}
         <button className="btn secondary sm" data-testid="def-all" onClick={() => setPick(new Set(rows.map((r) => r.unit)))}>Select all {rows.length}</button>
         <button className="btn secondary sm" onClick={() => setPick(new Set())}>Clear</button>
-        <button className="btn secondary sm" data-testid="csv" onClick={() => downloadCsv('defaulters', ['Unit', 'Owner', 'Block', 'Bills', 'Overdue', 'Late fees', 'Oldest due', 'Days', 'Last notice'], rows.map((r) => [r.unit, r.owner, r.block, r.bills, r.amount, r.lateFees, r.oldest, r.days, r.last ? `${r.last.stage} ${String(r.last.sentAt).slice(0, 10)}` : '']))}>⬇ CSV</button>
+        <button className="btn secondary sm" data-testid="csv" onClick={() => downloadCsv('defaulters', ['Unit', 'Owner', 'Block', 'Bills', 'Overdue', 'Late fees', 'Oldest due', 'Days', 'Last notice'], rows.map((r) => [r.unit, r.owner, r.block, r.bills, r.amount, r.lateFees, r.oldest, r.days, r.last ? `${r.last.stage} ${localDay(r.last.sentAt)}` : '']))}>⬇ CSV</button>
       </div>
       {msg && <div className="notice" data-testid="def-msg">{msg}</div>}
       {rows.length === 0 ? <p className="muted" data-testid="def-empty">No unit has overdue bills{bucket !== 'All' ? ' in this age group' : ''}. 🎉</p> : (
@@ -57,7 +58,7 @@ export default function Defaulters() {
                 <td><input type="checkbox" aria-label={`Select ${r.unit}`} checked={pick.has(r.unit)} onChange={() => toggle(r.unit)} /></td>
                 <td data-label="Unit"><b>{r.unit}</b></td><td data-label="Owner / tenant">{r.owner}{r.billTo === 'Tenant' ? ' (tenant)' : ''}</td><td data-label="Block">{r.block}</td>
                 <td data-label="Bills" style={{ textAlign: 'right' }}>{r.bills}</td><td data-label="Overdue" style={{ textAlign: 'right' }}><b>{inr(r.amount)}</b></td><td data-label="Late fees" style={{ textAlign: 'right' }}>{r.lateFees ? inr(r.lateFees) : '—'}</td>
-                <td data-label="Days" style={{ textAlign: 'right' }}>{r.days}</td><td data-label="Last notice">{r.last ? `${r.last.stage} · ${dmy(String(r.last.sentAt).slice(0, 10))}` : '—'}</td>
+                <td data-label="Days" style={{ textAlign: 'right' }}>{r.days}</td><td data-label="Last notice">{r.last ? `${r.last.stage} · ${dmy(localDay(r.last.sentAt))}` : '—'}</td>
                 <td>{canSend && r.lateFees > 0 && <button className="btn secondary sm" data-testid="def-waive" onClick={async () => { const n = await waiveLateFees(r.unit, getPrincipal().name); setMsg(`Waived ${n} late fee(s) for ${r.unit}.`); }}>Waive late fees</button>}</td>
               </tr>
             ))}

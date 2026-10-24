@@ -1,3 +1,4 @@
+import { localDay } from '../locale.js';
 import { DEFAULT_UTILITY_TYPES } from '../utilityTypes.js';
 import { uuid } from '../uuid.js';
 import { isApiMode, storage, COLLECTIONS } from '../storage/index.js';
@@ -50,7 +51,7 @@ const ATT_ROWS = [];
 [['Ramesh Kumar', 'Handyman · Plumbing', 'Morning', '06:02', '14:05'], ['Suresh Nair', 'Handyman · Electrical', 'Morning', '06:10', '14:00'], ['Manoj Yadav', 'Handyman · General', 'Morning', '06:00', '14:30'], ['Sunita Devi', 'Handyman · General', 'Morning', '06:05', '14:02']].forEach(([nm, rl, sh, a, b], i) => {
   [1, 2, 3, 4, 5].forEach((n, k) => ATT_ROWS.push(att(`at${i}_${n}`, nm, rl, n, k === 2 && i === 1 ? '06:48' : a, b, sh, k === 2 && i === 1 ? 33 : 0, k === 4 && i === 2)));
 });
-const plusDays = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+const plusDays = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return localDay(d); };
 
 
 const CANCEL_DEFAULT = [{ hoursBefore: 72, refundPct: 100 }, { hoursBefore: 24, refundPct: 50 }, { hoursBefore: 0, refundPct: 0 }];

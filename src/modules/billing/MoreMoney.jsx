@@ -1,4 +1,5 @@
 // Payments extras: other income (rent, interest…), recurring bills, and payments waiting for a second approver.
+import { localDay } from '../../lib/locale.js';
 import React, { useState } from 'react';
 import { needsRef } from '../../lib/region/paymentModes.js';
 import Modal from '../../components/Modal.jsx';
@@ -103,7 +104,7 @@ export function RequestsPanel({ onChanged }) {
       <b>⏳ {waiting.length} payment{waiting.length === 1 ? '' : 's'} waiting for a second approver</b>
       {waiting.map((r) => (
         <div key={r.id} data-testid="request-row" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginTop: 6 }}>
-          <span style={{ flex: 1 }}>{r.shortId} · <b>{inr(r.amount)}</b> to {r.vendor || '—'} · {r.description} · requested by {r.requestedBy} on {dmy(String(r.recordCreatedAt).slice(0, 10))}</span>
+          <span style={{ flex: 1 }}>{r.shortId} · <b>{inr(r.amount)}</b> to {r.vendor || '—'} · {r.description} · requested by {r.requestedBy} on {dmy(localDay(r.recordCreatedAt))}</span>
           {canDecide && (r.requestedBy === me ? <span className="muted">Needs someone else to approve</span> : <><button className="btn good sm" data-testid="request-approve" onClick={() => decide(r, true)}>Approve & pay</button><button className="btn secondary sm" data-testid="request-reject" onClick={() => decide(r, false)}>Reject</button></>)}
         </div>
       ))}

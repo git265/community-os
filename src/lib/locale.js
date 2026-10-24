@@ -45,14 +45,50 @@ export const fmtNum = (n, opts) => (Number(n) || 0).toLocaleString(numberLocale(
 /** "₹12,34,567" - whole rupees. `{ round: false }` keeps the paise as typed (up to 3 decimals, or set maximumFractionDigits). */
 export const money = (n, { round = true, ...opts } = {}) => `${currencySymbol()}${fmtNum(round ? Math.round(Number(n) || 0) : Number(n) || 0, opts)}`;
 
+// ---- Time. Every MOMENT the system records (created, paid, clocked in, entered the gate ...) is kept in UTC - the database's timestamptz,
+// sent as ISO with its zone ("2026-10-24T19:30:00Z") - and shown on THIS BROWSER's clock. A DAY (a due date, a booking date) is a plain
+// calendar date and is never shifted. A PLANNED clock time (a meeting at 18:00, pass hours) is the community's own and is shown as it is,
+// with the community's zone when the browser is elsewhere (plannedTime).
+const MOMENT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
+/** A Date, or an ISO date-time string (as opposed to a plain YYYY-MM-DD day). */
+export const isMoment = (v) => v instanceof Date || (typeof v === 'string' && MOMENT.test(v));
+const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+/** The calendar day of a value on this browser: a moment is the day it falls on here; a plain date stays itself. */
+export const localDay = (v) => {
+  if (v == null || v === '') return '';
+  if (isMoment(v)) { const d = v instanceof Date ? v : new Date(v); return Number.isNaN(d.getTime()) ? String(v).slice(0, 10) : ymd(d); }
+  return String(v).slice(0, 10);
+};
 /** Today as YYYY-MM-DD on this device's calendar (toISOString() is UTC: before 05:30 in India it still says yesterday). */
-export const todayLocal = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+export const todayLocal = () => ymd(new Date());
+/** The day `n` days from today on this device's calendar (negative: back). */
+export const daysFromToday = (n) => { const d = new Date(); d.setDate(d.getDate() + Number(n || 0)); return ymd(d); };
+/** "14:30" on this browser's clock for a moment. */
+export const fmtTime = (v) => { if (!v) return ''; const d = new Date(v); return Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }); };
 
-// Dates, one style everywhere: "05 Mar 2026" (a day: YYYY-MM-DD or an ISO time, read as that calendar day) and "05 Mar, 14:30" (a moment).
-const asDay = (s) => new Date(`${String(s).slice(0, 10)}T00:00:00`);
+// the community's own zone (the server's platform.community.time_zone; until it is known, the country's)
+let communityZone = '';
+export const setCommunityTimeZone = (z) => { communityZone = z || ''; };
+export const communityTimeZone = () => communityZone || getRegionByCode(cfg.region || 'IN').timeZone || 'Asia/Kolkata';
+const zonePart = (zone, style, locale = 'en-US') => { try { return new Intl.DateTimeFormat(locale, { timeZone: zone, timeZoneName: style }).formatToParts(new Date()).find((p) => p.type === 'timeZoneName')?.value || ''; } catch { return ''; } };
+/** ' IST' when this browser is not on the community's clock right now, else ''. */
+export function plannedZone() {
+  const cz = communityTimeZone(); let bz = '';
+  try { bz = Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { /* unknown: say nothing */ }
+  if (!cz || !bz || cz === bz || zonePart(cz, 'shortOffset') === zonePart(bz, 'shortOffset')) return '';
+  const name = zonePart(cz, 'short', 'en-IN') || zonePart(cz, 'shortOffset');
+  return name ? ` ${name}` : '';
+}
+/** A planned clock time ("18:00", "06:00–14:00") as the community keeps it, with its zone when the browser is elsewhere. */
+export const plannedTime = (t) => (t ? `${t}${plannedZone()}` : '');
+
+// Dates, one style everywhere: "05 Mar 2026" (a day: YYYY-MM-DD, or the day a moment falls on here) and "05 Mar, 14:30" (a moment, this browser's clock).
+const asDay = (s) => new Date(`${localDay(s)}T00:00:00`);
 /** `{ year: false }` -> "05 Mar"; `empty` is what a blank date shows ('' or '—'). */
 export const fmtDate = (s, { year = true, empty = '' } = {}) => (s ? asDay(s).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', ...(year ? { year: 'numeric' } : {}) }) : empty);
 export const fmtDateTime = (iso, { empty = '' } = {}) => (iso ? new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : empty);
+/** Whatever a "when" field holds, shown in the house style: a moment on this browser's clock, a day as a date, anything else as it is. */
+export const fmtWhen = (v, { empty = '' } = {}) => (v == null || v === '' ? empty : isMoment(v) ? fmtDateTime(v) : /^\d{4}-\d{2}-\d{2}$/.test(String(v)) ? fmtDate(v) : String(v));
 /** 12,50,000 -> "12.50 L" / "1.25 M" / full, per the community's choice. */
 export function compactMoney(n) {
   const v = Number(n) || 0; const a = Math.abs(v); const sym = currencySymbol();

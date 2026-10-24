@@ -1,3 +1,4 @@
+import { todayLocal } from '../../lib/locale.js';
 import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { useApp, useCollection } from '../../context/AppContext.jsx';
 import { useUnitRoster } from '../../lib/unitRoster.js';
@@ -205,7 +206,7 @@ function MapTab({ areaFilter, setAreaFilter, startCalibrate, onSetup, onNavigate
       const a0 = assets.find((x) => x.id === d.assetId); const sh = parseShape(a0); if (!a0 || !sh || sh.t !== 'line') return;
       const snap = snapToLine(sh.c, shape.c);
       if (!snap || snap.dist > 120) { setNotice({ kind: 'error', text: 'Tap on or close to the pipe to mark the break.' }); return; }
-      const next = [...parseBreaks(a0), { c: snap.c.map((v) => Math.round(v * 10) / 10), note: '', at: new Date().toISOString().slice(0, 10), by: me }];
+      const next = [...parseBreaks(a0), { c: snap.c.map((v) => Math.round(v * 10) / 10), note: '', at: todayLocal(), by: me }];
       const saved = await saveAsset({ ...a0, breaks: JSON.stringify(next), status: ['Out of service', 'Under repair'].includes(a0.status) ? a0.status : 'Needs attention' });
       if (saved) { setSelectedId(a0.id); setFocus({ nonce: Date.now(), shape: { t: 'point', c: snap.c } }); undoNotice(a0.id, 'Break marked on the pipe. Raise a task to get it repaired.', saveAsset); }
       return;

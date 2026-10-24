@@ -1,6 +1,7 @@
 // GateGuard rules engine. Everything the gate DECIDES lives here, not in the screens: who may enter, when a resident must be asked,
 // what a delivery rider is allowed, when a record becomes a ghost entry flag. The screens and the gate-device simulator only call
 // these functions, so when the Spring Boot backend takes over, this file is the specification of its gate service.
+import { localDay } from '../locale.js';
 import { secureStorage } from '../storage/secureStorage.js';
 import { storage, COLLECTIONS } from '../storage/index.js';
 import { getPrincipal } from '../security/principal.js';
@@ -302,7 +303,7 @@ async function sweepGuardSilence(s, now, flags) {
 export async function publishDigest() {
   const now = new Date(); const day = todayStr(now);
   const [visits, flags, people, att, incs, pulses] = await Promise.all([rawList(C.GATE_VISITS), rawList(C.GATE_FLAGS), rawList(C.GATE_PEOPLE), rawList(C.ATTENDANCE).catch(() => []), rawList(C.INCIDENTS).catch(() => []), rawList(C.GATE_PULSE).catch(() => [])]);
-  const today = visits.filter((v) => String(v.inAt || '').slice(0, 10) === day || todayStr(new Date(v.inAt || 0)) === day);
+  const today = visits.filter((v) => localDay(v.inAt || '') === day || todayStr(new Date(v.inAt || 0)) === day);
   const guards = att.filter((a) => !a.clockOut && isGuardRole(a.roleName)).map((a) => ({ name: a.staffName, since: a.clockIn, lastSeen: pulses.find((x) => x.guard === a.staffName)?.lastAt || a.clockIn }));
   const staff = people.filter((x) => ['Maid / cook', 'Nanny / caretaker', 'Driver', 'Daily worker', 'Landscaper', 'Vendor staff', 'Contractor'].includes(x.personClass));
   const d = {

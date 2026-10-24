@@ -9,7 +9,7 @@ import RecordModal from './RecordModal.jsx';
 import Statements from './BankStatements.jsx';
 import { TableExportIcon } from '../../components/ExportIcon.jsx';
 import { actualsByHead, sumHeads, balanceAsOf, fyOptions, fyRange, prevFy, currentFy, lastDateIn, monthEnd, monthLabel, INCOME_HEADS, EXPENSE_HEADS } from '../../lib/bank/analysis.js';
-import { MONTH_NAMES, compactMoney, money, fmtDate } from '../../lib/locale.js';
+import { MONTH_NAMES, compactMoney, money, fmtDate, localDay, todayLocal } from '../../lib/locale.js';
 import { DEPOSIT_TYPES } from '../../lib/lists/configLists.js';
 import { computeHeadroom, accountTotal, depositsOf, DEFAULT_SETTINGS } from '../../lib/bank/headroom.js';
 import Tabs from '../../components/Tabs.jsx';
@@ -106,8 +106,8 @@ function Summary({ accounts, txns, deposits }) {
   const interest = deposits.filter((d) => (d.status || 'Active') === 'Active').reduce((t, d) => t + (Number(d.interestEarned) || 0), 0);
   const tds = deposits.filter((d) => (d.status || 'Active') === 'Active').reduce((t, d) => t + (Number(d.taxDeducted) || 0), 0);
   const depRows = deposits.filter((d) => (!end || !d.startDate || d.startDate <= end)).sort((x, y) => String(x.maturityDate || '9').localeCompare(String(y.maturityDate || '9')));
-  const today = new Date().toISOString().slice(0, 10);
-  const soon = (d) => d.status !== 'Matured' && d.status !== 'Closed' && d.maturityDate && d.maturityDate >= today && d.maturityDate <= new Date(Date.now() + 60 * 864e5).toISOString().slice(0, 10);
+  const today = todayLocal();
+  const soon = (d) => d.status !== 'Matured' && d.status !== 'Closed' && d.maturityDate && d.maturityDate >= today && d.maturityDate <= localDay(new Date(Date.now() + 60 * 864e5));
 
   return (
     <>
@@ -122,7 +122,7 @@ function Summary({ accounts, txns, deposits }) {
             </select>
           </label>
           <TableExportIcon scope={tref} name="Accounts and deposits" />
-          {canWrite && <button type="button" className="btn" onClick={() => setEditing({ asOf: new Date().toISOString().slice(0, 10), balance: 0 })}>+ Add account</button>}
+          {canWrite && <button type="button" className="btn" onClick={() => setEditing({ asOf: todayLocal(), balance: 0 })}>+ Add account</button>}
         </div>
       </div>
       <div className="table-wrap" ref={tref}><table className="resp-table">

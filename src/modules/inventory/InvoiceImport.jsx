@@ -1,3 +1,4 @@
+import { todayLocal } from '../../lib/locale.js';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Modal from '../../components/Modal.jsx';
 import { useApp, useCollection } from '../../context/AppContext.jsx';
@@ -68,7 +69,7 @@ export default function InvoiceImport({ onClose }) {
         const base = m || { item: r.item.trim(), category: r.category, location: r.location || 'Main store', uom: r.uom, minStock: 0 };
         const qty = (m ? Number(m.quantity) || 0 : 0) + Number(r.quantity);
         const wm = Number(r.warrantyMonths) || 0;
-        const wInfo = wm > 0 ? { warrantyUntil: addMonthsIso(head.date || new Date().toISOString().slice(0, 10), wm), warrantyProvider: head.vendor || base.warrantyProvider || '' } : {};
+        const wInfo = wm > 0 ? { warrantyUntil: addMonthsIso(head.date || todayLocal(), wm), warrantyProvider: head.vendor || base.warrantyProvider || '' } : {};
         const out = await save({ ...base, ...wInfo, quantity: qty, stockStatus: stockStatusFor(qty, base.minStock), vendor: head.vendor || base.vendor || '', lastRestocked: head.date || base.lastRestocked || '', attachments: [...(base.attachments || []), ...metas] });
         if (out) { if (m) topped += 1; else added += 1; }
       }

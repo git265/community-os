@@ -1,3 +1,4 @@
+import { isMoment, fmtDateTime } from '../lib/locale.js';
 import React, { useEffect, useMemo, useState } from 'react';
 import { canView } from '../lib/access/permissions.js';
 
@@ -62,7 +63,7 @@ export default function DynamicTable({ schema, roleId, records, onRowClick }) {
             {pageRecords.map((r) => (
               <tr key={r.id} onClick={() => onRowClick(r)}>
                 {columns.map((c) => (
-                  <td key={c.key}>{String(r[c.key] ?? '—')}</td>
+                  <td key={c.key}>{isMoment(r[c.key]) ? fmtDateTime(r[c.key]) : String(r[c.key] ?? '—')}</td>
                 ))}
               </tr>
             ))}

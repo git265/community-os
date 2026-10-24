@@ -2,6 +2,7 @@
 // residents, and release approvals (maintenance and cultural). Called from secureStorage after a successful write
 // (`notifyAfterWrite`) and from the App scheduler (`runBallotReminders`). Each uses an EVENT from notify.js, so the community
 // can switch channels per event and each person can pick WhatsApp / SMS / e-mail. Every row carries a deep link.
+import { localDay } from './locale.js';
 import { storage } from './storage/index.js';
 import { COLLECTIONS as C } from './storage/StorageAdapter.js';
 import { notify } from './notify.js';
@@ -95,7 +96,7 @@ export async function runBallotReminders(now = new Date()) {
 
 /** Tickets past their SLA date and not done: tell the assignee and the dispatch team (Facility Manager, Helpdesk), once per SLA date. */
 export async function runSlaAlerts(now = new Date()) {
-  const today = now.toISOString().slice(0, 10);
+  const today = localDay(now);
   const late = (await storage.list(C.TICKETS)).filter((t) => t.slaDueAt && t.slaDueAt < today && !['Completed', 'Closed', 'Cancelled'].includes(t.status));
   if (!late.length) return 0;
   const sent = new Set((await storage.list('notifications')).filter((x) => x.kind === 'ticket_overdue').map((x) => `${x.ticketId}|${x.slaDueAt}`));

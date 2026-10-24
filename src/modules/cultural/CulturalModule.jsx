@@ -29,7 +29,7 @@ import { useApprovalKit } from '../../lib/approval/usePlans.js';
 import ExpenseReleases from '../approval/ExpenseReleases.jsx';
 import { planState, decide as planDecide, stepWho } from '../../lib/approval/engine.js';
 import { getPrincipal } from '../../lib/security/principal.js';
-import { fmtDate, money } from '../../lib/locale.js';
+import { fmtDate, money, todayLocal, fmtWhen, plannedTime } from '../../lib/locale.js';
 import Tabs from '../../components/Tabs.jsx';
 import { PhoneSearch, PhoneFilters } from '../../components/ToolIcons.jsx';
 
@@ -39,7 +39,7 @@ const shown = (ev, k) => ev?.[k] !== 'No'; // section toggles default to visible
 
 const inr = (n) => money(n, { round: false });
 const dshort = (s) => fmtDate(s);
-const when = (r) => `${dshort(r.date)}${r.startTime ? ` · ${r.startTime}${r.endTime ? `–${r.endTime}` : ''}` : ''}`;
+const when = (r) => `${dshort(r.date)}${r.startTime ? ` · ${plannedTime(`${r.startTime}${r.endTime ? `–${r.endTime}` : ''}`)}` : ''}`;   // the community's clock
 const TAGS = { Rejected: 'red', Planning: 'orange', Open: 'blue', Completed: 'green', Cancelled: '', Pledged: 'orange', Received: 'green', 'Pending approval': 'orange', Approved: 'blue', Paid: 'green' };
 const Tag = ({ v }) => <span className={`tag ${TAGS[v] || ''}`}>{v}</span>;
 
@@ -67,7 +67,7 @@ function Receipt({ d, ev, onClose }) {
 function DonationForm({ ev, record, manager, onClose, properties }) {
   const { currentUser } = useApp();
   const { save } = useCollection(C.CULTURAL_DONATIONS, 'Donations');
-  const [f, setF] = useState(() => ({ kind: 'Donation', towards: 'General', mode: defaultOnlineMode(), status: manager ? 'Received' : 'Pledged', date: new Date().toISOString().slice(0, 10), anonymous: false, donor: manager ? '' : currentUser?.name || '', unit: manager ? '' : currentUser?.unit || '', amount: '', reference: '', note: '', ...record }));
+  const [f, setF] = useState(() => ({ kind: 'Donation', towards: 'General', mode: defaultOnlineMode(), status: manager ? 'Received' : 'Pledged', date: todayLocal(), anonymous: false, donor: manager ? '' : currentUser?.name || '', unit: manager ? '' : currentUser?.unit || '', amount: '', reference: '', note: '', ...record }));
   const [err, setErr] = useState({});
   const set = (k, v) => setF((x) => ({ ...x, [k]: v }));
   async function submit(e) {
@@ -208,7 +208,7 @@ export default function CulturalModule() {
   const approver = isSecondApprover(getPrincipal()); // Treasurer / President (configurable final approvers) / Super Admin
   const COMMITTEE = ['committee_cultural', 'president', 'general_secretary'];
 
-  const today = () => new Date().toISOString().slice(0, 10);
+  const today = () => todayLocal();
   const me2 = currentUser?.name || '';
   const isEc = role?.category === 'EC' || roleId === 'super_admin';
   const ecRoleIds = (roles || []).filter((r) => r.category === 'EC').map((r) => r.id);
@@ -218,7 +218,7 @@ export default function CulturalModule() {
   const stageOf = (x) => {
     const st = expenseStage(x);
     const bits = [];
-    if (x.ecApprovedBy) bits.push(`EC: ${x.ecApprovedBy}${x.ecApprovedAt ? ` · ${x.ecApprovedAt}` : ''}${x.ecNote ? ` — ${x.ecNote}` : ''}`);
+    if (x.ecApprovedBy) bits.push(`EC: ${x.ecApprovedBy}${x.ecApprovedAt ? ` · ${fmtWhen(x.ecApprovedAt)}` : ''}${x.ecNote ? ` — ${x.ecNote}` : ''}`);
     if (x.approvedBy && x.approvedBy !== x.ecApprovedBy) bits.push(`Final: ${x.approvedBy}${x.approvalNote ? ` — ${x.approvalNote}` : ''}`);
     else if (x.status === 'Approved' && x.finalRequired === false) bits.push('The EC made its approval the last step');
     return { ...st, detail: [st.text, ...bits].join('\n') };
@@ -291,7 +291,7 @@ export default function CulturalModule() {
   }
   async function markReceived(d) {
     const no = d.receiptNo || await nextReceiptNo(ev);
-    const out = await saveDonation({ ...d, status: 'Received', receiptNo: no, date: d.date || new Date().toISOString().slice(0, 10) });
+    const out = await saveDonation({ ...d, status: 'Received', receiptNo: no, date: d.date || todayLocal() });
     if (out) { await recomputeEventTotals(ev.id); if (d.unit) notify({ event: 'cultural', title: `Receipt ${no} · ${ev.name}`, body: `Thank you! Your ${(d.kind || 'donation').toLowerCase()} of ${inr(d.amount)} was received. Receipt ${no}.`, link: `#/cultural/donation/${out.id}`, toUnit: d.unit, by: currentUser?.name || '' }).catch(() => {}); }
   }
   async function withdraw(d) { if (!window.confirm('Withdraw this pledge?')) return; await removeDonation(d.id); await recomputeEventTotals(ev.id); }
@@ -463,7 +463,7 @@ export default function CulturalModule() {
                 <div className="card" data-testid="cultural-expenses">
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}><h3 style={{ margin: 0, flex: 1 }}>Expenses</h3>
                     <button type="button" className="btn secondary sm" onClick={() => csv(`${ev.name}-expenses.csv`, evExp.map((x) => ({ Date: x.date, Item: x.item, Category: x.category, PaidTo: x.vendor, Amount: x.amount, Status: x.status })))}>⬇ CSV</button>
-                    <button className="btn" data-testid="add-expense" onClick={() => setModal({ kind: 'expense', record: { eventId: ev.id, status: 'Pending approval', ecApproval: 'Pending', fund: ev.fund || 'Cultural', date: new Date().toISOString().slice(0, 10) } })}>+ Add expense</button></div>
+                    <button className="btn" data-testid="add-expense" onClick={() => setModal({ kind: 'expense', record: { eventId: ev.id, status: 'Pending approval', ecApproval: 'Pending', fund: ev.fund || 'Cultural', date: todayLocal() } })}>+ Add expense</button></div>
                   {evExp.length > 0 && (
                     <div className="exp-tools" data-testid="expense-tools">
                       <PhoneSearch type="search" ariaLabel="Search expenses" testid="expense-search" placeholder="Search item, category or paid to…" value={expQ} onChange={(v) => setExpQ(v)} className="" />
@@ -526,7 +526,7 @@ export default function CulturalModule() {
       {payFor && ev && (payFor.event || payDonation) && (
         <PayPanel ev={ev} donation={payFor.event ? null : payDonation} amount={payFor.event ? 0 : undefined} title={payFor.event ? `Contribute to ${ev.name}` : 'Pay your pledge'} onClose={() => setPayFor(null)}
           onClaim={async (utr) => { await claimPayment(payDonation, utr, saveDonation, ev, currentUser?.name || ''); }} onPaid={() => {}}
-          onPledge={payFor.event ? async (amount) => { const row = await saveDonation({ eventId: ev.id, donor: me.name || currentUser?.name || 'Resident', unit: me.unit || '', kind: 'Donation', towards: 'General', amount, date: new Date().toISOString().slice(0, 10), mode: 'Online', reference: '', status: 'Pledged', receiptNo: '', anonymous: false }); if (row) await recomputeEventTotals(ev.id); return row; } : undefined} />
+          onPledge={payFor.event ? async (amount) => { const row = await saveDonation({ eventId: ev.id, donor: me.name || currentUser?.name || 'Resident', unit: me.unit || '', kind: 'Donation', towards: 'General', amount, date: todayLocal(), mode: 'Online', reference: '', status: 'Pledged', receiptNo: '', anonymous: false }); if (row) await recomputeEventTotals(ev.id); return row; } : undefined} />
       )}
       {agenda && ev && (
         <Modal title={`Agenda · ${ev.name}`} subtitle="Copy to WhatsApp / notice board, or print." onClose={() => setAgenda(false)}>

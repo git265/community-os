@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { communityTaxId } from '../../lib/locale.js';
+import { communityTaxId, todayLocal } from '../../lib/locale.js';
 import { validatePhone } from '../../lib/phone.js';
 import { useApp, useCollection } from '../../context/AppContext.jsx';
 import { COLLECTIONS } from '../../lib/storage/index.js';
@@ -121,7 +121,7 @@ export default function AmenityNotifications({ mode }) {
   }
 
   if (mode === 'reports') {
-    const t0 = new Date().toISOString().slice(0, 10);
+    const t0 = todayLocal();
     const span = sd.summaryReport === 'Monthly' ? 30 : 7;
     const rep = buildReport(kind, { bookings, community: cname, settings: sd, today: t0, from: kind === 'daily' ? t0 : addDays(t0, -span), to: t0 });
     const send = async () => { const r = await sendReport(kind); window.dispatchEvent(new CustomEvent('communityos:changed')); refresh?.(); setMsg(`Report queued to ${r.queued} recipient${r.queued === 1 ? '' : 's'}`); };

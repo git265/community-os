@@ -1,5 +1,5 @@
 import { region } from './region/regions.js';
-import { communityTaxId } from './locale.js';
+import { communityTaxId, localDay, todayLocal } from './locale.js';
 import { billTermsText } from './billText.js';
 // Amenity pricing, GST, deposit, cancellation / refund rules, message templates and report text.
 // Pure functions (no storage, no React) so the booking screen can PREVIEW exactly what the server-side hook later CHARGES.
@@ -100,7 +100,7 @@ export function bookingRulesError(amenity, { date, unit = '', unitType = '', boo
   const perMonth = Number(a.maxPerMonth) || 0;
   if (perMonth && mine.filter((b) => String(b.date).slice(0, 7) === String(date).slice(0, 7)).length >= perMonth) return `One unit can book ${a.name} at most ${perMonth} time${perMonth === 1 ? '' : 's'} a month.`;
   const upcoming = Number(a.maxUpcoming) || 0;
-  const now = new Date().toISOString().slice(0, 10);
+  const now = todayLocal();
   if (upcoming && mine.filter((b) => b.date >= now && !['Completed'].includes(b.status)).length >= upcoming) return `You already hold ${upcoming} upcoming booking${upcoming === 1 ? '' : 's'} for ${a.name}. Use or cancel one first.`;
   return '';
 }
@@ -166,8 +166,8 @@ export function bookingVars(b, { community = '', settings = {}, owner = '', reas
 
 /* ---------------------------------------------------------- reports ------ */
 
-const dayOf = (s) => String(s || '').slice(0, 10);
-const addDays = (d, n) => { const x = new Date(`${d}T12:00:00`); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); };
+const dayOf = (s) => localDay(s || '');
+const addDays = (d, n) => { const x = new Date(`${d}T12:00:00`); x.setDate(x.getDate() + n); return localDay(x); };
 export { addDays };
 
 /** Money columns for a set of bookings, by the day money moved (paidAt / cancelledAt). */

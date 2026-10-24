@@ -7,13 +7,13 @@ import PlanPanel from './PlanPanel.jsx';
 import { buildPlan } from '../../lib/approval/engine.js';
 import { parseJson } from '../../lib/approval/kit.js';
 import { releaseSummary, releaseProblem } from '../../lib/approval/releases.js';
-import { money } from '../../lib/locale.js';
+import { money, todayLocal } from '../../lib/locale.js';
 import { PayeeFields, PayeeView, ecAskPlan } from './Payee.jsx';
 import { persistPending } from '../../lib/files/attachments.js';
 import { uuid } from '../../lib/uuid.js';
 
 const inr = (n) => money(n, { round: false });
-const todayIso = () => new Date().toISOString().slice(0, 10);
+const todayIso = () => todayLocal();
 
 /**
  * Releases & advances for ONE task: money that goes out before (or without) the invoice.

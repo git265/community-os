@@ -1,3 +1,4 @@
+import { todayLocal } from '../lib/locale.js';
 import React, { useRef, useState } from 'react';
 import Modal from './Modal.jsx';
 
@@ -59,7 +60,7 @@ export function askAccount(ask, accountNames, { title = 'Record payment', subtit
     title, subtitle, confirm: 'Record',
     fields: [
       { key: 'account', label: 'Account', type: 'select', options: accountNames, required: true },
-      { key: 'date', label: 'Payment date', type: 'date', required: true, value: new Date().toISOString().slice(0, 10) },
+      { key: 'date', label: 'Payment date', type: 'date', required: true, value: todayLocal() },
     ],
   });
 }

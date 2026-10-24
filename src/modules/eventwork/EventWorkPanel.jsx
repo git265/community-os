@@ -5,12 +5,12 @@ import { canWriteCollection } from '../../lib/security/authz.js';
 import { getPrincipal } from '../../lib/security/principal.js';
 import { notify } from '../../lib/notify.js';
 import RecordModal from '../billing/RecordModal.jsx';
-import { fmtDate } from '../../lib/locale.js';
+import { fmtDate, todayLocal, plannedTime } from '../../lib/locale.js';
 
 export const PHASES = ['Before the event', 'During the event', 'After the event'];
 export const OWNER_ROLE_IDS = { 'Facility Manager': ['facility_manager'], MEP: ['handyman_mep'] };
 const TONE = { 'Not started': '', 'In progress': 'blue', Blocked: 'red', Done: 'green', Cancelled: '' };
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => todayLocal();
 export const dmy = (s) => fmtDate(s, { year: false });
 const late = (w) => !['Done', 'Cancelled'].includes(w.status) && w.neededOn < today();
 
@@ -35,7 +35,7 @@ export function WorkRow({ w, canWrite, onEdit, showEvent }) {
         <span style={{ flex: 1 }} />
         {canWrite && <button className="btn secondary sm" onClick={() => onEdit(w)}>Edit</button>}
       </div>
-      <small className="muted">{showEvent ? `${w.eventName} · ` : ''}{w.phase} · needed {dmy(w.neededOn)}{w.startTime ? ` ${w.startTime}${w.endTime ? `–${w.endTime}` : ''}` : ''}{w.staffRequested ? ` · ${w.staffConfirmed || 0}/${w.staffRequested} ${w.staffType || 'people'} confirmed` : ''}</small>
+      <small className="muted">{showEvent ? `${w.eventName} · ` : ''}{w.phase} · needed {dmy(w.neededOn)}{w.startTime ? ` ${plannedTime(`${w.startTime}${w.endTime ? `–${w.endTime}` : ''}`)}` : ''}{w.staffRequested ? ` · ${w.staffConfirmed || 0}/${w.staffRequested} ${w.staffType || 'people'} confirmed` : ''}</small>
       {w.details && <div style={{ fontSize: 13 }}>{w.details}</div>}
     </li>
   );

@@ -2,6 +2,7 @@
 // books and the reports see it like any other spend: a financial task (assigned to the EC member, the bill attached) and a release on it
 // with how the payee is to be paid (UPI id / QR, account details). The EC member's request is the EC's approval; the final approvers decide,
 // then the Treasurer pays it from Payments → Maintenance.
+import { localDay } from '../../lib/locale.js';
 import React, { useMemo, useState } from 'react';
 import Modal from '../../components/Modal.jsx';
 import Combobox from '../../components/Combobox.jsx';
@@ -17,7 +18,7 @@ import { uuid } from '../../lib/uuid.js';
 import { tell } from '../../lib/net/activity.js';
 import { PayeeFields, ecAskPlan } from './Payee.jsx';
 
-const todayPlus = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+const todayPlus = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return localDay(d); };
 
 /** The task type a payment request is filed under: the EC's own maintenance type, else the first one the EC raises that can carry money. */
 export function requestTaskType(types) {

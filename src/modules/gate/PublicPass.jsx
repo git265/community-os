@@ -1,3 +1,4 @@
+import { plannedTime } from '../../lib/locale.js';
 import React, { useEffect, useState } from 'react';
 import { passQrText, readPassLink } from '../../lib/gate/engine.js';
 import { qrDataUrl } from '../../lib/payments.js';
@@ -18,7 +19,7 @@ export default function PublicPass() {
 
   if (!p) return <main className="ppass"><div className="ppass-card"><h1>Gate pass</h1><p className="muted">This pass link is not complete. Ask your host to send it again.</p></div></main>;
   const when = p.validTo && p.validTo !== p.validFrom ? `${day(p.validFrom)} – ${day(p.validTo)}` : day(p.validFrom);
-  const hours = p.fromTime ? `${p.fromTime}${p.toTime ? ` – ${p.toTime}` : ''}` : '';
+  const hours = p.fromTime ? plannedTime(`${p.fromTime}${p.toTime ? ` – ${p.toTime}` : ''}`) : '';
   return (
     <main className="ppass" data-testid="public-pass">
       <div className="ppass-card">

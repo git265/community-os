@@ -1,5 +1,5 @@
 import AdminDelete from '../../components/AdminDelete.jsx';
-import { todayLocal } from '../../lib/locale.js';
+import { todayLocal, fmtWhen, plannedZone } from '../../lib/locale.js';
 import { getCommunity } from '../../lib/community.js';
 import { notify, notifyMany } from '../../lib/notify.js';
 import React, { useState } from 'react';
@@ -24,7 +24,7 @@ import Tabs from '../../components/Tabs.jsx';
 
 const TYPES = ['Announcement', 'Emergency alert', 'Notice', 'Scheduled maintenance', 'Poll'];
 const timeLabel = (t) => { if (!t) return ''; const [h, m] = t.split(':').map(Number); return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`; };
-const whenText = (b) => `${new Date(b.eventDate + 'T00:00').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}${b.startTime ? `, ${timeLabel(b.startTime)}${b.endTime ? ` – ${timeLabel(b.endTime)}` : ''}` : ''}`;
+const whenText = (b) => `${new Date(b.eventDate + 'T00:00').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}${b.startTime ? `, ${timeLabel(b.startTime)}${b.endTime ? ` – ${timeLabel(b.endTime)}` : ''}${plannedZone()}` : ''}`;   // the community's clock, with its zone when the browser is elsewhere
 const AUDIENCES = ['All residents', 'Owners', 'All villas', 'All apartments', 'Selected villas', 'Selected apartments', 'Selected blocks', 'EC members', 'Staff'];
 const BLANK = { type: 'Notice', audience: 'All residents', audienceUnits: [], audienceBlocks: [], subject: '', message: '', requiresSignature: false, reminderFrequency: 'None', pollOptions: ['', ''], pollMultiple: false, pollClosesOn: '', eventDate: '', startTime: '', endTime: '', affects: '' };
 const esc = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
@@ -94,7 +94,7 @@ export default function CommunicationsModule() {
   const template = usableTemplates.find((t) => t.id === templateId);
   const isPoll = draft.type === 'Poll';
   const isMaint = draft.type === 'Scheduled maintenance';
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = todayLocal();
   const upcoming = broadcasts.filter((b) => b.status === 'Sent' && b.eventDate && b.eventDate >= todayStr).sort((a, b) => (a.eventDate + (a.startTime || '')).localeCompare(b.eventDate + (b.startTime || '')));
   const [resch, setResch] = useState(null);
   async function reschedule() {
@@ -150,7 +150,7 @@ export default function CommunicationsModule() {
       message: isPoll && isEmptyHtml(previewBody) ? '<p>Please vote.</p>' : previewBody,
       ...(isMaint ? { eventDate: draft.eventDate, startTime: draft.startTime, endTime: draft.endTime, affects: draft.affects.trim() } : {}),
       ...(isPoll ? { pollOptions: options, pollMultiple: draft.pollMultiple, pollClosesOn: draft.pollClosesOn || '' } : {}),
-      sentAt: new Date().toISOString().slice(0, 10),
+      sentAt: todayLocal(),
       status,
       recipients,
       viewed: 0,
@@ -277,7 +277,7 @@ export default function CommunicationsModule() {
                     <TagsInput list={draft.pollOptions.filter(Boolean)} onChange={(l) => set({ pollOptions: l.slice(0, 12).map((x) => String(x).slice(0, 200)) })} label="poll answers" placeholder="Type an answer and press Enter" />
                     <label style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}><input type="checkbox" aria-label="Allow multiple answers" checked={draft.pollMultiple} onChange={(e) => set({ pollMultiple: e.target.checked })} />Allow more than one answer</label>
                     {errs.poll && <div className="field-error">{errs.poll}</div>}
-                    <div className="field" style={{ marginTop: 8 }}><label>Poll closes on (optional)</label><input type="date" aria-label="Poll closes on" min={new Date().toISOString().slice(0, 10)} value={draft.pollClosesOn} onChange={(e) => set({ pollClosesOn: e.target.value })} /></div>
+                    <div className="field" style={{ marginTop: 8 }}><label>Poll closes on (optional)</label><input type="date" aria-label="Poll closes on" min={todayLocal()} value={draft.pollClosesOn} onChange={(e) => set({ pollClosesOn: e.target.value })} /></div>
                   </div>
                 )}
 
@@ -386,7 +386,7 @@ export default function CommunicationsModule() {
                         <button type="button" className="notice-toggle" aria-expanded={open} data-testid="notice-open" onClick={() => toggle(b)}>
                           {fresh && <span className="notice-dot" aria-label="New" />}
                           <b>{b.type === 'Poll' ? '📊 ' : ''}{b.subject}</b>{fresh && <span className="tag blue" style={{ marginLeft: 6 }}>New</span>}
-                          <small className="muted" style={{ display: 'block' }}>{b.type}{b.eventDate ? ` · ${whenText(b)}` : ''} · {b.audience === 'Selected villas' || b.audience === 'Selected apartments' ? `${b.audience} (${(b.audienceUnits || []).length})` : b.audience} · {b.sentAt}{!fresh && readable(b) && <> · <span data-testid="notice-read-mark">✓ Read</span></>}</small>
+                          <small className="muted" style={{ display: 'block' }}>{b.type}{b.eventDate ? ` · ${whenText(b)}` : ''} · {b.audience === 'Selected villas' || b.audience === 'Selected apartments' ? `${b.audience} (${(b.audienceUnits || []).length})` : b.audience} · {fmtWhen(b.sentAt)}{!fresh && readable(b) && <> · <span data-testid="notice-read-mark">✓ Read</span></>}</small>
                           {!open && b.message && <span className="notice-preview">{htmlToText(b.message).slice(0, 140)}</span>}
                         </button>
                         {open && b.message && <RichText html={b.message} />}

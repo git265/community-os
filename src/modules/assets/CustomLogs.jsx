@@ -7,10 +7,10 @@ import { getPrincipal } from '../../lib/security/principal.js';
 import { AttachmentList, AttachmentPicker } from '../../components/Attachments.jsx';
 import { persistPending } from '../../lib/files/attachments.js';
 import { uuid } from '../../lib/uuid.js';
-import { fmtDate } from '../../lib/locale.js';
+import { fmtDate, localDay, todayLocal } from '../../lib/locale.js';
 
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => todayLocal();
 const dmy = (s) => fmtDate(s, { empty: '—' });
 export const FIELD_TYPES = [['number', 'Number'], ['text', 'Text'], ['yesno', 'Yes / No'], ['choice', 'Choice from a list'], ['date', 'Date']];
 const fieldsOf = (t) => (Array.isArray(t?.fields) ? t.fields : []);
@@ -128,7 +128,7 @@ export default function CustomLog({ type }) {
   const [dlg, setDlg] = useState(null);
   const [n, setN] = useState(40);
   const y = year || years[0] || '';
-  const since = useMemo(() => { const d = new Date(); d.setFullYear(d.getFullYear() - 1); return d.toISOString().slice(0, 10); }, []);
+  const since = useMemo(() => { const d = new Date(); d.setFullYear(d.getFullYear() - 1); return localDay(d); }, []);
   const inYear = (r) => (y === 'last12' ? String(r.date) >= since : !y || String(r.date).startsWith(y));
   const list = useMemo(() => rows.filter((r) => inYear(r) && (!month || String(r.date).slice(5, 7) === month)).sort((a, b) => String(b.date).localeCompare(String(a.date))), [rows, y, month, since]); // eslint-disable-line react-hooks/exhaustive-deps
   const fields = fieldsOf(type);

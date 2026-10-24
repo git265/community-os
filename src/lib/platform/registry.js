@@ -6,6 +6,7 @@
 //                   (own role(s), own villa). membershipsFor(email) finds every community that has that e-mail.
 //                   In production this is the platform "accounts" service behind single sign-on.
 
+import { todayLocal } from '../locale.js';
 import { logEvent } from '../audit/auditLog.js';
 import { storage, COLLECTIONS } from '../storage/index.js';
 import { DEFAULT_COMMUNITY, RESERVED_SLUGS, SLUG_RE } from '../community.js';
@@ -38,7 +39,7 @@ export const registryOnServer = () => isApiMode() && !direct;
 export async function ensureRegistry() {
   const rows = await storage.list(C);
   if (!rows.some((r) => r.slug === DEFAULT_COMMUNITY)) {
-    await storage.put(C, { id: DEFAULT_COMMUNITY, slug: DEFAULT_COMMUNITY, name: 'La Paloma', address: '', unitTypes: 'Villas and apartments', status: 'Active', demoData: true, createdAt: new Date().toISOString().slice(0, 10), createdBy: 'Platform' });
+    await storage.put(C, { id: DEFAULT_COMMUNITY, slug: DEFAULT_COMMUNITY, name: 'La Paloma', address: '', unitTypes: 'Villas and apartments', status: 'Active', demoData: true, createdAt: todayLocal(), createdBy: 'Platform' });
   }
 }
 
@@ -80,7 +81,7 @@ export async function createCommunity(v, by = 'Platform admin') {
   const errs = validateNewCommunity(v, existing);
   if (Object.keys(errs).length) return { errors: errs };
   const slug = v.slug.trim().toLowerCase();
-  const community = { id: slug, slug, name: v.name.trim(), address: (v.address || '').trim(), unitTypes: v.unitTypes || UNIT_TYPES[0], status: 'Active', demoData: !!v.demoData, ...(v.largeData ? { largeData: { blocks: 5, unitsPerBlock: 400, months: 12 } } : {}), createdAt: new Date().toISOString().slice(0, 10), createdBy: by };
+  const community = { id: slug, slug, name: v.name.trim(), address: (v.address || '').trim(), unitTypes: v.unitTypes || UNIT_TYPES[0], status: 'Active', demoData: !!v.demoData, ...(v.largeData ? { largeData: { blocks: 5, unitsPerBlock: 400, months: 12 } } : {}), createdAt: todayLocal(), createdBy: by };
   await storage.put(C, community);
   const { provisionCommunity } = await import('../seed/seedData.js');
   await provisionCommunity(community, { name: v.adminName.trim(), email: v.adminEmail, phone: v.adminPhone });

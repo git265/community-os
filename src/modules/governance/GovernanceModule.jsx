@@ -7,10 +7,10 @@ import Modal from '../../components/Modal.jsx';
 import RichText from '../../components/RichText.jsx';
 import { htmlToText } from '../../lib/richtext/sanitize.js';
 import { AttachmentList } from '../../components/Attachments.jsx';
-import { fmtDate } from '../../lib/locale.js';
+import { fmtDate, todayLocal, localDay, plannedTime } from '../../lib/locale.js';
 
 const dmy = (iso) => fmtDate(iso);
-export const when = (m) => [dmy(m.date), m.startTime && (m.endTime ? `${m.startTime}–${m.endTime}` : m.startTime)].filter(Boolean).join(' · ');
+export const when = (m) => [dmy(m.date), m.startTime && plannedTime(m.endTime ? `${m.startTime}–${m.endTime}` : m.startTime)].filter(Boolean).join(' · ');
 // parsed with DOMParser (inert document): no image or handler in the agenda runs
 const textOf = (html) => htmlToText(String(html || '').replace(/<\/(li|p|div)>/gi, '\n').replace(/<br\s*\/?>/gi, '\n')).replace(/\n{3,}/g, '\n\n');
 
@@ -58,7 +58,7 @@ export default function GovernanceModule() {
   const ecRoles = roles.filter((r) => r.category === 'EC' && r.id !== 'super_admin' && !r.id.startsWith('committee_'));
   const subs = roles.filter((r) => r.id.startsWith('committee_'));
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayLocal();
   const upcoming = [...meetings].filter((m) => m.status === 'Scheduled' && m.date >= today).sort((a, b) => (`${a.date}${a.startTime}` < `${b.date}${b.startTime}` ? -1 : 1))[0]
     ?? [...meetings].sort((a, b) => (a.date < b.date ? 1 : -1))[0];
 
@@ -115,7 +115,7 @@ export default function GovernanceModule() {
             <div className="notice" data-testid="publish-state" style={{ marginBottom: 10 }}>
               {upcoming.visibility === 'Internal (committee only)'
                 ? <>🔒 <b>Internal</b> — only the committee and management staff can see this meeting. <button type="button" className="btn sm" data-testid="publish-meeting" style={{ marginLeft: 8 }} onClick={async () => { if (window.confirm('Publish this meeting to all owners and residents? They will be notified in the app and by SMS / WhatsApp.')) await saveMeeting({ ...upcoming, visibility: 'Published to residents' }); }}>Publish to residents &amp; notify</button></>
-                : <>📣 <b>Published to residents</b>{upcoming.publishedAt ? ` on ${upcoming.publishedAt.slice(0, 10)}` : ''} — owners and residents see it and are notified of new meetings, changes, cancellations and minutes. <button type="button" className="btn secondary sm" style={{ marginLeft: 8 }} onClick={async () => { if (window.confirm('Take this meeting back to committee-only? Residents will no longer see it (they are not notified).')) await saveMeeting({ ...upcoming, visibility: 'Internal (committee only)' }); }}>Unpublish</button></>}
+                : <>📣 <b>Published to residents</b>{upcoming.publishedAt ? ` on ${localDay(upcoming.publishedAt)}` : ''} — owners and residents see it and are notified of new meetings, changes, cancellations and minutes. <button type="button" className="btn secondary sm" style={{ marginLeft: 8 }} onClick={async () => { if (window.confirm('Take this meeting back to committee-only? Residents will no longer see it (they are not notified).')) await saveMeeting({ ...upcoming, visibility: 'Internal (committee only)' }); }}>Unpublish</button></>}
             </div>
           )}
           <div className="grid two">

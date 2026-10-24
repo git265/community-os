@@ -1,3 +1,4 @@
+import { plannedTime } from '../../lib/locale.js';
 import React, { useMemo, useState } from 'react';
 import { useApp, useCollection } from '../../context/AppContext.jsx';
 import { COLLECTIONS } from '../../lib/storage/index.js';
@@ -99,7 +100,7 @@ export default function ShiftsModule({ embedded = false }) {
               const list = people.filter((st) => effectiveShift(st, anchor, byKey).shiftType === s.key);
               return (
                 <div key={s.key} style={{ marginBottom: 12 }}>
-                  <h3 style={{ margin: '0 0 6px' }}><span className={`tag ${s.cls}`}>{s.key}</span> <small className="muted">{s.time} · {list.length} staff</small></h3>
+                  <h3 style={{ margin: '0 0 6px' }}><span className={`tag ${s.cls}`}>{s.key}</span> <small className="muted">{plannedTime(s.time)} · {list.length} staff</small></h3>
                   {list.length === 0 ? <div className="muted">Nobody.</div> : (
                     <ul className="list">{list.map((st) => (
                       <li key={st.id}><span style={{ flex: 1 }}><b>{st.name}</b> <small className="muted">{st.trade}</small>{!effectiveShift(st, anchor, byKey).planned && <small className="muted"> · usual shift</small>}</span>{cell(st, anchor)}</li>

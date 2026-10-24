@@ -46,7 +46,7 @@ public final class AmenityResources {
         new ResourceTable<>("amenityTypes", "amenities/types", "amenity.amenity_type", TypeFields.class, "r.name")
             // how much points at it: a type with bookings (past ones too) is closed, not deleted; the counts are shown before anyone tries
             .computed("bookings", com.communityos.api.shared.resource.ResourceTable.Kind.INT, "(SELECT count(*) FROM amenity.booking b WHERE b.community_id = r.community_id AND b.amenity_type_id = r.id)")
-            .computed("upcomingBookings", com.communityos.api.shared.resource.ResourceTable.Kind.INT, "(SELECT count(*) FROM amenity.booking b WHERE b.community_id = r.community_id AND b.amenity_type_id = r.id AND b.status <> 'Cancelled' AND b.date >= CURRENT_DATE)")
+            .computed("upcomingBookings", com.communityos.api.shared.resource.ResourceTable.Kind.INT, "(SELECT count(*) FROM amenity.booking b WHERE b.community_id = r.community_id AND b.amenity_type_id = r.id AND b.status <> 'Cancelled' AND b.date >= platform.today())")
             .computed("ownItems", com.communityos.api.shared.resource.ResourceTable.Kind.INT, "(SELECT count(*) FROM amenity.item i WHERE i.community_id = r.community_id AND i.amenity_type_id = r.id)"),
         new ResourceRules<>() {
             @Override public boolean mayWrite(Caller c) { return any(c, Permission.MANAGE_AMENITIES, Permission.MANAGE_AMENITY_RATES, Permission.MANAGE_AMENITY_RULES); }

@@ -10,7 +10,7 @@
 // Residents cannot write the ledger, the credit ledger or the outbox, so these are system postings (like utilityLedger.js).
 import { looksLikeHtml, htmlToText } from './richtext/sanitize.js';
 import { storage } from './storage/index.js';
-import { communityTaxId } from './locale.js';
+import { communityTaxId, localDay, todayLocal } from './locale.js';
 import { COLLECTIONS } from './storage/StorageAdapter.js';
 import { logChange } from './audit/auditLog.js';
 import { uuid } from './uuid.js';
@@ -27,7 +27,7 @@ const PAYOUT_ANY = () => [...ALL_MODES, 'Card'];
 // Money goes back through the payment gateway only for the online modes; cash and cheque are paid out by hand.
 const gatewayRef = () => `GW${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 5).toUpperCase()}`;
 const SYSTEM = 'System · amenity bookings';
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => todayLocal();
 const changed = (collection) => window.dispatchEvent(new CustomEvent('communityos:changed', { detail: { collection } }));
 
 /** Raw (unscoped) row helpers: this module plays the backend, so it reads and writes below the permission layer. */
@@ -417,7 +417,7 @@ export async function runAmenityScheduler(now = new Date()) {
   await ensureAmenityDefaults();
   const ctx = await loadCtx();
   const { settings, bookings, catalog } = ctx;
-  const t0 = now.toISOString().slice(0, 10);
+  const t0 = localDay(now);
   const stats = { released: 0, completed: 0, reminders: 0, daily: false, summary: false };
   const stamp = async (row, patch) => { const next = { ...row, ...patch, recVersion: (row.recVersion || 0) + 1, lastUpdatedAt: now.toISOString(), lastUpdatedBy: SYSTEM }; await storage.put(COLLECTIONS.AMENITIES, next); return next; };
 

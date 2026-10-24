@@ -1,3 +1,4 @@
+import { localDay, plannedTime } from '../../lib/locale.js';
 import React, { useEffect, useState } from 'react';
 import { useApp, useCollection } from '../../context/AppContext.jsx';
 import { COLLECTIONS } from '../../lib/storage/index.js';
@@ -103,7 +104,7 @@ function Household({ unit }) {
         const p = people.find((x) => x.id === l.personId); if (!p) return null;
         return (
           <div className="gg-card" key={l.id}><Photo src={p.photo} name={p.name} size={56} />
-            <div className="gg-main"><b>{p.name} <StateTag state={p.status} /></b><span className="muted">{p.personClass} · {(l.days || []).join(', ')} {l.fromTime ? `${l.fromTime}–${l.toTime}` : ''}</span>{p.status !== 'Active' && <small className="muted">Cannot enter until the office has finished checking documents.</small>}<div className="gg-row" style={{ flexWrap: 'wrap' }}>{p.status === 'Active' && (l.confirmedAt && l.confirmedAt.slice(0, 10) >= new Date(Date.now() - 180 * 864e5).toISOString().slice(0, 10) ? <small className="muted" data-testid="confirmed">✔ You confirmed on {l.confirmedAt.slice(0, 10)}</small> : <button type="button" className="btn secondary sm" data-testid="confirm-link" onClick={() => saveLink({ ...l, confirmedAt: new Date().toISOString() })}>Yes, still works for us</button>)}{VILLA_CLASSES.includes(p.personClass) && <ShareToDirectory person={p} unit={unit} />}<ReportToSecurity person={p} unit={unit} onDone={setDone} /></div></div></div>
+            <div className="gg-main"><b>{p.name} <StateTag state={p.status} /></b><span className="muted">{p.personClass} · {(l.days || []).join(', ')} {l.fromTime ? plannedTime(`${l.fromTime}–${l.toTime}`) : ''}</span>{p.status !== 'Active' && <small className="muted">Cannot enter until the office has finished checking documents.</small>}<div className="gg-row" style={{ flexWrap: 'wrap' }}>{p.status === 'Active' && (l.confirmedAt && localDay(l.confirmedAt) >= localDay(new Date(Date.now() - 180 * 864e5)) ? <small className="muted" data-testid="confirmed">✔ You confirmed on {localDay(l.confirmedAt)}</small> : <button type="button" className="btn secondary sm" data-testid="confirm-link" onClick={() => saveLink({ ...l, confirmedAt: new Date().toISOString() })}>Yes, still works for us</button>)}{VILLA_CLASSES.includes(p.personClass) && <ShareToDirectory person={p} unit={unit} />}<ReportToSecurity person={p} unit={unit} onDone={setDone} /></div></div></div>
         );
       })}
     </div>

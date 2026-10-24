@@ -1,3 +1,4 @@
+import { todayLocal } from '../../lib/locale.js';
 import React, { useEffect, useState } from 'react';
 import Modal from '../../components/Modal.jsx';
 import { useApp } from '../../context/AppContext.jsx';
@@ -7,7 +8,7 @@ import { canWriteCollection } from '../../lib/security/authz.js';
 import { getPrincipal } from '../../lib/security/principal.js';
 import { COND_COLOR, units } from './infraModel.js';
 
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => todayLocal();
 
 /**
  * Shown when a task that is linked to an asset is marked Completed or Closed: "is it working again?". The asset's condition is never

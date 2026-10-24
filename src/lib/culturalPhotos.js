@@ -1,5 +1,6 @@
 // Cultural event photos: pick -> check -> thumbnail -> object store -> gallery row, all automatically.
 // Optional: file a photo into the Documents repository (Cultural / <year> / <event name>) so it is kept with the community's records.
+import { todayLocal } from './locale.js';
 import { screenFiles } from './files/attachments.js';
 import { activeObjectStore, objectKey } from './files/objectStore.js';
 import { secureStorage } from './storage/secureStorage.js';
@@ -34,7 +35,7 @@ export async function uploadPhotos(fileList, { ev, caption = '', toDocuments = f
     try {
       const thumb = await makeThumb(file);
       const { key, fileId } = await store.put(objectKey(`cultural/${eventYear(ev)}`, eventSlug(ev), file.name), file, { ownerType: 'culturalPhoto', ownerId: ev.id, scanStatus: validation.status });
-      let row = await secureStorage.put(COLLECTIONS.CULTURAL_PHOTOS, { eventId: ev.id, caption, takenOn: new Date().toISOString().slice(0, 10), fileName: file.name, mime: file.type, fileSize: Math.ceil(file.size / 1024), fileId, objectKey: key, store: store.id, thumb, uploadedBy: p?.name || '' });
+      let row = await secureStorage.put(COLLECTIONS.CULTURAL_PHOTOS, { eventId: ev.id, caption, takenOn: todayLocal(), fileName: file.name, mime: file.type, fileSize: Math.ceil(file.size / 1024), fileId, objectKey: key, store: store.id, thumb, uploadedBy: p?.name || '' });
       if (toDocuments) { const d = await publishToDocuments(row, ev).catch(() => null); if (d) row = await secureStorage.put(COLLECTIONS.CULTURAL_PHOTOS, { ...row, documentId: d.shortId || d.id }); }
       added.push(row);
     } catch (e) { rejected.push({ name: file.name, reason: e?.message || 'Could not upload' }); }

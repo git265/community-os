@@ -9,14 +9,14 @@ import { getPrincipal } from '../../lib/security/principal.js';
 import { METERS, klOf, withKl, validate, stockWarnings, suggestOpening, checks, stockOf, monthTotals, monthOfDate, parseWorkbook } from '../../lib/plantLogs.js';
 import { readWorkbook } from '../../lib/files/xlsxRead.js';
 import { CHEMICALS, plantItem, issueForLog, movesInMonth } from '../../lib/plantStock.js';
-import { money } from '../../lib/locale.js';
+import { money, todayLocal } from '../../lib/locale.js';
 
 const n0 = (n) => Math.round(Number(n) || 0).toLocaleString('en-IN');
 const inr = (n) => money(n);
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 export const monthLabel = (m) => `${MON[Number(m.slice(5, 7)) - 1]} ${m.slice(0, 4)}`;
 const dm = (d) => `${d.slice(8)} ${MON[Number(d.slice(5, 7)) - 1]}`;
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => todayLocal();
 const has = (v) => v !== '' && v != null;
 
 // ------------------------------------------------------------------ period picker (year + month dropdowns, prev / next)

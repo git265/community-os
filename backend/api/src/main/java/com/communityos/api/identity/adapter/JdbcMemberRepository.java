@@ -36,11 +36,11 @@ public final class JdbcMemberRepository implements MemberRepository {
                                                      WHERE mr.community_id = m.community_id AND mr.membership_id = m.id AND r.code = :role))""";
     public static String listSql(String scopeSql) { return SELECT + "\n" + FILTER + "\n  AND " + scopeSql + "\nORDER BY m.display_name, m.id LIMIT :limit OFFSET :offset"; }
     public static String getSql(String scopeSql) { return SELECT + "\nWHERE m.id = CAST(:id AS uuid) AND " + scopeSql; }
-    static final String INSERT = "INSERT INTO identity.membership (community_id, person_id, display_name, status, joined_on) VALUES (platform.current_community(), CAST(:person AS uuid), :name, 'Active', current_date) RETURNING id";
+    static final String INSERT = "INSERT INTO identity.membership (community_id, person_id, display_name, status, joined_on) VALUES (platform.current_community(), CAST(:person AS uuid), :name, 'Active', platform.today()) RETURNING id";
     static final String BUMP = "UPDATE identity.membership SET display_name = display_name WHERE id = CAST(:id AS uuid) AND version = :version";
     static final String CLEAR_ROLES = "DELETE FROM identity.membership_role WHERE membership_id = CAST(:id AS uuid)";
     static final String ADD_ROLE = "INSERT INTO identity.membership_role (community_id, membership_id, role_id, is_primary) VALUES (platform.current_community(), CAST(:id AS uuid), CAST(:role AS uuid), :primary)";
-    static final String STATUS = "UPDATE identity.membership SET status = :status, left_on = CASE WHEN CAST(:status AS text) = 'Inactive' THEN current_date END WHERE id = CAST(:id AS uuid) AND version = :version";
+    static final String STATUS = "UPDATE identity.membership SET status = :status, left_on = CASE WHEN CAST(:status AS text) = 'Inactive' THEN platform.today() END WHERE id = CAST(:id AS uuid) AND version = :version";
     static final String OCCUPANT = """
         INSERT INTO property.occupant (community_id, unit_id, person_id, relation, full_name, phone_e164, is_primary)
         VALUES (platform.current_community(), CAST(:unit AS uuid), CAST(:person AS uuid), :relation, :name, :phone,

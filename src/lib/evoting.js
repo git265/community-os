@@ -17,6 +17,7 @@
 // This runs in the browser, which is not a trust boundary. In production the same checks must run in the Spring Boot service
 // (see README "E-voting"): OTP via an SMS/e-mail gateway, the box and roll in separate tables with separate DB roles, the
 // chain head anchored by an external timestamp.
+import { todayLocal } from './locale.js';
 import { storage } from './storage/index.js';
 import { getDataSource } from './storage/dataSource.js';
 import { evote } from './storage/v2/V2ApiAdapter.js';
@@ -24,7 +25,7 @@ import { COLLECTIONS as C } from './storage/StorageAdapter.js';
 import { ownersOf } from './people.js';
 
 export const FOR_AGAINST = ['For', 'Against', 'Abstain'];
-export const todayStr = () => new Date().toISOString().slice(0, 10);
+export const todayStr = () => todayLocal();
 
 // SubtleCrypto is missing in insecure contexts (plain http on a phone), so keep a small pure-JS SHA-256 as the fallback.
 function sha256Js(msg) {

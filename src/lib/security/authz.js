@@ -8,6 +8,7 @@
 //   1. Collection access  - may this role touch the collection at all?
 //   2. Row scope          - residents only get their own unit's rows
 //   3. Field access       - viewableBy masks reads, editableBy gates writes
+import { todayLocal } from '../locale.js';
 import { isUtility } from '../utilityTypes.js';
 import { COLLECTIONS as C } from '../storage/StorageAdapter.js';
 import { planState, stepEligible, legacy as planLegacy } from '../approval/engine.js';
@@ -631,7 +632,7 @@ const TREASURER_APPROVAL_FIELDS = ['treasurerApproval', 'treasurerApprovedBy', '
 export const EC_ONLY_STATUS = { quotationStatus: ['EC Approved', 'Treasurer Approved'], invoiceStatus: ['EC Approved', 'Treasurer Approved'] };
 
 const isResetValue = (v) => v === 'Pending' || v === '' || v === undefined || v === null;
-const todayStr = () => new Date().toISOString().slice(0, 10);
+const todayStr = () => todayLocal();
 
 /** SLA due: a future date when set; once the task exists only EC members may change it. */
 function ticketSlaGuard(p, old, next) {

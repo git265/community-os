@@ -1,3 +1,4 @@
+import { todayLocal } from '../locale.js';
 // ID-number checks that can be done OFFLINE, without calling any government service. They catch typos, made-up numbers and the same
 // document used for two people. They do NOT prove the document is genuine or that it belongs to the person in front of you: that needs
 // a licensed verification service (UIDAI via an authorised KUA/AUA, DigiLocker, or a background-check vendor). The full number is
@@ -39,7 +40,7 @@ export async function idHash(type, raw, salt = 'communityos') {
 }
 
 /** How stale is a registry record? Returns problems worth a human's attention. */
-export function freshness(p, { lastSeen, today = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10), staleDays = 60, reverifyDays = 365 } = {}) {
+export function freshness(p, { lastSeen, today = todayLocal(), staleDays = 60, reverifyDays = 365 } = {}) {
   const out = []; const days = (d) => Math.floor((new Date(today) - new Date(d)) / 864e5);
   if (p.status === 'Active') {
     if (p.policeExpiry && p.policeExpiry < today) out.push({ key: 'police', text: 'Police verification expired', fix: 'suspend' });

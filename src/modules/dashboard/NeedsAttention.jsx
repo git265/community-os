@@ -1,8 +1,9 @@
+import { todayLocal } from '../../lib/locale.js';
 import React, { useEffect, useState } from 'react';
 import { useApp, useCollection } from '../../context/AppContext.jsx';
 import { COLLECTIONS as C, getDataSource } from '../../lib/storage/index.js';
 
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => todayLocal();
 
 /** Why a task its creator raised needs a look (first match wins), or null. */
 function reasonFor(t) {

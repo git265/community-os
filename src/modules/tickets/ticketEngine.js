@@ -219,7 +219,7 @@ export function slaLabel(v) {
  */
 export function ledgerEntryForTask(ticket, vendorName, invoice) {
   const entry = {
-    date: new Date().toISOString().slice(0, 10),
+    date: todayLocal(),
     account: '',
     description: `${ticket.ticketNumber} · ${ticket.title}`,
     type: 'Debit',

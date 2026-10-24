@@ -19,7 +19,7 @@ import { lateFeeSettings, finalDue, applyLateFees } from '../lib/finance/rules.j
 import { quoteBills } from '../lib/payments/index.js';
 import { serverDecides } from '../lib/auth/session.js';
 import { tell } from '../lib/net/activity.js';
-import { money } from '../lib/locale.js';
+import { money, localDay, fmtWhen } from '../lib/locale.js';
 
 const inr = (n) => money(n, { round: false });
 import { ONLINE_MODES as ONLINE, ALL_MODES } from '../lib/region/paymentModes.js';
@@ -133,7 +133,7 @@ export function PayDueModal({ due, onClose }) {
             <span>For</span><b>{receipt.category}{receipt.billedMonth ? ` · ${receipt.billedMonth}` : ''}</b>
             <span>Mode</span><b>{receipt.paymentMode}</b>
             <span>Reference</span><b>{receipt.paymentRef}</b>
-            <span>Paid on</span><b>{receipt.paidAt}</b>
+            <span>Paid on</span><b>{fmtWhen(receipt.paidAt)}</b>
             <span>Receipt no.</span><b>{receipt.receiptNo}</b>
           </div>
         </div>
@@ -214,7 +214,7 @@ export function DueExtras({ due }) {
       {live.status === 'Cancelled' && (
         <div className="ro-block" data-testid="bill-cancelled">
           <h3>🚫 Cancelled</h3>
-          <div className="kv"><span>Was</span><b>{inr(live.originalAmount)}</b><span>Because</span><b>{live.cancelReason || '—'}</b><span>By</span><b>{live.cancelledBy || '—'} · {String(live.cancelledAt || '').slice(0, 10)}</b>{live.replacedBy && <><span>Replaced by</span><b>{live.replacedBy}</b></>}</div>
+          <div className="kv"><span>Was</span><b>{inr(live.originalAmount)}</b><span>Because</span><b>{live.cancelReason || '—'}</b><span>By</span><b>{live.cancelledBy || '—'} · {localDay(live.cancelledAt || '')}</b>{live.replacedBy && <><span>Replaced by</span><b>{live.replacedBy}</b></>}</div>
         </div>
       )}
       {live.correctionOf && <div className="notice" data-testid="bill-correction-of">This bill replaces {live.correctionOf}.</div>}

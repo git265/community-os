@@ -15,27 +15,27 @@ export function registerRegion(r) { REGIONS[r.code] = { gateways: ['simulated'],
 export const listRegions = () => Object.values(REGIONS);
 export const getRegionByCode = (code) => REGIONS[code] || REGIONS.IN;
 
-registerRegion({ code: 'IN', name: 'India', currency: { code: 'INR', symbol: '₹' }, locale: 'en-IN',
+registerRegion({ code: 'IN', timeZone: 'Asia/Kolkata', name: 'India', currency: { code: 'INR', symbol: '₹' }, locale: 'en-IN',
   tax: { name: 'GST', idLabel: 'GSTIN', defaultRate: 18, split: [{ label: 'CGST', share: 0.5 }, { label: 'SGST', share: 0.5 }] },
   defaults: { currencySymbol: '₹', numberFormat: 'Indian (12,34,567)', fyStartMonth: 'April', amountUnit: 'Lakh / crore' },
   phone: { dial: '+91', digits: 10 }, payments: { online: ['UPI', 'Card', 'Net banking'], upiQr: true }, gateways: ['razorpay', 'simulated'] });
-registerRegion({ code: 'AE', name: 'United Arab Emirates', currency: { code: 'AED', symbol: 'AED ' }, locale: 'en-AE',
+registerRegion({ code: 'AE', timeZone: 'Asia/Dubai', name: 'United Arab Emirates', currency: { code: 'AED', symbol: 'AED ' }, locale: 'en-AE',
   tax: { name: 'VAT', idLabel: 'TRN', defaultRate: 5, split: [{ label: 'VAT', share: 1 }] },
   defaults: { currencySymbol: 'AED ', numberFormat: 'International (1,234,567)', fyStartMonth: 'January', amountUnit: 'Thousand / million' },
   phone: { dial: '+971', digits: 9 }, payments: { online: ['Card', 'Apple Pay'] }, gateways: ['stripe', 'simulated'] });
-registerRegion({ code: 'GB', name: 'United Kingdom', currency: { code: 'GBP', symbol: '£' }, locale: 'en-GB',
+registerRegion({ code: 'GB', timeZone: 'Europe/London', name: 'United Kingdom', currency: { code: 'GBP', symbol: '£' }, locale: 'en-GB',
   tax: { name: 'VAT', idLabel: 'VAT no.', defaultRate: 20, split: [{ label: 'VAT', share: 1 }] },
   defaults: { currencySymbol: '£', numberFormat: 'International (1,234,567)', fyStartMonth: 'April', amountUnit: 'Thousand / million' },
   phone: { dial: '+44', digits: 10 }, payments: { online: ['Card', 'Direct debit'] }, gateways: ['stripe', 'simulated'] });
-registerRegion({ code: 'US', name: 'United States', currency: { code: 'USD', symbol: '$' }, locale: 'en-US',
+registerRegion({ code: 'US', timeZone: 'America/New_York', name: 'United States', currency: { code: 'USD', symbol: '$' }, locale: 'en-US',
   tax: { name: 'Sales tax', idLabel: 'Tax ID', defaultRate: 0, split: [{ label: 'Sales tax', share: 1 }] },
   defaults: { currencySymbol: '$', numberFormat: 'International (1,234,567)', fyStartMonth: 'January', amountUnit: 'Thousand / million' },
   phone: { dial: '+1', digits: 10 }, payments: { online: ['Card', 'ACH'] }, gateways: ['stripe', 'simulated'] });
-registerRegion({ code: 'SG', name: 'Singapore', currency: { code: 'SGD', symbol: 'S$' }, locale: 'en-SG',
+registerRegion({ code: 'SG', timeZone: 'Asia/Singapore', name: 'Singapore', currency: { code: 'SGD', symbol: 'S$' }, locale: 'en-SG',
   tax: { name: 'GST', idLabel: 'GST reg. no.', defaultRate: 9, split: [{ label: 'GST', share: 1 }] },
   defaults: { currencySymbol: 'S$', numberFormat: 'International (1,234,567)', fyStartMonth: 'January', amountUnit: 'Thousand / million' },
   phone: { dial: '+65', digits: 8 }, payments: { online: ['Card', 'PayNow'] }, gateways: ['stripe', 'simulated'] });
-registerRegion({ code: 'AU', name: 'Australia', currency: { code: 'AUD', symbol: 'A$' }, locale: 'en-AU',
+registerRegion({ code: 'AU', timeZone: 'Australia/Sydney', name: 'Australia', currency: { code: 'AUD', symbol: 'A$' }, locale: 'en-AU',
   tax: { name: 'GST', idLabel: 'ABN', defaultRate: 10, split: [{ label: 'GST', share: 1 }] },
   defaults: { currencySymbol: 'A$', numberFormat: 'International (1,234,567)', fyStartMonth: 'July', amountUnit: 'Thousand / million' },
   phone: { dial: '+61', digits: 9 }, payments: { online: ['Card', 'PayID'] }, gateways: ['stripe', 'simulated'] });

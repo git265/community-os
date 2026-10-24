@@ -1,3 +1,4 @@
+import { localDay } from '../../lib/locale.js';
 import React, { useMemo } from 'react';
 import { MoneyTiles } from '../../components/ui.jsx';
 import { inr, round2, creditBalance } from '../../lib/amenityEngine.js';
@@ -34,7 +35,7 @@ export default function AmenityPayments({ bookings, credits, onOpen, today }) {
   const history = useMemo(() => {
     const out = [];
     bookings.forEach((b) => {
-      if (b.refundStatus === 'Refunded' || b.refundStatus === 'Credited to unit account') out.push({ key: `${b.id}-r`, b, kind: 'Booking refund', amount: b.refundAmount, how: b.refundPayoutMode || (b.refundStatus === 'Credited to unit account' ? 'Unit credit' : ''), ref: b.refundRef, on: b.refundPaidAt || String(b.cancelledAt || '').slice(0, 10), by: b.refundPaidBy, gw: !!b.refundInitiatedAt });
+      if (b.refundStatus === 'Refunded' || b.refundStatus === 'Credited to unit account') out.push({ key: `${b.id}-r`, b, kind: 'Booking refund', amount: b.refundAmount, how: b.refundPayoutMode || (b.refundStatus === 'Credited to unit account' ? 'Unit credit' : ''), ref: b.refundRef, on: b.refundPaidAt || localDay(b.cancelledAt || ''), by: b.refundPaidBy, gw: !!b.refundInitiatedAt });
       if (b.depositRefundStatus === 'Paid' || b.depositRefundStatus === 'Credited to unit account') out.push({ key: `${b.id}-d`, b, kind: 'Deposit returned', amount: b.depositReturned, how: b.depositRefundMode, ref: b.depositRefundRef, on: b.depositRefundPaidAt || b.depositSettledAt, by: b.depositRefundPaidBy || b.depositSettledBy, gw: !!b.depositRefundInitiatedAt });
       if (b.depositSettledAt && Number(b.depositDeduction) > 0) out.push({ key: `${b.id}-x`, b, kind: 'Deposit deduction', amount: b.depositDeduction, how: 'Kept by the community', ref: '', on: b.depositSettledAt, by: b.depositSettledBy, gw: false });
     });
