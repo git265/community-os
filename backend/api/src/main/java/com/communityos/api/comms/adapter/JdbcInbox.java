@@ -28,7 +28,7 @@ public final class JdbcInbox implements Inbox, Facts {
           WHERE m.status = 'Active' AND m.id IS DISTINCT FROM platform.current_actor()
             AND (m.id = ANY (CAST(:members AS uuid[]))
               OR EXISTS (SELECT 1 FROM property.occupant o WHERE o.community_id = m.community_id AND o.person_id = m.person_id AND o.portal_access
-                           AND (o.to_date IS NULL OR o.to_date >= current_date) AND o.unit_id = ANY (CAST(:units AS uuid[])))
+                           AND (o.to_date IS NULL OR o.to_date > current_date) AND o.unit_id = ANY (CAST(:units AS uuid[])))
               OR EXISTS (SELECT 1 FROM identity.membership_role mr JOIN identity.role r ON r.community_id = mr.community_id AND r.id = mr.role_id
                           WHERE mr.community_id = m.community_id AND mr.membership_id = m.id AND (r.code = ANY (CAST(:roles AS text[])) OR r.code IN (SELECT code FROM also)
                             OR ('@ec' = ANY (CAST(:roles AS text[])) AND EXISTS (SELECT 1 FROM identity.role_group g

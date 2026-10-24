@@ -96,6 +96,8 @@ const READ_RULES = {
   [C.FIXED_EXPENSES]: (p) => isEC(p) || anyPerm(p, ['MANAGE_LEDGER']),
   ...Object.fromEntries(ASSET_COLLECTIONS.map((c) => [c, canAssetsRead])),
   [C.VILLA_IMPORT_RULES]: canAssetsRead,
+  // a unit's history of who lived there: its managers and the committee (residents see who lives with them now, not who did before)
+  [C.UNIT_CHANGES]: (p) => !isResident(p) && (isEC(p) || anyPerm(p, ['MANAGE_UNITS'])),
   [C.EVENT_WORK]: (p) => !isResident(p),
   [C.REPORT_SCHEDULES]: canReports,
   [C.REPORT_RUNS]: canReports,
@@ -495,6 +497,7 @@ export function shapeForReader(record, { collection, p, schema, scope = {} }) {
 // Collection -> permissions (any-of) / categories that may create + update.
 const WRITE_RULES = {
   [C.PROPERTIES]: { perms: ['MANAGE_UNITS'] },
+  [C.UNIT_CHANGES]: { perms: ['MANAGE_UNITS'] },
   [C.TASK_TYPES]: { perms: ['MANAGE_TICKET_TYPES'] },
   [C.QUICK_PHRASES]: { perms: ['MANAGE_TICKETS'] },
   [C.TRADE_AVAILABILITY]: { perms: ['MANAGE_TICKETS', 'MANAGE_FIELD_DUTIES'] },

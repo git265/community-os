@@ -479,7 +479,7 @@ async function deliveryDecisionLocal({ person = null, name = '', phone = '', pho
 // ---- vehicles and the ghost detector's sensors ------------------------------------------------------------------------------
 export async function plateEvent({ plate, gate = 'Main gate', direction = 'In', people }) {
   const norm = (x) => String(x || '').replace(/\s+/g, '').toUpperCase();
-  const veh = (await list(C.GATE_VEHICLES)).find((v) => norm(v.plate) === norm(plate));
+  const veh = (await list(C.GATE_VEHICLES)).find((v) => norm(v.plate) === norm(plate) && v.status !== 'Ended');   // a car of a household that left is not known
   if (!veh) return { ok: false, outcome: 'unknown', reason: 'Plate not registered: guard handles it' };
   if (veh.status === 'Blocked') {
     await raiseFlag({ type: 'Blocked person attempt', personName: veh.owner, unit: veh.unit, gate, detail: `Blocked vehicle ${veh.plate} was read at ${gate}.` });
@@ -500,7 +500,7 @@ export async function vehicleAtGate(...args) {
 }
 async function vehicleAtGateLocal({ plate, gate = 'Main gate', direction = 'In' }) {
   const out = direction === 'Out';
-  const veh = (await list(C.GATE_VEHICLES)).find((v) => normPlate(v.plate) === normPlate(plate));
+  const veh = (await list(C.GATE_VEHICLES)).find((v) => normPlate(v.plate) === normPlate(plate) && v.status !== 'Ended');
   if (!veh) return { ok: false, outcome: 'unknown', reason: 'This plate is not registered. Use Visitor without a pass' };
   if (veh.recurringGoods) return { ok: false, outcome: 'goods', reason: 'A regular goods vehicle comes in on a goods pass, with its people counted' };
   const who = veh.owner || veh.plate; const how = 'Guard (plate)';

@@ -58,6 +58,12 @@ public class ModulesConfig {
     @Bean UnitService unitService(NamedParameterJdbcTemplate jdbc, ObjectMapper json, CustomFields custom, AuditWriter audit, Tx tx) {
         return new UnitService(new JdbcUnitRepository(jdbc, json), custom, audit, tx, new com.communityos.api.property.adapter.JdbcPropertySetup(jdbc, json));
     }
+    @Bean com.communityos.api.property.application.UnitPeopleService unitPeopleService(NamedParameterJdbcTemplate jdbc, ObjectMapper json,
+            com.communityos.api.identity.application.port.PersonDirectory persons, com.communityos.api.identity.application.port.RefreshTokenStore tokens,
+            com.communityos.api.shared.security.CallerLoader callers, AuditWriter audit, Tx tx, java.time.Clock clock, CosProperties p) {
+        return new com.communityos.api.property.application.UnitPeopleService(new JdbcUnitRepository(jdbc, json), new com.communityos.api.property.adapter.JdbcUnitPeople(jdbc, json),
+            persons, tokens, callers, audit, tx, clock, p.auth().defaultCountryCode());
+    }
 
     // ---- maintenance ----------------------------------------------------------------------------------------------------------------------
     @Bean JdbcMaintenanceDirectory maintenanceDirectory(NamedParameterJdbcTemplate jdbc) { return new JdbcMaintenanceDirectory(jdbc); }

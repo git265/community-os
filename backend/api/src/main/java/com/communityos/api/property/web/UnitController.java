@@ -37,13 +37,13 @@ import org.springframework.web.bind.annotation.RestController;
 public class UnitController {
     /** The only fields a unit manager may change; the number, block, status and audit columns are not in it, so they cannot be sent. */
     public record UnitPatch(@Size(max = 60) String unitNo, @Size(max = 40) String unitType, @Size(max = 20) String occupancy, BigDecimal areaSqft, @Size(max = 20) String maintenancePlan,
-                            BigDecimal sanctionedKw, @Size(max = 50) Map<String, Object> custom) {}
+                            BigDecimal sanctionedKw, @Size(max = 10) String billTo, @Size(max = 50) Map<String, Object> custom) {}
     public record UnitResponse(UUID id, String shortId, String unitNo, UUID blockId, String blockName, String unitType, String occupancy, BigDecimal areaSqft,
-                               String maintenancePlan, BigDecimal sanctionedKw, String status, Map<String, Object> custom, Instant updatedAt, long version,
+                               String maintenancePlan, BigDecimal sanctionedKw, String billTo, String status, Map<String, Object> custom, Instant updatedAt, long version,
                                String contactName, String contactPhone, String contactRelation) {
         static UnitResponse of(Unit u) {
             return new UnitResponse(u.id().value(), u.shortId(), u.unitNo(), u.block() == null ? null : u.block().value(), u.blockName(), u.unitType(), u.occupancy(),
-                u.areaSqft(), u.maintenancePlan(), u.sanctionedKw(), u.status(), u.custom(), u.updatedAt(), u.version(), u.contactName(), u.contactPhone(), u.contactRelation());
+                u.areaSqft(), u.maintenancePlan(), u.sanctionedKw(), u.billTo(), u.status(), u.custom(), u.updatedAt(), u.version(), u.contactName(), u.contactPhone(), u.contactRelation());
         }
     }
 
@@ -87,7 +87,7 @@ public class UnitController {
     @PatchMapping("/{id}")
     public ResponseEntity<UnitResponse> patch(@PathVariable UUID id, @Valid @RequestBody UnitPatch b, @RequestHeader(name = "If-Match", required = false) String ifMatch) {
         Unit u = units.change(CallerHolder.require(), new UnitId(id), ETags.require(ifMatch), b.unitNo(),
-            new Unit.Changes(b.unitType(), b.occupancy(), b.areaSqft(), b.maintenancePlan(), b.sanctionedKw()), b.custom());
+            new Unit.Changes(b.unitType(), b.occupancy(), b.areaSqft(), b.maintenancePlan(), b.sanctionedKw(), b.billTo()), b.custom());
         return ResponseEntity.ok().header("ETag", ETags.of(u.version())).body(UnitResponse.of(u));
     }
 

@@ -27,7 +27,7 @@ public final class SqlCatalog {
     static final Map<String, String> CLASSES = new LinkedHashMap<>();
     static {
         for (String c : List.of("shared.jdbc.JdbcOutboxWriter", "shared.jdbc.JdbcAuditWriter", "shared.jdbc.JdbcIdempotencyStore", "shared.jdbc.JdbcFieldDefinitions",
-                "identity.adapter.JdbcMemberRepository", "identity.adapter.JdbcRoleCatalog", "property.adapter.JdbcUnitRepository", "billing.adapter.JdbcDueRepository",
+                "identity.adapter.JdbcMemberRepository", "identity.adapter.JdbcRoleCatalog", "property.adapter.JdbcUnitRepository", "property.adapter.JdbcUnitPeople", "billing.adapter.JdbcDueRepository",
                 "billing.adapter.JdbcBillingLookups", "billing.adapter.JdbcPaymentOrderRepository", "billing.adapter.JdbcPaymentRepository", "billing.adapter.JdbcJournalWriter",
                 "maintenance.adapter.JdbcTicketRepository", "maintenance.adapter.JdbcMaintenanceDirectory", "maintenance.adapter.JdbcQuotationRepository",
                 "maintenance.application.WishVotes", "approval.adapter.JdbcApprovalSettings", "amenity.adapter.JdbcBookingRepository", "amenity.adapter.JdbcAmenityCatalog",

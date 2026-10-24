@@ -91,6 +91,10 @@ globalThis.fetch = async (url, init = {}) => {
   if (path === '/units/directory') { const q = (u.searchParams.get('q') || '').toLowerCase(); const items = state.units.filter((x) => !q || x.unitNo.toLowerCase().includes(q)).map((x) => ({ unitId: x.id, unitNo: x.unitNo, blockName: x.blockName, unitType: x.unitType, name: x.id === A ? 'Asha' : 'Bhavna', phone: x.id === A ? '+919800000001' : '+919800000002', relation: 'Owner' })); return ok(page(items)); }
   if (path === '/units' && method === 'POST') { const u = { id: uuid(), shortId: 'UNIT-8', unitNo: body.unitNo, blockId: body.blockId, unitType: body.unitType || 'Villa', occupancy: body.occupancy || 'Vacant', status: 'Active', custom: {}, version: 1 }; state.units.push(u); return ok(u, 201); }
   if (path === '/units') return ok(page(state.units));
+  if ((m = /^\/units\/([^/]+)\/people$/.exec(path)) && state.unitPeople?.[m[1]]) {   // a unit's people (only for the units a test gives people)
+    if (method === 'GET') return ok(state.unitPeople[m[1]]);
+    state.unitPeopleSaved = body; return ok(body.people.map((x, i) => ({ occupantId: uuid(), ...x, primary: !!x.primary, to: null, from: '2026-10-20', i })));
+  }
   if ((m = /^\/units\/([^/]+)$/.exec(path))) {
     const unit = state.units.find((x) => x.id === m[1]); if (!unit) return problem(404, 'not-found', 'Not found');
     if (method === 'GET') return ok(unit, 200, { ETag: `"${unit.version}"` });
@@ -559,6 +563,22 @@ test('units: list mapped; a change sends only the changed, allowed fields with I
   assert.equal(saved.recVersion, 5, 'the server version is the record revision the forms watch (a saved form re-seeds, its save bar goes)');
   assert.equal((await storage.list('properties'))[0].recVersion, 5);
   await assert.rejects(storage.put('properties', { ...props[1], occupancy: 'Vacant', type: 'Apartment', version: 0 }), /changed/, 'stale version -> conflict');
+});
+
+test("units: the unit's people are read with it and saved as one list; a list row never ends anyone", async () => {
+  const id = (await storage.list('properties'))[1].id;
+  state.unitPeople = { [id]: [{ occupantId: '00000000-0000-4000-8000-00000000c001', name: 'Bhavna', phone: '+919800000003', email: null, relation: 'Owner', primary: true, to: null },
+    { occupantId: '00000000-0000-4000-8000-00000000c002', name: 'Old Tenant', phone: '+919800000004', email: null, relation: 'Tenant', primary: false, to: '2026-09-01' }] };
+  const u = await storage.get('properties', id);
+  assert.equal(u.owner, 'Bhavna'); assert.equal(u.tenant, '', 'someone who left is not on the unit'); assert.equal(u.peopleRead, true);
+  const n = calls.filter((x) => x.method === 'PUT').length;
+  await storage.put('properties', { ...u, tenant: 'Kiran', tenantPhone: '+919800000005', occupancy: 'Tenant occupied', billTo: 'Tenant' });
+  const put = last('PUT', /\/people$/);
+  assert.deepEqual(put.body.people.map((x) => [x.relation, x.name, !!x.primary]), [['Owner', 'Bhavna', true], ['Tenant', 'Kiran', false]]);
+  assert.equal(put.body.occupancy, 'Tenant occupied'); assert.equal(put.body.billTo, 'Tenant', 'checked together with the people');
+  assert.equal(last('PATCH', /^\/units\//)?.body?.occupancy === 'Tenant occupied' && last('PATCH', /^\/units\//)?.path.endsWith(id), false, 'the occupancy travels with the people, not in the PATCH');
+  assert.equal(calls.filter((x) => x.method === 'PUT').length, n + 1);
+  delete state.unitPeople;
 });
 
 test('bills: raised by POST (server prices tax), closed by cancel with a reason, never edited', async () => {

@@ -25,4 +25,6 @@ public interface UnitRepository {
     /** false when the version no longer matches. */
     boolean save(Unit unit, long expectedVersion);
     Set<String> propertyTypes();
+    /** Does a tenant live in the unit now? */
+    default boolean hasTenant(UnitId id) { return false; }
 }

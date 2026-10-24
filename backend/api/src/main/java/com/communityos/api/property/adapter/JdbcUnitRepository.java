@@ -25,7 +25,7 @@ public final class JdbcUnitRepository implements UnitRepository {
     /** The unit with who to call there: its primary owner, else a co-owner, else the tenant (current occupants only, through the (community, unit) index). */
     static final String COLUMNS = """
         SELECT u.id, u.short_id, u.unit_no, u.block_id, b.name AS block_name, u.unit_type, u.occupancy, u.area_sqft, u.maintenance_plan, u.sanctioned_kw,
-               u.status, u.custom::text AS custom, u.updated_at, u.version, o.full_name AS contact_name, o.phone_e164 AS contact_phone, o.relation AS contact_relation""";
+               u.status, u.bill_to, u.custom::text AS custom, u.updated_at, u.version, o.full_name AS contact_name, o.phone_e164 AS contact_phone, o.relation AS contact_relation""";
     /** The unit's block and who to call there (`u` is the unit). */
     static final String JOINS = """
         LEFT JOIN property.block b ON b.community_id = u.community_id AND b.id = u.block_id
@@ -63,9 +63,11 @@ public final class JdbcUnitRepository implements UnitRepository {
     }
     public static String getSql(String scopeSql) { return COLUMNS + ", 1 AS total\nFROM property.unit u\n" + JOINS + "\nWHERE u.id = CAST(:id AS uuid) AND " + scopeSql; }
     static final String UPDATE = """
-        UPDATE property.unit SET unit_no = :unitNo, unit_type = :type, occupancy = :occupancy, area_sqft = :area, maintenance_plan = :plan, sanctioned_kw = :kw, custom = CAST(:custom AS jsonb)
+        UPDATE property.unit SET unit_no = :unitNo, unit_type = :type, occupancy = :occupancy, area_sqft = :area, maintenance_plan = :plan, sanctioned_kw = :kw, bill_to = :billTo,
+               custom = CAST(:custom AS jsonb)
         WHERE id = CAST(:id AS uuid) AND version = :version""";
     static final String TYPES = "SELECT property_types FROM platform.community_settings";
+    static final String HAS_TENANT = "SELECT EXISTS (SELECT 1 FROM property.occupant o WHERE o.unit_id = CAST(:id AS uuid) AND o.relation = 'Tenant' AND o.to_date IS NULL) AS t";
 
     private final NamedParameterJdbcTemplate jdbc; private final ObjectMapper json;
     public JdbcUnitRepository(NamedParameterJdbcTemplate jdbc, ObjectMapper json) { this.jdbc = jdbc; this.json = json; }
@@ -97,13 +99,15 @@ public final class JdbcUnitRepository implements UnitRepository {
     @Override public boolean save(Unit u, long expectedVersion) {
         Map<String, Object> p = new HashMap<>();
         p.put("id", u.id().toString()); p.put("version", expectedVersion); p.put("unitNo", u.unitNo()); p.put("type", u.unitType()); p.put("occupancy", u.occupancy()); p.put("area", u.areaSqft());
-        p.put("plan", u.maintenancePlan()); p.put("kw", u.sanctionedKw());
+        p.put("plan", u.maintenancePlan()); p.put("kw", u.sanctionedKw()); p.put("billTo", u.billTo());
         try { p.put("custom", json.writeValueAsString(u.custom())); } catch (Exception e) { throw new IllegalStateException(e); }
         return jdbc.update(UPDATE, p) == 1;
     }
     @Override public Set<String> propertyTypes() {
         return jdbc.query(TYPES, Map.of(), (rs, i) -> Rows.set(rs, "property_types", String::valueOf)).stream().findFirst().orElse(Set.of("Villa", "Apartment"));
     }
+
+    @Override public boolean hasTenant(UnitId id) { return Boolean.TRUE.equals(jdbc.queryForObject(HAS_TENANT, Map.of("id", id.toString()), Boolean.class)); }
 
     private Unit map(ResultSet rs) throws SQLException {
         Map<String, Object> custom;
@@ -112,6 +116,6 @@ public final class JdbcUnitRepository implements UnitRepository {
         return new Unit(new UnitId(Rows.uuid(rs, "id")), rs.getString("short_id"), rs.getString("unit_no"), block == null ? null : new BlockId(block), rs.getString("block_name"),
             rs.getString("unit_type"), rs.getString("occupancy"), rs.getBigDecimal("area_sqft"), rs.getString("maintenance_plan"), rs.getBigDecimal("sanctioned_kw"),
             rs.getString("status"), custom, Rows.instant(rs, "updated_at"), rs.getLong("version"))
-            .contact(rs.getString("contact_name"), rs.getString("contact_phone"), rs.getString("contact_relation"));
+            .contact(rs.getString("contact_name"), rs.getString("contact_phone"), rs.getString("contact_relation")).billing(rs.getString("bill_to"));
     }
 }

@@ -27,7 +27,9 @@ public final class Unit extends AggregateRoot {
     }
 
     /** What a unit manager may change. A null field is left as it is. */
-    public record Changes(String unitType, String occupancy, BigDecimal areaSqft, String maintenancePlan, BigDecimal sanctionedKw) {}
+    public record Changes(String unitType, String occupancy, BigDecimal areaSqft, String maintenancePlan, BigDecimal sanctionedKw, String billTo) {
+        public Changes(String unitType, String occupancy, BigDecimal areaSqft, String maintenancePlan, BigDecimal sanctionedKw) { this(unitType, occupancy, areaSqft, maintenancePlan, sanctionedKw, null); }
+    }
 
     public void change(Changes c, Set<String> allowedTypes) {
         if ("Archived".equals(status)) throw new DomainException.RuleViolated("unit-archived", "An archived unit cannot be changed");
@@ -50,6 +52,11 @@ public final class Unit extends AggregateRoot {
             if (m == null) throw new DomainException.RuleViolated("bad-plan", "Plan must be one of " + PLANS);
             maintenancePlan = m;
         }
+        if (c.billTo() != null) {
+            String b = com.communityos.api.shared.domain.Names.pick(List.of("Owner", "Tenant"), c.billTo());
+            if (b == null) throw new DomainException.RuleViolated("bad-bill-to", "Bills go to the Owner or the Tenant");
+            billTo = b;
+        }
         if (c.sanctionedKw() != null) {
             if (c.sanctionedKw().signum() < 0 || c.sanctionedKw().compareTo(BigDecimal.valueOf(1000)) > 0) throw new DomainException.RuleViolated("bad-load", "Sanctioned load must be 0 to 1000 kW");
             sanctionedKw = c.sanctionedKw();
@@ -66,6 +73,11 @@ public final class Unit extends AggregateRoot {
     public String blockName() { return blockName; } public String unitType() { return unitType; } public String occupancy() { return occupancy; }
     public BigDecimal areaSqft() { return areaSqft; } public String maintenancePlan() { return maintenancePlan; } public BigDecimal sanctionedKw() { return sanctionedKw; }
     public String status() { return status; } public Map<String, Object> custom() { return custom; } public Instant updatedAt() { return updatedAt; }
+
+    /** Who the unit's bills are addressed to (Owner / Tenant); a new bill takes it from the unit. */
+    private String billTo = "Owner";
+    public Unit billing(String to) { billTo = to == null ? "Owner" : to; return this; }
+    public String billTo() { return billTo; }
 
     /** Who to call there (the primary owner, else a co-owner, else the tenant) - read with the unit for the lists, never changed through it. */
     private String contactName, contactPhone, contactRelation;

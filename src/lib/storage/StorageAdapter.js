@@ -68,6 +68,7 @@ export const COLLECTIONS = Object.freeze({
   NOTIFICATION_SETTINGS: 'notificationSettings', // community-wide: which extra channels are offered for each kind of notification
   NOTIFICATION_OUTBOX: 'notificationOutbox', // every message queued for e-mail / SMS / WhatsApp (system-written)
   PORTAL_INVITES: 'portalInvites', // sign-in links sent to registered phone numbers (system-written)
+  UNIT_CHANGES: 'unitChanges', // a unit's history: a tenant moving out, a change of owner (who left, who came, what stayed open)
   UNIT_CREDITS: 'unitCredits', // refunds credited to a villa's account, and their later use (system-written)
   AMENITY_ITEMS: 'amenityItems', // add-on items with a stock count (chairs, tables, tents ...) that a booking can take in any quantity
   VENDOR_SERVICES: 'vendorServices', // what each vendor is signed for: service line + number of workers (a facilities vendor may cover several services)

@@ -24,6 +24,7 @@ import { unitStatement } from '../../lib/documents/builders.js';
 import { fyStartMonth } from '../../lib/locale.js';
 import BlockNavigator, { NO_BLOCK, useBlockCounts } from './BlockNavigator.jsx';
 import Tabs, { usePhone } from '../../components/Tabs.jsx';
+import UnitHandover, { UnitHistory } from './UnitHandover.jsx';
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -134,7 +135,13 @@ function UnitDetail({ unit, onEdit, canEdit, canSeePrivate }) {
           <h2 style={{ margin: 0 }}>{unit.unit} {unit.occupancy && <span className="tag">{unit.occupancy}</span>}</h2>
           <div className="muted">{[unit.zone, unit.bedrooms ? `${unit.bedrooms} BHK` : '', unit.areaSqft ? `${unit.areaSqft} sq ft` : '', unit.owner].filter(Boolean).join(' · ')}</div>
         </div>
-        {canEdit && <button className="btn secondary" onClick={() => onEdit(unit)}>Edit</button>}
+        {canEdit && (
+          <div className="ud-actions" style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <button className="btn secondary" onClick={() => onEdit(unit)}>Edit</button>
+            {peopleOf(unit).some((x) => !x.isOwner) && <button className="btn secondary" data-testid="unit-moveout" onClick={() => setDetail({ kind: 'moveout' })}>Tenant moves out</button>}
+            <button className="btn secondary" data-testid="unit-owner-change" onClick={() => setDetail({ kind: 'owner' })}>Change of owner</button>
+          </div>
+        )}
       </div>
 
       <Tabs>
@@ -158,6 +165,7 @@ function UnitDetail({ unit, onEdit, canEdit, canSeePrivate }) {
               })}
               {canEdit && showPortal && portalErr && <div className="notice error" data-testid="portal-error" style={{ marginTop: 4 }}>Portal access could not be read ({portalErr}).</div>}
               {canEdit && !showPortal && peopleOf(unit).some((x) => x.phone) && <button type="button" className="link-btn" data-testid="portal-show" style={{ display: 'block', marginTop: 4 }} onClick={() => setShowPortal(true)}>Show portal access</button>}
+              {(canEdit || isEC) && <button type="button" className="link-btn" data-testid="unit-history-open" style={{ display: 'block', marginTop: 4 }} onClick={() => setDetail({ kind: 'history' })}>Past owners &amp; tenants</button>}
               <small className="muted" style={{ display: 'block', marginTop: 6 }}>{ownersOf(unit).length > 1 ? `${ownersOf(unit).length} owners — any one of them can cast the villa's single e-vote.` : 'One vote per villa in e-voting (owners only).'}</small>
             </div>
             <div className="person">
@@ -265,6 +273,8 @@ function UnitDetail({ unit, onEdit, canEdit, canSeePrivate }) {
       {detail?.kind === 'preview' && <FilePreview meta={{ fileId: detail.rec.fileId, name: detail.rec.fileName || detail.rec.title, mime: detail.rec.mime || '', size: (detail.rec.fileSize || 0) * 1024 }} onClose={() => setDetail({ kind: 'doc', rec: detail.rec })} />}
       {detail?.kind === 'record' && <RecordDetailModal collection={detail.collection} record={detail.rec} title={detail.title} onClose={() => setDetail(null)} />}
       {detail?.kind === 'activity' && <ActivityDetailModal entry={detail.rec} onClose={() => setDetail(null)} />}
+      {(detail?.kind === 'moveout' || detail?.kind === 'owner') && <UnitHandover unit={unit} mode={detail.kind} onClose={() => setDetail(null)} />}
+      {detail?.kind === 'history' && <UnitHistory unit={unit} onClose={() => setDetail(null)} />}
     </div>
   );
 }

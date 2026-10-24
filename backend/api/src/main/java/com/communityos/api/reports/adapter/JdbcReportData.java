@@ -78,7 +78,7 @@ public final class JdbcReportData implements ReportData {
     static final String UNITS_WITH_PEOPLE = """
         SELECT u.id, u.unit_no FROM property.unit u
         WHERE u.status = 'Active' AND EXISTS (SELECT 1 FROM property.occupant o JOIN identity.membership m ON m.community_id = o.community_id AND m.person_id = o.person_id AND m.status = 'Active'
-                                              WHERE o.community_id = u.community_id AND o.unit_id = u.id AND o.portal_access AND (o.to_date IS NULL OR o.to_date >= current_date))
+                                              WHERE o.community_id = u.community_id AND o.unit_id = u.id AND o.portal_access AND (o.to_date IS NULL OR o.to_date > current_date))
         ORDER BY u.unit_no""";
     static final String UNITS = "SELECT u.id, u.unit_no FROM property.unit u WHERE u.id = ANY (CAST(:ids AS uuid[])) ORDER BY u.unit_no";
     static final String QUEUE = """

@@ -53,7 +53,7 @@ public final class JdbcCallerLoader implements CallerLoader {
                       WHERE NOT EXISTS (SELECT 1 FROM identity.role_permission_override v WHERE v.community_id = m.community_id AND v.role_id = x.role_id
                                           AND v.permission = x.permission AND v.effect = 'revoke')) AS permissions,
                ARRAY(SELECT DISTINCT o.unit_id FROM property.occupant o
-                      WHERE o.community_id = m.community_id AND o.person_id = m.person_id AND o.portal_access AND (o.to_date IS NULL OR o.to_date >= current_date)) AS units,
+                      WHERE o.community_id = m.community_id AND o.person_id = m.person_id AND o.portal_access AND (o.to_date IS NULL OR o.to_date > current_date)) AS units,
                ARRAY(SELECT b.block_id FROM identity.membership_block b WHERE b.community_id = m.community_id AND b.membership_id = m.id) AS blocks
         FROM identity.membership m
         JOIN platform.community c ON c.id = m.community_id AND c.status = 'Active'

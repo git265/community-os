@@ -54,7 +54,7 @@ public final class JdbcGateDirectory implements GateDirectory {
         ON CONFLICT (community_id, guard_id) DO UPDATE SET last_at = now(), kind = :kind""";
     static final String VEHICLE_BY_PLATE = """
         SELECT v.id, v.plate, v.owner, v.unit_id, v.vehicle_class, v.status, v.recurring_goods FROM gate.vehicle v
-        WHERE upper(regexp_replace(v.plate, '\\s', '', 'g')) = :plate""";
+        WHERE upper(regexp_replace(v.plate, '\\s', '', 'g')) = :plate AND v.status <> 'Ended'""";
     static final String END_LINK = """
         UPDATE gate.household_link SET status = 'Ended', version = version + 1, updated_at = now()
         WHERE person_id = CAST(:person AS uuid) AND unit_id = CAST(:unit AS uuid) AND status <> 'Ended'""";

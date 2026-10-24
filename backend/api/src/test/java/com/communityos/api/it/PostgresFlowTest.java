@@ -263,8 +263,10 @@ class PostgresFlowTest {
             // ---- 6. units, members -----------------------------------------------------------------------------------------------------------------
             Unit u = as(admin, () -> units.get(admin, new UnitId(unitA)));
             assertThrows(AccessDenied.class, () -> as(ownerC, () -> units.change(ownerC, new UnitId(unitA), u.version(), new Unit.Changes(null, "Vacant", null, null, null), null)));
-            Unit changed = as(admin, () -> units.change(admin, new UnitId(unitA), u.version(), new Unit.Changes(null, "Tenant occupied", null, "Quarterly", null), null));
-            assertEquals("Tenant occupied", changed.occupancy()); assertEquals(u.version() + 1, changed.version(), "version stamped by the database");
+            assertEquals("tenant-required", assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> units.change(admin, new UnitId(unitA), u.version(),
+                new Unit.Changes(null, "Tenant occupied", null, null, null), null))).code(), "a unit is let only with its tenant");
+            Unit changed = as(admin, () -> units.change(admin, new UnitId(unitA), u.version(), new Unit.Changes(null, "Vacant", null, "Quarterly", null), null));
+            assertEquals("Vacant", changed.occupancy()); assertEquals(u.version() + 1, changed.version(), "version stamped by the database");
             assertThrows(DomainException.Conflict.class, () -> as(admin, () -> units.change(admin, new UnitId(unitA), u.version(), new Unit.Changes(null, "Vacant", null, null, null), null)), "stale version");
             assertEquals(1, as(ownerC, () -> units.list(ownerC, new UnitRepository.Filter(null, null, null, false), PageQuery.of(50, 0))).total());
             var added = as(admin, () -> memberService.add(admin, new MemberService.AddMember("+9196" + String.format("%08d", Long.parseLong(tag) % 100_000_000L), "New Tenant", null, "resident", new UnitId(unitB), "Tenant")));
@@ -1699,6 +1701,67 @@ class PostgresFlowTest {
             // e-mail addresses are kept in lower case, whoever writes them
             owner.sql("UPDATE identity.person SET email = '  Asha.Owner.' || '" + tag + "' || '@Example.COM ' WHERE id = '" + persons[0] + "' RETURNING 1");
             assertEquals("asha.owner." + tag.toLowerCase() + "@example.com", owner.sql("SELECT email::text AS e FROM identity.person WHERE id = '" + persons[0] + "'").get(0).get("e"));
+
+            // ---- 14. the people of a unit over time: its contacts, a tenant moving out, a change of owner - nothing deleted -----------------------------
+            var peopleSvc = new com.communityos.api.property.application.UnitPeopleService(new JdbcUnitRepository(app, json), new com.communityos.api.property.adapter.JdbcUnitPeople(app, json),
+                new JdbcPersonDirectory(platform), refreshStore, callers, audit, app, clock, "+91");
+            String pbase = "+9196" + String.format("%07d", Long.parseLong(tag) % 10_000_000L);
+            UnitId v912u = new UnitId(u912);
+            java.util.function.BiFunction<String, String, UUID> memberOf = (ph, x) -> id(owner, "SELECT m.id FROM identity.membership m JOIN identity.person p ON p.id = m.person_id WHERE m.community_id = '" + cid + "' AND p.phone_e164 = '" + ph + "'");
+            var household = List.of(new com.communityos.api.property.application.UnitPeopleService.PersonIn(null, "Kiran Rao", pbase + "1", "Kiran.Rao@Example.com", "Owner", true),
+                new com.communityos.api.property.application.UnitPeopleService.PersonIn(null, "Leela Das", pbase + "2", null, "Tenant", false),
+                new com.communityos.api.property.application.UnitPeopleService.PersonIn(null, "Arun Das", pbase + "3", null, "Family", false));
+            assertThrows(AccessDenied.class, () -> as(ownerC, () -> peopleSvc.save(ownerC, v912u, new com.communityos.api.property.application.UnitPeopleService.SavePeople(household, "Tenant occupied", "Tenant"))));
+            assertEquals("tenant-not-let", assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> peopleSvc.save(admin, v912u,
+                new com.communityos.api.property.application.UnitPeopleService.SavePeople(household, "Owner occupied", null)))).code(), "a tenant on a unit that is not let");
+            var saved = as(admin, () -> peopleSvc.save(admin, v912u, new com.communityos.api.property.application.UnitPeopleService.SavePeople(household, "Tenant occupied", "Tenant")));
+            assertEquals(3, saved.size()); assertEquals("kiran.rao@example.com", saved.get(0).email()); assertTrue(saved.get(0).primary());
+            UUID leela = memberOf.apply(pbase + "2", null);
+            Caller leelaC = callers.load(new PersonId(id(owner, "SELECT id FROM identity.person WHERE phone_e164 = '" + pbase + "2'")), new CommunityId(cid), new MembershipId(leela)).orElseThrow();
+            assertEquals(java.util.Set.of(v912u), leelaC.units(), "the tenant signs in to the unit"); assertEquals(Caller.Category.Resident, leelaC.category());
+            assertEquals("Tenant", owner.sql("SELECT bill_to FROM property.unit WHERE id = '" + u912 + "'").get(0).get("bill_to"));
+            Due rent = as(treasurer, () -> dueService.raise(treasurer, new DueService.RaiseDue(v912u, "Maintenance", today.withDayOfMonth(1), "Oct", Money.of("2500"), today.plusDays(5))));
+            assertEquals("Tenant", owner.sql("SELECT bill_to FROM billing.due WHERE id = '" + rent.id().value() + "'").get(0).get("bill_to"), "a new bill is addressed as its unit says");
+            owner.sql("INSERT INTO gate.vehicle (community_id, plate, unit_id) VALUES ('" + cid + "', 'KA01AB" + tag.substring(0, 4) + "', '" + u912 + "') RETURNING 1");
+            owner.sql("INSERT INTO gate.pass (community_id, visitor_name, unit_id, type, code) VALUES ('" + cid + "', 'Cook', '" + u912 + "', 'Recurring', '482913') RETURNING 1");
+            // a tenant moves out: an owner cannot be moved out; the tenant and their family leave, with what stays open reported
+            UUID leelaRow = saved.stream().filter((x) -> x.relation().equals("Tenant")).findFirst().orElseThrow().occupantId();
+            UUID arunRow = saved.stream().filter((x) -> x.relation().equals("Family")).findFirst().orElseThrow().occupantId();
+            UUID kiranRow = saved.get(0).occupantId();
+            assertEquals("owner-leaving", assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> peopleSvc.moveOut(admin, v912u,
+                new com.communityos.api.property.application.UnitPeopleService.MoveOut(today, List.of(kiranRow), "Vacant", true, null)))).code());
+            assertEquals("future-date", assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> peopleSvc.moveOut(admin, v912u,
+                new com.communityos.api.property.application.UnitPeopleService.MoveOut(today.plusDays(1), List.of(leelaRow), "Vacant", true, null)))).code());
+            var leftUnit = as(admin, () -> peopleSvc.moveOut(admin, v912u, new com.communityos.api.property.application.UnitPeopleService.MoveOut(today, List.of(leelaRow, arunRow), "Vacant", true, "Lease ended")));
+            assertEquals(2, leftUnit.accountsClosed()); assertEquals(1, leftUnit.people().size());
+            assertEquals(0, Money.of("2950").compareTo(new Money(leftUnit.leftovers().duesOutstanding())), "the unpaid bill is reported: " + leftUnit.leftovers());
+            assertEquals(1, leftUnit.gate().vehicles()); assertEquals(1, leftUnit.gate().passes());
+            assertEquals("Unpaid", owner.sql("SELECT status FROM billing.due WHERE id = '" + rent.id().value() + "'").get(0).get("status"), "it stays with the unit");
+            assertEquals("2", owner.sql("SELECT count(*)::text AS n FROM property.occupant WHERE unit_id = '" + u912 + "' AND to_date = CAST('" + today + "' AS date)").get(0).get("n"), "kept, with the day they left");
+            assertEquals("Inactive", owner.sql("SELECT status FROM identity.membership WHERE id = '" + leela + "'").get(0).get("status"));
+            callers.evict(new MembershipId(leela));
+            assertTrue(callers.load(leelaC.person(), new CommunityId(cid), new MembershipId(leela)).isEmpty(), "the tenant can no longer sign in");
+            assertEquals("Owner", owner.sql("SELECT bill_to FROM property.unit WHERE id = '" + u912 + "'").get(0).get("bill_to"), "no tenant: the bills go to the owner again");
+            assertEquals("Ended", owner.sql("SELECT status FROM gate.vehicle WHERE unit_id = '" + u912 + "'").get(0).get("status"));
+            // the unit is sold: the current owner must be among those leaving; the new owner comes as primary owner with a co-owner
+            var buyer = new com.communityos.api.property.application.UnitPeopleService.PersonIn(null, "Meena Iyer", pbase + "4", "meena@example.com", "Owner", true);
+            var coBuyer = new com.communityos.api.property.application.UnitPeopleService.PersonIn(null, "Ravi Iyer", pbase + "5", null, "Co-owner", false);
+            assertEquals("owner-stays", assertThrows(DomainException.RuleViolated.class, () -> as(admin, () -> peopleSvc.changeOwner(admin, v912u,
+                new com.communityos.api.property.application.UnitPeopleService.ChangeOwner(today, buyer, List.of(coBuyer), List.of(), "Owner occupied", true, null)))).code());
+            var sold = as(admin, () -> peopleSvc.changeOwner(admin, v912u, new com.communityos.api.property.application.UnitPeopleService.ChangeOwner(today, buyer, List.of(coBuyer), List.of(kiranRow),
+                "Owner occupied", true, "Sale deed registered")));
+            assertEquals(1, sold.accountsClosed()); assertEquals(List.of("Meena Iyer", "Ravi Iyer"), sold.people().stream().map(com.communityos.api.property.application.port.UnitPeople.Person::name).toList());
+            assertTrue(sold.people().get(0).primary()); assertEquals("Co-owner", sold.people().get(1).relation());
+            assertEquals(5, as(admin, () -> peopleSvc.people(admin, v912u, true)).size(), "everyone who lived there, with their days");
+            var changes = as(admin, () -> peopleSvc.history(admin, v912u));
+            assertEquals(List.of("Owner changed", "Moved out", "People changed"), changes.stream().map(com.communityos.api.property.application.port.UnitPeople.Change::kind).toList());
+            assertEquals("Lease ended", changes.get(1).note()); assertEquals(2, changes.get(1).out().size());
+            // the new owner signs in to the unit and sees who lives there now, not who did before
+            UUID meena = memberOf.apply(pbase + "4", null);
+            Caller meenaC = callers.load(new PersonId(id(owner, "SELECT id FROM identity.person WHERE phone_e164 = '" + pbase + "4'")), new CommunityId(cid), new MembershipId(meena)).orElseThrow();
+            assertEquals(java.util.Set.of(v912u), meenaC.units());
+            assertEquals(2, as(meenaC, () -> peopleSvc.people(meenaC, v912u, true)).size(), "a resident sees the people now only");
+            assertThrows(AccessDenied.class, () -> as(meenaC, () -> peopleSvc.history(meenaC, v912u)));
 
             System.out.println("flow: " + (app.statements + platform.statements) + " statements through cos_app / cos_platform");
         }

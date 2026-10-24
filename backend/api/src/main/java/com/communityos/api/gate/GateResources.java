@@ -163,7 +163,7 @@ public final class GateResources {
                 String plate = Checks.required(f.plate(), "Plate").toUpperCase();
                 Checks.rule(plate.replaceAll("\\s", "").matches("[A-Z0-9]{4,12}"), "bad-plate", "A number plate has 4 to 12 letters and digits");
                 Checks.oneOf(f.vehicleClass(), "Class", List.of("Resident", "Tenant", "Staff", "Vendor", "Driver"));
-                return new VehicleFields(plate, f.fastag(), f.unitId(), f.owner(), f.vehicleClass(), f.status() == null ? "Active" : Checks.oneOf(f.status(), "Status", List.of("Active", "Blocked")),
+                return new VehicleFields(plate, f.fastag(), f.unitId(), f.owner(), f.vehicleClass(), f.status() == null ? "Active" : Checks.oneOf(f.status(), "Status", List.of("Active", "Blocked", "Ended")),
                     f.recurringGoods(), Checks.nonNegative(f.usualPeople(), "Usual people"), f.material());
             }
             @Override public String label(VehicleFields f) { return f.plate(); }

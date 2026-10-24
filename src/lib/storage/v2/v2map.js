@@ -33,7 +33,7 @@ export function propertyOf(u) {
     // who to call there (the server's primary contact): an owner, or the tenant when no owner lives there
     ...(u.contactName && u.contactRelation !== 'Tenant' ? { owner: u.contactName, ownerPhone: u.contactPhone || '' } : {}),
     ...(u.contactName && u.contactRelation === 'Tenant' ? { tenant: u.contactName, tenantPhone: u.contactPhone || '' } : {}),
-    version: u.version, updatedAt: u.updatedAt,
+    billTo: u.billTo || 'Owner', version: u.version, updatedAt: u.updatedAt,
   };
 }
 /** A home in the contact directory (GET /units/directory): the unit and who to call there - all a resident sees of other homes. */
@@ -59,20 +59,53 @@ export function newUnitBody(rec, blocks = []) {
   return { unitNo: rec.unit, blockId: b ? b.id : null, unitType: rec.type || null, occupancy: rec.occupancy || null, areaSqft: rec.areaSqft === '' || rec.areaSqft == null ? null : Number(rec.areaSqft) };
 }
 
-const UNIT_FIELDS = { unit: 'unitNo', type: 'unitType', occupancy: 'occupancy', areaSqft: 'areaSqft', maintenancePlan: 'maintenancePlan', sanctionedKw: 'sanctionedKw' };
+const UNIT_FIELDS = { unit: 'unitNo', type: 'unitType', occupancy: 'occupancy', areaSqft: 'areaSqft', maintenancePlan: 'maintenancePlan', sanctionedKw: 'sanctionedKw', billTo: 'billTo' };
 const UNIT_FIXED = new Set(['id', 'shortId', 'zone', 'blockId', 'status', 'version', 'updatedAt', 'createdAt', 'createdBy', 'lastUpdatedAt', 'lastUpdatedBy',
-  'owner', 'ownerPhone', 'ownerEmail', 'tenant', 'tenantPhone', 'tenantEmail', 'people', 'secondaryOwner', 'secondaryOwnerPhone', 'billTo', 'outstanding', 'contactRelation', 'directoryOnly']);
-/** Only what changed, as the PATCH body (null when nothing the server accepts changed). Unknown keys go to `custom` (the server checks them). */
-export function unitPatch(before, after) {
+  'owner', 'ownerPhone', 'ownerEmail', 'tenant', 'tenantPhone', 'tenantEmail', 'people', 'secondaryOwner', 'secondaryOwnerPhone', 'outstanding', 'contactRelation', 'directoryOnly', 'peopleRead']);
+/** Only what changed, as the PATCH body (null when nothing the server accepts changed). Unknown keys go to `custom` (the server checks them).
+ *  skip: keys sent another way (the occupancy and who the bills go to travel with the unit's people when those change). */
+export function unitPatch(before, after, skip = []) {
   const body = {}; const custom = {};
   for (const [k, v] of Object.entries(after)) {
-    if (UNIT_FIXED.has(k) || JSON.stringify(before?.[k]) === JSON.stringify(v)) continue;
+    if (UNIT_FIXED.has(k) || skip.includes(k) || JSON.stringify(before?.[k]) === JSON.stringify(v)) continue;
     if (UNIT_FIELDS[k]) body[UNIT_FIELDS[k]] = k === 'areaSqft' || k === 'sanctionedKw' ? (v === '' || v == null ? null : Number(v)) : (v || null);
     else custom[k] = v === '' ? null : v;
   }
   if (Object.keys(custom).length) body.custom = custom;
   return Object.keys(body).length ? body : null;
 }
+
+// ---- a unit's people (GET / PUT /units/{id}/people) <-> the unit form's owner, tenant and additional people ----------------------------------
+const AS_FORM = { 'Co-owner': 'Additional owner', Owner: 'Additional owner', Tenant: 'Additional tenant', Family: 'Family / other contact', Caretaker: 'Family / other contact' };
+/** The people living there now, as the unit form keeps them: the primary owner, the tenant, everyone else in `people`. */
+export function unitContactsOf(rows = []) {
+  const cur = rows.filter((p) => !p.to);
+  const owner = cur.find((p) => p.relation === 'Owner' && p.primary) || cur.find((p) => p.relation === 'Owner');
+  const tenant = cur.find((p) => p.relation === 'Tenant');
+  const rest = cur.filter((p) => p !== owner && p !== tenant);
+  return {
+    owner: owner?.name || '', ownerPhone: owner?.phone || '', ownerEmail: owner?.email || '',
+    tenant: tenant?.name || '', tenantPhone: tenant?.phone || '', tenantEmail: tenant?.email || '',
+    people: rest.map((p) => ({ id: p.occupantId, relation: AS_FORM[p.relation] || 'Family / other contact', name: p.name, phone: p.phone || '', email: p.email || '' })),
+  };
+}
+const PLACEHOLDER_OWNER = 'To be updated';
+/** The unit form's people as the server's list, with the occupancy and who the bills go to (checked together). */
+export function unitPeopleBody(rec) {
+  const out = [];
+  if (rec.owner && !(rec.owner === PLACEHOLDER_OWNER && !rec.ownerPhone)) out.push({ name: rec.owner, phone: rec.ownerPhone || '', email: rec.ownerEmail || null, relation: 'Owner', primary: true });
+  if (rec.tenant) out.push({ name: rec.tenant, phone: rec.tenantPhone || '', email: rec.tenantEmail || null, relation: 'Tenant', primary: false });
+  for (const x of rec.people || []) {
+    if (!x?.name) continue;
+    const relation = x.relation === 'Additional tenant' ? 'Tenant' : x.relation === 'Family / other contact' ? 'Family' : 'Co-owner';
+    out.push({ occupantId: /^[0-9a-f-]{36}$/i.test(String(x.id || '')) ? x.id : null, name: x.name, phone: x.phone || '', email: x.email || null, relation, primary: false });
+  }
+  return { people: out, occupancy: rec.occupancy || null, billTo: rec.billTo || null };
+}
+const CONTACT_KEYS = ['owner', 'ownerPhone', 'ownerEmail', 'tenant', 'tenantPhone', 'tenantEmail', 'people'];
+const norm = (k, v) => (k === 'people' ? JSON.stringify((v || []).map((x) => [x.relation, x.name, x.phone || '', x.email || ''])) : String(v ?? ''));
+/** Did the unit's people change in the form? (Then its occupancy and who its bills go to are sent with them, and checked together.) */
+export const contactsChanged = (before, after) => CONTACT_KEYS.some((k) => norm(k, before?.[k]) !== norm(k, after?.[k]));
 
 // ---- members <-> users ---------------------------------------------------------------------------------------------------------------------
 export function userOf(m, unitNoById = {}) {

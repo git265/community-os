@@ -1511,7 +1511,7 @@ const RAW_SCHEMAS = [
       { key: 'unit', label: 'Villa', type: 'text', viewableBy: ALL, editableBy: STAFF, showInTable: true },
       { key: 'owner', label: 'Owner / driver', type: 'text', viewableBy: ALL, editableBy: STAFF, showInTable: true },
       { key: 'vehicleClass', label: 'Class', type: 'select', options: VEHICLE_CLASSES, viewableBy: ALL, editableBy: STAFF, showInTable: true },
-      { key: 'status', label: 'Status', type: 'select', options: ['Active', 'Blocked'], viewableBy: ALL, editableBy: STAFF, showInTable: true },
+      { key: 'status', label: 'Status', type: 'select', options: ['Active', 'Blocked', 'Ended'], viewableBy: ALL, editableBy: STAFF, showInTable: true },
       { key: 'recurringGoods', label: 'Regular goods vehicle (opens on plate read)', type: 'boolean', showWhen: { key: 'vehicleClass', in: ['Vendor'] }, viewableBy: OPS, editableBy: STAFF },
       { key: 'usualPeople', label: 'Usual people on board', type: 'number', showWhen: { key: 'vehicleClass', in: ['Vendor'] }, viewableBy: OPS, editableBy: STAFF },
       { key: 'material', label: 'Usually carries', type: 'text', showWhen: { key: 'vehicleClass', in: ['Vendor'] }, viewableBy: OPS, editableBy: STAFF },

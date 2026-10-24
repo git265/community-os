@@ -81,7 +81,7 @@ public final class JdbcGovernanceStore implements GovernanceStore {
         FROM property.unit u
         JOIN property.occupant o ON o.community_id = u.community_id AND o.unit_id = u.id
         LEFT JOIN identity.person p ON p.id = o.person_id
-        WHERE u.status = 'Active' AND o.relation IN ('Owner', 'Co-owner') AND (o.to_date IS NULL OR o.to_date >= current_date) AND (o.from_date IS NULL OR o.from_date <= current_date)
+        WHERE u.status = 'Active' AND o.relation IN ('Owner', 'Co-owner') AND (o.to_date IS NULL OR o.to_date > current_date) AND (o.from_date IS NULL OR o.from_date <= current_date)
         GROUP BY u.id, u.unit_no ORDER BY u.unit_no""";
     static final String ELECTOR_INSERT = """
         INSERT INTO governance.ballot_elector (community_id, ballot_id, unit_id, unit_no, owners)

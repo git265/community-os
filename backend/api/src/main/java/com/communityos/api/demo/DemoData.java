@@ -134,6 +134,7 @@ public final class DemoData {
         seed.path("kinds").fields().forEachRemaining((k) -> { if ("browser-only".equals(k.getValue().asText())) skipped.put(k.getKey(), "kept in the browser on the v2 back end"); });
         units(setup);
         people();
+        letUnits();
         DemoFlows flows = new DemoFlows(this);
         for (String c : order(flows)) {
             if (c.equals("properties") || c.equals("users") || c.equals("handymen")) continue;
@@ -172,7 +173,9 @@ public final class DemoData {
             if (id == null) continue;
             attempt("properties", p, () -> {
                 Unit u = as(admin, () -> s.units().get(admin, new UnitId(id)));
-                as(admin, () -> s.units().change(admin, new UnitId(id), u.version(), new Unit.Changes(text(p, "type"), text(p, "occupancy"), dec(p, "areaSqft"), null, null),
+                // a tenant-occupied unit becomes so once its tenant is added (people(), below): a unit is let only with its tenant
+                String occ = "Tenant occupied".equals(text(p, "occupancy")) ? null : text(p, "occupancy");
+                as(admin, () -> s.units().change(admin, new UnitId(id), u.version(), new Unit.Changes(text(p, "type"), occ, dec(p, "areaSqft"), null, null),
                     Map.of()));
                 return id;
             });
@@ -189,6 +192,19 @@ public final class DemoData {
                 else collectUnits(e.getValue(), out);
             }
         } else if (n.isArray()) n.forEach((x) -> collectUnits(x, out));
+    }
+
+    /** The tenant-occupied units, now that their tenants are there (and who their bills go to). */
+    void letUnits() {
+        for (JsonNode p : collections.path("properties")) {
+            UUID id = unitIds.get(p.path("unit").asText());
+            if (id == null || !"Tenant occupied".equals(text(p, "occupancy"))) continue;
+            attempt("properties (let)", p, () -> {
+                Unit u = as(admin, () -> s.units().get(admin, new UnitId(id)));
+                as(admin, () -> s.units().change(admin, new UnitId(id), u.version(), new Unit.Changes(null, "Tenant occupied", null, null, null, "Tenant".equals(text(p, "billTo")) ? "Tenant" : null), Map.of()));
+                return id;
+            });
+        }
     }
 
     /** The members: committee, staff, owners and tenants (with their unit), their other roles; field staff who had no account get one. */

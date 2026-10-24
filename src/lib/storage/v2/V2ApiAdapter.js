@@ -27,7 +27,7 @@
 import { apiFetch } from '../../net/request.js';
 import { AuthzError, ConflictError, PartialSaveError } from '../../security/errors.js';
 import { SessionStorageAdapter } from '../SessionStorageAdapter.js';
-import { propertyOf, directoryOf, unitPatch, userOf, dueOf, raiseBody, roleOf, ticketOf, ticketPatch, raiseTicketBody, commentOf, fieldStaffOf, quotationOf, addDocumentBody,
+import { propertyOf, directoryOf, unitPatch, unitContactsOf, unitPeopleBody, contactsChanged, userOf, dueOf, raiseBody, roleOf, ticketOf, ticketPatch, raiseTicketBody, commentOf, fieldStaffOf, quotationOf, addDocumentBody,
   quotationCommands, RESOURCES, resourceOf, resourceBody, isUuid, bookingOf, busyOf, bookBody, bookingCommand, gatePassOf, gateVisitOf, gateApprovalOf, gateFlagOf, gateScanOf,
   passBody, ledgerOf, ledgerBody, bookedByServer, releaseOf, releaseCommands, payRequestOf, bankTxnOf, donationOf, donationBody, expenseOf, expenseBody, expenseCommands, fileMeta, fileRowOf, dataUrlBytes, bytesDataUrl, documentOf, documentBody, notificationOf, broadcastOf, broadcastDraft, broadcastCommands, pollVoteRows, topicOf, postOf, meetingOf, meetingBody, ballotOf, ballotBody, voteMarksOf, boxRowOf, voteUnit, contactOf, contactBody, reviewOf, attendanceOf, teamOf, auditOf, auditFilterOf, blockOf, blockBody, newUnitBody } from './v2map.js';
 import { key as nameKey } from '../../unitNaming.js';
@@ -139,7 +139,11 @@ const readers = {
       const mine = new Map(own.map((u) => [u.id, u]));
       return [...own.map((u) => ({ ...(dir.find((d) => d.id === u.id) || {}), ...u })), ...dir.filter((d) => !mine.has(d.id))];
     },
-    get: async (id) => { const u = await call(`/units/${encodeURIComponent(id)}`); return u && propertyOf(u); },
+    // one unit with everyone living there now (owner, tenant, co-owners, family), as the unit form shows them
+    get: async (id) => {
+      const [u, people] = await Promise.all([call(`/units/${encodeURIComponent(id)}`), call(`/units/${encodeURIComponent(id)}/people`).catch(() => null)]);
+      return u && { ...propertyOf(u), ...(people ? { ...unitContactsOf(people), peopleRead: true } : {}) };
+    },
   },
   users: {
     list: async () => { const { noById } = await unitIndex(); return (await all('/members')).map((m) => userOf(m, noById)); },
@@ -468,11 +472,19 @@ async function putProperty(rec) {
   if (!before) {                                                     // a new unit: the server checks its number (rules, pattern, any case)
     const blocks = await readers.blocks.list();
     const u = await call('/units', json('POST', newUnitBody(rec, blocks)));
-    dropUnits(); return propertyOf(u);
+    dropUnits();
+    const body = unitPeopleBody(rec);                                // then its people (they sign in to it), its occupancy and who its bills go to
+    if (body.people.length || rec.billTo === 'Tenant') await call(`/units/${encodeURIComponent(u.id)}/people`, json('PUT', body));
+    return readers.properties.get(u.id);
   }
-  const body = unitPatch(before, rec);
-  if (!body) return before;
-  return propertyOf(await call(`/units/${encodeURIComponent(rec.id)}`, json('PATCH', body, ifMatch(rec.version ?? before.version))));
+  // the people go to the server only when they were read with the unit: a list row (or a failed read) never ends anyone
+  const people = !!before.peopleRead && contactsChanged(before, rec);
+  const body = unitPatch(before, rec, people ? ['occupancy', 'billTo'] : []);
+  let out = before;
+  if (body) out = propertyOf(await call(`/units/${encodeURIComponent(rec.id)}`, json('PATCH', body, ifMatch(rec.version ?? before.version))));
+  // someone taken off has left today (kept in the unit's history); someone new gets a sign-in to the unit
+  if (people) { await call(`/units/${encodeURIComponent(rec.id)}/people`, json('PUT', unitPeopleBody(rec))); dropUnits(); out = await readers.properties.get(rec.id); }
+  return out;
 }
 
 async function putUser(rec) {

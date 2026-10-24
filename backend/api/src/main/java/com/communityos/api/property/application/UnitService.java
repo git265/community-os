@@ -54,11 +54,17 @@ public final class UnitService {
                 if (setup.numberTaken(no, u.id().value())) throw new DomainException.RuleViolated("duplicate-unit", "There is already a unit “" + no + "” (numbers are the same whatever their case)");
                 track(diff, "unitNo", u.unitNo(), no); u.rename(no);
             }
-            String type = u.unitType(), occ = u.occupancy(), plan = u.maintenancePlan(); Object area = u.areaSqft(), kw = u.sanctionedKw(); Map<String, Object> before = u.custom();
+            String type = u.unitType(), occ = u.occupancy(), plan = u.maintenancePlan(), billTo = u.billTo(); Object area = u.areaSqft(), kw = u.sanctionedKw(); Map<String, Object> before = u.custom();
             u.change(changes, units.propertyTypes());
+            if (!Objects.equals(occ, u.occupancy()) || !Objects.equals(billTo, u.billTo())) {   // the same rule as the unit's people: a tenant on a let unit only
+                boolean tenant = units.hasTenant(u.id());
+                if ("Tenant occupied".equals(u.occupancy()) && !tenant) throw new DomainException.RuleViolated("tenant-required", "A tenant-occupied unit needs its tenant - add the tenant with the unit's people");
+                if (!"Tenant occupied".equals(u.occupancy()) && tenant) throw new DomainException.RuleViolated("tenant-not-let", "The unit still has a tenant - record the move-out first");
+                if ("Tenant".equals(u.billTo()) && !tenant) throw new DomainException.RuleViolated("bill-to-tenant", "Bills go to the tenant, but the unit has no tenant");
+            }
             u.replaceCustom(customFields.apply("property.unit", u.custom(), custom, c.roleIds()));
             track(diff, "unitType", type, u.unitType()); track(diff, "occupancy", occ, u.occupancy()); track(diff, "maintenancePlan", plan, u.maintenancePlan());
-            track(diff, "areaSqft", area, u.areaSqft()); track(diff, "sanctionedKw", kw, u.sanctionedKw()); track(diff, "custom", before, u.custom());
+            track(diff, "areaSqft", area, u.areaSqft()); track(diff, "sanctionedKw", kw, u.sanctionedKw()); track(diff, "billTo", billTo, u.billTo()); track(diff, "custom", before, u.custom());
             if (diff.isEmpty()) return u;
             if (!units.save(u, expectedVersion)) throw new DomainException.Conflict("Unit " + u.unitNo());
             audit.write(c, AuditWriter.Action.Update, "property.unit", u.id().value(), u.shortId(), u.id().value(), "Updated " + u.unitNo(), diff);
