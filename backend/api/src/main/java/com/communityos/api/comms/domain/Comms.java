@@ -32,8 +32,13 @@ public final class Comms {
 
     // ---- the inbox -------------------------------------------------------------------------------------------------------------------------------
     /** Who a notification is for: members by id, everyone with portal access to some units, and holders of some roles (by code; EC_MEMBERS = every committee role). */
-    public record To(Set<UUID> members, Set<UUID> units, Set<String> roles) {
-        public To { members = Set.copyOf(members); units = Set.copyOf(units); roles = Set.copyOf(roles); }
+    public record To(Set<UUID> members, Set<UUID> units, Set<String> roles, Set<String> relations) {
+        public To { members = Set.copyOf(members); units = Set.copyOf(units); roles = Set.copyOf(roles); relations = relations == null ? Set.of() : Set.copyOf(relations); }
+        public To(Set<UUID> members, Set<UUID> units, Set<String> roles) { this(members, units, roles, Set.of()); }
+        /** Only the unit's people with these relations (Owner, Co-owner, Tenant ...): a bill reaches whoever it is billed to. */
+        public static To unitPeople(UUID u, Set<String> relations) { return u == null ? nobody() : new To(Set.of(), Set.of(u), Set.of(), relations); }
+        /** Who a unit's bill reaches: the owners and co-owners, or the tenants when the bill is the tenant's. */
+        public static To billed(UUID u, String billTo) { return unitPeople(u, "Tenant".equals(billTo) ? Set.of("Tenant") : Set.of("Owner", "Co-owner")); }
         public static To member(UUID m) { return m == null ? nobody() : new To(Set.of(m), Set.of(), Set.of()); }
         public static To unit(UUID u) { return u == null ? nobody() : new To(Set.of(), Set.of(u), Set.of()); }
         public static To roles(String... codes) { return new To(Set.of(), Set.of(), Set.of(codes)); }
@@ -44,7 +49,9 @@ public final class Comms {
         public To and(To o) {
             Set<UUID> m = new LinkedHashSet<>(members); m.addAll(o.members); Set<UUID> u = new LinkedHashSet<>(units); u.addAll(o.units);
             Set<String> r = new LinkedHashSet<>(roles); r.addAll(o.roles);
-            return new To(m, u, r);
+            Set<String> rel = relations.isEmpty() || o.relations.isEmpty() ? Set.of() : new LinkedHashSet<>(relations);   // a filter only when both had one
+            if (!rel.isEmpty()) rel.addAll(o.relations);
+            return new To(m, u, r, rel);
         }
         public boolean empty() { return members.isEmpty() && units.isEmpty() && roles.isEmpty(); }
     }

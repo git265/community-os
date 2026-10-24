@@ -7,7 +7,7 @@ import { storage, COLLECTIONS as C } from '../storage/index.js';
 import { nextShortId } from '../storage/secureStorage.js';
 import { uuid } from '../uuid.js';
 import { logEvent } from '../audit/auditLog.js';
-import { notifyMany } from '../notify.js';
+import { notifyMany, billAudience } from '../notify.js';
 import { recordPayment } from '../paymentEngine.js';
 import { fmtDate } from '../locale.js';
 
@@ -82,7 +82,8 @@ export async function raiseLevy({ name, purpose, fund, rule, scope, dueDate, act
   await storage.put(C.LEVIES, levy);
   await storage.putMany(C.DUES, dues);
   const penaltyLine = (await import('../billText.js')).penaltyRule(await lateFeeSettings(), 'Special levy');
-  await notifyMany(rows.map((r) => ({ event: 'payment_reminder', title: `Special levy: ${name}`, body: `${inr(r.amount)} is payable by ${dmy(dueDate)} for ${purpose}.\n${penaltyLine}`, kind: 'payment_reminder', by: actor, toUnit: r.unit })));
+  const to = await billAudience();
+  await notifyMany(rows.flatMap((r) => to(r.unit, r.billTo).map((a) => ({ event: 'payment_reminder', title: `Special levy: ${name}`, body: `${inr(r.amount)} is payable by ${dmy(dueDate)} for ${purpose}.\n${penaltyLine}`, kind: 'payment_reminder', by: actor, ...a }))));
   await logEvent({ who: actor, what: 'Billing & Finance', action: 'Create', summary: `Special levy "${name}" raised: ${rows.length} units, ${inr(total)} in all, payable by ${dmy(dueDate)}${fund ? `, into fund ${fund}` : ''}` });
   changed(C.DUES); changed(C.LEVIES);
   await applyCredits({ units: rows.map((r) => r.unit), actor }); // advances / credit notes pay off the new bill first
@@ -344,7 +345,9 @@ export async function sendNotices({ rows, stage, body, actor = 'Billing' }) {
   const soc = await society();
   const sentAt = new Date().toISOString();
   const texts = rows.map((r) => ({ r, text: noticeText(stage, r, soc, body) }));
-  await notifyMany(texts.map(({ r, text }) => ({ event: 'payment_reminder', title: `${stage} · ${r.unit}`, body: text, kind: 'payment_reminder', by: actor, toUnit: r.unit })));
+  // a reminder goes to whoever the unit's bills are addressed to; a demand or final notice on a tenant's bills reaches the owner too
+  const to = await billAudience();
+  await notifyMany(texts.flatMap(({ r, text }) => to(r.unit, r.billTo, { alsoOwner: stage !== 'Reminder' }).map((a) => ({ event: 'payment_reminder', title: `${stage} · ${r.unit}`, body: text, kind: 'payment_reminder', by: actor, ...a }))));
   const next = await seqer(C.DEMAND_NOTICES);
   await storage.putMany(C.DEMAND_NOTICES, texts.map(({ r, text }) => stamp({ unit: r.unit, stage, amount: r.amount, sentAt, sentBy: actor, body: text }, actor, next())));
   await logEvent({ who: actor, what: 'Billing & Finance', action: 'Create', summary: `${stage} sent to ${rows.length} unit(s), ${inr(rows.reduce((n, r) => n + r.amount, 0))} overdue in all` });

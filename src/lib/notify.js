@@ -115,6 +115,33 @@ function recipientsOf(to, ix) {
   return [...set.values()];
 }
 
+/**
+ * Who a bill's notice goes to (built once for a batch): the person it is billed to - the owner and co-owners, or the tenants - by name when
+ * they have a sign-in on the unit, otherwise everyone on the unit. alsoOwner: a demand or final notice on a tenant's bill reaches the
+ * owners too (the owner answers for the unit's dues).
+ *   const to = await billAudience(); to('Villa 135', 'Tenant', { alsoOwner: true }) -> [{ toName: 'Kavita Rao' }, { toName: 'Vikram Shah' }]
+ */
+export async function billAudience() {
+  const [users, props] = await Promise.all([storage.list(COLLECTIONS.USERS), storage.list(COLLECTIONS.PROPERTIES)]);
+  const active = users.filter((u) => u.status !== 'Inactive');
+  const byUnit = new Map(props.map((p) => [p.unit, p]));
+  return (unit, billTo, { alsoOwner = false } = {}) => {
+    const p = byUnit.get(unit);
+    if (!p) return [{ toUnit: unit }];
+    const to = billTo || p.billTo || 'Owner';
+    const owners = [p.owner, ...(p.people || []).filter((x) => x.relation === 'Additional owner').map((x) => x.name)];
+    const tenants = [p.tenant, ...(p.people || []).filter((x) => x.relation === 'Additional tenant').map((x) => x.name)];
+    const tenantBill = to === 'Tenant' && !!p.tenant;
+    const names = [...(tenantBill ? tenants : owners), ...(alsoOwner && tenantBill ? owners : [])].filter(Boolean);
+    const hits = [];
+    for (const nm of names) {
+      const u = active.find((x) => nameKey(x.name) === nameKey(nm) && unitsOfUser(x).includes(unit));
+      if (u && !hits.includes(u.name)) hits.push(u.name);
+    }
+    return hits.length ? hits.map((n) => ({ toName: n })) : [{ toUnit: unit }];
+  };
+}
+
 function outboxRow(seq, channel, event, user, title, body, now) {
   const to = channel === 'Email' ? user.email : user.phone;
   return {

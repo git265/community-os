@@ -37,6 +37,7 @@ class CommsTest {
         case GATE_VISIT -> Optional.of(new Facts.Fact("VIS-1", "Lakshmi", Fixtures.UNIT_A.value(), "Villa 101", null, null, null));
         case GATE_FLAG -> Optional.of(new Facts.Fact("FLG-1", "Thief", null, null, null, null, "at Main gate"));
         case GATE_RULE -> Optional.of(new Facts.Fact(null, null, id, null, null, null, "guest_arrived,delivery"));
+        case BILL_TO -> Optional.of(new Facts.Fact(null, null, null, null, null, null, "Owner"));
         case BOOKING -> Optional.of(new Facts.Fact("BKG-1", "Clubhouse", Fixtures.UNIT_A.value(), "Villa 101", null, null, "Evening"));
     };
 
@@ -76,6 +77,10 @@ class CommsTest {
         var bill = Recipes.of(new BillingEvents.DueRaised(new DueId(UUID.randomUUID()), Fixtures.COMMUNITY, Fixtures.UNIT_A, UUID.randomUUID(), UUID.randomUUID(), Money.of("3000"),
             Money.of("540"), LocalDate.of(2026, 10, 1), LocalDate.of(2026, 10, 15), NOW), FACTS).get(0);
         assertEquals("New bill · ₹3,540", bill.title()); assertEquals(Set.of(Fixtures.UNIT_A.value()), bill.to().units());
+        assertEquals(Set.of("Owner", "Co-owner"), bill.to().relations(), "the owners: the bill is addressed to them, not to everyone on the unit");
+        Facts tenantPays = (k, id) -> k == Facts.Kind.BILL_TO ? Optional.of(new Facts.Fact(null, null, null, null, null, null, "Tenant")) : FACTS.of(k, id);
+        assertEquals(Set.of("Tenant"), Recipes.of(new BillingEvents.DueRaised(new DueId(UUID.randomUUID()), Fixtures.COMMUNITY, Fixtures.UNIT_A, UUID.randomUUID(), UUID.randomUUID(), Money.of("3000"),
+            Money.of("540"), LocalDate.of(2026, 10, 1), LocalDate.of(2026, 10, 15), NOW), tenantPays).get(0).to().relations());
         assertTrue(bill.body().contains("Oct 2026") && bill.body().contains("2026-10-15"), bill.body());
         // the gate
         var gateAsk = Recipes.of(new GateEvent("gate.approval.requested", UUID.randomUUID(), Fixtures.COMMUNITY, Fixtures.UNIT_A.value(), "Guest", "Pending", NOW), FACTS).get(0);

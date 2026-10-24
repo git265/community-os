@@ -68,17 +68,17 @@ public final class Recipes {
                     To.member(f.owner()).and(To.member(f.other())))));
             case BillingEvents.DueRaised d -> out.add(new Message("bill", "bill", "New bill · " + rupees(d.amount().amount().add(d.tax() == null ? BigDecimal.ZERO : d.tax().amount())),
                 "A bill for " + (d.billedMonth() == null ? "your unit" : d.billedMonth().getMonth().getDisplayName(java.time.format.TextStyle.SHORT, Locale.ENGLISH) + " " + d.billedMonth().getYear())
-                    + " is due on " + d.dueDate() + ".", "#/billing", d.dueId().value(), To.unit(d.unitId() == null ? null : d.unitId().value())));
+                    + " is due on " + d.dueDate() + ".", "#/billing", d.dueId().value(), billed(facts, d.dueId().value(), d.unitId() == null ? null : d.unitId().value())));
             case BillingEvents.PaymentRecorded p when p.unitId() != null -> out.add(new Message("bill", "payment", "Payment received · " + p.receiptNo(),
                 rupees(p.amount().amount()) + " was received" + (p.toCredit() != null && p.toCredit().amount().signum() > 0 ? " (" + rupees(p.toCredit().amount()) + " kept as credit)" : "") + ".",
-                "#/billing", p.paymentId().value(), To.unit(p.unitId().value())));
+                "#/billing", p.paymentId().value(), billed(facts, p.unitId().value(), p.unitId().value())));
             case BillingEvents.PaymentOrderFailed f when f.unitId() != null -> out.add(new Message("bill", "payment", "Payment not completed",
                 "Your online payment did not go through" + (f.reason() == null ? "" : " (" + f.reason() + ")") + ". Nothing was taken; if money left your account, it is recorded or returned by the bank.",
                 "#/billing", f.orderId().value(), To.unit(f.unitId().value())));
             case BillingEvents.DueCancelled d when d.unitId() != null -> out.add(new Message("bill", "bill", "Bill cancelled",
-                "A bill of " + rupees(d.amount().amount().add(d.tax() == null ? BigDecimal.ZERO : d.tax().amount())) + " was cancelled" + (d.reason() == null ? "" : ": " + d.reason()) + ".", "#/billing", d.dueId().value(), To.unit(d.unitId().value())));
+                "A bill of " + rupees(d.amount().amount().add(d.tax() == null ? BigDecimal.ZERO : d.tax().amount())) + " was cancelled" + (d.reason() == null ? "" : ": " + d.reason()) + ".", "#/billing", d.dueId().value(), billed(facts, d.dueId().value(), d.unitId().value())));
             case BillingEvents.DueWaived d when d.unitId() != null -> out.add(new Message("bill", "bill", "Bill waived · " + rupees(d.waived().amount()),
-                rupees(d.waived().amount()) + " of a bill was waived" + (d.reason() == null ? "" : ": " + d.reason()) + ".", "#/billing", d.dueId().value(), To.unit(d.unitId().value())));
+                rupees(d.waived().amount()) + " of a bill was waived" + (d.reason() == null ? "" : ": " + d.reason()) + ".", "#/billing", d.dueId().value(), billed(facts, d.dueId().value(), d.unitId().value())));
             case com.communityos.api.billing.application.PaymentReconciler.IssueFound i -> out.add(new Message("money_check", "reconciliation", "Money check: " + i.kind().replace('-', ' '),
                 i.detail(), "#/billing", i.aggregateId(), To.roles("treasurer")));
             case BookingEvents b when b.topic().endsWith(".created") || b.topic().endsWith(".cancelled") ->
@@ -162,6 +162,11 @@ public final class Recipes {
                 "The gate was opened by hand" + (f.extra() == null ? "" : " · " + f.extra()) + ".", "#/security", g.aggregateId(), To.roles("committee_security")));
             default -> Optional.empty();
         };
+    }
+    /** A bill's news reaches whoever it is billed to (the owners, or the tenants): `ref` is the bill (or the unit), `unit` the unit. */
+    static To billed(Facts facts, UUID ref, UUID unit) {
+        if (unit == null) return To.nobody();
+        return To.billed(unit, facts.of(Facts.Kind.BILL_TO, ref).map(Fact::extra).orElse("Owner"));
     }
     /** Does the unit hear this switchable gate event? (No answer from the facts: yes.) */
     static boolean hears(Facts facts, UUID unit, String event) {

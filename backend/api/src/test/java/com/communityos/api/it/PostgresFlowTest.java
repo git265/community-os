@@ -1722,6 +1722,9 @@ class PostgresFlowTest {
             assertEquals("Tenant", owner.sql("SELECT bill_to FROM property.unit WHERE id = '" + u912 + "'").get(0).get("bill_to"));
             Due rent = as(treasurer, () -> dueService.raise(treasurer, new DueService.RaiseDue(v912u, "Maintenance", today.withDayOfMonth(1), "Oct", Money.of("2500"), today.plusDays(5))));
             assertEquals("Tenant", owner.sql("SELECT bill_to FROM billing.due WHERE id = '" + rent.id().value() + "'").get(0).get("bill_to"), "a new bill is addressed as its unit says");
+            assertTrue(as(leelaC, () -> inbox.mine(leela, false, 50)).stream().anyMatch((n) -> n.title().startsWith("New bill")), "the tenant hears of the tenant's bill");
+            UUID kiranM = memberOf.apply(pbase + "1", null);
+            assertTrue(as(admin, () -> inbox.mine(kiranM, false, 50)).stream().noneMatch((n) -> n.title().startsWith("New bill")), "the owner does not: it is not addressed to them");
             owner.sql("INSERT INTO gate.vehicle (community_id, plate, unit_id) VALUES ('" + cid + "', 'KA01AB" + tag.substring(0, 4) + "', '" + u912 + "') RETURNING 1");
             owner.sql("INSERT INTO gate.pass (community_id, visitor_name, unit_id, type, code) VALUES ('" + cid + "', 'Cook', '" + u912 + "', 'Recurring', '482913') RETURNING 1");
             // a tenant moves out: an owner cannot be moved out; the tenant and their family leave, with what stays open reported

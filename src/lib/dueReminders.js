@@ -3,7 +3,7 @@
 // The wording is the editable "Payment reminder" notice template (Communications -> Notice templates).
 // runDueReminders() is idempotent: it is called by the 5-minute scheduler in App and by the "Send reminders now" button.
 import { storage, COLLECTIONS } from './storage/index.js';
-import { notifyMany } from './notify.js';
+import { notifyMany, billAudience } from './notify.js';
 import { logEvent } from './audit/auditLog.js';
 import { termsFor } from './billTermsServer.js';
 import { fmtDate } from './locale.js';
@@ -59,7 +59,8 @@ export async function runDueReminders({ force = false, only = null, now = new Da
   const tpl = (await storage.list(COLLECTIONS.NOTICE_TEMPLATES)).find((t) => t.appliesTo === 'Payment reminder');
   // one batch: every reminder is written in a single go (thousands of one-by-one writes would rewrite the whole dues list each time)
   const terms = new Map(); for (const d of list) terms.set(d.id, await termsFor(d));
-  await notifyMany(list.map((d) => { const w = wording(d, society, now, tpl); return { event: 'payment_reminder', title: w.title, body: w.body + (terms.get(d.id) || ''), link: '', kind: 'payment_reminder', by: actor, toUnit: d.unit }; }));
+  const to = await billAudience();   // the person the bill is addressed to, not everyone on the unit
+  await notifyMany(list.flatMap((d) => { const w = wording(d, society, now, tpl); return to(d.unit, d.billTo).map((a) => ({ event: 'payment_reminder', title: w.title, body: w.body + (terms.get(d.id) || ''), link: '', kind: 'payment_reminder', by: actor, ...a })); }));
   await storage.putMany(COLLECTIONS.DUES, list.map((d) => ({ ...d, reminderSentAt: now.toISOString(), reminderCount: (d.reminderCount || 0) + 1 })));
   await logEvent({ who: actor, what: 'Billing & Finance', action: 'Update', summary: `Payment reminder sent for ${list.length} unpaid bill${list.length === 1 ? '' : 's'}${force ? ' (sent manually)' : ''}` });
   window.dispatchEvent(new CustomEvent('communityos:changed', { detail: { collection: COLLECTIONS.DUES } }));

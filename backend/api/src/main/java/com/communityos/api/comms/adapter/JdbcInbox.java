@@ -28,7 +28,8 @@ public final class JdbcInbox implements Inbox, Facts {
           WHERE m.status = 'Active' AND m.id IS DISTINCT FROM platform.current_actor()
             AND (m.id = ANY (CAST(:members AS uuid[]))
               OR EXISTS (SELECT 1 FROM property.occupant o WHERE o.community_id = m.community_id AND o.person_id = m.person_id AND o.portal_access
-                           AND (o.to_date IS NULL OR o.to_date > current_date) AND o.unit_id = ANY (CAST(:units AS uuid[])))
+                           AND (o.to_date IS NULL OR o.to_date > current_date) AND o.unit_id = ANY (CAST(:units AS uuid[]))
+                           AND (cardinality(CAST(:relations AS text[])) = 0 OR o.relation = ANY (CAST(:relations AS text[]))))
               OR EXISTS (SELECT 1 FROM identity.membership_role mr JOIN identity.role r ON r.community_id = mr.community_id AND r.id = mr.role_id
                           WHERE mr.community_id = m.community_id AND mr.membership_id = m.id AND (r.code = ANY (CAST(:roles AS text[])) OR r.code IN (SELECT code FROM also)
                             OR ('@ec' = ANY (CAST(:roles AS text[])) AND EXISTS (SELECT 1 FROM identity.role_group g
@@ -99,6 +100,11 @@ public final class JdbcInbox implements Inbox, Facts {
                  CASE WHEN coalesce(s.ev -> 'crew_inout' ->> 'on', 'true') <> 'false' THEN 'crew_inout' END) AS extra
         FROM s""";
 
+    /** Who a bill is addressed to (extra = Owner / Tenant): the bill's own (id = a bill), else its unit's (id = a unit). */
+    static final String BILL_TO = """
+        SELECT NULL AS number, NULL AS title, NULL AS unit_id, NULL AS unit_no, NULL AS owner, NULL AS other,
+               coalesce((SELECT d.bill_to FROM billing.due d WHERE d.id = CAST(:id AS uuid)), (SELECT u.bill_to FROM property.unit u WHERE u.id = CAST(:id AS uuid)), 'Owner') AS extra""";
+
     private final NamedParameterJdbcTemplate jdbc;
     public JdbcInbox(NamedParameterJdbcTemplate jdbc) { this.jdbc = jdbc; }
 
@@ -106,7 +112,7 @@ public final class JdbcInbox implements Inbox, Facts {
         Map<String, Object> p = new HashMap<>();
         p.put("event", m.event()); p.put("kind", m.kind()); p.put("title", m.title()); p.put("body", m.body()); p.put("link", m.link());
         p.put("ref", m.refId() == null ? null : m.refId().toString());
-        p.put("members", array(m.to().members())); p.put("units", array(m.to().units())); p.put("roles", array(m.to().roles()));
+        p.put("members", array(m.to().members())); p.put("units", array(m.to().units())); p.put("roles", array(m.to().roles())); p.put("relations", array(m.to().relations()));
         return jdbc.query(DELIVER, p, (rs, i) -> rs.getInt("sent")).stream().findFirst().orElse(0);
     }
     @Override public List<Comms.Note> mine(UUID membership, boolean unreadOnly, int limit) {
@@ -123,7 +129,7 @@ public final class JdbcInbox implements Inbox, Facts {
     }
 
     @Override public Optional<Fact> of(Kind kind, UUID id) {
-        String sql = switch (kind) { case TICKET -> TICKET; case BOOKING -> BOOKING; case GATE_APPROVAL -> GATE_APPROVAL; case GATE_VISIT -> GATE_VISIT; case GATE_FLAG -> GATE_FLAG; case GATE_RULE -> GATE_RULE; };
+        String sql = switch (kind) { case TICKET -> TICKET; case BOOKING -> BOOKING; case GATE_APPROVAL -> GATE_APPROVAL; case GATE_VISIT -> GATE_VISIT; case GATE_FLAG -> GATE_FLAG; case GATE_RULE -> GATE_RULE; case BILL_TO -> BILL_TO; };
         return jdbc.query(sql, Map.of("id", id.toString()), (rs, i) -> new Fact(rs.getString("number"), rs.getString("title"), Rows.uuid(rs, "unit_id"), rs.getString("unit_no"),
             Rows.uuid(rs, "owner"), Rows.uuid(rs, "other"), rs.getString("extra"))).stream().findFirst();
     }

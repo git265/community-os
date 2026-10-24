@@ -1,5 +1,5 @@
 import { termsFor } from '../../lib/billTermsServer.js';
-import { notify, notifyMany } from '../../lib/notify.js';
+import { notify, notifyMany, billAudience } from '../../lib/notify.js';
 import { secureStorage } from '../../lib/storage/secureStorage.js';
 import UtilityBilling from './UtilityBilling.jsx';
 import NoticeTemplateDesigner from '../communications/NoticeTemplateDesigner.jsx';
@@ -203,7 +203,7 @@ function PublishForm({ utility, month, list, template, noticeTemplates, mergeFie
       await secureStorage.updateMany(COLLECTIONS.READINGS, ready.map((r, i) => ({ id: r.id, status: 'Published', publishedAt: todayIso(), dueId: created[i].id })), { label: 'Utility Readings', summary: `${ready.length} ${utility} readings published` });
       done = created.length;
       const termsMap = new Map(); for (const due of created) termsMap.set(due.id, await termsFor(due));
-      notifyMany(created.map((due) => ({ event: 'bill', title: `${utility} bill · ${monthLabel(month)}`, body: `Your ${utility} bill for ${monthLabel(month)} is ₹${Number(due.amount).toLocaleString('en-IN')}, payable by ${dueDate}.${termsMap.get(due.id) || ''}`, link: '#/billing', toUnit: due.unit, by: getPrincipal()?.name || '' }))).catch(() => {});
+      billAudience().then((to) => notifyMany(created.flatMap((due) => to(due.unit, due.billTo).map((a) => ({ event: 'bill', title: `${utility} bill · ${monthLabel(month)}`, body: `Your ${utility} bill for ${monthLabel(month)} is ₹${Number(due.amount).toLocaleString('en-IN')}, payable by ${dueDate}.${termsMap.get(due.id) || ''}`, link: '#/billing', ...a, by: getPrincipal()?.name || '' }))))).catch(() => {});
     } catch (e) { setError(e.message || 'Could not publish the bills'); }
     setBusy(false);
     setResult({ done, skipped: noPhoto.length });
